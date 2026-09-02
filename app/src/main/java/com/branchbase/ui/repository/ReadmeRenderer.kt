@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
@@ -261,7 +262,9 @@ private fun ImageBlock(block: ReadmeBlock, onLinkClick: (Destination) -> Unit) {
         w != null && h != null -> Modifier.size(w.dp, h.dp).padding(vertical = 8.dp)
         w != null -> Modifier.width(w.dp).padding(vertical = 8.dp)
         h != null -> Modifier.height(h.dp).padding(vertical = 8.dp)
-        else -> Modifier.fillMaxWidth().padding(vertical = 8.dp)
+        // 无显式尺寸时按图片自然尺寸渲染（对齐 GitHub 的 max-width:100%），
+        // 避免把小型徽章/图标撑满整行。
+        else -> Modifier.wrapContentSize().padding(vertical = 8.dp)
     }
 
     // 无有效地址时退化为占位（保持原行为）
@@ -312,9 +315,18 @@ private fun InlineText(
         imageNodes.mapValues { (_, node) ->
             val w = node.width
             val h = node.height
-            val pw = (w ?: h ?: 20).sp
-            val ph = (h ?: w ?: 20).sp
-            InlineTextContent(Placeholder(pw, ph, PlaceholderVerticalAlign.AboveBaseline)) {
+            // 行内徽章：高度默认 20dp，宽度按 alt 估算（shields.io flat 样式）。
+            // 旧实现把占位框宽/高都写成 20sp，而徽章实际宽度约 100dp，
+            // 会溢出占位框覆盖到后续文字；此处按图片真实尺寸预留占位，避免覆盖。
+            val ph = h ?: 20
+            val pw = w ?: estimateBadgeWidth(node.value)
+            InlineTextContent(
+                Placeholder(
+                    width = pw.sp,
+                    height = ph.sp,
+                    placeholderVerticalAlign = PlaceholderVerticalAlign.AboveBaseline,
+                )
+            ) {
                 AsyncImage(
                     model = node.src,
                     contentDescription = node.value,
@@ -322,9 +334,10 @@ private fun InlineText(
                     modifier = Modifier
                         .then(
                             when {
+                                w != null && h != null -> Modifier.size(w.dp, h.dp)
                                 w != null -> Modifier.width(w.dp)
                                 h != null -> Modifier.height(h.dp)
-                                else -> Modifier.height(20.dp) // 徽标（badge）无 width/height 时默认 20dp 高
+                                else -> Modifier.height(ph.dp) // 徽标（badge）无 width/height 时默认 20dp 高
                             }
                         )
                         .clickable(enabled = node.dest != null) { node.dest?.let(onLinkClick) },
@@ -395,3 +408,7 @@ private fun appendPlain(items: List<ReadmeInline>, sb: StringBuilder) {
         appendPlain(it.children, sb)
     }
 }
+
+/** 估算行内徽章宽度（px）。shields.io flat 样式高约 20px，宽 ≈ 每字符 6px + 左右边距 24px。 */
+private fun estimateBadgeWidth(alt: String): Int =
+    (alt.length * 6 + 24).coerceIn(40, 180)

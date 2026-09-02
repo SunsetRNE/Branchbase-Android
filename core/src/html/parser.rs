@@ -498,16 +498,37 @@ fn build_blocks(events: &[Event], ctx: &ResolveContext) -> Vec<Block> {
                 let checked = cur_checked.take();
                 let out = inline.take_out();
                 if !out.is_empty() {
-                    let mut b = Block { kind, level, inline: out, ..Block::default() };
-                    if kind == "list_item" {
-                        if let Some(lc) = list_stack.last() {
-                            b.depth = Some(lc.depth);
-                            b.ordered = Some(lc.ordered);
-                            b.index = Some(lc.index);
+                    // GitHub 把单独成段的图片（`![alt](src)`）渲染为 `<p><a><img></a></p>`：
+                    // 段落内「仅含一张图片」（链接包裹单个 `<img>`、无文字）。此时若仍按
+                    // 行内徽章处理，会退化为 20sp 高的占位框，导致图片位置出现大段空白。
+                    // 这里在段落收尾时识别「仅含图片」的段落，改判为块级图片。
+                    if kind == "paragraph" {
+                        if let Some((src, alt, width, height, href, dest)) = extract_block_image(&out) {
+                            push_block(&mut blocks, &mut details_stack, Block {
+                                kind: "image",
+                                src: Some(src),
+                                alt: Some(alt),
+                                width,
+                                height,
+                                href,
+                                dest,
+                                ..Block::default()
+                            });
+                        } else {
+                            push_block(&mut blocks, &mut details_stack, Block { kind, level, inline: out, ..Block::default() });
                         }
-                        b.checked = checked;
+                    } else {
+                        let mut b = Block { kind, level, inline: out, ..Block::default() };
+                        if kind == "list_item" {
+                            if let Some(lc) = list_stack.last() {
+                                b.depth = Some(lc.depth);
+                                b.ordered = Some(lc.ordered);
+                                b.index = Some(lc.index);
+                            }
+                            b.checked = checked;
+                        }
+                        push_block(&mut blocks, &mut details_stack, b);
                     }
-                    push_block(&mut blocks, &mut details_stack, b);
                 }
             }
         };
@@ -740,6 +761,47 @@ fn build_blocks(events: &[Event], ctx: &ResolveContext) -> Vec<Block> {
     blocks
 }
 
+/// 识别「仅含图片」的段落（GitHub 的独立图片 `<p><a><img></a></p>`）。
+///
+/// 返回 `Some((src, alt, width, height, href, dest))` 表示该段落应整体作为块级图片渲染；
+/// 否则返回 `None`，按普通段落（含行内徽章）处理。
+fn extract_block_image(
+    inline: &[Inline],
+) -> Option<(String, String, Option<u32>, Option<u32>, Option<String>, Option<Destination>)> {
+    if inline.len() != 1 {
+        return None;
+    }
+    let item = &inline[0];
+    match item.kind {
+        // 直接图片（理论上 GitHub 不这样渲染独立图片，保持健壮）
+        "image" => Some((
+            item.src.clone()?,
+            item.value.clone(),
+            item.width,
+            item.height,
+            item.href.clone(),
+            item.dest.clone(),
+        )),
+        // 链接包裹单个图片：`<a href="..."><img></a>`（GitHub 独立图片 / 徽章的标准形态）
+        "link" => {
+            if item.children.len() == 1 && item.children[0].kind == "image" {
+                let img = &item.children[0];
+                Some((
+                    img.src.clone()?,
+                    img.value.clone(),
+                    img.width,
+                    img.height,
+                    item.href.clone(),
+                    item.dest.clone(),
+                ))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
 /// 追加一个块级图片（顶层独立图片，无链接包裹）。
 fn push_image_block(blocks: &mut Vec<Block>, details_stack: &mut [DetailsCtx], src: String, alt: String, width: Option<u32>, height: Option<u32>) {
     let b = Block { kind: "image", src: Some(src), alt: Some(alt), width, height, ..Block::default() };
@@ -827,19 +889,26 @@ mod tests {
     }
 
     #[test]
-    fn test_badge_image_in_link() {
+    fn test_standalone_image_in_link() {
+        // GitHub 把单独成段的图片/徽章渲染为 <p><a><img></a></p>，应改判为块级图片
         let html = "<p><a href=\"https://github.com/SunsetRNE/branchbase\"><img src=\"https://img.shields.io/x\" alt=\"badge\"></a></p>";
         let blocks = parse_html(html, &ctx());
-        // 徽章是段落内「链接包裹图片」，链接可点击、图片地址保留
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].kind, "image");
+        assert_eq!(blocks[0].src.as_deref(), Some("https://img.shields.io/x"));
+        assert_eq!(blocks[0].alt.as_deref(), Some("badge"));
+        // 链接包裹 → 保留可点击跳转目标
+        assert_eq!(blocks[0].dest.as_ref().unwrap().dest_type, "repo");
+    }
+
+    #[test]
+    fn test_inline_badge_with_text() {
+        // 徽章与文字混排时应保持段落（行内图片），不改判为块级图片
+        let html = "<p><a href=\"https://github.com/SunsetRNE/branchbase\"><img src=\"https://img.shields.io/x\" alt=\"badge\"></a> 查看详情</p>";
+        let blocks = parse_html(html, &ctx());
         assert_eq!(blocks.len(), 1);
         assert_eq!(blocks[0].kind, "paragraph");
-        let link = &blocks[0].inline[0];
-        assert_eq!(link.kind, "link");
-        assert_eq!(link.dest.as_ref().unwrap().dest_type, "repo");
-        let img = &link.children[0];
-        assert_eq!(img.kind, "image");
-        assert_eq!(img.src.as_deref(), Some("https://img.shields.io/x"));
-        assert_eq!(img.value, "badge");
+        assert_eq!(blocks[0].inline.len(), 2);
     }
 
     #[test]
