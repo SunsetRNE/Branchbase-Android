@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!--
+      Git 分支图标（git-branch），取自 Feather Icons（MIT 许可）。
+      原始 24x24 图形，缩放 2.1x 后居中于 108 安全区域。
+      白色描边，契合 Branchbase「分支」的品牌语义。
+    -->
+    <group
+        android:translateX="28.8"
+        android:translateY="28.8"
+        android:scaleX="2.1"
+        android:scaleY="2.1">
+        <!-- 主线（垂直） -->
+        <path
+            android:pathData="M6,3 L6,15"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="2"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000" />
+        <!-- 分支端点（右上） -->
+        <path
+            android:pathData="M18,6 m-3,0 a3,3 0 1,1 6,0 a3,3 0 1,1 -6,0"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="2"
+            android:fillColor="#00000000" />
+        <!-- 主分支节点（左下） -->
+        <path
+            android:pathData="M6,18 m-3,0 a3,3 0 1,1 6,0 a3,3 0 1,1 -6,0"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="2"
+            android:fillColor="#00000000" />
+        <!-- 分支曲线（连接分支端点与主节点） -->
+        <path
+            android:pathData="M18,9 a9,9 0 0 1 -9,9"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="2"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000" />
+    </group>
+</vector>

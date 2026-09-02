@@ -1,0 +1,102 @@
+name: Build Release (正式版)
+
+# 正式版：手动 workflow_dispatch 触发，CI 内交叉编译 Rust .so + 打包 Release APK，
+# body 展示近期变更，附源码包 + 校验文件，创建正式 GitHub Release（Releases）。
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
+
+      - name: Setup Android NDK
+        uses: android-actions/setup-android@v3
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('core/Cargo.lock') }}
+
+      - name: Cache Cargo build
+        uses: actions/cache@v4
+        with:
+          path: core/target
+          key: ${{ runner.os }}-cargo-target-${{ hashFiles('core/Cargo.lock') }}
+
+      - name: Read engineering version
+        id: ver
+        run: echo "ver=$(grep versionName version.properties | cut -d= -f2)" >> "$GITHUB_OUTPUT"
+
+      - name: Inject client secret
+        run: echo "branchbase.client.secret=${{ secrets.BRANCHBASE_CLIENT_SECRET }}" >> local.properties
+
+      - name: Build Rust core (.so)
+        run: |
+          cd core
+          cargo ndk -t arm64-v8a -o ../app/src/main/jniLibs build --release
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Collect changelog
+        run: |
+          {
+            echo "## 近期变更"
+            echo ""
+            git log -10 --pretty=format:"- %s"
+          } > CHANGELOG.md
+
+      - name: Generate signature file
+        run: |
+          echo "variant=release" > signature.txt
+          echo "version=${{ steps.ver.outputs.ver }}" >> signature.txt
+          echo "fingerprint=B3:72:AB:52:EE:47:A0:8E:45:26:6F:1C:11:E0:75:6D:86:E3:83:A0:74:BE:EB:A3:77:FD:3E:BA:7C:F7:99:94" >> signature.txt
+
+      - name: Generate source archive
+        run: git archive --format=tar.gz -o "source-${{ steps.ver.outputs.ver }}.tar.gz" HEAD
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.ver }}
+          name: 正式版 v${{ steps.ver.outputs.ver }}
+          body_path: CHANGELOG.md
+          files: |
+            app/build/outputs/apk/release/*.apk
+            signature.txt
+            source-${{ steps.ver.outputs.ver }}.tar.gz
+          prerelease: false
+          draft: false

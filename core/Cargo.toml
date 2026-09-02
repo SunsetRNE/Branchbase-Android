@@ -1,0 +1,38 @@
+[package]
+name = "branchbase-core"
+version = "0.1.0"
+edition = "2021"
+description = "Branchbase 业务处理核心（Rust），通过 JNI 桥接给 Android Compose 层"
+
+[lib]
+name = "branchbase_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# JNI 桥接
+jni = "0.21"
+
+# 序列化
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# HTTP 客户端（GitHub API / OAuth token 交换）
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# 异步运行时
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
+
+# 错误处理 & 工具
+thiserror = "1"
+url = "2"
+rand = "0.8"
+sha2 = "0.10"
+base64 = "0.22"
+
+# Git 工具包（libgit2 绑定）：clone / pull（HTTPS 走 vendored OpenSSL，供 Android 交叉编译）
+git2 = { version = "0.18", default-features = false, features = ["https", "vendored-libgit2", "vendored-openssl"] }
+
+[profile.release]
+lto = false
+opt-level = "s"
+strip = true

@@ -1,0 +1,58 @@
+name: Build & Test Core (Rust)
+
+# 专门编译 + 单元测试 Rust 业务核心（core/）。
+#
+# 与 build-beta / build-release 的「Android 交叉编译 .so」不同：
+# 这里用宿主机 target（ubuntu-latest）快速做编译检查（cargo check）与
+# 单元测试（cargo test），尽早暴露 core 组件的编译错误 / 逻辑回归，
+# 无需等待 Android NDK 交叉编译 + 打包 APK。
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'core/**'
+  pull_request:
+    paths:
+      - 'core/**'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('core/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache Cargo build
+        uses: actions/cache@v4
+        with:
+          path: core/target
+          key: ${{ runner.os }}-cargo-target-${{ hashFiles('core/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-target-
+
+      # git2 的 vendored libgit2 需要 cmake；vendored openssl 需要 cc/make（ubuntu 自带）。
+      - name: Install build deps
+        run: sudo apt-get update && sudo apt-get install -y cmake
+
+      - name: Cargo check（编译检查）
+        run: cd core && cargo check --all-targets
+
+      - name: Cargo test（单元测试）
+        run: cd core && cargo test
+
+      - name: Cargo clippy（静态检查，不阻塞）
+        run: cd core && cargo clippy --all-targets -- -D warnings
+        continue-on-error: true

@@ -1,0 +1,47 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Operit 平台内部目录（不入库）
+/.backup/
+/.operit/
+
+# 逆向资源（含 APK、解包、apktool 产物、分析成果，均不入库）
+/re-workspace/
+
+# Rust 构建产物
+/core/target/
+/app/build/
+# .so 原生库产物（CI 交叉编译后提交到 beta 分支，main 不保留）
+/app/src/main/jniLibs/
+
+# Kotlin 构建缓存
+/.kotlin/
+
+# 官方 aapt2 二进制（由 setup_android_env.sh 在构建时下载/替换，不入库）
+/tools/aapt2/
+
+# 原型设计草图（HTML 草图，不入库）
+/design/
+/docs/
+
+# 校验文件（CI 在 beta 分支生成，main 不保留）
+/verify/signature.txt
+
+# 签名密钥：release 私钥不入库（通过 CI Secrets base64 注入）
+# 但 debug.keystore 是固定 debug 签名（密码公开），入库以保证本地与 CI 的 Beta 签名一致、可覆盖安装
+*.keystore
+!app/debug.keystore
+*.jks
