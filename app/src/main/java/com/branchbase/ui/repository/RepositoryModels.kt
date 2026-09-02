@@ -185,8 +185,11 @@ data class ForkItem(
 /** 解析 GET /repos/{o}/{r}/issues?state=… 数组 */
 fun parseIssues(json: String): List<IssueItem> = runCatching {
     val arr = JSONArray(json)
-    (0 until arr.length()).map { i ->
+    (0 until arr.length()).mapNotNull { i ->
         val o = arr.getJSONObject(i)
+        // GitHub 的 /issues 端点会同时返回 PR（PR 底层也是 issue），
+        // 过滤掉含 pull_request 字段的条目，避免 issue 页串台显示 PR 内容。
+        if (o.optJSONObject("pull_request") != null) return@mapNotNull null
         IssueItem(
             number = o.optLong("number"),
             title = o.optString("title"),
