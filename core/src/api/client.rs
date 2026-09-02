@@ -15,7 +15,11 @@ impl ApiClient {
         Self {
             host: host.into(),
             token: token.into(),
-            http: reqwest::Client::new(),
+            // 超时兜底：避免请求永久挂起（README/列表加载卡死根因）
+            http: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(15))
+                .build()
+                .expect("构建 reqwest 客户端失败"),
         }
     }
 

@@ -71,6 +71,26 @@ private fun ListEmpty(text: String) {
     }
 }
 
+/** 失败态 + 重试按钮（对应原型「失败」态，与「空态」区分） */
+@Composable
+internal fun ListError(message: String, onRetry: () -> Unit) {
+    Column(
+        Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text("加载失败", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+        Spacer(Modifier.height(4.dp))
+        Text(message, fontSize = 12.sp, color = Primer.TextTertiary)
+        Spacer(Modifier.height(12.dp))
+        Box(
+            Modifier.clip(CircleShape).background(Primer.Blue500).clickable { onRetry() }.padding(horizontal = 20.dp, vertical = 8.dp),
+        ) {
+            Text("重试", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+        }
+    }
+}
+
 internal fun shortTime(iso: String): String = runCatching {
     val f = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
         timeZone = java.util.TimeZone.getTimeZone("UTC")
@@ -111,18 +131,25 @@ internal suspend fun markdownToBlocks(
 // ── 代码（文件树，两级导航） ──
 
 @Composable
-fun RepositoryCodeContent(sessionJson: String, owner: String, repo: String, onOpenFile: (String) -> Unit) {
+fun RepositoryCodeContent(sessionJson: String, owner: String, repo: String, branch: String? = null, refreshTick: Int = 0, onOpenFile: (String) -> Unit) {
     val (host, token, _) = sessionInfo(sessionJson)
     var path by remember { mutableStateOf("") }
     var items by remember { mutableStateOf<List<FileTreeItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var retryTick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(owner, repo, path) {
+    LaunchedEffect(owner, repo, path, branch, refreshTick, retryTick) {
         loading = true
+        error = null
         val encoded = if (path.isEmpty()) "" else "/${encodePath(path)}"
-        RustBridge.getJson(host, token, "/repos/$owner/$repo/contents$encoded")
-            ?.takeIf { !it.startsWith("ERROR:") }
-            ?.let { items = parseFileTree(it) }
+        val ref = branch?.takeIf { it.isNotBlank() }?.let { b -> "?ref=${encodeRef(b)}" } ?: ""
+        val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/contents$encoded$ref")
+        if (json == null || json.startsWith("ERROR:")) {
+            error = json?.removePrefix("ERROR:") ?: "加载失败"
+        } else {
+            items = parseFileTree(json)
+        }
         loading = false
     }
 
@@ -130,6 +157,7 @@ fun RepositoryCodeContent(sessionJson: String, owner: String, repo: String, onOp
         BreadcrumbBar(owner, repo, path) { newPath -> path = newPath }
         when {
             loading -> ListLoading()
+            error != null -> ListError(error!!) { retryTick++ }
             items.isEmpty() -> ListEmpty("空目录")
             else -> LazyColumn(Modifier.fillMaxSize()) {
                 items(items) { f ->
@@ -202,21 +230,28 @@ private fun formatBytes(n: Long): String = when {
 // ── Issue 列表 ──
 
 @Composable
-fun IssueListContent(sessionJson: String, owner: String, repo: String, onItemClick: (IssueItem) -> Unit) {
+fun IssueListContent(sessionJson: String, owner: String, repo: String, refreshTick: Int = 0, onItemClick: (IssueItem) -> Unit) {
     val (host, token, _) = sessionInfo(sessionJson)
     var items by remember { mutableStateOf<List<IssueItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var retryTick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(owner, repo) {
+    LaunchedEffect(owner, repo, refreshTick, retryTick) {
         loading = true
-        RustBridge.getJson(host, token, "/repos/$owner/$repo/issues?state=all")
-            ?.takeIf { !it.startsWith("ERROR:") }
-            ?.let { items = parseIssues(it) }
+        error = null
+        val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/issues?state=all")
+        if (json == null || json.startsWith("ERROR:")) {
+            error = json?.removePrefix("ERROR:") ?: "加载失败"
+        } else {
+            items = parseIssues(json)
+        }
         loading = false
     }
 
     when {
         loading -> ListLoading()
+        error != null -> ListError(error!!) { retryTick++ }
         items.isEmpty() -> ListEmpty("暂无 Issue")
         else -> LazyColumn(Modifier.fillMaxSize()) {
             items(items) { IssueRow(it) { onItemClick(it) } }
@@ -243,21 +278,29 @@ private fun IssueRow(item: IssueItem, onClick: () -> Unit) {
 // ── PR 列表 ──
 
 @Composable
-fun PullListContent(sessionJson: String, owner: String, repo: String, onItemClick: (PullItem) -> Unit) {
+fun PullListContent(sessionJson: String, owner: String, repo: String, branch: String? = null, refreshTick: Int = 0, onItemClick: (PullItem) -> Unit) {
     val (host, token, _) = sessionInfo(sessionJson)
     var items by remember { mutableStateOf<List<PullItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var retryTick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(owner, repo) {
+    LaunchedEffect(owner, repo, branch, refreshTick, retryTick) {
         loading = true
-        RustBridge.getJson(host, token, "/repos/$owner/$repo/pulls?state=all")
-            ?.takeIf { !it.startsWith("ERROR:") }
-            ?.let { items = parsePulls(it) }
+        error = null
+        val base = branch?.takeIf { it.isNotBlank() }?.let { b -> "?base=${encodeRef(b)}" } ?: ""
+        val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/pulls?state=all$base")
+        if (json == null || json.startsWith("ERROR:")) {
+            error = json?.removePrefix("ERROR:") ?: "加载失败"
+        } else {
+            items = parsePulls(json)
+        }
         loading = false
     }
 
     when {
         loading -> ListLoading()
+        error != null -> ListError(error!!) { retryTick++ }
         items.isEmpty() -> ListEmpty("暂无拉取请求")
         else -> LazyColumn(Modifier.fillMaxSize()) {
             items(items) { PullRow(it) { onItemClick(it) } }
@@ -284,21 +327,29 @@ private fun PullRow(item: PullItem, onClick: () -> Unit) {
 // ── 提交列表 ──
 
 @Composable
-fun CommitListContent(sessionJson: String, owner: String, repo: String, onItemClick: (CommitItem) -> Unit) {
+fun CommitListContent(sessionJson: String, owner: String, repo: String, branch: String? = null, refreshTick: Int = 0, onItemClick: (CommitItem) -> Unit) {
     val (host, token, _) = sessionInfo(sessionJson)
     var items by remember { mutableStateOf<List<CommitItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var retryTick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(owner, repo) {
+    LaunchedEffect(owner, repo, branch, refreshTick, retryTick) {
         loading = true
-        RustBridge.getJson(host, token, "/repos/$owner/$repo/commits")
-            ?.takeIf { !it.startsWith("ERROR:") }
-            ?.let { items = parseCommits(it) }
+        error = null
+        val sha = branch?.takeIf { it.isNotBlank() }?.let { b -> "?sha=${encodeRef(b)}" } ?: ""
+        val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/commits$sha")
+        if (json == null || json.startsWith("ERROR:")) {
+            error = json?.removePrefix("ERROR:") ?: "加载失败"
+        } else {
+            items = parseCommits(json)
+        }
         loading = false
     }
 
     when {
         loading -> ListLoading()
+        error != null -> ListError(error!!) { retryTick++ }
         items.isEmpty() -> ListEmpty("暂无提交")
         else -> LazyColumn(Modifier.fillMaxSize()) {
             items(items) { CommitRow(it) { onItemClick(it) } }
@@ -324,21 +375,28 @@ private fun CommitRow(item: CommitItem, onClick: () -> Unit) {
 // ── 工作流列表 ──
 
 @Composable
-fun WorkflowListContent(sessionJson: String, owner: String, repo: String, onItemClick: (WorkflowItem) -> Unit) {
+fun WorkflowListContent(sessionJson: String, owner: String, repo: String, branch: String? = null, refreshTick: Int = 0, onItemClick: (WorkflowItem) -> Unit) {
     val (host, token, _) = sessionInfo(sessionJson)
     var items by remember { mutableStateOf<List<WorkflowItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var retryTick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(owner, repo) {
+    LaunchedEffect(owner, repo, branch, refreshTick, retryTick) {
         loading = true
-        RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/workflows")
-            ?.takeIf { !it.startsWith("ERROR:") }
-            ?.let { items = parseWorkflows(it) }
+        error = null
+        val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/workflows")
+        if (json == null || json.startsWith("ERROR:")) {
+            error = json?.removePrefix("ERROR:") ?: "加载失败"
+        } else {
+            items = parseWorkflows(json)
+        }
         loading = false
     }
 
     when {
         loading -> ListLoading()
+        error != null -> ListError(error!!) { retryTick++ }
         items.isEmpty() -> ListEmpty("暂无工作流")
         else -> LazyColumn(Modifier.fillMaxSize()) {
             items(items) { WorkflowRow(it) { onItemClick(it) } }
@@ -357,21 +415,28 @@ private fun WorkflowRow(item: WorkflowItem, onClick: () -> Unit) {
 // ── 发布列表 ──
 
 @Composable
-fun ReleaseListContent(sessionJson: String, owner: String, repo: String) {
+fun ReleaseListContent(sessionJson: String, owner: String, repo: String, refreshTick: Int = 0) {
     val (host, token, _) = sessionInfo(sessionJson)
     var items by remember { mutableStateOf<List<ReleaseItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var retryTick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(owner, repo) {
+    LaunchedEffect(owner, repo, refreshTick, retryTick) {
         loading = true
-        RustBridge.getJson(host, token, "/repos/$owner/$repo/releases")
-            ?.takeIf { !it.startsWith("ERROR:") }
-            ?.let { items = parseReleases(it) }
+        error = null
+        val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/releases")
+        if (json == null || json.startsWith("ERROR:")) {
+            error = json?.removePrefix("ERROR:") ?: "加载失败"
+        } else {
+            items = parseReleases(json)
+        }
         loading = false
     }
 
     when {
         loading -> ListLoading()
+        error != null -> ListError(error!!) { retryTick++ }
         items.isEmpty() -> ListEmpty("暂无发布")
         else -> LazyColumn(Modifier.fillMaxSize()) {
             items(items) { ReleaseRow(it) }

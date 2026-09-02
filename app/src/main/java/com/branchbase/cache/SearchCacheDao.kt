@@ -30,4 +30,8 @@ interface SearchCacheDao {
     /** 删除最旧的 n 条（LRU 淘汰，按创建时间升序） */
     @Query("DELETE FROM search_cache WHERE key IN (SELECT key FROM search_cache ORDER BY createdAt ASC LIMIT :n)")
     suspend fun deleteOldest(n: Int)
+
+    /** 删除指定 key 的缓存（bypass：强制刷新时清除） */
+    @Query("DELETE FROM search_cache WHERE key = :key")
+    suspend fun delete(key: String)
 }

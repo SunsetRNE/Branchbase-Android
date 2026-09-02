@@ -61,24 +61,34 @@ fun WorkflowRunsContent(
     repo: String,
     workflowId: Long,
     workflowName: String,
+    branch: String? = null,
     onBack: () -> Unit,
     onOpenRun: (Long) -> Unit,
 ) {
     val (host, token, _) = sessionInfo(sessionJson)
     var runs by remember { mutableStateOf<List<WorkflowRun>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var retryTick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(owner, repo, workflowId) {
+    LaunchedEffect(owner, repo, workflowId, branch, retryTick) {
         loading = true
-        RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/workflows/$workflowId/runs")
-            ?.takeIf { !it.startsWith("ERROR:") }
-            ?.let { runs = parseWorkflowRuns(it) }
+        error = null
+        // 分支筛选：runs 接口 ?branch={branch}（空串=全部/默认分支）
+        val br = branch?.takeIf { it.isNotBlank() }?.let { b -> "?branch=${encodeRef(b)}" } ?: ""
+        val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/workflows/$workflowId/runs$br")
+        if (json == null || json.startsWith("ERROR:")) {
+            error = json?.removePrefix("ERROR:") ?: "加载失败"
+        } else {
+            runs = parseWorkflowRuns(json)
+        }
         loading = false
     }
 
     FullScreen(title = workflowName, onBack = onBack) {
         when {
             loading -> CenterLoading()
+            error != null -> ListError(error!!) { retryTick++ }
             runs.isEmpty() -> CenterText("暂无运行记录")
             else -> LazyColumn(Modifier.fillMaxSize()) {
                 items(runs) { run -> WorkflowRunRow(run) { onOpenRun(run.id) } }

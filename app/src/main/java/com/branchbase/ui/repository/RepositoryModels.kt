@@ -76,6 +76,12 @@ data class Contributor(
     val commits: Long,
 )
 
+// ── 分支（GET /repos/{o}/{r}/branches） ──
+data class BranchItem(
+    val name: String,
+    val protected: Boolean = false,
+)
+
 // ── 解析函数 ──
 
 fun parseRepoInfo(json: String): RepoInfo? = runCatching {
@@ -195,6 +201,18 @@ fun parseContributors(json: String): List<Contributor> = runCatching {
             login = o.optString("login"),
             avatarUrl = o.optString("avatar_url").takeIf { it.isNotBlank() },
             commits = o.optLong("contributions"),
+        )
+    }
+}.getOrDefault(emptyList())
+
+/** 解析 GET /repos/{o}/{r}/branches 的 JSON 数组 */
+fun parseBranches(json: String): List<BranchItem> = runCatching {
+    val arr = JSONArray(json)
+    (0 until arr.length()).map { i ->
+        val o = arr.getJSONObject(i)
+        BranchItem(
+            name = o.optString("name"),
+            protected = o.optBoolean("protected"),
         )
     }
 }.getOrDefault(emptyList())
@@ -382,6 +400,10 @@ fun joinPath(parent: String, name: String): String = if (parent.isEmpty()) name 
 fun encodePath(path: String): String = path.split("/").joinToString("/") {
     java.net.URLEncoder.encode(it, "UTF-8")
 }
+
+/** URL 编码 ref/branch 参数（`/` → `%2F`，空格 → `%20`），供 `?ref=`/`?sha=`/`?base=`/`?branch=` 使用 */
+fun encodeRef(ref: String): String =
+    java.net.URLEncoder.encode(ref, "UTF-8").replace("+", "%20")
 
 // ── 详情模型（Issue/PR/评论/文件变更） ──
 

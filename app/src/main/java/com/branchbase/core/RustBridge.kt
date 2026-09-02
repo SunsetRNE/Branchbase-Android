@@ -92,7 +92,9 @@ object RustBridge {
         currentUser: String
     ): String
 
-    private external fun nativeReadmeHtml(host: String, token: String, owner: String, repo: String): String
+    private external fun nativeReadmeHtml(host: String, token: String, owner: String, repo: String, branch: String): String
+
+    private external fun nativeListBranches(host: String, token: String, owner: String, repo: String): String
 
     private external fun nativeGetRepoInfo(host: String, token: String, owner: String, repo: String): String
 
@@ -271,10 +273,17 @@ object RustBridge {
 
     /**
      * 获取仓库 README 渲染 HTML（返回 HTML 字符串；无 README 时返回 "ERROR:..." 前缀）。
+     * @param branch 目标分支（空串 = 默认分支）
      */
-    suspend fun readmeHtml(host: String, token: String, owner: String, repo: String): String? =
+    suspend fun readmeHtml(host: String, token: String, owner: String, repo: String, branch: String = ""): String? =
         withContext(Dispatchers.IO) {
-            nativeReadmeHtml(host, token, owner, repo).ifBlank { null }
+            nativeReadmeHtml(host, token, owner, repo, branch).ifBlank { null }
+        }
+
+    /** 获取仓库分支列表（返回 Branch 数组 JSON）。 */
+    suspend fun listBranches(host: String, token: String, owner: String, repo: String): String? =
+        withContext(Dispatchers.IO) {
+            nativeListBranches(host, token, owner, repo).ifBlank { null }
         }
 
     /** 获取单个仓库信息（返回原始 JSON）。 */

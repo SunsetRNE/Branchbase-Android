@@ -22,7 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CallSplit
+import androidx.compose.material.icons.automirrored.filled.CallSplit
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.CircularProgressIndicator
@@ -38,10 +38,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.branchbase.cache.SearchCacheDatabase
+import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.theme.LanguageColors
 import com.branchbase.ui.theme.Primer
@@ -59,6 +62,8 @@ fun RepositoryOverviewContent(
     sessionJson: String,
     owner: String,
     repo: String,
+    branch: String? = null,
+    refreshTick: Int = 0,
     onLinkClick: (Destination) -> Unit,
     onActionClick: (String) -> Unit,
 ) {
@@ -66,6 +71,7 @@ fun RepositoryOverviewContent(
     val host = session?.optString("host", "github.com") ?: "github.com"
     val token = session?.optJSONObject("token")?.optString("access_token").orEmpty()
     val login = session?.optJSONObject("user")?.optString("login").orEmpty()
+    val context = LocalContext.current
 
     var repoInfo by remember { mutableStateOf<RepoInfo?>(null) }
     var readmeBlocks by remember { mutableStateOf<List<ReadmeBlock>>(emptyList()) }
@@ -74,7 +80,7 @@ fun RepositoryOverviewContent(
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(owner, repo) {
+    LaunchedEffect(owner, repo, branch, refreshTick) {
         loading = true
         error = null
 
@@ -83,12 +89,21 @@ fun RepositoryOverviewContent(
             ?.takeIf { !it.startsWith("ERROR:") }
             ?.let { parseRepoInfo(it) }
         if (info != null) repoInfo = info
-        val branch = info?.defaultBranch ?: "main"
+        // 实际分支：用户选择 ?: 仓库默认分支 ?: main
+        val effectiveBranch = branch ?: info?.defaultBranch ?: "main"
 
-        // 2. README（html → parseHtml → blocks）
-        val html = RustBridge.readmeHtml(host, token, owner, repo)
+        // 2. README（html → parseHtml → blocks）；branch 透传给 readme 接口；HTML 走 Room 缓存（type=README，key=owner/repo@branch）
+        val cacheManager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+        val readmeKey = "$owner/$repo@${branch ?: ""}"
+        var html = cacheManager.get(readmeKey, "README")
+        if (html == null) {
+            html = RustBridge.readmeHtml(host, token, owner, repo, branch ?: "")
+            if (html != null && !html.startsWith("ERROR:")) {
+                cacheManager.put(readmeKey, "README", html)
+            }
+        }
         if (html != null && !html.startsWith("ERROR:")) {
-            val parsed = RustBridge.parseHtml(html, host, owner, repo, branch, "", login)
+            val parsed = RustBridge.parseHtml(html, host, owner, repo, effectiveBranch, "", login)
             if (parsed != null && !parsed.startsWith("ERROR:")) {
                 readmeBlocks = parseReadmeBlocks(parsed)
             }
@@ -176,7 +191,7 @@ private fun ActionRow(info: RepoInfo?, onActionClick: (String) -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         ActionButton(Icons.Filled.Star, "Star", info?.stars) { onActionClick("star") }
-        ActionButton(Icons.Filled.CallSplit, "Fork", info?.forks) { onActionClick("fork") }
+        ActionButton(Icons.AutoMirrored.Filled.CallSplit, "Fork", info?.forks) { onActionClick("fork") }
         ActionButton(Icons.Filled.Visibility, "Watch", info?.watchers) { onActionClick("watch") }
     }
 }

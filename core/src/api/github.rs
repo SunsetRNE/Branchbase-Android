@@ -2,7 +2,7 @@
 
 use crate::api::ApiClient;
 use crate::error::Result;
-use crate::models::{Package, Project, Repository, User};
+use crate::models::{Branch, Package, Project, Repository, User};
 
 /// GitHub API 门面
 pub struct GitHubApi {
@@ -127,9 +127,16 @@ impl GitHubApi {
     /// 用 `Accept: application/vnd.github.html+json` 拿 markdown 渲染结果，
     /// 响应 JSON 的 `content` 字段为 base64 编码的 HTML，这里解码后直接返回 HTML 字符串。
     /// 无 README 时返回 `Err`（HTTP 404）。
-    pub async fn readme_html(&self, owner: &str, repo: &str) -> Result<String> {
+    pub async fn readme_html(&self, owner: &str, repo: &str, branch: &str) -> Result<String> {
         use base64::Engine;
-        let path = format!("/repos/{owner}/{repo}/readme");
+        // 分支透传：指定 ref（默认分支或用户选择的分支）；空串则用仓库默认分支
+        let path = if branch.is_empty() {
+            format!("/repos/{owner}/{repo}/readme")
+        } else {
+            // 分支名可能含 `/`（如 feature/html-parser），需 URL 编码
+            let encoded: String = url::form_urlencoded::byte_serialize(branch.as_bytes()).collect();
+            format!("/repos/{owner}/{repo}/readme?ref={encoded}")
+        };
         let json = self
             .client
             .get_json_with_accept(&path, "application/vnd.github.html+json")
@@ -144,6 +151,14 @@ impl GitHubApi {
             .map_err(|e| crate::error::CoreError::Other(format!("README base64 解码失败: {e}")))?;
         String::from_utf8(decoded)
             .map_err(|e| crate::error::CoreError::Other(format!("README 非 UTF-8: {e}")))
+    }
+
+    /// 获取仓库分支列表（`GET /repos/{owner}/{repo}/branches`，返回分支名 + 是否保护）
+    pub async fn list_branches(&self, owner: &str, repo: &str) -> Result<Vec<Branch>> {
+        let path = format!("/repos/{owner}/{repo}/branches");
+        let json = self.client.get_json(&path).await?;
+        let branches: Vec<Branch> = serde_json::from_str(&json)?;
+        Ok(branches)
     }
 
     /// 获取单个仓库信息（`GET /repos/{owner}/{repo}`，返回原始 JSON）

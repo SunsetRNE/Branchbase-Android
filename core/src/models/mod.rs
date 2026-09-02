@@ -32,6 +32,14 @@ pub struct Repository {
     pub forks_count: i64,
 }
 
+/// 分支信息（对应 `GET /repos/{owner}/{repo}/branches` 元素）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Branch {
+    pub name: String,
+    #[serde(default)]
+    pub protected: bool,
+}
+
 /// 软件包信息（对应 `GET /user/packages` 元素）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Package {

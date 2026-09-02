@@ -23,6 +23,8 @@ class SearchCacheManager(private val dao: SearchCacheDao) {
         fun ttlFor(type: String): Long = when (type) {
             "代码" -> 60 * 60 * 1000L          // 1 小时（代码搜索速率限制最严，缓存更久）
             "仓库" -> 30 * 60 * 1000L          // 30 分钟
+            "分支" -> 30 * 60 * 1000L          // 30 分钟（分支列表变化不频繁）
+            "README" -> 30 * 60 * 1000L        // 30 分钟（README 渲染 HTML 缓存）
             "用户", "Issues", "拉取请求" -> 15 * 60 * 1000L // 15 分钟
             "提交" -> 10 * 60 * 1000L          // 10 分钟（提交搜索也有速率限制）
             "主题" -> 60 * 60 * 1000L          // 1 小时（主题变化慢）
@@ -53,5 +55,10 @@ class SearchCacheManager(private val dao: SearchCacheDao) {
         if (count > MAX_ENTRIES) {
             dao.deleteOldest(count - MAX_ENTRIES)
         }
+    }
+
+    /** 删除指定 key 的缓存（bypass：强制刷新时清除） */
+    suspend fun delete(key: String) {
+        dao.delete(key)
     }
 }

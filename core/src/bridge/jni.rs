@@ -500,9 +500,35 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeParseHtml<'loca
 }
 
 /// 获取仓库 README 渲染 HTML（返回 HTML 字符串）
-/// 参数：host, accessToken, owner, repo
+/// 参数：host, accessToken, owner, repo, branch（空串=默认分支）
 #[no_mangle]
 pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeReadmeHtml<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    owner: JString<'local>,
+    repo: JString<'local>,
+    branch: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let owner = jstr(&mut env, &owner);
+    let repo = jstr(&mut env, &repo);
+    let branch = jstr(&mut env, &branch);
+
+    let result: crate::error::Result<String> = block_on(async move {
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client).readme_html(&owner, &repo, &branch).await
+    });
+
+    into_jstring(&mut env, result)
+}
+
+/// 获取仓库分支列表（返回 Branch 数组 JSON）
+/// 参数：host, accessToken, owner, repo
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeListBranches<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     host: JString<'local>,
@@ -517,7 +543,8 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeReadmeHtml<'loc
 
     let result: crate::error::Result<String> = block_on(async move {
         let client = crate::api::ApiClient::new(&host, &token);
-        crate::api::GitHubApi::new(client).readme_html(&owner, &repo).await
+        let branches = crate::api::GitHubApi::new(client).list_branches(&owner, &repo).await?;
+        serde_json::to_string(&branches).map_err(CoreError::from)
     });
 
     into_jstring(&mut env, result)
