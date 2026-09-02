@@ -81,7 +81,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -B beta
-          git add verify/signature.txt app/src/main/jniLibs/arm64-v8a/libbranchbase_core.so
+          git add -f verify/signature.txt app/src/main/jniLibs/arm64-v8a/libbranchbase_core.so
           git commit -m "chore: 更新测试版校验配置与 .so v${{ steps.ver.outputs.ver }}" || echo "无变更"
           git push origin beta --force || true
 
