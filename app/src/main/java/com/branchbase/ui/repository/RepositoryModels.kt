@@ -152,7 +152,7 @@ private fun parseBlock(o: JSONObject): ReadmeBlock {
     )
 }
 
-private fun parseDestination(d: JSONObject): Destination =
+internal fun parseDestination(d: JSONObject): Destination =
     Destination(
         type = d.optString("type"),
         owner = d.optString("owner").takeIf { it.isNotBlank() },

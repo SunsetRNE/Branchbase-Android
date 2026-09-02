@@ -228,9 +228,36 @@ fn classify_github(host: &str, path: &str, frag: Option<&str>, ctx: &ResolveCont
             is_external: false,
             ..Default::default()
         },
-        // 其余子页（issues/pulls/commits/releases/wiki/discussions/…）折叠为 repo 级
-        [owner, repo, ..] => repo_dest(host, path, frag, owner, repo, Some(segs[2..].join("/")), ctx),
+        // 其余：单段「列表级子页」折叠为 repo；多段/裸路径（README 相对链接展开后）判为 tree
+        [owner, repo, rest @ ..] => {
+            if rest.len() == 1 && is_repo_subpage(rest[0]) {
+                repo_dest(host, path, frag, owner, repo, Some(rest[0].to_string()), ctx)
+            } else {
+                // 裸文件/目录路径 → tree（由 Compose 层决定打开目录/文件）
+                Destination {
+                    dest_type: "tree",
+                    owner: Some(owner.to_string()),
+                    repo: Some(repo.to_string()),
+                    branch: Some(ctx.branch.clone()),
+                    path: Some(rest.join("/")),
+                    url: build_url(host, path, frag),
+                    is_own: owner.eq_ignore_ascii_case(&ctx.current_user),
+                    is_external: false,
+                    ..Default::default()
+                }
+            }
+        }
     }
+}
+
+/// 仓库「列表级子页」名（这些折叠为 repo 级，不做文件/目录导航）。
+fn is_repo_subpage(seg: &str) -> bool {
+    matches!(
+        seg,
+        "issues" | "pulls" | "commits" | "releases" | "wiki" | "discussions"
+            | "actions" | "projects" | "security" | "insights" | "settings"
+            | "stargazers" | "watchers" | "forks" | "branches" | "tags"
+    )
 }
 
 fn repo_dest(
@@ -482,6 +509,21 @@ mod tests {
         let d = resolve_link("https://github.com/torvalds", &ctx());
         assert_eq!(d.dest_type, "user");
         assert_eq!(d.login.as_deref(), Some("torvalds"));
+    }
+
+    #[test]
+    fn test_bare_path_is_tree() {
+        // README 相对链接经 baseURL 展开后的裸路径（/o/r/path/to/dir）→ tree
+        let d = resolve_link("https://github.com/vitejs/vite/packages/vite", &ctx());
+        assert_eq!(d.dest_type, "tree");
+        assert_eq!(d.path.as_deref(), Some("packages/vite"));
+    }
+
+    #[test]
+    fn test_repo_subpage_still_repo() {
+        // 列表级子页（单段）仍折叠为 repo
+        let d = resolve_link("https://github.com/other/repo/releases", &ctx());
+        assert_eq!(d.dest_type, "repo");
     }
 
     #[test]

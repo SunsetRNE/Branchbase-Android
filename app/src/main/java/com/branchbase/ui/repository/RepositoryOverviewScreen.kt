@@ -74,7 +74,8 @@ fun RepositoryOverviewContent(
     val context = LocalContext.current
 
     var repoInfo by remember { mutableStateOf<RepoInfo?>(null) }
-    var readmeBlocks by remember { mutableStateOf<List<ReadmeBlock>>(emptyList()) }
+    var readmeHtml by remember { mutableStateOf<String?>(null) }
+    var effectiveBranch by remember { mutableStateOf("main") }
     var languages by remember { mutableStateOf<List<LanguageStat>>(emptyList()) }
     var contributors by remember { mutableStateOf<List<Contributor>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -90,9 +91,9 @@ fun RepositoryOverviewContent(
             ?.let { parseRepoInfo(it) }
         if (info != null) repoInfo = info
         // 实际分支：用户选择 ?: 仓库默认分支 ?: main
-        val effectiveBranch = branch ?: info?.defaultBranch ?: "main"
+        effectiveBranch = branch ?: info?.defaultBranch ?: "main"
 
-        // 2. README（html → parseHtml → blocks）；branch 透传给 readme 接口；HTML 走 Room 缓存（type=README，key=owner/repo@branch）
+        // 2. README（html 字符串直接交 WebView 渲染）；branch 透传给 readme 接口；HTML 走 Room 缓存（type=README，key=owner/repo@branch）
         val cacheManager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
         val readmeKey = "$owner/$repo@${branch ?: ""}"
         var html = cacheManager.get(readmeKey, "README")
@@ -102,12 +103,7 @@ fun RepositoryOverviewContent(
                 cacheManager.put(readmeKey, "README", html)
             }
         }
-        if (html != null && !html.startsWith("ERROR:")) {
-            val parsed = RustBridge.parseHtml(html, host, owner, repo, effectiveBranch, "", login)
-            if (parsed != null && !parsed.startsWith("ERROR:")) {
-                readmeBlocks = parseReadmeBlocks(parsed)
-            }
-        }
+        readmeHtml = html?.takeIf { !it.startsWith("ERROR:") }
 
         // 3. 语言
         RustBridge.getRepoLanguages(host, token, owner, repo)
@@ -138,10 +134,21 @@ fun RepositoryOverviewContent(
                 item { ActionRow(repoInfo, onActionClick) }
 
                 item { SectionTitle("自述文件 README") }
-                if (readmeBlocks.isEmpty()) {
+                if (readmeHtml == null) {
                     item { EmptyHint("暂无自述文件") }
                 } else {
-                    item { ReadmeContent(readmeBlocks, onLinkClick = onLinkClick) }
+                    item {
+                        ReadmeWebView(
+                            html = readmeHtml!!,
+                            host = host,
+                            owner = owner,
+                            repo = repo,
+                            branch = effectiveBranch,
+                            login = login,
+                            token = token,
+                            onLinkClick = onLinkClick,
+                        )
+                    }
                 }
 
                 item { SectionTitle("许可证 License") }
