@@ -30,6 +30,11 @@ pub struct Inline {
     /// 图片节点（kind=image）的地址；其余节点为 None
     #[serde(skip_serializing_if = "Option::is_none")]
     pub src: Option<String>,
+    /// 图片节点（kind=image）的宽度/高度（px，来自 img 属性）；其余节点为 None
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
     /// 容器节点的嵌套子节点（叶子为空）
     #[serde(default, skip_serializing_if = "Vec::is_empty", rename = "c")]
     pub children: Vec<Inline>,
@@ -57,6 +62,11 @@ pub struct Block {
     pub src: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alt: Option<String>,
+    /// 块级图片（kind=image）的宽度/高度（px，来自 img 属性）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
     /// 图片被链接包裹时的跳转目标（徽章 `<a><img></a>` 可点击）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub href: Option<String>,
@@ -340,6 +350,8 @@ impl InlineCtx {
             href: None,
             dest: None,
             src: None,
+            width: None,
+            height: None,
             children: Vec::new(),
         };
         if let Some(top) = self.stack.last_mut() {
@@ -365,7 +377,7 @@ impl InlineCtx {
 
     /// 追加一个行内图片节点。若图片被 `<a>` 包裹（徽章），则捕获其链接作为可点击目标
     /// （图片作为链接的子节点，保留链接内的其它文字内容）。
-    fn push_image(&mut self, src: String, alt: String, ctx: &ResolveContext) {
+    fn push_image(&mut self, src: String, alt: String, width: Option<u32>, height: Option<u32>, ctx: &ResolveContext) {
         let href = self.stack.iter().rev().find(|n| n.kind == "link").and_then(|n| n.href.clone());
         let dest = href.as_deref().map(|h| resolve_link(h, ctx));
         let img = Inline {
@@ -374,6 +386,8 @@ impl InlineCtx {
             href,
             dest,
             src: Some(src),
+            width,
+            height,
             children: Vec::new(),
         };
         if let Some(top) = self.stack.last_mut() {
@@ -399,15 +413,15 @@ fn build_inline(node: OpenInline, ctx: &ResolveContext) -> Inline {
         // 行内代码：子文本合并为 value（叶子节点）
         "code" => {
             let value: String = node.children.iter().map(|c| c.value.as_str()).collect();
-            Inline { kind: "code", value, href: None, dest: None, src: None, children: Vec::new() }
+            Inline { kind: "code", value, href: None, dest: None, src: None, width: None, height: None, children: Vec::new() }
         }
         // 链接：容器节点，携带 href/dest 与子内容
         "link" => {
             let dest = node.href.as_deref().map(|h| resolve_link(h, ctx));
-            Inline { kind: "link", value: String::new(), href: node.href, dest, src: None, children: node.children }
+            Inline { kind: "link", value: String::new(), href: node.href, dest, src: None, width: None, height: None, children: node.children }
         }
         // bold / italic / strike：容器节点
-        _ => Inline { kind: node.kind, value: String::new(), href: None, dest: None, src: None, children: node.children },
+        _ => Inline { kind: node.kind, value: String::new(), href: None, dest: None, src: None, width: None, height: None, children: node.children },
     }
 }
 
@@ -504,16 +518,19 @@ fn build_blocks(events: &[Event], ctx: &ResolveContext) -> Vec<Block> {
         ($attrs:expr) => {
             let src = attr($attrs, "src").unwrap_or("").to_string();
             let alt = attr($attrs, "alt").unwrap_or("").to_string();
+            // 提取 img 的 width/height 属性（如 <img width=200>、<img height=80>、<img width="80" height="80">）
+            let width = attr($attrs, "width").and_then(|w| w.parse::<u32>().ok());
+            let height = attr($attrs, "height").and_then(|h| h.parse::<u32>().ok());
             let resolved = resolve_image_src(&src, ctx);
             if let Some(c) = cell.as_mut() {
-                c.push_image(resolved, alt, ctx);
+                c.push_image(resolved, alt, width, height, ctx);
             } else if let Some(s) = summary.as_mut() {
-                s.push_image(resolved, alt, ctx);
+                s.push_image(resolved, alt, width, height, ctx);
             } else if inline.in_link() {
-                inline.push_image(resolved, alt, ctx);
+                inline.push_image(resolved, alt, width, height, ctx);
             } else {
                 flush_inline!();
-                push_image_block(&mut blocks, &mut details_stack, resolved, alt);
+                push_image_block(&mut blocks, &mut details_stack, resolved, alt, width, height);
             }
         };
     }
@@ -724,8 +741,8 @@ fn build_blocks(events: &[Event], ctx: &ResolveContext) -> Vec<Block> {
 }
 
 /// 追加一个块级图片（顶层独立图片，无链接包裹）。
-fn push_image_block(blocks: &mut Vec<Block>, details_stack: &mut [DetailsCtx], src: String, alt: String) {
-    let b = Block { kind: "image", src: Some(src), alt: Some(alt), ..Block::default() };
+fn push_image_block(blocks: &mut Vec<Block>, details_stack: &mut [DetailsCtx], src: String, alt: String, width: Option<u32>, height: Option<u32>) {
+    let b = Block { kind: "image", src: Some(src), alt: Some(alt), width, height, ..Block::default() };
     if let Some(d) = details_stack.last_mut() {
         d.children.push(b);
     } else {

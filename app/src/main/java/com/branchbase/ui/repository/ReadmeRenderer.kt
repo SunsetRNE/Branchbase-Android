@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
@@ -253,12 +254,20 @@ private fun ImageBlock(block: ReadmeBlock, onLinkClick: (Destination) -> Unit) {
     val src = block.src
     val alt = block.alt?.takeIf { it.isNotBlank() } ?: "图片"
 
-    val modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+    // 图片尺寸：优先 width/height（px→dp），否则 fillMaxWidth 撑满（保持原行为）
+    val w = block.width
+    val h = block.height
+    val modifier = when {
+        w != null && h != null -> Modifier.size(w.dp, h.dp).padding(vertical = 8.dp)
+        w != null -> Modifier.width(w.dp).padding(vertical = 8.dp)
+        h != null -> Modifier.height(h.dp).padding(vertical = 8.dp)
+        else -> Modifier.fillMaxWidth().padding(vertical = 8.dp)
+    }
 
     // 无有效地址时退化为占位（保持原行为）
     if (src.isNullOrBlank()) {
         Box(
-            modifier = modifier.height(64.dp).background(CodeSyntax.CodeBg, RoundedCornerShape(6.dp)),
+            modifier = Modifier.fillMaxWidth().height(64.dp).background(CodeSyntax.CodeBg, RoundedCornerShape(6.dp)),
             contentAlignment = Alignment.Center,
         ) {
             Text(alt, fontSize = 12.sp, color = Primer.TextTertiary)
@@ -276,7 +285,7 @@ private fun ImageBlock(block: ReadmeBlock, onLinkClick: (Destination) -> Unit) {
     AsyncImage(
         model = src,
         contentDescription = alt,
-        contentScale = ContentScale.FillWidth,
+        contentScale = ContentScale.Fit,
         modifier = clickableModifier,
     )
 }
@@ -301,13 +310,23 @@ private fun InlineText(
     }
     val inlineContent = remember(inline, onLinkClick) {
         imageNodes.mapValues { (_, node) ->
-            InlineTextContent(Placeholder(12.sp, 14.sp, PlaceholderVerticalAlign.AboveBaseline)) {
+            val w = node.width
+            val h = node.height
+            val pw = (w ?: h ?: 20).sp
+            val ph = (h ?: w ?: 20).sp
+            InlineTextContent(Placeholder(pw, ph, PlaceholderVerticalAlign.AboveBaseline)) {
                 AsyncImage(
                     model = node.src,
                     contentDescription = node.value,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier
-                        .height(18.dp)
+                        .then(
+                            when {
+                                w != null -> Modifier.width(w.dp)
+                                h != null -> Modifier.height(h.dp)
+                                else -> Modifier.height(20.dp) // 徽标（badge）无 width/height 时默认 20dp 高
+                            }
+                        )
                         .clickable(enabled = node.dest != null) { node.dest?.let(onLinkClick) },
                 )
             }

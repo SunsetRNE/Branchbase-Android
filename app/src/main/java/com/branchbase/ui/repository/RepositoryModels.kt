@@ -31,6 +31,8 @@ data class ReadmeBlock(
     val text: String? = null,      // 代码块文本
     val src: String? = null,       // 图片地址（已解析为绝对地址）
     val alt: String? = null,       // 图片说明
+    val width: Int? = null,        // 图片宽度（px，来自 img 属性）
+    val height: Int? = null,       // 图片高度（px，来自 img 属性）
     val href: String? = null,      // 图片被链接包裹时的跳转地址（徽章）
     val dest: Destination? = null, // 图片链接解析后的跳转目标
     val checked: Boolean? = null,  // 任务列表项勾选状态（null = 非任务项）
@@ -46,6 +48,8 @@ data class ReadmeInline(
     val href: String? = null,
     val dest: Destination? = null,
     val src: String? = null,       // 图片节点（kind=image）的地址
+    val width: Int? = null,        // 图片节点宽度（px）
+    val height: Int? = null,       // 图片节点高度（px）
     val children: List<ReadmeInline> = emptyList(), // 容器节点的嵌套子节点
 )
 
@@ -136,6 +140,8 @@ private fun parseBlock(o: JSONObject): ReadmeBlock {
         text = o.optString("text").takeIf { it.isNotBlank() },
         src = o.optString("src").takeIf { it.isNotBlank() },
         alt = o.optString("alt").takeIf { it.isNotBlank() },
+        width = if (o.has("width")) o.optInt("width") else null,
+        height = if (o.has("height")) o.optInt("height") else null,
         href = o.optString("href").takeIf { it.isNotBlank() },
         dest = o.optJSONObject("dest")?.let { parseDestination(it) },
         checked = if (o.has("checked")) o.optBoolean("checked") else null,
@@ -174,6 +180,8 @@ private fun parseInline(o: JSONObject): ReadmeInline {
         href = o.optString("href").takeIf { it.isNotBlank() },
         dest = dest,
         src = o.optString("src").takeIf { it.isNotBlank() },
+        width = if (o.has("width")) o.optInt("width") else null,
+        height = if (o.has("height")) o.optInt("height") else null,
         children = children,
     )
 }
