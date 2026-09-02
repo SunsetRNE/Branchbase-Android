@@ -785,7 +785,7 @@ fun AboutScreen(onBack: () -> Unit) {
         remoteChecking = true
         remoteFingerprint = withContext(Dispatchers.IO) {
 val sig = when (variant) {
-                    ReleaseVariant.BETA -> fetchRemoteSignature("SunsetRNE", "Branchbase-Android", "main", "verify/signature.txt")
+                    ReleaseVariant.BETA -> fetchRemoteSignature("SunsetRNE", "Branchbase-Android", "beta", "verify/signature.txt")
                     ReleaseVariant.RELEASE -> fetchLatestReleaseSignature("SunsetRNE", "Branchbase-Android")
                     else -> null
                 }

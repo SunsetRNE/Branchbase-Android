@@ -124,11 +124,11 @@ impl GitHubApi {
 
     /// 获取仓库 README 的渲染后 HTML（`GET /repos/{owner}/{repo}/readme`）
     ///
-    /// 用 `Accept: application/vnd.github.html+json` 拿 markdown 渲染结果，
-    /// 响应 JSON 的 `content` 字段为 base64 编码的 HTML，这里解码后直接返回 HTML 字符串。
+    /// 用 `Accept: application/vnd.github.html+json` 拿 markdown 渲染结果。
+    /// 注意：该 media type 的响应 body 就是渲染后的 HTML 文本（非 JSON，无 base64 content 字段），
+    /// 直接返回 HTML 字符串，交由 Compose 侧 parseHtml 解析。
     /// 无 README 时返回 `Err`（HTTP 404）。
     pub async fn readme_html(&self, owner: &str, repo: &str, branch: &str) -> Result<String> {
-        use base64::Engine;
         // 分支透传：指定 ref（默认分支或用户选择的分支）；空串则用仓库默认分支
         let path = if branch.is_empty() {
             format!("/repos/{owner}/{repo}/readme")
@@ -137,20 +137,9 @@ impl GitHubApi {
             let encoded: String = url::form_urlencoded::byte_serialize(branch.as_bytes()).collect();
             format!("/repos/{owner}/{repo}/readme?ref={encoded}")
         };
-        let json = self
-            .client
+        self.client
             .get_json_with_accept(&path, "application/vnd.github.html+json")
-            .await?;
-        let value: serde_json::Value = serde_json::from_str(&json)?;
-        let content = value
-            .get("content")
-            .and_then(|c| c.as_str())
-            .ok_or_else(|| crate::error::CoreError::Other("README 无 content 字段".into()))?;
-        let decoded = base64::engine::general_purpose::STANDARD
-            .decode(content.replace('\n', "").as_bytes())
-            .map_err(|e| crate::error::CoreError::Other(format!("README base64 解码失败: {e}")))?;
-        String::from_utf8(decoded)
-            .map_err(|e| crate::error::CoreError::Other(format!("README 非 UTF-8: {e}")))
+            .await
     }
 
     /// 获取仓库分支列表（`GET /repos/{owner}/{repo}/branches`，返回分支名 + 是否保护）
