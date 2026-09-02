@@ -1,3 +1,4 @@
+import com.android.build.api.variant.impl.VariantOutputImpl
 import java.io.File
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -137,6 +138,17 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+}
+
+// APK 输出文件名：Branchbase-工程版本号-年月日-时分-七位哈希[-debug].apk
+// 例：Branchbase-1.0.3-20260902-2226-a1b2c3d-debug.apk / Branchbase-1.0.3-20260902-2226-a1b2c3d.apk
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            val suffix = if (variant.buildType == "debug") "-debug" else ""
+            (output as VariantOutputImpl).outputFileName.set("Branchbase-${standardVersion}${suffix}.apk")
         }
     }
 }
