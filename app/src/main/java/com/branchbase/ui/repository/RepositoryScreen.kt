@@ -100,7 +100,7 @@ fun RepositoryScreen(
     }
     var page by remember { mutableStateOf(initial?.page ?: RepoPage.Overview) }
     var peoplePage by remember { mutableStateOf<String?>(null) } // "star"/"fork"/"watch"
-    var filePage by remember { mutableStateOf<String?>(null) } // 文件查看路径
+    var filePage by remember { mutableStateOf<Pair<String, String?>?>(null) } // (文件路径, 高亮行号)
     var issuePage by remember { mutableStateOf(initial?.issueNumber) }
     var pullPage by remember { mutableStateOf(initial?.pullNumber) }
     var commitPage by remember { mutableStateOf(initial?.commitSha) }
@@ -162,7 +162,8 @@ fun RepositoryScreen(
             sessionJson = sessionJson,
             owner = owner,
             repo = repo,
-            path = filePage!!,
+            path = filePage!!.first,
+            highlightLines = filePage!!.second,
             onBack = { filePage = null },
         )
         return
@@ -280,10 +281,10 @@ fun RepositoryScreen(
                     when (page) {
                         RepoPage.Overview -> RepositoryOverviewContent(
                             sessionJson = sessionJson, owner = owner, repo = repo, branch = branch, refreshTick = refreshTick,
-                            onLinkClick = { dest -> handleLink(dest, context, onOpenRepo) { page = it } },
+                            onLinkClick = { dest -> handleLink(dest, context, onOpenRepo, { path, lines -> filePage = path to lines }) { page = it } },
                             onActionClick = { action -> peoplePage = action },
                         )
-                        RepoPage.Code -> RepositoryCodeContent(sessionJson, owner, repo, branch, refreshTick, onOpenFile = { filePage = it })
+                        RepoPage.Code -> RepositoryCodeContent(sessionJson, owner, repo, branch, refreshTick, onOpenFile = { filePage = it to null })
                         RepoPage.Issues -> IssueListContent(sessionJson, owner, repo, refreshTick, onItemClick = { issuePage = it.number })
                         RepoPage.Workflows -> WorkflowListContent(sessionJson, owner, repo, branch, refreshTick, onItemClick = { workflowRunsPage = it.id to it.name })
                         RepoPage.Releases -> ReleaseListContent(sessionJson, owner, repo, refreshTick)
@@ -315,11 +316,19 @@ fun RepositoryScreen(
     }
 }
 
-/** README 链接路由（blob/tree/issue/pull/commit 暂映射到列表页，详情页待后续） */
-private fun handleLink(dest: Destination, context: Context, onOpenRepo: (String, String) -> Unit, onNavigate: (RepoPage) -> Unit) {
+/** README 链接路由（blob 直接打开文件 + 行号高亮；tree 进代码页；issue/pull/commit 映射到列表页） */
+private fun handleLink(
+    dest: Destination,
+    context: Context,
+    onOpenRepo: (String, String) -> Unit,
+    onOpenFile: (String, String?) -> Unit,
+    onNavigate: (RepoPage) -> Unit,
+) {
     when (dest.type) {
         "repo" -> dest.owner?.let { o -> dest.repo?.let { r -> onOpenRepo(o, r) } }
-        "blob", "tree" -> onNavigate(RepoPage.Code)
+        // blob → 打开对应文件（带行号高亮）；无 path 则回退到代码页
+        "blob" -> dest.path?.let { onOpenFile(it, dest.lines) } ?: onNavigate(RepoPage.Code)
+        "tree" -> onNavigate(RepoPage.Code)
         "issue" -> onNavigate(RepoPage.Issues)
         "pull" -> onNavigate(RepoPage.PullRequests)
         "commit" -> onNavigate(RepoPage.Commits)

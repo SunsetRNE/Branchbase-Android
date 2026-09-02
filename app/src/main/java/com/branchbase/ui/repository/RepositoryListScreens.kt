@@ -112,20 +112,16 @@ internal fun stateColor(state: String): Color = when (state) {
     else -> Primer.Gray500
 }
 
-/** 将 markdown 正文渲染为 HTML（POST /markdown）再解析为 Block（复用 ReadmeRenderer） */
-internal suspend fun markdownToBlocks(
+/** 将 markdown 正文渲染为 HTML（POST /markdown），套 markdown-body 供 WebView 渲染。 */
+internal suspend fun markdownToHtml(
     host: String,
     token: String,
-    owner: String,
-    repo: String,
-    login: String,
     markdown: String,
-): List<ReadmeBlock> {
-    val html = RustBridge.renderMarkdown(host, token, markdown) ?: return emptyList()
-    if (html.startsWith("ERROR:")) return emptyList()
-    val parsed = RustBridge.parseHtml(html, host, owner, repo, "main", "", login) ?: return emptyList()
-    if (parsed.startsWith("ERROR:")) return emptyList()
-    return parseReadmeBlocks(parsed)
+): String? {
+    val html = RustBridge.renderMarkdown(host, token, markdown) ?: return null
+    if (html.startsWith("ERROR:")) return null
+    // renderMarkdown 返回的 HTML 无 markdown-body 包装，补一层以复用 WebView 的 CSS
+    return "<div class=\"markdown-body\">$html</div>"
 }
 
 // ── 代码（文件树，两级导航） ──

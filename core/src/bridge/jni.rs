@@ -480,25 +480,6 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeResolveLink<'lo
     )
 }
 
-/// 解析 README 渲染 HTML 为块级树（返回 `{"blocks":[...]}` JSON，每个链接已解析 dest）
-/// 参数：html, host, owner, repo, branch, baseDir, currentUser
-#[no_mangle]
-pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeParseHtml<'local>(
-    mut env: JNIEnv<'local>,
-    _class: JClass<'local>,
-    html: JString<'local>,
-    host: JString<'local>,
-    owner: JString<'local>,
-    repo: JString<'local>,
-    branch: JString<'local>,
-    base_dir: JString<'local>,
-    current_user: JString<'local>,
-) -> jstring {
-    let html = jstr(&mut env, &html);
-    let ctx = resolve_ctx(&mut env, &host, &owner, &repo, &branch, &base_dir, &current_user);
-    into_jstring(&mut env, crate::html::parse_html_json(&html, &ctx).map_err(CoreError::from))
-}
-
 /// 获取仓库 README 渲染 HTML（返回 HTML 字符串）
 /// 参数：host, accessToken, owner, repo, branch（空串=默认分支）
 #[no_mangle]

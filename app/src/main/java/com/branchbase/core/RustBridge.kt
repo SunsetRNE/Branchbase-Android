@@ -82,16 +82,6 @@ object RustBridge {
         currentUser: String
     ): String
 
-    private external fun nativeParseHtml(
-        html: String,
-        host: String,
-        owner: String,
-        repo: String,
-        branch: String,
-        baseDir: String,
-        currentUser: String
-    ): String
-
     private external fun nativeReadmeHtml(host: String, token: String, owner: String, repo: String, branch: String): String
 
     private external fun nativeListBranches(host: String, token: String, owner: String, repo: String): String
@@ -255,21 +245,6 @@ object RustBridge {
         baseDir: String = "",
         currentUser: String
     ): String = nativeResolveLink(url, host, owner, repo, branch, baseDir, currentUser)
-
-    /**
-     * 解析 README 渲染 HTML 为块级树（返回 `{"blocks":[...]}` JSON，链接已解析 dest）。
-     */
-    suspend fun parseHtml(
-        html: String,
-        host: String,
-        owner: String,
-        repo: String,
-        branch: String,
-        baseDir: String = "",
-        currentUser: String
-    ): String? = withContext(Dispatchers.IO) {
-        nativeParseHtml(html, host, owner, repo, branch, baseDir, currentUser).ifBlank { null }
-    }
 
     /**
      * 获取仓库 README 渲染 HTML（返回 HTML 字符串；无 README 时返回 "ERROR:..." 前缀）。

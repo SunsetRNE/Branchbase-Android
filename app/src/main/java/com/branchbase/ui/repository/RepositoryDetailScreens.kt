@@ -61,7 +61,7 @@ fun IssueDetailScreen(
     val (host, token, login) = sessionInfo(sessionJson)
     var detail by remember { mutableStateOf<IssueDetail?>(null) }
     var comments by remember { mutableStateOf<List<CommentItem>>(emptyList()) }
-    var bodyBlocks by remember { mutableStateOf<List<ReadmeBlock>>(emptyList()) }
+    var bodyHtml by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
 
     LaunchedEffect(owner, repo, number) {
@@ -74,7 +74,7 @@ fun IssueDetailScreen(
             RustBridge.getJson(host, token, "/repos/$owner/$repo/issues/$number/comments")
                 ?.takeIf { !it.startsWith("ERROR:") }
                 ?.let { comments = parseComments(it) }
-            if (d.body.isNotBlank()) bodyBlocks = markdownToBlocks(host, token, owner, repo, login, d.body)
+            if (d.body.isNotBlank()) bodyHtml = markdownToHtml(host, token, d.body)
         }
         loading = false
     }
@@ -88,7 +88,7 @@ fun IssueDetailScreen(
             detail == null -> CenterText("加载失败")
             else -> LazyColumn(Modifier.fillMaxSize()) {
                 item { IssueHead(detail!!) }
-                if (bodyBlocks.isNotEmpty()) item { ReadmeContent(bodyBlocks, onLinkClick = {}) }
+                if (bodyHtml != null) item { ReadmeWebView(bodyHtml!!, host, owner, repo, "main", login, token, onLinkClick = {}) }
                 else if (detail!!.body.isNotBlank()) item { CommentBody(detail!!.body, detail!!.author, detail!!.createdAt) }
                 items(comments) { c -> CommentCard(c) }
             }
@@ -107,7 +107,7 @@ fun PullDetailScreen(
     val (host, token, login) = sessionInfo(sessionJson)
     var detail by remember { mutableStateOf<PullDetail?>(null) }
     var files by remember { mutableStateOf<List<PullFile>>(emptyList()) }
-    var bodyBlocks by remember { mutableStateOf<List<ReadmeBlock>>(emptyList()) }
+    var bodyHtml by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
 
     LaunchedEffect(owner, repo, number) {
@@ -120,7 +120,7 @@ fun PullDetailScreen(
             RustBridge.getJson(host, token, "/repos/$owner/$repo/pulls/$number/files")
                 ?.takeIf { !it.startsWith("ERROR:") }
                 ?.let { files = parsePullFiles(it) }
-            if (d.body.isNotBlank()) bodyBlocks = markdownToBlocks(host, token, owner, repo, login, d.body)
+            if (d.body.isNotBlank()) bodyHtml = markdownToHtml(host, token, d.body)
         }
         loading = false
     }
@@ -134,7 +134,7 @@ fun PullDetailScreen(
             detail == null -> CenterText("加载失败")
             else -> LazyColumn(Modifier.fillMaxSize()) {
                 item { PullHead(detail!!) }
-                if (bodyBlocks.isNotEmpty()) item { ReadmeContent(bodyBlocks, onLinkClick = {}) }
+                if (bodyHtml != null) item { ReadmeWebView(bodyHtml!!, host, owner, repo, "main", login, token, onLinkClick = {}) }
                 else if (detail!!.body.isNotBlank()) item { CommentBody(detail!!.body, detail!!.author, detail!!.createdAt) }
                 item { Text("文件变更 (${files.size})", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, modifier = Modifier.padding(16.dp, 14.dp, 16.dp, 6.dp)) }
                 items(files) { f -> PullFileRow(f) }

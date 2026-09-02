@@ -62,6 +62,7 @@ fun FileViewerScreen(
     owner: String,
     repo: String,
     path: String,
+    highlightLines: String? = null,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -186,23 +187,32 @@ fun FileViewerScreen(
                 error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(error!!, fontSize = 13.sp, color = Primer.TextTertiary)
                 }
-                else -> LazyColumn(Modifier.fillMaxSize()) {
-                    itemsIndexed(content.lines()) { i, line ->
-                        Row(Modifier.fillMaxWidth()) {
-                            Text(
-                                (i + 1).toString(),
-                                fontSize = 11.sp,
-                                color = CodeSyntax.LineNo,
-                                textAlign = TextAlign.End,
-                                modifier = Modifier.width(34.dp).padding(end = 10.dp),
-                            )
-                            Text(
-                                line.ifEmpty { " " },
-                                fontSize = 12.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = Color(0xFF24292F),
-                                modifier = Modifier.weight(1f),
-                            )
+                else -> {
+                    val highlightRange = remember(highlightLines) { parseLineRange(highlightLines) }
+                    LazyColumn(Modifier.fillMaxSize()) {
+                        itemsIndexed(content.lines()) { i, line ->
+                            val lineNo = i + 1
+                            val highlighted = highlightRange?.contains(lineNo) == true
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .then(if (highlighted) Modifier.background(CodeSyntax.MatchBg) else Modifier),
+                            ) {
+                                Text(
+                                    lineNo.toString(),
+                                    fontSize = 11.sp,
+                                    color = CodeSyntax.LineNo,
+                                    textAlign = TextAlign.End,
+                                    modifier = Modifier.width(34.dp).padding(end = 10.dp),
+                                )
+                                Text(
+                                    line.ifEmpty { " " },
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = Color(0xFF24292F),
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
                         }
                     }
                 }
@@ -220,5 +230,20 @@ fun FileViewerScreen(
                 onCommitClick()
             },
         )
+    }
+}
+
+/** 解析行号锚点（如 "L12-L34"、"L12"）为闭区间 [start..end]，非法返回 null。 */
+private fun parseLineRange(s: String?): IntRange? {
+    if (s.isNullOrBlank()) return null
+    val t = s.removePrefix("L").removePrefix("l")
+    if (t.isBlank()) return null
+    return if (t.contains('-')) {
+        val parts = t.split('-', limit = 2)
+        val a = parts[0].trim().toIntOrNull() ?: return null
+        val b = parts[1].trim().toIntOrNull() ?: return null
+        minOf(a, b)..maxOf(a, b)
+    } else {
+        t.trim().toIntOrNull()?.let { it..it }
     }
 }

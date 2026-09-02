@@ -377,55 +377,6 @@ fn build_url(host: &str, path: &str, frag: Option<&str>) -> String {
     url
 }
 
-/// 解析 README 中的图片 `src`：
-/// - 绝对地址（`http(s)://`）、协议相对（`//`）、内联 `data:` 等保持原样；
-/// - 相对路径（`./images/x.png`、`docs/x.png`）基于 `base_dir` 归一化后，改写为
-///   `raw` 绝对地址，供 Compose 层直接加载。
-pub fn resolve_image_src(src: &str, ctx: &ResolveContext) -> String {
-    let src = src.trim();
-    if src.is_empty()
-        || src.starts_with("http://")
-        || src.starts_with("https://")
-        || src.starts_with("//")
-        || src.starts_with("data:")
-    {
-        return src.to_string();
-    }
-
-    // 根相对路径 `/owner/repo/...` → 视为 github host 根（补全为绝对地址）
-    if src.starts_with('/') {
-        return format!("https://{}{}", ctx.host, src);
-    }
-
-    // 相对路径 → 基于 base_dir 归一化（同 resolve_relative 的 `.`/`..` 处理）
-    let (path, _frag) = split_frag(src);
-    let mut segs: Vec<&str> = ctx
-        .base_dir
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .collect();
-    for seg in path.split('/') {
-        match seg {
-            "" | "." => {}
-            ".." => {
-                segs.pop();
-            }
-            other => segs.push(other),
-        }
-    }
-    let file_path = segs.join("/");
-    build_raw_url(&ctx.host, &ctx.owner, &ctx.repo, &ctx.branch, &file_path)
-}
-
-/// 构建 raw 文件地址（github.com → raw.githubusercontent.com；GHE → {host}/raw/...）
-fn build_raw_url(host: &str, owner: &str, repo: &str, branch: &str, path: &str) -> String {
-    if host.eq_ignore_ascii_case("github.com") {
-        format!("https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}")
-    } else {
-        format!("https://{host}/raw/{owner}/{repo}/{branch}/{path}")
-    }
-}
-
 // ── 单元测试 ──────────────────────────────────────────────
 
 #[cfg(test)]
@@ -524,44 +475,5 @@ mod tests {
         // 列表级子页（单段）仍折叠为 repo
         let d = resolve_link("https://github.com/other/repo/releases", &ctx());
         assert_eq!(d.dest_type, "repo");
-    }
-
-    #[test]
-    fn test_image_src_absolute() {
-        let d = resolve_image_src("https://img.shields.io/badge/x-y", &ctx());
-        assert_eq!(d, "https://img.shields.io/badge/x-y");
-    }
-
-    #[test]
-    fn test_image_src_relative() {
-        let d = resolve_image_src("./docs/images/a.png", &ctx());
-        assert_eq!(
-            d,
-            "https://raw.githubusercontent.com/SunsetRNE/branchbase/main/docs/images/a.png"
-        );
-    }
-
-    #[test]
-    fn test_image_src_parent_relative() {
-        let mut c = ctx();
-        c.base_dir = "docs/sub".into();
-        let d = resolve_image_src("../images/a.png", &c);
-        assert_eq!(
-            d,
-            "https://raw.githubusercontent.com/SunsetRNE/branchbase/main/docs/images/a.png"
-        );
-    }
-
-    #[test]
-    fn test_image_src_root_relative() {
-        // 根相对路径补全为 host 根绝对地址
-        let d = resolve_image_src("/SunsetRNE/branchbase/raw/main/x.png", &ctx());
-        assert_eq!(d, "https://github.com/SunsetRNE/branchbase/raw/main/x.png");
-    }
-
-    #[test]
-    fn test_image_src_data_uri() {
-        let d = resolve_image_src("data:image/svg+xml;base64,abc", &ctx());
-        assert_eq!(d, "data:image/svg+xml;base64,abc");
     }
 }

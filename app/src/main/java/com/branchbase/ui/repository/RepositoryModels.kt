@@ -20,45 +20,14 @@ data class RepoInfo(
     val ownerLogin: String,
 )
 
-// ── README Block / Inline / Destination（对齐 parseHtml 输出） ──
-data class ReadmeBlock(
-    val type: String,              // heading/paragraph/code/list_item/table/image/blockquote/hr/details
-    val level: Int = 0,            // heading 级别 1~6
-    val depth: Int = 0,            // 列表嵌套层级
-    val ordered: Boolean = false,
-    val index: Long = 0,           // 有序列表序号
-    val lang: String? = null,      // 代码块语言
-    val text: String? = null,      // 代码块文本
-    val src: String? = null,       // 图片地址（已解析为绝对地址）
-    val alt: String? = null,       // 图片说明
-    val width: Int? = null,        // 图片宽度（px，来自 img 属性）
-    val height: Int? = null,       // 图片高度（px，来自 img 属性）
-    val href: String? = null,      // 图片被链接包裹时的跳转地址（徽章）
-    val dest: Destination? = null, // 图片链接解析后的跳转目标
-    val checked: Boolean? = null,  // 任务列表项勾选状态（null = 非任务项）
-    val summary: List<ReadmeInline> = emptyList(), // 折叠块标题行内内容
-    val children: List<ReadmeBlock> = emptyList(), // 折叠块展开后的子块
-    val inline: List<ReadmeInline> = emptyList(),
-    val rows: List<List<List<ReadmeInline>>> = emptyList(), // 表格：每格是行内树
-)
-
-data class ReadmeInline(
-    val kind: String,              // text/link/code/bold/italic/strike/image
-    val value: String,             // 叶子节点（text/code/image 的 alt）文本；容器节点为空
-    val href: String? = null,
-    val dest: Destination? = null,
-    val src: String? = null,       // 图片节点（kind=image）的地址
-    val width: Int? = null,        // 图片节点宽度（px）
-    val height: Int? = null,       // 图片节点高度（px）
-    val children: List<ReadmeInline> = emptyList(), // 容器节点的嵌套子节点
-)
-
+// ── 链接跳转目标（对齐 matcher 输出） ──
 data class Destination(
     val type: String,              // repo/blob/tree/issue/pull/commit/user/anchor/external/raw
     val owner: String? = null,
     val repo: String? = null,
     val branch: String? = null,
     val path: String? = null,
+    val lines: String? = null,     // 行号锚点（如 "L12-L34"）
     val number: Long? = null,
     val sha: String? = null,
     val login: String? = null,
@@ -103,55 +72,6 @@ fun parseRepoInfo(json: String): RepoInfo? = runCatching {
     )
 }.getOrNull()
 
-/** 解析 parseHtml 返回的 `{"blocks":[...]}` */
-fun parseReadmeBlocks(json: String): List<ReadmeBlock> = runCatching {
-    val arr = JSONObject(json).optJSONArray("blocks") ?: return@runCatching emptyList()
-    (0 until arr.length()).map { i -> parseBlock(arr.getJSONObject(i)) }
-}.getOrDefault(emptyList())
-
-private fun parseBlock(o: JSONObject): ReadmeBlock {
-    val inlineArr = o.optJSONArray("inline")
-    val inline = (0 until (inlineArr?.length() ?: 0)).map { i ->
-        parseInline(inlineArr!!.getJSONObject(i))
-    }
-    val summaryArr = o.optJSONArray("summary")
-    val summary = (0 until (summaryArr?.length() ?: 0)).map { i ->
-        parseInline(summaryArr!!.getJSONObject(i))
-    }
-    val childrenArr = o.optJSONArray("children")
-    val children = (0 until (childrenArr?.length() ?: 0)).map { i ->
-        parseBlock(childrenArr!!.getJSONObject(i))
-    }
-    val rowsArr = o.optJSONArray("rows")
-    val rows = (0 until (rowsArr?.length() ?: 0)).map { i ->
-        val r = rowsArr!!.getJSONArray(i)
-        (0 until r.length()).map { j ->
-            val cell = r.getJSONArray(j)
-            (0 until cell.length()).map { k -> parseInline(cell.getJSONObject(k)) }
-        }
-    }
-    return ReadmeBlock(
-        type = o.optString("type"),
-        level = o.optInt("level"),
-        depth = o.optInt("depth"),
-        ordered = o.optBoolean("ordered"),
-        index = o.optLong("index"),
-        lang = o.optString("lang").takeIf { it.isNotBlank() },
-        text = o.optString("text").takeIf { it.isNotBlank() },
-        src = o.optString("src").takeIf { it.isNotBlank() },
-        alt = o.optString("alt").takeIf { it.isNotBlank() },
-        width = if (o.has("width")) o.optInt("width") else null,
-        height = if (o.has("height")) o.optInt("height") else null,
-        href = o.optString("href").takeIf { it.isNotBlank() },
-        dest = o.optJSONObject("dest")?.let { parseDestination(it) },
-        checked = if (o.has("checked")) o.optBoolean("checked") else null,
-        summary = summary,
-        children = children,
-        inline = inline,
-        rows = rows,
-    )
-}
-
 internal fun parseDestination(d: JSONObject): Destination =
     Destination(
         type = d.optString("type"),
@@ -159,6 +79,7 @@ internal fun parseDestination(d: JSONObject): Destination =
         repo = d.optString("repo").takeIf { it.isNotBlank() },
         branch = d.optString("branch").takeIf { it.isNotBlank() },
         path = d.optString("path").takeIf { it.isNotBlank() },
+        lines = d.optString("lines").takeIf { it.isNotBlank() },
         number = if (d.has("number")) d.optLong("number") else null,
         sha = d.optString("sha").takeIf { it.isNotBlank() },
         login = d.optString("login").takeIf { it.isNotBlank() },
@@ -166,25 +87,6 @@ internal fun parseDestination(d: JSONObject): Destination =
         isOwn = d.optBoolean("is_own"),
         isExternal = d.optBoolean("is_external"),
     )
-
-private fun parseInline(o: JSONObject): ReadmeInline {
-    val destObj = o.optJSONObject("dest")
-    val dest = destObj?.let { parseDestination(it) }
-    val childrenArr = o.optJSONArray("c")
-    val children = (0 until (childrenArr?.length() ?: 0)).map { i ->
-        parseInline(childrenArr!!.getJSONObject(i))
-    }
-    return ReadmeInline(
-        kind = o.optString("t"),
-        value = o.optString("v"),
-        href = o.optString("href").takeIf { it.isNotBlank() },
-        dest = dest,
-        src = o.optString("src").takeIf { it.isNotBlank() },
-        width = if (o.has("width")) o.optInt("width") else null,
-        height = if (o.has("height")) o.optInt("height") else null,
-        children = children,
-    )
-}
 
 /** 解析 GET /repos/{o}/{r}/languages 的 {语言:字节数}，计算占比并降序 */
 fun parseLanguages(json: String): List<LanguageStat> = runCatching {
