@@ -107,7 +107,7 @@ jobs:
           name: 正式版 v${{ needs.build.outputs.versionName }}
           body_path: CHANGELOG.md
           files: |
-            dist/*.apk
+            *.apk
             signature.txt
             source-${{ needs.build.outputs.versionName }}.tar.gz
           prerelease: false

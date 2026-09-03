@@ -93,9 +93,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # 把 .so 从 dist/ 放回 jniLibs（dist 因非 gitignore 才能被 upload 收集）
+          # upload dist/ 时以 dist 为 root，download 后 .so 落在 workspace 根（不带 dist/ 前缀）
           mkdir -p app/src/main/jniLibs/arm64-v8a
-          cp dist/libbranchbase_core.so app/src/main/jniLibs/arm64-v8a/
+          cp libbranchbase_core.so app/src/main/jniLibs/arm64-v8a/
           git checkout -B beta
           git add -f verify/signature.txt app/src/main/jniLibs/arm64-v8a/libbranchbase_core.so
           git commit -m "chore: 更新测试版校验配置与 .so v${{ needs.build.outputs.versionName }}" || echo "无变更"
@@ -115,7 +115,7 @@ jobs:
             - 版本：`${{ steps.tag.outputs.tag }}`
             - 标准版本号：`${{ needs.build.outputs.standardVersion }}`
           files: |
-            dist/*.apk
+            *.apk
             verify/signature.txt
           prerelease: true
           draft: false
