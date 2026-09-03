@@ -55,12 +55,17 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
+      - name: Collect artifacts (复制到非 gitignore 的 dist/)
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/*.apk dist/ || true
+          ls -la dist/
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: release-artifacts
-          path: |
-            app/build/outputs/apk/release/
+          path: dist/
           retention-days: 7
 
   publish:
@@ -102,7 +107,7 @@ jobs:
           name: 正式版 v${{ needs.build.outputs.versionName }}
           body_path: CHANGELOG.md
           files: |
-            app/build/outputs/apk/release/*.apk
+            dist/*.apk
             signature.txt
             source-${{ needs.build.outputs.versionName }}.tar.gz
           prerelease: false

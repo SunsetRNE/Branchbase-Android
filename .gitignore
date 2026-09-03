@@ -37,6 +37,9 @@ local.properties
 # 保留 .gitkeep 占位，仅忽略 zip 本体
 /tools/gradle/*.zip
 
+# CI 产物收集临时目录（upload-artifact 前统一收集，不入库）
+/dist/
+
 # 原型设计草图（HTML 草图，不入库）
 /design/
 /docs/
