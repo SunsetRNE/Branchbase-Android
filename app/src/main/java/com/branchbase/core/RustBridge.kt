@@ -1,5 +1,6 @@
 package com.branchbase.core
 
+import com.branchbase.ui.log.Logger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -289,8 +290,15 @@ object RustBridge {
     suspend fun markNotificationRead(host: String, token: String, threadId: String): Boolean =
         withContext(Dispatchers.IO) {
             try {
-                !nativeMarkNotificationRead(host, token, threadId).startsWith("ERROR:")
+                val result = nativeMarkNotificationRead(host, token, threadId)
+                if (result.startsWith("ERROR:")) {
+                    Logger.net("PATCH /notifications/threads/$threadId 失败：$result", "GitHubAPI")
+                    false
+                } else {
+                    true
+                }
             } catch (e: Throwable) {
+                Logger.net("PATCH /notifications/threads/$threadId 异常：${e.message}", "GitHubAPI")
                 false // native 符号缺失（.so 未重编译）时优雅降级
             }
         }
@@ -299,8 +307,15 @@ object RustBridge {
     suspend fun markAllNotificationsRead(host: String, token: String): Boolean =
         withContext(Dispatchers.IO) {
             try {
-                !nativeMarkAllNotificationsRead(host, token).startsWith("ERROR:")
+                val result = nativeMarkAllNotificationsRead(host, token)
+                if (result.startsWith("ERROR:")) {
+                    Logger.net("PUT /notifications 失败：$result", "GitHubAPI")
+                    false
+                } else {
+                    true
+                }
             } catch (e: Throwable) {
+                Logger.net("PUT /notifications 异常：${e.message}", "GitHubAPI")
                 false // native 符号缺失（.so 未重编译）时优雅降级
             }
         }

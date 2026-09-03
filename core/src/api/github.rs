@@ -248,14 +248,14 @@ impl GitHubApi {
             .map_err(|e| crate::error::CoreError::Other(format!("signature.txt 非 UTF-8: {e}")))
     }
 
-    /// 标记单条通知已读（`PATCH /notifications/threads/{id}`）
+    /// 标记单条通知已读（`PATCH /notifications/threads/{id}`，无 body）
     pub async fn mark_notification_read(&self, thread_id: &str) -> Result<String> {
         let path = format!("/notifications/threads/{thread_id}");
-        self.client.patch_json(&path, "{}").await
+        self.client.patch_empty(&path).await
     }
 
-    /// 标记全部通知已读（`PUT /notifications`）
+    /// 标记全部通知已读（`PUT /notifications`，无 body）
     pub async fn mark_all_notifications_read(&self) -> Result<String> {
-        self.client.put_json("/notifications", "{}").await
+        self.client.put_empty("/notifications").await
     }
 }
