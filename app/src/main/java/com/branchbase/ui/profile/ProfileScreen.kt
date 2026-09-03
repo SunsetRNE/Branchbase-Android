@@ -119,10 +119,11 @@ fun ProfileScreen(
             SubPage.Stars -> StarsScreen(sessionJson, onBack = { subPage = null }, onOpenRepo = onOpenRepo)
             SubPage.Packages -> PackagesScreen(sessionJson, onBack = { subPage = null })
             SubPage.Projects -> ProjectsScreen(sessionJson, onBack = { subPage = null })
-            SubPage.Settings -> SettingsScreen(onBack = { subPage = null }, onOpenLocalRepo = { subPage = SubPage.LocalRepo }, onOpenAbout = { subPage = SubPage.About }, onOpenLog = { subPage = SubPage.Log })
+            SubPage.Settings -> SettingsScreen(onBack = { subPage = null }, onOpenLocalRepo = { subPage = SubPage.LocalRepo }, onOpenAbout = { subPage = SubPage.About }, onOpenLog = { subPage = SubPage.Log }, onOpenNotificationSettings = { subPage = SubPage.NotificationSettings })
             SubPage.LocalRepo -> LocalRepoScreen(sessionJson, onBack = { subPage = SubPage.Settings })
             SubPage.About -> AboutScreen(onBack = { subPage = SubPage.Settings })
             SubPage.Log -> LogScreen(onBack = { subPage = SubPage.Settings })
+            SubPage.NotificationSettings -> NotificationSettingsScreen(onBack = { subPage = SubPage.Settings })
         }
         return
     }

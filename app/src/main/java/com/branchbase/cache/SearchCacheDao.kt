@@ -11,9 +11,9 @@ import androidx.room.Query
 @Dao
 interface SearchCacheDao {
 
-    /** 查询未过期的缓存 */
-    @Query("SELECT * FROM search_cache WHERE key = :key AND expireAt > :now")
-    suspend fun get(key: String, now: Long): SearchCacheEntity?
+    /** 查询未过期的缓存（同时匹配 type，避免不同类型同 key 互相污染命中结果） */
+    @Query("SELECT * FROM search_cache WHERE key = :key AND type = :type AND expireAt > :now")
+    suspend fun get(key: String, type: String, now: Long): SearchCacheEntity?
 
     /** 插入或替换缓存 */
     @Insert(onConflict = OnConflictStrategy.REPLACE)

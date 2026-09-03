@@ -1,5 +1,6 @@
 package com.branchbase.ui.notification
 
+import android.content.Context
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.filled.Adjust
@@ -29,7 +30,7 @@ sealed class NotifTarget {
     data class Pull(val owner: String, val repo: String, val number: Long) : NotifTarget()
     data class Commit(val owner: String, val repo: String, val sha: String) : NotifTarget()
     data class Run(val owner: String, val repo: String, val runId: Long) : NotifTarget()
-    data class Security(val owner: String, val repo: String) : NotifTarget()
+    data class Security(val owner: String, val repo: String, val title: String, val subjectUrl: String) : NotifTarget()
     data class Repo(val owner: String, val repo: String) : NotifTarget() // 兜底
 }
 
@@ -167,6 +168,67 @@ fun resolveTarget(n: Notification): NotifTarget = when (n.subjectType) {
     "PullRequest" -> NotifTarget.Pull(n.owner, n.repo, n.targetNumber ?: 0)
     "Commit" -> NotifTarget.Commit(n.owner, n.repo, n.targetSha.orEmpty())
     "CheckSuite", "CheckRun", "WorkflowRun" -> NotifTarget.Run(n.owner, n.repo, n.targetNumber ?: 0)
-    "RepositoryVulnerabilityAlert", "RepositoryAdvisory" -> NotifTarget.Security(n.owner, n.repo)
+    "RepositoryVulnerabilityAlert", "RepositoryAdvisory" -> NotifTarget.Security(n.owner, n.repo, n.title, n.url)
     else -> NotifTarget.Repo(n.owner, n.repo)
+}
+
+// ───────────────────────── 安全警报详情（Dependabot alerts / security-advisories） ─────────────────────────
+
+/** 从完整 API URL 提取 path（去掉 host 前缀，供 `getJson(host, token, path)` 复用） */
+fun extractPathFromUrl(url: String): String? {
+    val idx = url.indexOf("/repos/")
+    return if (idx >= 0) url.substring(idx) else null
+}
+
+/** 安全警报详情（跨 Dependabot alerts / security-advisories 两种数据源的统一字段） */
+data class SecurityDetail(
+    val severity: String? = null,
+    val summary: String? = null,
+    val description: String? = null,
+    val dependency: String? = null,
+    val publishedAt: String? = null,
+    val cveId: String? = null,
+)
+
+/** 解析安全警报详情 JSON（兼容 Dependabot alerts 的 `security_advisory` 嵌套与 security-advisories 的平铺字段） */
+fun parseSecurityDetail(json: String): SecurityDetail = runCatching {
+    val o = org.json.JSONObject(json)
+    val advisory = o.optJSONObject("security_advisory")
+    fun pick(key: String): String? =
+        advisory?.optString(key)?.takeIf { it.isNotBlank() }
+            ?: o.optString(key).takeIf { it.isNotBlank() }
+    val severity = pick("severity")
+    val summary = pick("summary")
+    val description = pick("description")
+    val cveId = o.optString("cve_id").takeIf { it.isNotBlank() && it != "null" }
+        ?: advisory?.optString("cve_id")?.takeIf { it.isNotBlank() && it != "null" }
+    val dependency = o.optJSONObject("dependency")?.optJSONObject("package")?.optString("name")?.takeIf { it.isNotBlank() }
+    val publishedAt = o.optString("published_at").takeIf { it.isNotBlank() }
+        ?: o.optString("created_at").takeIf { it.isNotBlank() }
+    SecurityDetail(severity, summary, description, dependency, publishedAt, cveId)
+}.getOrDefault(SecurityDetail())
+
+// ───────────────────────── 通知显示模式（用户可选，默认平铺） ─────────────────────────
+
+/** 通知列表显示模式：平铺 / 按仓库分组 / 按 thread 合并 / 两级折叠 */
+enum class NotifLayout(val label: String, val desc: String) {
+    FLAT("平铺", "每条通知独立展示"),
+    GROUP_BY_REPO("按仓库分组", "同一仓库的通知折叠为一组"),
+    MERGE_BY_THREAD("按主题合并", "同一 issue/PR 的多条更新折叠"),
+    TWO_LEVEL("两级折叠", "仓库分组 + 主题合并"),
+}
+
+const val KEY_NOTIF_LAYOUT = "notif_layout"
+
+/** 读取通知显示模式（未设置默认 FLAT） */
+fun readNotifLayout(context: Context): NotifLayout {
+    val name = context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
+        .getString(KEY_NOTIF_LAYOUT, null) ?: return NotifLayout.FLAT
+    return NotifLayout.entries.firstOrNull { it.name == name } ?: NotifLayout.FLAT
+}
+
+/** 持久化通知显示模式 */
+fun writeNotifLayout(context: Context, layout: NotifLayout) {
+    context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
+        .edit().putString(KEY_NOTIF_LAYOUT, layout.name).apply()
 }

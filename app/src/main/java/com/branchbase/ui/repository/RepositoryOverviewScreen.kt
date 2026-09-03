@@ -94,11 +94,15 @@ fun RepositoryOverviewContent(
         effectiveBranch = branch ?: info?.defaultBranch ?: "main"
 
         // 2. README（html 字符串直接交 WebView 渲染）；branch 透传给 readme 接口；HTML 走 Room 缓存（type=README，key=owner/repo@branch）
+        // 注意：缓存 key 必须使用解析后的 effectiveBranch，而非可能为 null 的原始 branch。
+        // 否则默认分支首次加载会写入 key="owner/repo@"（空分支），而 branch 随后被解析为真实分支名
+        // （如 "main"）后，再次读取会拼出 key="owner/repo@main"，与已写入的 key 不相等，
+        // 导致 README 缓存永远无法命中、每次进入都重复拉取远端。
         val cacheManager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
-        val readmeKey = "$owner/$repo@${branch ?: ""}"
+        val readmeKey = "$owner/$repo@$effectiveBranch"
         var html = cacheManager.get(readmeKey, "README")
         if (html == null) {
-            html = RustBridge.readmeHtml(host, token, owner, repo, branch ?: "")
+            html = RustBridge.readmeHtml(host, token, owner, repo, effectiveBranch)
             if (html != null && !html.startsWith("ERROR:")) {
                 cacheManager.put(readmeKey, "README", html)
             }

@@ -68,6 +68,9 @@ import com.branchbase.BuildConfig
 import com.branchbase.R
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.notification.NotifLayout
+import com.branchbase.ui.notification.readNotifLayout
+import com.branchbase.ui.notification.writeNotifLayout
 import com.branchbase.ui.theme.LanguageColors
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.Dispatchers
@@ -91,6 +94,7 @@ enum class SubPage(val label: String) {
     LocalRepo("本地仓库"),
     About("关于"),
     Log("日志"),
+    NotificationSettings("通知设置"),
 }
 
 // ───────────────────────── 缓存机制（内存缓存 + TTL 过期） ─────────────────────────
@@ -469,7 +473,7 @@ internal enum class CommitMode(val label: String, val desc: String) {
 internal const val KEY_COMMIT_MODE = "commit_mode"
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onOpenLocalRepo: () -> Unit, onOpenAbout: () -> Unit, onOpenLog: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onOpenLocalRepo: () -> Unit, onOpenAbout: () -> Unit, onOpenLog: () -> Unit, onOpenNotificationSettings: () -> Unit) {
     LaunchedEffect(Unit) { Logger.ui("进入设置页", "Compose") }
     val context = LocalContext.current
     var mode by remember { mutableStateOf(commitMode(context)) } // CommitMode?，null = 未配置
@@ -498,9 +502,45 @@ fun SettingsScreen(onBack: () -> Unit, onOpenLocalRepo: () -> Unit, onOpenAbout:
         SettingsSectionTitle("其他")
         SettingsItem(Icons.Filled.AccountCircle, "账号")
         SettingsItem(Icons.Filled.Palette, "外观")
-        SettingsItem(Icons.Filled.Notifications, "通知")
+        SettingsItem(Icons.Filled.Notifications, "通知", onClick = onOpenNotificationSettings)
         SettingsItem(Icons.Filled.Info, "关于", onClick = onOpenAbout)
         SettingsItem(Icons.Filled.Build, "日志", onClick = onOpenLog)
+    }
+}
+
+/** 通知设置子页面：选择通知列表显示模式（4 种，默认平铺），持久化到 SharedPreferences。 */
+@Composable
+fun NotificationSettingsScreen(onBack: () -> Unit) {
+    LaunchedEffect(Unit) { Logger.ui("进入通知设置页", "Compose") }
+    val context = LocalContext.current
+    var layout by remember { mutableStateOf(readNotifLayout(context)) }
+
+    Column(
+        modifier = Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding(),
+    ) {
+        SubPageHeader("通知", onBack)
+
+        SettingsSectionTitle("通知显示模式")
+        NotifLayout.entries.forEach { l ->
+            ModeOptionRow(
+                label = l.label,
+                desc = l.desc,
+                selected = layout == l,
+                onClick = {
+                    layout = l
+                    writeNotifLayout(context, l)
+                },
+            )
+        }
+
+        SettingsSectionTitle("说明")
+        Text(
+            "选择通知列表的展示方式。\n「平铺」为默认：每条通知独立成卡；分组/合并/两级模式可将相关通知折叠，减少列表长度。",
+            fontSize = 12.sp,
+            color = Primer.TextTertiary,
+            lineHeight = 18.sp,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
     }
 }
 

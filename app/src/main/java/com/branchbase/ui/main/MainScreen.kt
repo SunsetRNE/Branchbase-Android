@@ -18,6 +18,7 @@ import com.branchbase.ui.navigation.BranchbaseNavigationBar
 import com.branchbase.ui.navigation.NavDestination
 import com.branchbase.ui.notification.NotificationScreen
 import com.branchbase.ui.notification.NotifTarget
+import com.branchbase.ui.notification.SecurityAlertScreen
 import com.branchbase.ui.profile.ProfileScreen
 import com.branchbase.ui.repository.RepoDeepLink
 import com.branchbase.ui.repository.RepoPage
@@ -39,6 +40,7 @@ fun MainScreen(
     var showProfile by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
     var showRepo by remember { mutableStateOf<RepoDeepLink?>(null) }
+    var showSecurity by remember { mutableStateOf<NotifTarget.Security?>(null) }
     var notifUnread by remember { mutableStateOf(0) }
 
     // 仓库详情页（点击仓库进入；通知深链接可直达详情子页）
@@ -52,6 +54,25 @@ fun MainScreen(
             onBack = { showRepo = null },
             onOpenRepo = { o, r -> showRepo = RepoDeepLink(o, r) },
             initial = currentRepo,
+        )
+        return
+    }
+
+    // 安全警报落地页（通知 Security 类型直达；提供「查看仓库」入口）
+    val currentSecurity = showSecurity
+    if (currentSecurity != null) {
+        BackHandler { showSecurity = null }
+        SecurityAlertScreen(
+            sessionJson = sessionJson,
+            owner = currentSecurity.owner,
+            repo = currentSecurity.repo,
+            title = currentSecurity.title,
+            subjectUrl = currentSecurity.subjectUrl,
+            onBack = { showSecurity = null },
+            onOpenRepo = {
+                showSecurity = null
+                showRepo = RepoDeepLink(currentSecurity.owner, currentSecurity.repo)
+            },
         )
         return
     }
@@ -109,7 +130,12 @@ fun MainScreen(
                 NavDestination.Explore -> Placeholder("探索（待接入）")
                 NavDestination.Notifications -> NotificationScreen(
                     sessionJson = sessionJson,
-                    onOpenTarget = { target -> showRepo = toDeepLink(target) },
+                    onOpenTarget = { target ->
+                        when (target) {
+                            is NotifTarget.Security -> showSecurity = target
+                            else -> showRepo = toDeepLink(target)
+                        }
+                    },
                     onUnreadCountChange = { notifUnread = it },
                 )
             }
@@ -124,12 +150,12 @@ private fun Placeholder(text: String) {
     }
 }
 
-/** 通知跳转目标 → 仓库深链接（MVP：CheckSuite 因 id 语义差异暂落到工作流 tab，Security 兜底 Overview） */
+/** 通知跳转目标 → 仓库深链接（MVP：CheckSuite/CheckRun 因 id 语义差异暂落到工作流 tab；WorkflowRun 已可直达 Run 详情） */
 private fun toDeepLink(t: NotifTarget): RepoDeepLink = when (t) {
     is NotifTarget.Issue -> RepoDeepLink(t.owner, t.repo, issueNumber = t.number)
     is NotifTarget.Pull -> RepoDeepLink(t.owner, t.repo, pullNumber = t.number)
     is NotifTarget.Commit -> RepoDeepLink(t.owner, t.repo, commitSha = t.sha)
-    is NotifTarget.Run -> RepoDeepLink(t.owner, t.repo, page = RepoPage.Workflows)
+    is NotifTarget.Run -> if (t.runId > 0) RepoDeepLink(t.owner, t.repo, runId = t.runId) else RepoDeepLink(t.owner, t.repo, page = RepoPage.Workflows)
     is NotifTarget.Security -> RepoDeepLink(t.owner, t.repo)
     is NotifTarget.Repo -> RepoDeepLink(t.owner, t.repo)
 }

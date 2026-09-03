@@ -32,11 +32,11 @@ class SearchCacheManager(private val dao: SearchCacheDao) {
         }
     }
 
-    /** 查询缓存（命中返回 data，未命中/已过期返回 null） */
+    /** 查询缓存（命中返回 data，未命中/已过期返回 null）；type 参与匹配，防止跨类型误命中 */
     suspend fun get(key: String, type: String): String? {
         val now = System.currentTimeMillis()
         dao.deleteExpired(now)
-        return dao.get(key, now)?.data
+        return dao.get(key, type, now)?.data
     }
 
     /** 写入缓存，并做 LRU 淘汰 */
