@@ -79,6 +79,7 @@ impl ApiClient {
             .header("Authorization", format!("token {}", self.token))
             .header("Accept", "application/json")
             .header("Content-Type", "application/json")
+            .header("User-Agent", "Branchbase/0.1")
             .body(body.to_string())
             .send()
             .await?;
@@ -99,6 +100,7 @@ impl ApiClient {
             .header("Authorization", format!("token {}", self.token))
             .header("Accept", "application/json")
             .header("Content-Type", "application/json")
+            .header("User-Agent", "Branchbase/0.1")
             .body(body.to_string())
             .send()
             .await?;
@@ -119,6 +121,7 @@ impl ApiClient {
             .header("Authorization", format!("token {}", self.token))
             .header("Accept", "application/json")
             .header("Content-Type", "application/json")
+            .header("User-Agent", "Branchbase/0.1")
             .body(body.to_string())
             .send()
             .await?;
@@ -138,6 +141,7 @@ impl ApiClient {
             .put(&url)
             .header("Authorization", format!("token {}", self.token))
             .header("Accept", "application/json")
+            .header("User-Agent", "Branchbase/0.1")
             .send()
             .await?;
         let status = resp.status();
@@ -156,6 +160,7 @@ impl ApiClient {
             .patch(&url)
             .header("Authorization", format!("token {}", self.token))
             .header("Accept", "application/json")
+            .header("User-Agent", "Branchbase/0.1")
             .send()
             .await?;
         let status = resp.status();
