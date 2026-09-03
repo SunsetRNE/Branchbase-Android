@@ -124,9 +124,20 @@ androidComponents {
 | 文件 | 作用 |
 |------|------|
 | `version.properties` | 工程版本号 / 版本码（手动维护） |
-| `app/build.gradle.kts` | 版本号标准化 + APK 命名 + 签名配置 |
+| `app/build.gradle.kts` | 版本号标准化（优先读环境变量注入）+ APK 命名 + 签名配置 |
 | `gradle/libs.versions.toml` | AGP / Kotlin / Compose 等依赖版本 |
-| `setup_android_env.sh` | 本地 proot 环境适配（gradle / aapt2 / sdk） |
-| `.github/workflows/build-beta.yml` | Beta 测试版构建（`.so` + APK → beta 分支 + pre-release） |
-| `.github/workflows/build-release.yml` | 正式版构建（Release APK → Release） |
+| `gradle/wrapper/gradle-wrapper.properties` | Gradle 9.1.0（distributionUrl 固定腾讯云镜像） |
+| `setup_android_env.sh` | 本地环境一键入口（委托 tools/env/ 三脚本，无镜像测速） |
+| `tools/env/env-detect.sh` | 环境判定（纯判定，JSON 输出，零副作用） |
+| `tools/env/env-prepare.sh` | 环境准备（预存资产 + 固定镜像，缺失才下载） |
+| `tools/env/env-persist.sh` | 环境持久化（~/.bashrc 追加一行 source env.rc） |
+| `tools/env/env.rc` | 环境变量（进仓库） |
+| `tools/env/mirrors.conf` | 固定镜像源 + cargo-ndk 锁定版本 |
+| `tools/gradle/` | Gradle 发行版 zip 预存目录（工作流检索·预存·命中，zip 不入库） |
+| `tools/build/build-core.sh` | 编译 Rust `.so`（本地 clang / CI cargo-ndk 自动切换） |
+| `tools/build/assemble.sh` | gradlew assemble，注入关键版本参数 |
+| `tools/build/warmup-aapt2.sh` | ARM64 AAPT2 替换后预热 |
+| `.github/actions/setup-branchbase-env/` | 远程 CI 环境准备 composite action |
+| `.github/workflows/build-beta.yml` | Beta 三步骤流水线（prepare→build→publish） |
+| `.github/workflows/build-release.yml` | 正式版三步骤流水线 |
 | `.github/workflows/build-core.yml` | Rust core 编译检查 + 单元测试 |

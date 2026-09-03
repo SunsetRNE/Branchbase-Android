@@ -33,6 +33,10 @@ local.properties
 # 官方 aapt2 二进制（由 setup_android_env.sh 在构建时下载/替换，不入库）
 /tools/aapt2/
 
+# Gradle 发行版 zip 预存目录（本地/CI 工作流自行检索·预存·命中，不入库上传）
+# 保留 .gitkeep 占位，仅忽略 zip 本体
+/tools/gradle/*.zip
+
 # 原型设计草图（HTML 草图，不入库）
 /design/
 /docs/

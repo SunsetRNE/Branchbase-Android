@@ -32,18 +32,20 @@ val engineeringVersion = versionProps.getProperty("versionName") ?: "1.0.0"
 val engineeringVersionCode = (versionProps.getProperty("versionCode") ?: "1").toIntOrNull() ?: 1
 
 // 构建时间（年月日-时分，固定 Asia/Shanghai 时区，避免本地与 CI 时区差异）
+// 优先读取 tools/build/assemble.sh 注入的环境变量，保证跨阶段版本参数一致
 fun buildTimestamp(): String =
-    LocalDateTime.now(ZoneId.of("Asia/Shanghai"))
+    System.getenv("BRANCHBASE_BUILD_TIME") ?: LocalDateTime.now(ZoneId.of("Asia/Shanghai"))
         .format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmm"))
 
-// 七位 git 哈希（回退 unknown）
-fun gitShortHash(): String = try {
-    ProcessBuilder("git", "rev-parse", "--short=7", "HEAD")
-        .directory(rootProject.projectDir)
-        .redirectErrorStream(true)
-        .start()
-        .inputStream.bufferedReader().readText().trim().ifBlank { "unknown" }
-} catch (e: Exception) { "unknown" }
+// 七位 git 哈希（优先读注入环境变量，回退运行时计算，再回退 unknown）
+fun gitShortHash(): String =
+    System.getenv("BRANCHBASE_GIT_HASH") ?: try {
+        ProcessBuilder("git", "rev-parse", "--short=7", "HEAD")
+            .directory(rootProject.projectDir)
+            .redirectErrorStream(true)
+            .start()
+            .inputStream.bufferedReader().readText().trim().ifBlank { "unknown" }
+    } catch (e: Exception) { "unknown" }
 
 val buildTime = buildTimestamp()
 val gitHash = gitShortHash()

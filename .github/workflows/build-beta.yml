@@ -1,15 +1,69 @@
 name: Build Beta (Debug)
 
-# Beta 测试版：push 代码到 main 自动触发，CI 内交叉编译 Rust .so + 打包 APK，
-# 发布为 pre-release（带 APK + 校验文件附件，pre-release 标记不占 Latest）。
+# Beta 测试版：三步骤流水线
+#   ① prepare —— 环境准备 / 检索资产 / 判定缓存命中（写缓存）
+#   ② build   —— 执行编译（编译 .so + assembleDebug），注入关键版本参数
+#   ③ publish —— 收集产物 / 类型判定发布（pre-release）/ 代码变更整合（提交 .so 到 beta 分支）
 on:
   workflow_dispatch:
   push:
     branches: [ main ]
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: 环境准备 / 检索资产 / 判定命中
+        uses: ./.github/actions/setup-branchbase-env
+        with:
+          gradle-cache-read-only: 'false'
+
   build:
     runs-on: ubuntu-latest
+    needs: prepare
+    permissions:
+      contents: read
+      actions: write
+    outputs:
+      versionName: ${{ steps.ver.outputs.versionName }}
+      versionCode: ${{ steps.ver.outputs.versionCode }}
+      gitHash: ${{ steps.ver.outputs.gitHash }}
+      buildTime: ${{ steps.ver.outputs.buildTime }}
+      standardVersion: ${{ steps.ver.outputs.standardVersion }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-branchbase-env
+        with:
+          gradle-cache-read-only: 'false'
+
+      - name: Inject client secret
+        run: echo "branchbase.client.secret=${{ secrets.BRANCHBASE_CLIENT_SECRET }}" >> local.properties
+
+      - name: Build Rust core (.so)
+        run: bash tools/build/build-core.sh --mode=ci
+
+      - name: Build Debug APK (注入版本参数)
+        id: ver
+        run: bash tools/build/assemble.sh assembleDebug
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: beta-artifacts
+          path: |
+            app/build/outputs/apk/debug/
+            app/src/main/jniLibs/arm64-v8a/libbranchbase_core.so
+          retention-days: 7
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: build
     permissions:
       contents: write
     steps:
@@ -17,79 +71,33 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-java@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
         with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android
-
-      - name: Install cargo-ndk
-        run: cargo install cargo-ndk
-
-      - name: Setup Android NDK
-        uses: android-actions/setup-android@v3
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('core/Cargo.lock') }}
-
-      - name: Cache Cargo build
-        uses: actions/cache@v4
-        with:
-          path: core/target
-          key: ${{ runner.os }}-cargo-target-${{ hashFiles('core/Cargo.lock') }}
-
-      - name: Read engineering version
-        id: ver
-        run: echo "ver=$(grep versionName version.properties | cut -d= -f2)" >> "$GITHUB_OUTPUT"
-
-      - name: Inject client secret
-        run: echo "branchbase.client.secret=${{ secrets.BRANCHBASE_CLIENT_SECRET }}" >> local.properties
-
-      - name: Build Rust core (.so)
-        run: |
-          cd core
-          cargo ndk -t arm64-v8a -o ../app/src/main/jniLibs build --release
-
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug
+          name: beta-artifacts
 
       - name: Generate signature file
         run: |
           mkdir -p verify
           rm -f verify/signature.txt
           echo "variant=beta" > verify/signature.txt
-          echo "version=${{ steps.ver.outputs.ver }}-$(TZ=Asia/Shanghai date +%Y%m%d-%H%M)-$(git rev-parse --short=7 HEAD)" >> verify/signature.txt
+          echo "version=${{ needs.build.outputs.standardVersion }}" >> verify/signature.txt
           echo "fingerprint=AC:AB:BC:09:9F:91:81:8B:58:C5:45:DD:7F:D6:4D:E5:E2:8D:13:31:9E:63:E6:E3:73:02:2B:BB:90:19:F3:DD" >> verify/signature.txt
 
-      - name: Commit artifacts to beta branch
+      - name: 代码变更整合（提交 .so + 校验到 beta 分支）
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -B beta
           git add -f verify/signature.txt app/src/main/jniLibs/arm64-v8a/libbranchbase_core.so
-          git commit -m "chore: 更新测试版校验配置与 .so v${{ steps.ver.outputs.ver }}" || echo "无变更"
+          git commit -m "chore: 更新测试版校验配置与 .so v${{ needs.build.outputs.versionName }}" || echo "无变更"
           git push origin beta --force || true
 
       - name: Generate beta tag
         id: tag
-        run: echo "tag=v${{ steps.ver.outputs.ver }}-$(TZ=Asia/Shanghai date +%Y%m%d-%H%M)-$(git rev-parse --short=7 HEAD)-beta" >> "$GITHUB_OUTPUT"
+        run: echo "tag=v${{ needs.build.outputs.standardVersion }}-beta" >> "$GITHUB_OUTPUT"
 
-      - name: Release Beta
+      - name: 类型判定发布（pre-release）
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
@@ -97,6 +105,7 @@ jobs:
           body: |
             🧪 Beta 测试版（Debug 签名）
             - 版本：`${{ steps.tag.outputs.tag }}`
+            - 标准版本号：`${{ needs.build.outputs.standardVersion }}`
           files: |
             app/build/outputs/apk/debug/*.apk
             verify/signature.txt

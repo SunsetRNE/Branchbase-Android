@@ -56,11 +56,21 @@ Branchbase/
 - Android SDK（compileSdk 35）
 - Rust 工具链（编译 `core/`）
 
-### ARM64 环境 AAPT2 替换
+### ARM64 环境一键准备（判定 → 准备 → 持久化，三脚本解耦）
 ```bash
 chmod +x ./setup_android_env.sh
-./setup_android_env.sh
+./setup_android_env.sh   # 委托 tools/env/ 下的三脚本，无镜像测速，预存资产 + 固定镜像
 ```
+
+环境脚本（`tools/env/`）：
+- `env-detect.sh`：纯判定（java/sdk/gradle/rust/aapt2），输出 JSON，零副作用
+- `env-prepare.sh`：缺失才下载（预存资产优先 + 固定镜像）
+- `env-persist.sh`：仅在 `~/.bashrc` 追加一行 `source tools/env/env.rc`
+
+编译脚本（`tools/build/`）：
+- `build-core.sh`：编译 Rust `.so`（本地 clang / CI cargo-ndk 自动切换）
+- `assemble.sh`：`gradlew assemble`，注入关键版本参数
+- `warmup-aapt2.sh`：ARM64 AAPT2 替换后预热（可选，首次编译前）
 
 ### Android APK
 ```bash
@@ -86,10 +96,19 @@ cargo build --release       # 生成 libbranchbase_core.so
 - 工程版本号：`version.properties` 手动维护（semver）
 - 标准版本号：构建时注入 `BuildConfig`（时间 + `git rev-parse --short=7`）
 
-## 🤖 CI/CD
+## 🤖 CI/CD（三步骤流水线）
 
-- `build-beta.yml`：push 到 `main` 触发，构建 Debug APK 发布为 pre-release
-- `build-release.yml`：push `v*` tag 触发，构建 Release APK 发布为正式版
+发行版编译（beta/release）统一为「环境准备 → 执行编译 → 发布」三步骤：
+
+| 步骤 | job | 职责 |
+|------|-----|------|
+| ① 环境准备/检索资产/判定命中 | `prepare` | 复用 `.github/actions/setup-branchbase-env`（Java/Rust/NDK/cargo-ndk@4.1.2/Gradle 缓存） |
+| ② 执行编译/注入版本参数 | `build` | `build-core.sh` 编 `.so` + `assemble.sh` 打包，注入版本参数并上传产物 |
+| ③ 收集/类型判定发布/代码整合 | `publish` | 判定 beta/release 类型，发布 Release + 整合代码变更 |
+
+- `build-beta.yml`：push 到 `main` 触发，三步骤构建 Debug APK 发布为 pre-release，`.so` 提交到 `beta` 分支
+- `build-release.yml`：`workflow_dispatch` 手动触发，三步骤构建 Release APK 发布为正式版
+- `build-core.yml`：Rust core 编译检查 + 单元测试（push/PR 触发，非发行编译）
 
 ## 📄 许可证
 

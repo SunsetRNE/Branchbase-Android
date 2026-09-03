@@ -1,0 +1,3 @@
+# 占位文件：本目录用于预存 Gradle 发行版 zip（本地 proot / CI 工作流自行检索·预存·命中）。
+# gradle-9.1.0-bin.zip 体积约 130MB，不通过 git 上传（见 .gitignore 的 /tools/gradle/*.zip）。
+# 工作流（env-prepare / prepare job）会检测此目录下的 zip 是否命中，未命中则从固定镜像下载预存。

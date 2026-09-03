@@ -1,0 +1,56 @@
+name: 'Setup Branchbase build environment'
+description: '远程 CI 环境准备：Java/Rust/NDK/cargo-ndk(锁定4.1.2)/Gradle缓存 + 资产检索命中'
+inputs:
+  gradle-cache-read-only:
+    description: 'Gradle 构建缓存只读（PR 场景避免写缓存）'
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+
+    - name: Setup Gradle (build cache + dependency cache)
+      uses: gradle/actions/setup-gradle@v4
+      with:
+        cache-read-only: ${{ inputs.gradle-cache-read-only }}
+
+    - name: Setup Rust (aarch64-linux-android)
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: aarch64-linux-android
+
+    - name: Install cargo-ndk (锁定 4.1.2，预编译下载)
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-ndk@4.1.2
+
+    - name: Setup Android SDK/NDK
+      uses: android-actions/setup-android@v3
+
+    - name: Cache Gradle distribution (tools/gradle 预存·命中)
+      uses: actions/cache@v4
+      with:
+        path: tools/gradle
+        key: ${{ runner.os }}-gradle-dist-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-dist-
+
+    - name: Cache Cargo registry
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('core/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-registry-
+
+    - name: Cache Cargo build
+      uses: actions/cache@v4
+      with:
+        path: core/target
+        key: ${{ runner.os }}-cargo-target-${{ hashFiles('core/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-target-
