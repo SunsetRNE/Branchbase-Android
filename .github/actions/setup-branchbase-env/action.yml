@@ -1,5 +1,5 @@
 name: 'Setup Branchbase build environment'
-description: '远程 CI 环境准备：Java/Rust/NDK/cargo-ndk(锁定4.1.2)/Gradle缓存 + 资产检索命中'
+description: '远程 CI 环境准备：Java/Rust/NDK/cargo-ndk(锁定4.1.2)/sccache/Gradle缓存 + 资产检索命中'
 inputs:
   gradle-cache-read-only:
     description: 'Gradle 构建缓存只读（PR 场景避免写缓存）'
@@ -27,6 +27,33 @@ runs:
       uses: taiki-e/install-action@v2
       with:
         tool: cargo-ndk@4.1.2
+
+    - name: Install sccache (Rust 编译缓存，预编译下载)
+      uses: taiki-e/install-action@v2
+      with:
+        tool: sccache
+
+    - name: Cache sccache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/sccache
+        key: ${{ runner.os }}-sccache-${{ hashFiles('core/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-sccache-
+
+    - name: Configure sccache
+      shell: bash
+      run: |
+        echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+        echo "SCCACHE_CACHE_SIZE=2G" >> "$GITHUB_ENV"
+
+    - name: Cache Android SDK/NDK
+      uses: actions/cache@v4
+      with:
+        path: ~/android-sdk
+        key: ${{ runner.os }}-android-sdk-v1
+        restore-keys: |
+          ${{ runner.os }}-android-sdk-
 
     - name: Setup Android SDK/NDK
       uses: android-actions/setup-android@v3

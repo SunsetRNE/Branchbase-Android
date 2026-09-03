@@ -49,7 +49,12 @@ echo "[assemble] versionName=$VERSION_NAME versionCode=$VERSION_CODE"
 echo "[assemble] standardVersion=$STANDARD_VERSION"
 
 # ── 执行编译 ──
-./gradlew "$TASK"
+# CI 里启用 AAPT2 daemon（本地 proot 需禁用，见 gradle.properties 的 android.aapt2.process.daemon=false）
+GRADLE_ARGS=()
+if [[ "${CI:-false}" == "true" || "${GITHUB_ACTIONS:-false}" == "true" ]]; then
+  GRADLE_ARGS+=("-Pandroid.aapt2.process.daemon=true")
+fi
+./gradlew "$TASK" "${GRADLE_ARGS[@]}"
 
 echo "[assemble] 完成 task=$TASK"
 echo "BRANCHBASE_STANDARD_VERSION=$STANDARD_VERSION"
