@@ -73,6 +73,15 @@ import com.branchbase.ui.notification.readNotifLayout
 import com.branchbase.ui.notification.writeNotifLayout
 import com.branchbase.ui.theme.LanguageColors
 import com.branchbase.ui.theme.Primer
+import com.branchbase.ui.decision.AuthorIdentityScreen
+import com.branchbase.ui.decision.DeleteRepoWarningScreen
+import com.branchbase.ui.decision.ForkDecisionScreen
+import com.branchbase.ui.decision.GitifyRollbackScreen
+import com.branchbase.ui.decision.StageCommitScreen
+import com.branchbase.ui.decision.StageFile
+import com.branchbase.ui.decision.UpstreamSetupScreen
+import com.branchbase.ui.decision.UndoCommitScreen
+import com.branchbase.ui.decision.parseGitStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -627,9 +636,22 @@ private fun SettingsItem(icon: ImageVector, name: String, onClick: () -> Unit = 
 
 // ───────────────────────── 本地仓库列表页 ─────────────────────────
 
+/** 本地仓库页内页面状态机（列表 / 各决策页）。 */
+private sealed interface LocalPage {
+    data object List : LocalPage
+    data class Fork(val name: String) : LocalPage
+    data class Undo(val name: String) : LocalPage
+    data class Upstream(val name: String) : LocalPage
+    data class Rollback(val name: String) : LocalPage
+    data class DeleteWarn(val name: String, val unpushed: kotlin.collections.List<com.branchbase.ui.decision.UnpushedCommit>) : LocalPage
+    data class Stage(val name: String) : LocalPage
+    data class Identity(val name: String, val message: String) : LocalPage
+}
+
 /**
  * 本地仓库列表页。每个仓库独立 Git（更新/删除），「＋拉取仓库」列出我的仓库并浅 clone。
  * clone 通过 `RustBridge.gitClone`（libgit2）。
+ * 决策收口（对齐 docs/decision-pages-gap.md）：pull/push 分叉 → Fork 页；删除升级警告；提交/撤销/上游/回退入口。
  */
 @Composable
 fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
@@ -642,6 +664,9 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
     val token = remember(sessionJson) {
         runCatching { JSONObject(sessionJson).optJSONObject("token")?.optString("access_token").orEmpty() }.getOrDefault("")
     }
+    val login = remember(sessionJson) {
+        runCatching { JSONObject(sessionJson).optJSONObject("user")?.optString("login").orEmpty() }.getOrDefault("")
+    }
 
     var myRepos by remember { mutableStateOf<List<RepoItem>>(emptyList()) }
     var showPicker by remember { mutableStateOf(false) }
@@ -649,6 +674,190 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
     var cloning by remember { mutableStateOf(false) }
     var feedback by remember { mutableStateOf<String?>(null) }
     var deleteTarget by remember { mutableStateOf<String?>(null) }
+
+    // 决策页状态机
+    var page by remember { mutableStateOf<LocalPage>(LocalPage.List) }
+
+    fun authorName() = context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
+        .getString("commit.author.name", "") ?: "Branchbase"
+
+    fun authorEmail() = context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
+        .getString("commit.author.email", "") ?: "branchbase@users.noreply.github.com"
+
+    fun dirOf(name: String) = File(repoRoot, name).absolutePath
+
+    /** pull 三态：成功 / 分叉（→ Fork 决策页）/ 失败。 */
+    fun doPull(name: String) {
+        scope.launch {
+            feedback = null
+            when (val r = withContext(Dispatchers.IO) { RustBridge.gitPullDetailed(dirOf(name), token) }) {
+                null -> feedback = "已更新 $name"
+                "nff" -> page = LocalPage.Fork(name)
+                else -> feedback = "更新失败：${r ?: "未知错误"}"
+            }
+        }
+    }
+
+    /** push 三态：无 upstream 先引导设置（P2-2），被拒 → Fork 决策页。 */
+    fun doPush(name: String) {
+        scope.launch {
+            feedback = null
+            val st = withContext(Dispatchers.IO) { RustBridge.gitStatus(dirOf(name))?.let { parseGitStatus(it) } }
+            if (st == null) { feedback = "无法读取仓库状态（引擎不可用）"; return@launch }
+            if (!st.hasUpstream) { page = LocalPage.Upstream(name); return@launch }
+            when (val r = withContext(Dispatchers.IO) { RustBridge.gitPushDetailed(dirOf(name), token, st.branch) }) {
+                null -> feedback = "已推送 $name"
+                "nff" -> page = LocalPage.Fork(name)
+                else -> feedback = "推送失败：${r ?: "未知错误"}"
+            }
+        }
+    }
+
+    /** 删除请求：ahead>0 时升级为独立确认页（P1-3），否则普通确认框。 */
+    fun doDeleteRequest(name: String) {
+        scope.launch {
+            val st = withContext(Dispatchers.IO) { RustBridge.gitStatus(dirOf(name))?.let { parseGitStatus(it) } }
+            if (st != null && st.ahead > 0) {
+                page = LocalPage.DeleteWarn(name, st.unpushed)
+            } else {
+                deleteTarget = name
+            }
+        }
+    }
+
+    /** 本地提交入口：工作区有改动才进暂存页（P0-2）。 */
+    fun doStageCommit(name: String) {
+        scope.launch {
+            val st = withContext(Dispatchers.IO) { RustBridge.gitStatus(dirOf(name))?.let { parseGitStatus(it) } }
+            if (st == null || st.dirty.isEmpty()) { feedback = "工作区没有改动可提交"; return@launch }
+            page = LocalPage.Stage(name)
+        }
+    }
+
+    /** 执行本地 git commit（identity 已就绪）。 */
+    fun doGitCommit(repoName: String, message: String) {
+        scope.launch {
+            val sha = withContext(Dispatchers.IO) {
+                RustBridge.gitCommit(dirOf(repoName), message, authorName(), authorEmail())
+            }
+            feedback = if (sha != null) "已提交（本地 git）" else "提交失败（引擎不可用）"
+            page = LocalPage.List
+        }
+    }
+
+    /** 提交前身份检查（P0-3：首次无签名时先配置）。 */
+    fun commitOrIdentity(name: String, message: String) {
+        val prefs = context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
+        if (prefs.getString("commit.author.name", null) == null || prefs.getString("commit.author.email", null) == null) {
+            page = LocalPage.Identity(name, message)
+        } else {
+            doGitCommit(name, message)
+        }
+    }
+
+    // ── 决策页分发 ──
+    when (val p = page) {
+        is LocalPage.Fork -> {
+            ForkDecisionScreen(
+                repoName = p.name,
+                repoDir = dirOf(p.name),
+                token = token,
+                onBack = { page = LocalPage.List },
+                onResolved = { msg -> feedback = msg; page = LocalPage.List },
+            )
+            return
+        }
+        is LocalPage.Undo -> {
+            UndoCommitScreen(
+                repoName = p.name,
+                repoDir = dirOf(p.name),
+                onBack = { page = LocalPage.List },
+                onResolved = { msg -> feedback = msg; page = LocalPage.List },
+            )
+            return
+        }
+        is LocalPage.Upstream -> {
+            UpstreamSetupScreen(
+                repoName = p.name,
+                repoDir = dirOf(p.name),
+                token = token,
+                onBack = { page = LocalPage.List },
+                onResolved = { msg, fork ->
+                    if (fork) page = LocalPage.Fork(p.name)
+                    else { feedback = msg; page = LocalPage.List }
+                },
+            )
+            return
+        }
+        is LocalPage.Rollback -> {
+            GitifyRollbackScreen(
+                repoName = p.name,
+                repoDir = dirOf(p.name),
+                onBack = { page = LocalPage.List },
+                onDeletedRepo = {
+                    scope.launch {
+                        val st = withContext(Dispatchers.IO) { RustBridge.gitStatus(dirOf(p.name))?.let { parseGitStatus(it) } }
+                        page = LocalPage.DeleteWarn(p.name, st?.unpushed ?: emptyList())
+                    }
+                },
+                onResolved = { msg -> feedback = msg; page = LocalPage.List },
+            )
+            return
+        }
+        is LocalPage.DeleteWarn -> {
+            DeleteRepoWarningScreen(
+                repoName = p.name,
+                unpushed = p.unpushed,
+                onBack = { page = LocalPage.List },
+                onPushFirst = {
+                    // 先推送再删：直接走 push（无 upstream 引导设置；被拒转分叉）
+                    page = LocalPage.List
+                    doPush(p.name)
+                },
+                onDelete = {
+                    scope.launch {
+                        File(repoRoot, p.name).deleteRecursively()
+                        repos = listLocalRepos(repoRoot)
+                        feedback = "已删除 ${p.name}"
+                        page = LocalPage.List
+                    }
+                },
+            )
+            return
+        }
+        is LocalPage.Stage -> {
+            var dirtyFiles by remember(p.name) { mutableStateOf<List<StageFile>>(emptyList()) }
+            LaunchedEffect(p.name) {
+                val st = withContext(Dispatchers.IO) { RustBridge.gitStatus(dirOf(p.name))?.let { parseGitStatus(it) } }
+                dirtyFiles = st?.dirty?.map { StageFile(it.path, it.status, checked = true) } ?: emptyList()
+            }
+            StageCommitScreen(
+                repoName = p.name,
+                files = dirtyFiles,
+                mode = CommitMode.LOCAL_REPO,
+                onBack = { page = LocalPage.List },
+                onPickMode = { /* 已由弹窗固化 */ },
+                onCommit = { message, _ -> commitOrIdentity(p.name, message) },
+            )
+            return
+        }
+        is LocalPage.Identity -> {
+            AuthorIdentityScreen(
+                suggestedName = login.ifBlank { "Branchbase" },
+                suggestedEmail = "${login.ifBlank { "branchbase" }}@users.noreply.github.com",
+                onBack = { page = LocalPage.List },
+                onConfirm = { name, email, save ->
+                    if (save) {
+                        context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
+                            .edit().putString("commit.author.name", name).putString("commit.author.email", email).apply()
+                    }
+                    doGitCommit(p.name, p.message)
+                },
+            )
+            return
+        }
+        is LocalPage.List -> Unit
+    }
 
     // 拉取我的仓库
     fun loadMyRepos() {
@@ -725,8 +934,13 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
                 items(repos) { name ->
                     LocalRepoRow(
                         name = name,
-                        onPull = { scope.launch { RustBridge.gitPull(File(repoRoot, name).absolutePath, token) } },
-                        onDelete = { deleteTarget = name },
+                        onPull = { doPull(name) },
+                        onPush = { doPush(name) },
+                        onCommit = { doStageCommit(name) },
+                        onUndo = { page = LocalPage.Undo(name) },
+                        onUpstream = { page = LocalPage.Upstream(name) },
+                        onRollback = { page = LocalPage.Rollback(name) },
+                        onDelete = { doDeleteRequest(name) },
                     )
                 }
             }
@@ -788,7 +1002,16 @@ private fun listLocalRepos(root: File): List<String> =
     root.listFiles()?.filter { it.isDirectory }?.map { it.name }?.sorted() ?: emptyList()
 
 @Composable
-private fun LocalRepoRow(name: String, onPull: () -> Unit, onDelete: () -> Unit) {
+private fun LocalRepoRow(
+    name: String,
+    onPull: () -> Unit,
+    onPush: () -> Unit,
+    onCommit: () -> Unit,
+    onUndo: () -> Unit,
+    onUpstream: () -> Unit,
+    onRollback: () -> Unit,
+    onDelete: () -> Unit,
+) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -799,8 +1022,16 @@ private fun LocalRepoRow(name: String, onPull: () -> Unit, onDelete: () -> Unit)
     ) {
         Text(name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
         Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             Text("更新", fontSize = 12.sp, color = Primer.Blue500, modifier = Modifier.clickable { onPull() })
+            Text("推送", fontSize = 12.sp, color = Primer.Blue500, modifier = Modifier.clickable { onPush() })
+            Text("提交", fontSize = 12.sp, color = Primer.Green500, modifier = Modifier.clickable { onCommit() })
+            Text("撤销", fontSize = 12.sp, color = Primer.TextSecondary, modifier = Modifier.clickable { onUndo() })
+        }
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text("上游", fontSize = 12.sp, color = Primer.TextSecondary, modifier = Modifier.clickable { onUpstream() })
+            Text("回退 Git 化", fontSize = 12.sp, color = Primer.TextSecondary, modifier = Modifier.clickable { onRollback() })
             Text("删除", fontSize = 12.sp, color = Primer.Red500, modifier = Modifier.clickable { onDelete() })
         }
     }

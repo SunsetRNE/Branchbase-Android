@@ -125,6 +125,22 @@ object RustBridge {
         branch: String
     ): String
 
+    // ── 决策页面支持（对齐 docs/decision-pages-gap.md §6） ──
+
+    private external fun nativeGitStatus(dir: String): String
+
+    private external fun nativeGitResetSoft(dir: String): String
+
+    private external fun nativeGitResetHardRemote(dir: String, branch: String): String
+
+    private external fun nativeGitAmend(dir: String, message: String): String
+
+    private external fun nativeGitRevert(dir: String, sha: String, message: String, authorName: String, authorEmail: String): String
+
+    private external fun nativeGitPushSetUpstream(dir: String, remoteUrl: String, branch: String, token: String): String
+
+    private external fun nativeScanSensitive(text: String): String
+
     // ── 高层 API（suspend，切 IO 线程） ──
 
     fun coreVersion(): String = nativeCoreVersion()
@@ -350,6 +366,35 @@ object RustBridge {
             !nativeGitPush(dir, token, branch).startsWith("ERROR:")
         }
 
+    /** pull 三态（决策页用）：null=成功、"nff"=本地与远端分叉、其他=失败原因。 */
+    suspend fun gitPullDetailed(dir: String, token: String = ""): String? = withContext(Dispatchers.IO) {
+        try {
+            val r = nativeGitPull(dir, token)
+            when {
+                r.isBlank() -> null
+                r.startsWith("ERROR:nff") -> "nff"
+                else -> r.removePrefix("ERROR:").take(80)
+            }
+        } catch (e: Throwable) {
+            "引擎不可用"
+        }
+    }
+
+    /** push 三态（决策页用）：null=成功、"nff"=远端领先被拒、其他=失败原因。 */
+    suspend fun gitPushDetailed(dir: String, token: String = "", branch: String = "main"): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                val r = nativeGitPush(dir, token, branch)
+                when {
+                    r.isBlank() -> null
+                    r.startsWith("ERROR:nff") -> "nff"
+                    else -> r.removePrefix("ERROR:").take(80)
+                }
+            } catch (e: Throwable) {
+                "引擎不可用"
+            }
+        }
+
     /** 拉取 latest release 的 signature.txt 校验文件内容（返回文本或 null）。 */
     suspend fun latestReleaseSignature(host: String, token: String, owner: String, repo: String): String? =
         withContext(Dispatchers.IO) {
@@ -383,5 +428,75 @@ object RustBridge {
         branch: String = ""
     ): String? = withContext(Dispatchers.IO) {
         nativePutContents(host, token, owner, repo, path, message, content, sha, branch).ifBlank { null }
+    }
+
+    // ── 决策页面支持（对齐 docs/decision-pages-gap.md §6；native 符号缺失时优雅降级） ──
+
+    /** 仓库状态（JSON：branch/ahead/behind/hasUpstream/remoteUrl/dirty/unpushed）。 */
+    suspend fun gitStatus(dir: String): String? = withContext(Dispatchers.IO) {
+        try {
+            nativeGitStatus(dir).takeIf { it.isNotBlank() && !it.startsWith("ERROR:") }
+        } catch (e: Throwable) {
+            null // .so 未重编译时优雅降级
+        }
+    }
+
+    /** 撤销最近一次提交保留改动（reset --soft HEAD~1）。 */
+    suspend fun gitResetSoft(dir: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            !nativeGitResetSoft(dir).startsWith("ERROR:")
+        } catch (e: Throwable) {
+            false
+        }
+    }
+
+    /** 放弃本地提交：reset --hard origin/{branch}（危险，UI 需二次确认）。 */
+    suspend fun gitResetHardRemote(dir: String, branch: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            !nativeGitResetHardRemote(dir, branch).startsWith("ERROR:")
+        } catch (e: Throwable) {
+            false
+        }
+    }
+
+    /** 修改最近一次提交信息（amend）。 */
+    suspend fun gitAmend(dir: String, message: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            !nativeGitAmend(dir, message).startsWith("ERROR:")
+        } catch (e: Throwable) {
+            false
+        }
+    }
+
+    /** 对已推送提交创建 revert 提交（返回新 sha 或 null）。 */
+    suspend fun gitRevert(dir: String, sha: String, message: String, authorName: String, authorEmail: String): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                nativeGitRevert(dir, sha, message, authorName, authorEmail).takeIf { it.isNotBlank() && !it.startsWith("ERROR:") }
+            } catch (e: Throwable) {
+                null
+            }
+        }
+
+    /** 首次 push：确保 origin + 推送 + 设置上游。返回 null=成功、"nff"=远端领先被拒、其他=失败原因。 */
+    suspend fun gitPushSetUpstream(dir: String, remoteUrl: String, branch: String, token: String = ""): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                val r = nativeGitPushSetUpstream(dir, remoteUrl, branch, token)
+                when {
+                    r.isBlank() -> null
+                    r.startsWith("ERROR:nff") -> "nff"
+                    else -> r.removePrefix("ERROR:").take(80)
+                }
+            } catch (e: Throwable) {
+                "引擎不可用"
+            }
+        }
+
+    /** 敏感信息本地扫描（返回 JSON 数组文本或 null）。 */
+    fun scanSensitive(text: String): String? = try {
+        nativeScanSensitive(text).takeIf { it.isNotBlank() && !it.startsWith("ERROR:") }
+    } catch (e: Throwable) {
+        null
     }
 }
