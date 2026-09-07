@@ -371,9 +371,12 @@ pub fn revert_commit(
         return Err(CoreError::Other("工作区有未提交改动，无法 revert".into()));
     }
 
-    let mut idx = repo
-        .revert(&commit, None)
+    // git2 0.18：revert 直接应用到工作区与索引，返回 ()；随后从索引取树
+    repo.revert(&commit, None)
         .map_err(|e| CoreError::Other(format!("revert 失败: {e}")))?;
+    let mut idx = repo
+        .index()
+        .map_err(|e| CoreError::Other(format!("读取索引失败: {e}")))?;
     let tree_id = idx
         .write_tree()
         .map_err(|e| CoreError::Other(format!("写树失败: {e}")))?;
