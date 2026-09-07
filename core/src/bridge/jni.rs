@@ -864,3 +864,119 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeMarkAllNotifica
 
     into_jstring(&mut env, result)
 }
+// ── 决策页面支持（对齐 docs/decision-pages-gap.md §6） ──
+
+/// 仓库状态（返回 JSON；ERROR:=失败）
+/// 参数：dir
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitStatus<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let result: crate::error::Result<String> = crate::git::repo_status(&dir);
+    into_jstring(&mut env, result)
+}
+
+/// reset --soft HEAD~1（返回空串=成功）
+/// 参数：dir
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitResetSoft<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let result: crate::error::Result<String> =
+        crate::git::reset_soft(&dir).map(|_| String::new());
+    into_jstring(&mut env, result)
+}
+
+/// reset --hard origin/{branch}（返回空串=成功；危险操作，UI 需二次确认）
+/// 参数：dir, branch
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitResetHardRemote<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+    branch: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let branch = jstr(&mut env, &branch);
+    let result: crate::error::Result<String> =
+        crate::git::reset_hard_to_remote(&dir, &branch).map(|_| String::new());
+    into_jstring(&mut env, result)
+}
+
+/// 修改最近一次提交信息（amend，返回空串=成功）
+/// 参数：dir, message
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitAmend<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+    message: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let message = jstr(&mut env, &message);
+    let result: crate::error::Result<String> =
+        crate::git::amend_message(&dir, &message).map(|_| String::new());
+    into_jstring(&mut env, result)
+}
+
+/// 对已推送提交创建 revert 提交（返回新 sha）
+/// 参数：dir, sha, message, authorName, authorEmail
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitRevert<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+    sha: JString<'local>,
+    message: JString<'local>,
+    author_name: JString<'local>,
+    author_email: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let sha = jstr(&mut env, &sha);
+    let message = jstr(&mut env, &message);
+    let author_name = jstr(&mut env, &author_name);
+    let author_email = jstr(&mut env, &author_email);
+    let result: crate::error::Result<String> =
+        crate::git::revert_commit(&dir, &sha, &message, &author_name, &author_email);
+    into_jstring(&mut env, result)
+}
+
+/// 首次 push：确保 origin + 推送 + 设置上游（返回空串=成功；ERROR:nff:=远端领先被拒）
+/// 参数：dir, remoteUrl, branch, token(可空)
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitPushSetUpstream<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+    remote_url: JString<'local>,
+    branch: JString<'local>,
+    token: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let remote_url = jstr(&mut env, &remote_url);
+    let branch = jstr(&mut env, &branch);
+    let token = jstr(&mut env, &token);
+    let token_opt = if token.is_empty() { None } else { Some(token.as_str()) };
+    let result: crate::error::Result<String> =
+        crate::git::push_set_upstream(&dir, &remote_url, &branch, token_opt).map(|_| String::new());
+    into_jstring(&mut env, result)
+}
+
+/// 敏感信息本地扫描（返回 JSON 数组 [{line,kind,mask}]；不上传任何内容）
+/// 参数：text
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeScanSensitive<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    text: JString<'local>,
+) -> jstring {
+    let text = jstr(&mut env, &text);
+    let result: crate::error::Result<String> = crate::git::scan_sensitive(&text);
+    into_jstring(&mut env, result)
+}
