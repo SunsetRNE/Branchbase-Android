@@ -526,8 +526,19 @@ pub fn init_ssl_certs(dir: &str) -> Result<()> {
             .map_err(|e| CoreError::Other(format!("写证书失败: {e}")))?;
     }
 
-    // libgit2 全局注入 CA 位置（file=证书文件, dir=空）
-    git2::opts::set_ssl_cert_locations(&path, std::path::Path::new(""))
-        .map_err(|e| CoreError::Other(format!("注入 CA 失败: {e}")))?;
+    // libgit2 全局注入 CA 位置（git2-rs 0.18 移除了 opts::set_ssl_cert_locations，
+    // 直接经 libgit2-sys 调用 C API：GIT_OPT_SET_SSL_CERT_LOCATIONS(file, path)）
+    let c_path = std::ffi::CString::new(path.to_string_lossy().as_bytes())
+        .map_err(|e| CoreError::Other(format!("构造路径失败: {e}")))?;
+    unsafe {
+        let ret = libgit2_sys::git_libgit2_opts(
+            libgit2_sys::GIT_OPT_SET_SSL_CERT_LOCATIONS as std::os::raw::c_int,
+            c_path.as_ptr(),
+            std::ptr::null::<std::os::raw::c_char>(),
+        );
+        if ret < 0 {
+            return Err(CoreError::Other(format!("注入 CA 失败（libgit2 返回 {ret}）")));
+        }
+    }
     Ok(())
 }
