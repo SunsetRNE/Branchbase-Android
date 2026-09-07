@@ -30,6 +30,7 @@ sha2 = "0.10"
 base64 = "0.22"
 
 # Git 工具包（libgit2 绑定）：clone / pull（HTTPS 走 vendored OpenSSL，供 Android 交叉编译）
+openssl = "0.10"
 git2 = { version = "0.18", default-features = false, features = ["https", "vendored-libgit2", "vendored-openssl"] }
 
 [profile.release]

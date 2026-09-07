@@ -27,7 +27,7 @@ pub fn clone_repo(url: &str, into: &str, branch: Option<&str>, token: Option<&st
     }
 
     let mut fo = FetchOptions::new();
-    fo.remote_callbacks(callbacks).depth(1); // 浅 clone，减体积
+    fo.certificate_check(check_cert).remote_callbacks(callbacks).depth(1); // 浅 clone，减体积
 
     let mut builder = RepoBuilder::new();
     builder.fetch_options(fo);
@@ -60,7 +60,7 @@ pub fn pull_repo(dir: &str, token: Option<&str>) -> Result<()> {
     }
 
     let mut fo = FetchOptions::new();
-    fo.remote_callbacks(callbacks);
+    fo.certificate_check(check_cert).remote_callbacks(callbacks);
     remote
         .fetch(&["refs/heads/*:refs/remotes/origin/*"], Some(&mut fo), None)
         .map_err(|e| CoreError::Other(format!("fetch 失败: {e}")))?;
@@ -156,13 +156,105 @@ pub fn push_repo(dir: &str, token: Option<&str>, branch: &str) -> Result<()> {
     }
 
     let mut opts = PushOptions::new();
-    opts.remote_callbacks(callbacks);
+    opts.certificate_check(check_cert).remote_callbacks(callbacks);
     let refspec = format!("refs/heads/{branch}:refs/heads/{branch}");
     remote
         .push(&[&refspec], Some(&mut opts))
         .map_err(|e| CoreError::Other(format!("push 失败: {e}")))?;
     Ok(())
 }
+// ── HTTPS 证书验证（Android 无 OpenSSL 兼容 CA 路径，自验证书链） ──
+
+use std::sync::OnceLock;
+use openssl::nid::Nid;
+use openssl::x509::X509;
+
+/// 内置 Mozilla CA bundle 解析（一次性，include_bytes 打包）
+static CA_CERTS: OnceLock<Vec<X509>> = OnceLock::new();
+
+fn ca_certs() -> &'static Vec<X509> {
+    CA_CERTS.get_or_init(|| {
+        let bundle = include_bytes!("../certs/cacert.pem");
+        X509::stack_from_pem(bundle).unwrap_or_default()
+    })
+}
+
+/// 通配符域名匹配（*.github.com）
+fn dns_matches(pattern: &str, host: &str) -> bool {
+    if let Some(rest) = pattern.strip_prefix("*.") {
+        let head_len = host.len().saturating_sub(rest.len());
+        head_len > 0
+            && host.ends_with(rest)
+            && !host[..head_len.saturating_sub(1)].contains('.')
+    } else {
+        pattern == host
+    }
+}
+
+/// 主机名校验：SAN（优先）→ CN 兜底
+fn hostname_matches(leaf: &X509, host: &str) -> bool {
+    let host = host.trim_end_matches('.').to_lowercase();
+    if let Some(names) = leaf.subject_alt_names() {
+        for n in names {
+            if let Some(dns) = n.dnsname() {
+                if dns_matches(&dns.to_lowercase(), &host) {
+                    return true;
+                }
+            }
+        }
+    }
+    for e in leaf.subject_name().entries_by_nid(Nid::COMMONNAME) {
+        if let Ok(cn) = e.data().as_utf8() {
+            if dns_matches(&cn.to_string().to_lowercase(), &host) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// 用内置 bundle 验证证书链：逐级找 issuer、验签名，走到自签名根即通过
+fn verify_cert_chain(leaf: &X509) -> bool {
+    let certs = ca_certs();
+    let mut current = leaf.clone();
+    for _ in 0..8 {
+        let issuer_name = current.issuer_name();
+        let Some(ca) = certs.iter().find(|c| c.subject_name() == issuer_name) else {
+            return false;
+        };
+        let Ok(pubkey) = ca.public_key() else {
+            return false;
+        };
+        if current.verify(&pubkey).is_err() {
+            return false;
+        }
+        if ca.subject_name() == ca.issuer_name() {
+            return true; // 自签名根，链走通
+        }
+        current = ca.clone();
+    }
+    false
+}
+
+/// libgit2 certificate_check 回调：验证通过 → Ok；否则交还 libgit2（其 openssl 后端会失败，
+/// 不会静默放行不安全的连接）
+fn check_cert(
+    cert: &git2::Cert<'_>,
+    host: &str,
+) -> Result<git2::CertificateCheckStatus, git2::Error> {
+    let Some(x509_cert) = cert.as_x509() else {
+        return Ok(git2::CertificateCheckStatus::CertificatePassthrough);
+    };
+    let Ok(leaf) = X509::from_der(x509_cert.data()) else {
+        return Ok(git2::CertificateCheckStatus::CertificatePassthrough);
+    };
+    if hostname_matches(&leaf, host) && verify_cert_chain(&leaf) {
+        Ok(git2::CertificateCheckStatus::CertificateOk)
+    } else {
+        Ok(git2::CertificateCheckStatus::CertificatePassthrough)
+    }
+}
+
 // ── 决策页面支持 API（对齐 docs/decision-pages-gap.md §6） ──
 
 use serde_json::json;
@@ -426,7 +518,7 @@ pub fn push_set_upstream(
     }
 
     let mut opts = PushOptions::new();
-    opts.remote_callbacks(callbacks);
+    opts.certificate_check(check_cert).remote_callbacks(callbacks);
     let refspec = format!("refs/heads/{branch}:refs/heads/{branch}");
     remote
         .push(&[&refspec], Some(&mut opts))
@@ -542,5 +634,7 @@ pub fn init_ssl_certs(dir: &str) -> Result<()> {
             .map_err(|e| CoreError::Other(format!("写 gitconfig 失败: {e}")))?;
     }
     std::env::set_var("GIT_CONFIG_GLOBAL", &cfg_path);
+    // 双保险：OpenSSL 默认验证路径也会读 SSL_CERT_FILE（若 libgit2 走 openssl 默认路径）
+    std::env::set_var("SSL_CERT_FILE", &path);
     Ok(())
 }
