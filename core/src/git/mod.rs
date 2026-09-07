@@ -501,3 +501,33 @@ pub fn scan_sensitive(text: &str) -> Result<String> {
 
     Ok(serde_json::to_string(&hits).map_err(|e| CoreError::Json(e))?)
 }
+
+/// 初始化 TLS 证书信任：把内置 Mozilla CA bundle 写入 {dir}/branchbase-cacert.pem，
+/// 并注入 libgit2（openssl 后端）。Android 系统无 OpenSSL 兼容的 CA 路径，必须自备。
+/// 全局生效一次，供 clone/pull/push 所有 HTTPS 连接使用。
+pub fn init_ssl_certs(dir: &str) -> Result<()> {
+    use std::io::Write;
+
+    let bundle: &[u8] = include_bytes!("../certs/cacert.pem");
+    let path = std::path::Path::new(dir).join("branchbase-cacert.pem");
+    // 内容一致则跳过写入（幂等）
+    let need_write = match std::fs::read(&path) {
+        Ok(existing) => existing != bundle,
+        Err(_) => true,
+    };
+    if need_write {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| CoreError::Other(format!("创建证书目录失败: {e}")))?;
+        }
+        let mut f = std::fs::File::create(&path)
+            .map_err(|e| CoreError::Other(format!("写证书文件失败: {e}")))?;
+        f.write_all(bundle)
+            .map_err(|e| CoreError::Other(format!("写证书失败: {e}")))?;
+    }
+
+    // libgit2 全局注入 CA 位置（file=证书文件, dir=空）
+    git2::opts::set_ssl_cert_locations(&path, std::path::Path::new(""))
+        .map_err(|e| CoreError::Other(format!("注入 CA 失败: {e}")))?;
+    Ok(())
+}

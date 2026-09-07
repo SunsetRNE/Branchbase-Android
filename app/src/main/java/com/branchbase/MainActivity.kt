@@ -3,6 +3,7 @@ package com.branchbase
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import com.branchbase.core.RustBridge
 import com.branchbase.ui.auth.LoginFlow
 import com.branchbase.ui.log.LogManager
 import com.branchbase.ui.log.Logger
@@ -28,6 +29,13 @@ class MainActivity : ComponentActivity() {
         // 初始化日志管理器（FileAppender 持久化到 branchbase.log）
         LogManager.init(applicationContext)
         Logger.ui("App 启动", "System")
+
+        // 初始化 git 引擎 TLS 证书信任（后台线程；Android 无 OpenSSL 兼容 CA 路径，
+        // clone/pull/push 的 HTTPS 依赖此初始化，失败只记日志不阻塞启动）
+        Thread {
+            val ok = RustBridge.gitInitSsl(cacheDir.absolutePath)
+            Logger.ui(if (ok) "git TLS 证书初始化完成" else "git TLS 证书初始化失败", "SSL")
+        }.start()
 
         // 解析 OAuth 深链回调
         handleDeepLink(intent)

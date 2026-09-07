@@ -141,6 +141,8 @@ object RustBridge {
 
     private external fun nativeScanSensitive(text: String): String
 
+    private external fun nativeGitInitSsl(dir: String): String
+
     // ── 高层 API（suspend，切 IO 线程） ──
 
     fun coreVersion(): String = nativeCoreVersion()
@@ -509,5 +511,16 @@ object RustBridge {
         nativeScanSensitive(text).takeIf { it.isNotBlank() && !it.startsWith("ERROR:") }
     } catch (e: Throwable) {
         null
+    }
+
+    /**
+     * 初始化 TLS 证书信任（App 启动调用一次，应在后台线程执行）。
+     * 把内置 Mozilla CA bundle 写入 {dir}/branchbase-cacert.pem 并注入 libgit2
+     * （Android 系统无 OpenSSL 兼容 CA 路径，git clone/pull/push 依赖此初始化）。
+     */
+    fun gitInitSsl(dir: String): Boolean = try {
+        !nativeGitInitSsl(dir).startsWith("ERROR:")
+    } catch (e: Throwable) {
+        false // .so 未重编译时优雅降级
     }
 }

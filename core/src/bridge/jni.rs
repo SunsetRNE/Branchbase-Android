@@ -980,3 +980,17 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeScanSensitive<'
     let result: crate::error::Result<String> = crate::git::scan_sensitive(&text);
     into_jstring(&mut env, result)
 }
+
+/// 初始化 TLS 证书信任（返回空串=成功；ERROR:=失败）
+/// 参数：dir（可写目录，如 App cacheDir）
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitInitSsl<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let result: crate::error::Result<String> =
+        crate::git::init_ssl_certs(&dir).map(|_| String::new());
+    into_jstring(&mut env, result)
+}
