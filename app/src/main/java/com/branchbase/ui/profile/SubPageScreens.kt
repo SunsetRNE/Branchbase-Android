@@ -873,6 +873,11 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
     // clone 一个仓库
     fun doClone(fullName: String, name: String) {
         showPicker = false
+        // repos 根目录必须存在（libgit2 clone 不会自动创建父目录）
+        if (!repoRoot.exists() && !repoRoot.mkdirs()) {
+            feedback = "无法创建本地仓库目录"
+            return
+        }
         val target = File(repoRoot, name)
         if (target.exists()) {
             feedback = "「$name」已存在"
@@ -881,10 +886,10 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
         scope.launch {
             cloning = true
             feedback = null
-            val ok = RustBridge.gitClone("https://github.com/$fullName", target.absolutePath, "", token)
-            Logger.remote(if (ok) "git clone $fullName 完成" else "git clone $fullName 失败", "libgit2")
+            val error = RustBridge.gitCloneDetailed("https://github.com/$fullName", target.absolutePath, "", token)
+            Logger.remote(if (error == null) "git clone $fullName 完成" else "git clone $fullName 失败：$error", "libgit2")
             cloning = false
-            feedback = if (ok) "已拉取 $name" else "拉取失败"
+            feedback = if (error == null) "已拉取 $name" else "拉取失败：$error"
             repos = listLocalRepos(repoRoot)
         }
     }

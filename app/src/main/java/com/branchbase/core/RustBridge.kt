@@ -348,6 +348,17 @@ object RustBridge {
             !nativeGitClone(url, into, branch, token).startsWith("ERROR:")
         }
 
+    /** clone 三态（决策页/反馈用）：null=成功，其他=具体失败原因（透出 ERROR: 后文本）。 */
+    suspend fun gitCloneDetailed(url: String, into: String, branch: String = "", token: String = ""): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                val r = nativeGitClone(url, into, branch, token)
+                if (r.isBlank()) null else r.removePrefix("ERROR:").take(120)
+            } catch (e: Throwable) {
+                "引擎不可用"
+            }
+        }
+
     /** pull（fetch + fast-forward）本地仓库（返回是否成功）。 */
     suspend fun gitPull(dir: String, token: String = ""): Boolean =
         withContext(Dispatchers.IO) {
