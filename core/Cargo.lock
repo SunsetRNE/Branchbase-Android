@@ -36,7 +36,6 @@ dependencies = [
  "base64",
  "git2",
  "jni",
- "libgit2-sys",
  "rand 0.8.8",
  "reqwest",
  "serde",

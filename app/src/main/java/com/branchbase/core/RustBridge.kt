@@ -514,9 +514,10 @@ object RustBridge {
     }
 
     /**
-     * 初始化 TLS 证书信任（App 启动调用一次，应在后台线程执行）。
-     * 把内置 Mozilla CA bundle 写入 {dir}/branchbase-cacert.pem 并注入 libgit2
-     * （Android 系统无 OpenSSL 兼容 CA 路径，git clone/pull/push 依赖此初始化）。
+     * 初始化 git 引擎 TLS 证书信任（App 启动时调用一次，主线程安全：仅文件写 + 环境变量）。
+     * 把内置 Mozilla CA bundle 写入 {dir}/branchbase-cacert.pem，写入
+     * {dir}/branchbase-gitconfig（[http] sslCAInfo）并设 GIT_CONFIG_GLOBAL 环境变量；
+     * clone/pull/push 建立 HTTPS 连接时由 libgit2 读取。不触碰 libgit2 API。
      */
     fun gitInitSsl(dir: String): Boolean = try {
         !nativeGitInitSsl(dir).startsWith("ERROR:")

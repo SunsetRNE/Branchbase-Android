@@ -24,7 +24,6 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
 
 # 错误处理 & 工具
 thiserror = "1"
-libgit2-sys = { version = "0.16.2", default-features = false }
 url = "2"
 rand = "0.8"
 sha2 = "0.10"

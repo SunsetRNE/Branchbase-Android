@@ -526,19 +526,21 @@ pub fn init_ssl_certs(dir: &str) -> Result<()> {
             .map_err(|e| CoreError::Other(format!("写证书失败: {e}")))?;
     }
 
-    // libgit2 全局注入 CA 位置（git2-rs 0.18 移除了 opts::set_ssl_cert_locations，
-    // 直接经 libgit2-sys 调用 C API：GIT_OPT_SET_SSL_CERT_LOCATIONS(file, path)）
-    let c_path = std::ffi::CString::new(path.to_string_lossy().as_bytes())
-        .map_err(|e| CoreError::Other(format!("构造路径失败: {e}")))?;
-    unsafe {
-        let ret = libgit2_sys::git_libgit2_opts(
-            libgit2_sys::GIT_OPT_SET_SSL_CERT_LOCATIONS as std::os::raw::c_int,
-            c_path.as_ptr(),
-            std::ptr::null::<std::os::raw::c_char>(),
-        );
-        if ret < 0 {
-            return Err(CoreError::Other(format!("注入 CA 失败（libgit2 返回 {ret}）")));
-        }
+    // 不直接调用 libgit2 API（冷启动期 libgit2/OpenSSL 未初始化，git_libgit2_opts
+    // 会空指针崩溃）。改用 libgit2 官方配置键 http.sslCAInfo：
+    //   1. 写全局 gitconfig 文件（[http] sslCAInfo = bundle 路径）
+    //   2. 设 GIT_CONFIG_GLOBAL 环境变量指向它（libgit2 读 global config 时遵循）
+    // 证书在首次 clone/pull/push 建立 HTTPS 连接时由已初始化的 OpenSSL 加载。
+    let cfg_path = std::path::Path::new(dir).join("branchbase-gitconfig");
+    let cfg_content = format!("[http]\n\tsslCAInfo = {}\n", path.display());
+    let need_write_cfg = match std::fs::read_to_string(&cfg_path) {
+        Ok(existing) => existing != cfg_content,
+        Err(_) => true,
+    };
+    if need_write_cfg {
+        std::fs::write(&cfg_path, cfg_content)
+            .map_err(|e| CoreError::Other(format!("写 gitconfig 失败: {e}")))?;
     }
+    std::env::set_var("GIT_CONFIG_GLOBAL", &cfg_path);
     Ok(())
 }

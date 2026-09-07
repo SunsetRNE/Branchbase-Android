@@ -30,12 +30,10 @@ class MainActivity : ComponentActivity() {
         LogManager.init(applicationContext)
         Logger.ui("App 启动", "System")
 
-        // 初始化 git 引擎 TLS 证书信任（后台线程；Android 无 OpenSSL 兼容 CA 路径，
-        // clone/pull/push 的 HTTPS 依赖此初始化，失败只记日志不阻塞启动）
-        Thread {
-            val ok = RustBridge.gitInitSsl(cacheDir.absolutePath)
-            Logger.ui(if (ok) "git TLS 证书初始化完成" else "git TLS 证书初始化失败", "SSL")
-        }.start()
+        // 初始化 git 引擎 TLS 证书信任（主线程同步：仅写文件 + 设环境变量，
+        // 不触碰 libgit2；避免后台线程竞态与冷启动期 native 调用）
+        val sslOk = RustBridge.gitInitSsl(cacheDir.absolutePath)
+        Logger.ui(if (sslOk) "git TLS 证书初始化完成" else "git TLS 证书初始化失败", "SSL")
 
         // 解析 OAuth 深链回调
         handleDeepLink(intent)
