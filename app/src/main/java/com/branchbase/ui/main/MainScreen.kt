@@ -126,6 +126,7 @@ fun MainScreen(
                         val parts = fullName.split("/")
                         if (parts.size >= 2) showRepo = RepoDeepLink(parts[0], parts[1])
                     },
+                    onOpenNotifications = { selected = NavDestination.Notifications },
                 )
                 NavDestination.Explore -> Placeholder("探索（待接入）")
                 NavDestination.Notifications -> NotificationScreen(

@@ -2,6 +2,7 @@ package com.branchbase.ui.home
 
 import android.content.Context
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,9 +26,11 @@ import androidx.compose.material.icons.filled.CallSplit
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -50,6 +53,8 @@ import coil.compose.AsyncImage
 import com.branchbase.core.AccountStore
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.theme.Avatar
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import com.branchbase.ui.theme.Primer
 import org.json.JSONObject
@@ -65,6 +70,7 @@ fun HomeScreen(
     onProfileClick: () -> Unit,
     onSearchClick: () -> Unit,
     onRepoClick: (String) -> Unit = {},
+    onOpenNotifications: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val user = runCatching { JSONObject(sessionJson).getJSONObject("user") }.getOrNull()
@@ -111,9 +117,31 @@ fun HomeScreen(
         }
     }
 
+    // 首页仪表盘数据（对齐 design/home-redesign-prototype.html）
+    var unreadNotifs by remember { mutableStateOf(0) }
+    var reviewRequests by remember { mutableStateOf(0) }
+    var assignedIssues by remember { mutableStateOf(0) }
+    var runningTasks by remember { mutableStateOf<List<com.branchbase.ui.task.TaskRecord>>(emptyList()) }
+
     LaunchedEffect(Unit) {
         loadStarred(false)
         loadEvents(false)
+        // 待处理三件套（都是轻量请求，失败静默为 0，不打扰首页）
+        unreadNotifs = withContext(Dispatchers.IO) {
+            RustBridge.getJson(host, token, "/notifications?per_page=100")
+                ?.let { runCatching { org.json.JSONArray(it).length() }.getOrDefault(0) } ?: 0
+        }
+        reviewRequests = withContext(Dispatchers.IO) {
+            RustBridge.searchIssues(host, token, "review-requested:@me state:open type:pr")
+                ?.let { runCatching { org.json.JSONObject(it).optInt("total_count", 0) }.getOrDefault(0) } ?: 0
+        }
+        assignedIssues = withContext(Dispatchers.IO) {
+            RustBridge.searchIssues(host, token, "assignee:@me state:open")
+                ?.let { runCatching { org.json.JSONObject(it).optInt("total_count", 0) }.getOrDefault(0) } ?: 0
+        }
+        // 进行中任务：本地 Room，零网络请求
+        runningTasks = com.branchbase.ui.task.TaskStore.list(context)
+            .filter { it.status == com.branchbase.ui.task.TaskStatus.RUNNING }
     }
 
     Column(
@@ -124,19 +152,41 @@ fun HomeScreen(
         // 顶部：搜索栏 + 头像
         SearchBarRow(login = login, avatarUrl = avatarUrl, onProfileClick = onProfileClick, onSearchClick = onSearchClick)
 
-        // 内容：分区块列表
+        // 内容：仪表盘式分区（待处理 → 进行中 → 常用 → 浏览）
         LazyColumn(modifier = Modifier.fillMaxSize()) {
-            item { ShortcutRow() }
+            item { GreetingRow(login) }
+
+            // ① 待处理：需要你动手的
+            item { SectionHeader("待处理", Icons.Filled.Notifications) }
             item {
-                SectionHeader("我的星标", Icons.Filled.Star) {
+                TodoCard(
+                    unread = unreadNotifs,
+                    reviews = reviewRequests,
+                    assigned = assignedIssues,
+                    onOpenNotifications = onOpenNotifications,
+                    onOpenSearch = onSearchClick,
+                )
+            }
+
+            // ② 进行中：本地任务（零网络）
+            if (runningTasks.isNotEmpty()) {
+                item { SectionHeader("进行中", Icons.Filled.Timeline) }
+                item { RunningTasksCard(runningTasks) }
+            }
+
+            // ③ 常用仓库（星标，最多 5 个）
+            item {
+                SectionHeader("常用仓库", Icons.Filled.Star) {
                     scope.launch { loadStarred(true) }
                 }
             }
             if (repos.isEmpty()) {
                 item { EmptyState("暂无星标仓库") }
             } else {
-                items(repos) { repo -> RepoCard(repo, onClick = { onRepoClick(repo.fullName) }) }
+                items(repos.take(5)) { repo -> RepoCard(repo, onClick = { onRepoClick(repo.fullName) }) }
             }
+
+            // ④ 最近活动（只留 3 条，完整列表在个人主页的动态页）
             item {
                 SectionHeader("最近活动", Icons.Filled.History) {
                     scope.launch { loadEvents(true) }
@@ -145,7 +195,7 @@ fun HomeScreen(
             if (events.isEmpty()) {
                 item { EmptyState("暂无最近活动") }
             } else {
-                items(events) { act -> ActivityItem(act) }
+                items(events.take(3)) { act -> ActivityItem(act) }
             }
         }
     }
@@ -253,34 +303,147 @@ private fun SearchBarRow(login: String, avatarUrl: String?, onProfileClick: () -
     }
 }
 
-/** 快捷方式（横向滚动） */
+/** 问候语（首页顶部）。 */
 @Composable
-private fun ShortcutRow() {
-    val shortcuts = listOf(
-        Icons.Filled.Add to "新建",
-        Icons.Filled.CallSplit to "我的PR",
-        Icons.Filled.ErrorOutline to "我的Issue",
-        Icons.Filled.Star to "星标",
-        Icons.Filled.Code to "搜索代码",
+private fun GreetingRow(login: String) {
+    val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+    val greet = when {
+        hour < 6 -> "夜深了"
+        hour < 12 -> "早上好"
+        hour < 18 -> "下午好"
+        else -> "晚上好"
+    }
+    Text(
+        "$greet，$login",
+        fontSize = 15.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = Primer.TextPrimary,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
     )
-    LazyRow(
-        modifier = Modifier.padding(bottom = 16.dp),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+}
+
+/**
+ * 待处理卡片：未读通知 / 待我审查 / 分配给我。
+ *
+ * 三行都是「需要你动手的」，全为 0 时显示空态而不是隐藏整块 —— 保持首屏结构稳定。
+ */
+@Composable
+private fun TodoCard(
+    unread: Int,
+    reviews: Int,
+    assigned: Int,
+    onOpenNotifications: () -> Unit,
+    onOpenSearch: () -> Unit,
+) {
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .border(1.dp, Primer.Border, RoundedCornerShape(10.dp)),
     ) {
-        items(shortcuts) { (icon, label) ->
-            Column(
-                modifier = Modifier
-                    .size(68.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Primer.BackgroundSecondary)
-                    .clickable { },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Icon(icon, contentDescription = label, tint = Primer.IconPrimary, modifier = Modifier.size(22.dp))
-                Spacer(Modifier.height(5.dp))
-                Text(label, fontSize = 11.sp, color = Primer.TextSecondary)
+        if (unread + reviews + assigned == 0) {
+            Box(Modifier.fillMaxWidth().padding(vertical = 22.dp), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("没有待办", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
+                    Spacer(Modifier.height(4.dp))
+                    Text("需要你处理的 PR / issue / 通知会出现在这里", fontSize = 11.5.sp, color = Primer.TextTertiary)
+                }
+            }
+            return@Column
+        }
+        TodoRow("未读通知", "$unread 条", Color(0xFFE6F1FF), Primer.Blue500, unread > 0, onOpenNotifications)
+        TodoRow("待我审查", "$reviews 个 PR", Color(0xFFF0FFF4), Primer.Green500, reviews > 0, onOpenSearch)
+        TodoRow(
+            "分配给我", "$assigned 个 issue", Color(0xFFFFF8E5), Color(0xFF9A6700),
+            assigned > 0, onOpenSearch, last = true,
+        )
+    }
+}
+
+@Composable
+private fun TodoRow(
+    title: String,
+    value: String,
+    iconBg: Color,
+    iconFg: Color,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    last: Boolean = false,
+) {
+    Row(
+        Modifier.fillMaxWidth().clickable(enabled = enabled) { onClick() }
+            .padding(horizontal = 12.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(26.dp).clip(RoundedCornerShape(8.dp)).background(iconBg),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.size(8.dp).clip(CircleShape).background(iconFg))
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (enabled) Primer.TextPrimary else Primer.TextTertiary,
+            )
+            Text(value, fontSize = 11.sp, color = Primer.TextTertiary, modifier = Modifier.padding(top = 1.dp))
+        }
+        Text("›", fontSize = 15.sp, color = Primer.TextTertiary)
+    }
+    if (!last) Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Border.copy(alpha = 0.4f)))
+}
+
+/** 进行中任务卡片（数据来自本地 TaskStore，零网络）。 */
+@Composable
+private fun RunningTasksCard(tasks: List<com.branchbase.ui.task.TaskRecord>) {
+    val shown = tasks.take(3)
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .border(1.dp, Primer.Border, RoundedCornerShape(10.dp)),
+    ) {
+        shown.forEachIndexed { index, t ->
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 11.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        t.title,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Primer.TextPrimary,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        if (t.progress in 0..100) "${t.progress}%" else "运行中",
+                        fontSize = 11.sp,
+                        color = Primer.Blue500,
+                    )
+                }
+                if (t.progress in 0..100) {
+                    Spacer(Modifier.height(7.dp))
+                    Box(
+                        Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)).background(Primer.Gray150),
+                    ) {
+                        Box(
+                            Modifier.fillMaxWidth(t.progress / 100f).height(5.dp)
+                                .clip(RoundedCornerShape(3.dp)).background(Primer.Blue500),
+                        )
+                    }
+                }
+                if (t.detail.isNotBlank()) {
+                    Text(
+                        t.detail,
+                        fontSize = 11.sp,
+                        color = Primer.TextTertiary,
+                        maxLines = 1,
+                        modifier = Modifier.padding(top = 5.dp),
+                    )
+                }
+            }
+            if (index < shown.lastIndex) {
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Border.copy(alpha = 0.4f)))
             }
         }
     }

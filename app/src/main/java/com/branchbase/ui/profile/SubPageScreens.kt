@@ -42,6 +42,9 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -663,6 +666,14 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
     // 决策页状态机
     var page by remember { mutableStateOf<LocalPage>(LocalPage.List) }
 
+    // 提示统一走 Snackbar：浮在内容之上，不占用列表布局、不挤动页面
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(feedback) {
+        val msg = feedback ?: return@LaunchedEffect
+        feedback = null
+        snackbarHostState.showSnackbar(msg, duration = SnackbarDuration.Short)
+    }
+
     fun authorName() = context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
         .getString("commit.author.name", "") ?: "Branchbase"
 
@@ -988,6 +999,8 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
         }
     }
 
+    // Box 包裹：Snackbar 浮在内容之上，不占用列表布局、不会挤动页面
+    Box(Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding(),
     ) {
@@ -1016,7 +1029,6 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
         if (cloning) {
             Text("正在克隆…", fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp))
         }
-        feedback?.let { Text(it, fontSize = 12.sp, color = if (it.startsWith("已")) Primer.Green500 else Primer.Red500, modifier = Modifier.padding(horizontal = 16.dp)) }
 
         if (repos.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1077,6 +1089,11 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
                 }
             }
         }
+    }
+        SnackbarHost(
+            snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
+        )
     }
 
     // 删除确认
