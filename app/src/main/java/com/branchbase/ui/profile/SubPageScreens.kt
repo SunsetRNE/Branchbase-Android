@@ -1453,6 +1453,12 @@ val sig = when (variant) {
                 AboutInfoRow("工程版本号", BuildConfig.ENGINEERING_VERSION)
                 AboutInfoRow("标准版本号", BuildConfig.STANDARD_VERSION)
                 AboutInfoRow("Git 配置包版本", "libgit2 1.7.2")
+                // 第三方代码编辑器痕迹：独立模块 :editor 封装，移除时删这行 + 该模块
+                AboutInfoRow(
+                    "代码编辑器",
+                    "${com.branchbase.editor.EditorModuleInfo.NAME} " +
+                        "${com.branchbase.editor.EditorModuleInfo.VERSION}（${com.branchbase.editor.EditorModuleInfo.MODULE}）",
+                )
                 AboutInfoRow("构建时间", BuildConfig.BUILD_TIME)
                 AboutInfoRow("七位哈希", BuildConfig.GIT_HASH)
                 AboutInfoRow("发布版本", variant.label)

@@ -166,6 +166,9 @@ configurations.all {
 
 dependencies {
 
+    // 代码编辑器独立模块（封装 Sora Editor）—— 换库 / 升级 / 移除只动 :editor
+    implementation(project(":editor"))
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

@@ -11,6 +11,8 @@ composeBom = "2026.01.01"
 coil = "2.7.0"
 room = "2.8.4"
 ksp = "2.3.10"
+# 代码编辑器（独立 :editor 模块专用，见 docs/third-party-components.md §3）
+soraEditor = "0.23.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -35,9 +37,14 @@ coil-svg = { group = "io.coil-kt", name = "coil-svg", version.ref = "coil" }
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+# Sora Editor：Android 上可编辑的代码编辑器（TextMate 高亮 / 行号 / 折叠）
+# 只被 :editor 模块引用 —— 换库或删除时只动那一个模块
+sora-editor = { group = "io.github.Rosemoe.sora-editor", name = "editor", version.ref = "soraEditor" }
+sora-editor-textmate = { group = "io.github.Rosemoe.sora-editor", name = "language-textmate", version.ref = "soraEditor" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 
