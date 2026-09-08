@@ -54,7 +54,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import com.branchbase.core.AvatarCache
+import kotlinx.coroutines.launch
 import com.branchbase.core.AccountStore
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.LogScreen
@@ -199,13 +205,37 @@ private fun ProfileOverview(
     onEdit: () -> Unit,
 ) {
     val pinnedRepos = repos.sortedByDescending { it.stars }.take(4)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    // 长按头像强制刷新后 +1，驱动 Avatar 重读本地缓存
+    var avatarTick by remember { mutableIntStateOf(0) }
 
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         // 用户信息
         item {
             Column(Modifier.fillMaxWidth().padding(16.dp, 16.dp, 16.dp, 12.dp)) {
                 Row(verticalAlignment = Alignment.Top) {
-                    Avatar(url = avatarUrl, name = login, size = 64.dp)
+                    Avatar(
+                        url = avatarUrl,
+                        login = login,
+                        size = 64.dp,
+                        version = avatarTick,
+                        // 长按头像 → 强制重新拉取（网页端换头像后手动刷新）
+                        modifier = Modifier.combinedClickable(
+                            onClick = {},
+                            onLongClick = {
+                                scope.launch {
+                                    val ok = AvatarCache.refresh(context, login, avatarUrl)
+                                    if (ok) {
+                                        avatarTick++
+                                        Toast.makeText(context, "头像已刷新", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "刷新失败（检查网络）", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                        ),
+                    )
                     Spacer(Modifier.width(14.dp))
                     Column {
                         Text(name ?: login, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)

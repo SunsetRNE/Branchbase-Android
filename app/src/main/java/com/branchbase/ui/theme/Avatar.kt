@@ -12,47 +12,57 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.branchbase.core.AvatarCache
 
 /**
  * 统一头像组件（首页入口 / 个人页 / 账号管理 / 仓库贡献者共用）。
  *
- * 解决三件事：
- * 1. **下载体积**：GitHub 的 `avatar_url` 默认指向 460×460 原图，直接用它渲染 40dp 头像
- *    要下几十 KB。这里按目标尺寸追加 `?s=<px>`（GitHub 支持 1–460），并按 3 倍密度取像素。
- * 2. **加载空白**：图片未就绪时先画首字母占位，加载完成后覆盖 —— 不再出现「先空白再闪现」。
- * 3. **重复实现**：此前 6 处各写一遍 `AsyncImage` + `if/else`，统一到这里，换加载库只改一处。
+ * 加载优先级：
+ * 1. **本地缓存** `filesDir/avatars/{login}.png` —— 登录时已预热，命中即「零闪烁」
+ * 2. 网络：GitHub 的 `avatar_url` 默认是 460×460 原图，这里按目标尺寸追加 `?s=<px>`
+ *    （3 倍密度、48–460），只下需要的像素
+ * 3. 两者都没有：先显示首字母占位（图片就绪后覆盖，避免空白）
  *
- * 注：Coil 自身有内存/磁盘缓存，同一 URL 不会重复下载；本组件只降低首次与清缓存后的体积。
+ * 缓存按 login 隔离，切换账号不会串头像；网页端换头像后用
+ * [AvatarCache.refresh] 手动刷新（个人主页长按头像触发）。
  */
 @Composable
 fun Avatar(
     url: String?,
-    name: String,
+    login: String,
     size: Dp,
     modifier: Modifier = Modifier,
+    name: String? = null,
     background: Color = Primer.Blue500,
+    /** 递增此值可强制重新读本地缓存（长按头像刷新后使用）。 */
+    version: Int = 0,
 ) {
-    val target = remember(url, size) { avatarUrlSized(url, size) }
+    val context = LocalContext.current
+    // 本地缓存优先：命中时完全不发网络请求
+    val local = remember(login, version) { AvatarCache.localFileOrNull(context, login) }
+    val model: Any? = local ?: avatarUrlSized(url, size)
+    val label = name?.takeIf { it.isNotBlank() } ?: login
+
     Box(
         modifier = modifier.size(size).clip(CircleShape).background(background),
         contentAlignment = Alignment.Center,
     ) {
-        // 占位层：首字母（图片就绪前可见，就绪后被覆盖）
+        // 占位层：首字母（本地/网络图就绪前可见，就绪后被覆盖）
         Text(
-            name.take(1).uppercase(),
+            label.take(1).uppercase(),
             color = Color.White,
             fontSize = (size.value * 0.44f).sp,
             fontWeight = FontWeight.Bold,
         )
-        if (target != null) {
+        if (model != null) {
             AsyncImage(
-                model = target,
-                contentDescription = name,
+                model = model,
+                contentDescription = label,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.size(size).clip(CircleShape),
             )

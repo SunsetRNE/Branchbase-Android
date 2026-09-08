@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.branchbase.BuildConfig
 import com.branchbase.core.AccountStore
+import com.branchbase.core.AvatarCache
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.LogCategory
 import com.branchbase.ui.log.Logger
@@ -229,6 +230,12 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                 JSONObject(enriched).optJSONObject("user")?.optString("avatar_url")?.takeIf { it.isNotBlank() }
             }.getOrNull()
             AccountStore.add(app, login, enriched, host, avatar)
+
+            // 2.5) 头像预热：登录即落盘，之后所有页面渲染头像都命中本地文件（零闪烁）
+            if (avatar != null && !AvatarCache.has(app, login)) {
+                val cached = AvatarCache.refresh(app, login, avatar)
+                Logger.net("头像缓存 @$login → ${if (cached) "已落盘" else "失败"}", "Avatar")
+            }
 
             // 3) 认领登录前的孤儿任务
             val claimed = TaskStore.claimOrphans(app)

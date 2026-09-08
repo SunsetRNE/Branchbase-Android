@@ -243,10 +243,10 @@ private fun SearchBarRow(login: String, avatarUrl: String?, onProfileClick: () -
             Text("搜索 GitHub", fontSize = 14.sp, color = Primer.TextTertiary)
         }
         Spacer(Modifier.width(10.dp))
-        // 头像（40dp 圆，与搜索框同高）—— 统一组件：按尺寸取图 + 首字母占位
+        // 头像（40dp 圆）—— 统一组件：本地缓存优先 + 按尺寸取图 + 首字母占位
         Avatar(
             url = avatarUrl,
-            name = login,
+            login = login,
             size = 40.dp,
             modifier = Modifier.clickable { onProfileClick() },
         )

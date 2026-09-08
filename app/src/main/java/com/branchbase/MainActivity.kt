@@ -40,6 +40,18 @@ class MainActivity : ComponentActivity() {
             kotlinx.coroutines.runBlocking { com.branchbase.core.AccountChecks.checkAll(applicationContext) }
         }.start()
 
+        // 当前账号头像预热：本地没有才拉（老用户升级后首次启动补齐，之后渲染零网络）
+        Thread {
+            val ctx = applicationContext
+            com.branchbase.core.AccountStore.current(ctx)?.let { acc ->
+                if (acc.avatar != null && !com.branchbase.core.AvatarCache.has(ctx, acc.login)) {
+                    kotlinx.coroutines.runBlocking {
+                        com.branchbase.core.AvatarCache.refresh(ctx, acc.login, acc.avatar)
+                    }
+                }
+            }
+        }.start()
+
         // 初始化 git 引擎 TLS 证书信任（主线程同步：仅写文件 + 设环境变量，
         // 不触碰 libgit2；避免后台线程竞态与冷启动期 native 调用）
         val sslOk = RustBridge.gitInitSsl(cacheDir.absolutePath)

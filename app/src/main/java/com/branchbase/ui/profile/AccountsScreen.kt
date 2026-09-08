@@ -227,7 +227,7 @@ private fun AccountCard(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Avatar(
                 url = account.avatar,
-                name = account.login,
+                login = account.login,
                 size = 44.dp,
                 background = if (isCurrent) Primer.Blue500 else Primer.Gray150,
             )
