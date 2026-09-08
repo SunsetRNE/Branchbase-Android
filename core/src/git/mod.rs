@@ -726,6 +726,17 @@ mod tests {
 
     // ───────────────────── map_push_error：nff 归一 ─────────────────────
 
+    /// 取 `CoreError::Other` 的内部消息。
+    ///
+    /// 注意不能用 `format!("{}", e)`：`CoreError` 的 Display 会加
+    /// `未知错误: ` 前缀（见 lib.rs 的 thiserror 定义），断言前缀会失败。
+    fn other_message(e: CoreError) -> String {
+        match e {
+            CoreError::Other(s) => s,
+            other => panic!("应为 CoreError::Other，实际: {other:?}"),
+        }
+    }
+
     #[test]
     fn push_error_maps_rejection_to_nff() {
         for msg in [
@@ -733,14 +744,14 @@ mod tests {
             "cannot lock ref 'refs/heads/main'",
             "! [rejected] main -> main",
         ] {
-            let text = format!("{}", map_push_error(msg));
+            let text = other_message(map_push_error(msg));
             assert!(text.starts_with("nff: "), "应归一为 nff 前缀，实际: {text}");
         }
     }
 
     #[test]
     fn push_error_keeps_other_failures() {
-        let text = format!("{}", map_push_error("authentication failed"));
+        let text = other_message(map_push_error("authentication failed"));
         assert!(text.starts_with("push 失败: "), "实际: {text}");
         assert!(!text.contains("nff:"), "非快进之外不应带 nff 前缀");
     }
