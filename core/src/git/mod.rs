@@ -182,13 +182,25 @@ fn ca_certs() -> &'static Vec<X509> {
     })
 }
 
-/// 通配符域名匹配（*.github.com）
+/// 通配符域名匹配（`*.github.com`）。
+///
+/// 要求 host 以 `.<suffix>` 结尾，且 `<suffix>` 之前恰好是一段不含点的主机名：
+/// - `*.github.com` 匹配 `api.github.com`
+/// - 不匹配 `a.b.github.com`（多级子域）
+/// - 不匹配 `xgithub.com`（缺少点分隔，早期实现会误判为匹配）
+/// - 不匹配裸 `github.com`
 fn dns_matches(pattern: &str, host: &str) -> bool {
     if let Some(rest) = pattern.strip_prefix("*.") {
-        let head_len = host.len().saturating_sub(rest.len());
-        head_len > 0
-            && host.ends_with(rest)
-            && !host[..head_len.saturating_sub(1)].contains('.')
+        let host_bytes = host.as_bytes();
+        let rest_bytes = rest.as_bytes();
+        if host_bytes.len() <= rest_bytes.len() + 1 || !host.ends_with(rest) {
+            return false;
+        }
+        let dot_at = host_bytes.len() - rest_bytes.len() - 1;
+        if host_bytes[dot_at] != b'.' {
+            return false;
+        }
+        !host_bytes[..dot_at].contains(&b'.')
     } else {
         pattern == host
     }
@@ -526,14 +538,7 @@ pub fn push_set_upstream(
     let refspec = format!("refs/heads/{branch}:refs/heads/{branch}");
     remote
         .push(&[&refspec], Some(&mut opts))
-        .map_err(|e| {
-            let s = e.to_string();
-            if s.contains("non-fast-forward") || s.contains("cannot lock ref") || s.contains("rejected") {
-                CoreError::Other(format!("nff: 推送被拒（远端领先）: {s}"))
-            } else {
-                CoreError::Other(format!("push 失败: {s}"))
-            }
-        })?;
+        .map_err(|e| map_push_error(&e.to_string()))?;
 
     let mut local_branch = repo
         .find_branch(branch, BranchType::Local)
@@ -676,4 +681,132 @@ pub fn set_git_proxy(dir: &str, proxy: &str) -> Result<()> {
         .map_err(|e| CoreError::Other(format!("写代理配置失败: {e}")))?;
     std::env::set_var("GIT_CONFIG_GLOBAL", &cfg_path);
     Ok(())
+}
+
+/// 推送错误归一：被拒（非快进/锁 ref/rejected）→ `nff:` 前缀，供上层触发分叉决策页；
+/// 其余原样透出为 `push 失败:`。
+fn map_push_error(msg: &str) -> CoreError {
+    if msg.contains("non-fast-forward") || msg.contains("cannot lock ref") || msg.contains("rejected") {
+        CoreError::Other(format!("nff: 推送被拒（远端领先）: {msg}"))
+    } else {
+        CoreError::Other(format!("push 失败: {msg}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ───────────────────── dns_matches：证书主机名匹配 ─────────────────────
+
+    #[test]
+    fn dns_matches_requires_dot_separator() {
+        assert!(dns_matches("*.github.com", "api.github.com"));
+        // 缺少点分隔不应匹配（早期实现会把 xgithub.com 误判为匹配）
+        assert!(!dns_matches("*.github.com", "xgithub.com"));
+    }
+
+    #[test]
+    fn dns_matches_rejects_multi_level_subdomain() {
+        assert!(!dns_matches("*.github.com", "a.b.github.com"));
+    }
+
+    #[test]
+    fn dns_matches_rejects_bare_apex() {
+        assert!(!dns_matches("*.github.com", "github.com"));
+    }
+
+    #[test]
+    fn dns_matches_exact_pattern() {
+        assert!(dns_matches("github.com", "github.com"));
+        assert!(!dns_matches("github.com", "api.github.com"));
+        assert!(!dns_matches("github.com", "githubb.com"));
+    }
+
+    // ───────────────────── map_push_error：nff 归一 ─────────────────────
+
+    #[test]
+    fn push_error_maps_rejection_to_nff() {
+        for msg in [
+            "remote rejected (non-fast-forward)",
+            "cannot lock ref 'refs/heads/main'",
+            "! [rejected] main -> main",
+        ] {
+            let text = format!("{}", map_push_error(msg));
+            assert!(text.starts_with("nff: "), "应归一为 nff 前缀，实际: {text}");
+        }
+    }
+
+    #[test]
+    fn push_error_keeps_other_failures() {
+        let text = format!("{}", map_push_error("authentication failed"));
+        assert!(text.starts_with("push 失败: "), "实际: {text}");
+        assert!(!text.contains("nff:"), "非快进之外不应带 nff 前缀");
+    }
+
+    // ───────────────────── scan_sensitive：提交前敏感信息扫描 ─────────────────────
+
+    fn hits(text: &str) -> Vec<serde_json::Value> {
+        let json = scan_sensitive(text).expect("扫描应成功");
+        serde_json::from_str(&json).expect("结果应是 JSON 数组")
+    }
+
+    #[test]
+    fn scan_detects_github_pat_and_masks_value() {
+        let out = hits("+ ghp_abcdefghijklmnopqrstuvwxyz01");
+        assert_eq!(out.len(), 1, "应恰好命中 1 条: {out:?}");
+        assert_eq!(out[0]["kind"], "GitHub PAT");
+        assert_eq!(out[0]["line"], 1);
+        // 只保留前 4 字符，其余打码
+        assert_eq!(out[0]["mask"], "abcd****");
+    }
+
+    #[test]
+    fn scan_detects_private_key_block() {
+        let out = hits("-----BEGIN RSA PRIVATE KEY-----");
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0]["kind"], "私钥");
+    }
+
+    #[test]
+    fn scan_detects_key_value_and_reports_line_number() {
+        let out = hits("第一行\napi_key = \"abcdefgh1234\"\n");
+        assert_eq!(out.len(), 1, "应命中 1 条: {out:?}");
+        assert_eq!(out[0]["line"], 2);
+        assert_eq!(out[0]["mask"], "abcd****");
+    }
+
+    #[test]
+    fn scan_ignores_plain_and_short_values() {
+        assert!(hits("").is_empty());
+        assert!(hits("这是一个普通的提交信息").is_empty());
+        // 长度不足 8 的疑似值不报警
+        assert!(hits("password = ab").is_empty());
+        // 含空格的值不像密钥
+        assert!(hits("password = abc def ghi").is_empty());
+    }
+
+    // ───────────────────── verify_cert_chain：内置 CA bundle ─────────────────────
+
+    #[test]
+    fn builtin_bundle_contains_self_signed_root_that_verifies() {
+        let certs = ca_certs();
+        assert!(certs.len() > 10, "内置 bundle 应含多个 CA，实际 {}", certs.len());
+        let root = certs
+            .iter()
+            .find(|c| c.subject_name().try_cmp(c.issuer_name()).ok() == Some(std::cmp::Ordering::Equal))
+            .expect("bundle 里应存在自签名根证书");
+        assert!(verify_cert_chain(root), "自签名根应通过链验证");
+    }
+
+    #[test]
+    fn builtin_intermediate_chains_to_root() {
+        let certs = ca_certs();
+        let intermediate = certs.iter().find(|c| {
+            c.subject_name().try_cmp(c.issuer_name()).ok() != Some(std::cmp::Ordering::Equal)
+        });
+        if let Some(ca) = intermediate {
+            assert!(verify_cert_chain(ca), "中间证书应能链到内置根");
+        }
+    }
 }
