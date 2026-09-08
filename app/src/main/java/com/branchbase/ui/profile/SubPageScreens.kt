@@ -31,11 +31,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
@@ -111,6 +111,7 @@ enum class SubPage(val label: String) {
     NotificationSettings("通知设置"),
     Tasks("任务"),
     Accounts("账号"),
+    CommitMode("提交模式"),
 }
 
 // ───────────────────────── 缓存机制（内存缓存 + TTL 过期） ─────────────────────────
@@ -404,7 +405,7 @@ internal enum class CommitMode(val label: String, val desc: String) {
 internal const val KEY_COMMIT_MODE = "commit_mode"
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onOpenLocalRepo: () -> Unit, onOpenAbout: () -> Unit, onOpenLog: () -> Unit, onOpenNotificationSettings: () -> Unit, onOpenAccounts: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onOpenLocalRepo: () -> Unit, onOpenAbout: () -> Unit, onOpenLog: () -> Unit, onOpenNotificationSettings: () -> Unit, onOpenAccounts: () -> Unit, onOpenCommitMode: () -> Unit) {
     LaunchedEffect(Unit) { Logger.ui("进入设置页", "Compose") }
     val context = LocalContext.current
     var mode by remember { mutableStateOf(commitMode(context)) } // CommitMode?，null = 未配置
@@ -418,18 +419,13 @@ fun SettingsScreen(onBack: () -> Unit, onOpenLocalRepo: () -> Unit, onOpenAbout:
     ) {
         SubPageHeader("设置", onBack)
 
-        SettingsSectionTitle("提交模式")
-        CommitMode.entries.forEach { m ->
-            ModeOptionRow(
-                label = m.label,
-                desc = m.desc,
-                selected = mode == m,
-                onClick = {
-                    mode = m
-                    saveCommitMode(context, m)
-                },
-            )
-        }
+        SettingsSectionTitle("提交")
+        SettingsItem(
+            Icons.Filled.Check,
+            "提交模式",
+            value = mode?.label ?: "未配置",
+            onClick = onOpenCommitMode,
+        )
 
         SettingsSectionTitle("本地仓库")
         LocalRepoEntry(enabled = mode == CommitMode.LOCAL_REPO, onClick = onOpenLocalRepo)
@@ -547,7 +543,7 @@ private fun SettingsSectionTitle(title: String) {
 }
 
 @Composable
-private fun ModeOptionRow(label: String, desc: String, selected: Boolean, onClick: () -> Unit) {
+internal fun ModeOptionRow(label: String, desc: String, selected: Boolean, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -604,7 +600,7 @@ private fun LocalRepoEntry(enabled: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun SettingsItem(icon: ImageVector, name: String, onClick: () -> Unit = {}) {
+internal fun SettingsItem(icon: ImageVector, name: String, value: String? = null, onClick: () -> Unit = {}) {
     Row(
         Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 16.dp).clickable { onClick() },
         verticalAlignment = Alignment.CenterVertically,
@@ -612,6 +608,10 @@ private fun SettingsItem(icon: ImageVector, name: String, onClick: () -> Unit = 
         Icon(icon, contentDescription = name, tint = Primer.IconSecondary, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(12.dp))
         Text(name, fontSize = 14.sp, color = Primer.TextPrimary, modifier = Modifier.weight(1f))
+        if (!value.isNullOrBlank()) {
+            Text(value, fontSize = 12.sp, color = Primer.TextTertiary)
+            Spacer(Modifier.width(6.dp))
+        }
         Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = Primer.TextTertiary, modifier = Modifier.size(20.dp))
     }
 }
