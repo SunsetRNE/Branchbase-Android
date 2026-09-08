@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -569,11 +570,8 @@ private fun ProfileActivity(host: String, token: String, login: String) {
                 }
             }
 
-            // 活动十字坐标轴（类型 × 时间；与下面的活动热力并存）
-            ActivityAxis(events)
-
-            // 贡献热力（按天聚合，过去 12 周）
-            SectionTitle("活动热力", "过去 12 周")
+            // 活动热力（按天聚合，13 周 = events API 的 90 天上限）
+            SectionTitle("活动热力", "过去 90 天")
             Column(Modifier.padding(horizontal = 16.dp)) {
                 ActivityHeatmap(events)
             }
@@ -668,9 +666,11 @@ private fun TypeBar(label: String, count: Int, percent: Int) {
     }
 }
 
-/** 活动热力：按天聚合过去 12 周（84 天）。 */
+/** 活动热力：按天聚合过去 13 周（91 天，events API 上限约 90 天）。 */
 @Composable
 private fun ActivityHeatmap(events: List<ActivityEvent>) {
+    val weeks = 13
+    val days = weeks * 7
     val levels = listOf(
         ProfileColors.ContributionL0, ProfileColors.ContributionL1,
         ProfileColors.ContributionL2, ProfileColors.ContributionL3, ProfileColors.ContributionL4,
@@ -678,44 +678,68 @@ private fun ActivityHeatmap(events: List<ActivityEvent>) {
     val dayCounts = remember(events) {
         val dayMs = 24L * 60 * 60 * 1000
         val today = System.currentTimeMillis() / dayMs * dayMs
-        val counts = IntArray(84)
+        val counts = IntArray(days)
         events.forEach { e ->
             if (e.createdAt > 0) {
                 val idx = ((today - (e.createdAt / dayMs * dayMs)) / dayMs).toInt()
-                if (idx in 0 until 84) counts[83 - idx]++
+                if (idx in 0 until days) counts[days - 1 - idx]++
             }
         }
         counts
     }
     val max = (dayCounts.maxOrNull() ?: 0).coerceAtLeast(1)
-    Column {
-        Canvas(Modifier.fillMaxWidth().height(74.dp)) {
-            val cell = 9.dp.toPx()
-            val gap = 2.dp.toPx()
-            dayCounts.forEachIndexed { idx, c ->
-                val col = idx / 7
-                val row = idx % 7
-                val lv = when {
-                    c == 0 -> 0
-                    c * 4 < max -> 1
-                    c * 2 < max -> 2
-                    c * 4 < max * 3 -> 3
-                    else -> 4
+
+    Column(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .border(1.dp, Primer.Border, RoundedCornerShape(10.dp))
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+    ) {
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val gap = 2.dp
+            // 格子宽度自适应：13 周正好铺满一行（此前固定 9dp，只占约 40% 宽度）
+            val cellW = (maxWidth - gap * (weeks - 1)) / weeks
+            val cellH = 14.dp
+            Canvas(Modifier.fillMaxWidth().height(cellH * 7 + gap * 6)) {
+                val w = cellW.toPx()
+                val h = cellH.toPx()
+                val g = gap.toPx()
+                val radius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx())
+                dayCounts.forEachIndexed { idx, c ->
+                    val col = idx / 7
+                    val row = idx % 7
+                    val lv = when {
+                        c == 0 -> 0
+                        c * 4 < max -> 1
+                        c * 2 < max -> 2
+                        c * 4 < max * 3 -> 3
+                        else -> 4
+                    }
+                    drawRoundRect(
+                        color = levels[lv],
+                        topLeft = androidx.compose.ui.geometry.Offset(col * (w + g), row * (h + g)),
+                        size = androidx.compose.ui.geometry.Size(w, h),
+                        cornerRadius = radius,
+                    )
                 }
-                drawRoundRect(
-                    color = levels[lv],
-                    topLeft = androidx.compose.ui.geometry.Offset(col * (cell + gap), row * (cell + gap)),
-                    size = androidx.compose.ui.geometry.Size(cell, cell),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()),
-                )
             }
         }
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "共 ${dayCounts.sum()} 次活动 · 最深 ${max} 次/天",
-            fontSize = 11.5.sp,
-            color = Primer.TextTertiary,
-        )
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "共 ${dayCounts.sum()} 次活动 · 最深 $max 次/天",
+                fontSize = 11.5.sp,
+                color = Primer.TextTertiary,
+            )
+            Spacer(Modifier.weight(1f))
+            Text("少", fontSize = 9.5.sp, color = Primer.TextTertiary)
+            levels.forEach { c ->
+                Spacer(Modifier.width(3.dp))
+                Box(Modifier.width(10.dp).height(10.dp).clip(RoundedCornerShape(2.dp)).background(c))
+            }
+            Spacer(Modifier.width(3.dp))
+            Text("多", fontSize = 9.5.sp, color = Primer.TextTertiary)
+        }
     }
 }
 
