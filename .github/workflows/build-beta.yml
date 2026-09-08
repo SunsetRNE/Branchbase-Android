@@ -50,7 +50,19 @@ jobs:
 
       - name: Build Debug APK (注入版本参数)
         id: ver
-        run: bash tools/build/assemble.sh assembleDebug
+        run: |
+          set -o pipefail
+          if ! bash tools/build/assemble.sh assembleDebug 2>&1 | tee /tmp/assemble.log; then
+            # 失败时把关键行做成 annotation —— 无需日志下载权限即可通过 check-runs API 定位
+            echo "::error title=assemble::assembleDebug 失败，关键行如下"
+            grep -aE "^e: |^error:|FAILURE:|What went wrong|^> |Execution failed|Configuration cache|Could not|Cannot|Unresolved" /tmp/assemble.log \
+              | tail -25 \
+              | while IFS= read -r line; do
+                  safe=$(printf '%s' "$line" | tr -d '\r' | sed 's/::/%3A%3A/g' | cut -c1-400)
+                  echo "::error title=assemble::$safe"
+                done
+            exit 1
+          fi
 
       - name: Collect artifacts (复制到非 gitignore 的 dist/)
         run: |
