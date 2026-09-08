@@ -51,7 +51,20 @@ jobs:
         run: cd core && cargo check --all-targets
 
       - name: Cargo test（单元测试）
-        run: cd core && cargo test
+        run: |
+          cd core
+          set -o pipefail
+          if ! cargo test 2>&1 | tee /tmp/rust-test.log; then
+            # 失败时把关键行做成 annotation —— 便于在没有日志下载权限时定位
+            echo "::error title=rust-test::cargo test 失败，关键行如下"
+            grep -aE "FAILED|failures:|panicked|assertion|left:|right:|^test .* \.\.\." /tmp/rust-test.log \
+              | tail -40 \
+              | while IFS= read -r line; do
+                  safe=$(printf '%s' "$line" | tr -d '\r' | sed 's/::/%3A%3A/g')
+                  echo "::error title=rust-test::$safe"
+                done
+            exit 1
+          fi
 
       - name: Cargo clippy（静态检查，不阻塞）
         run: cd core && cargo clippy --all-targets -- -D warnings

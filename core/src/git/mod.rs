@@ -695,6 +695,7 @@ fn map_push_error(msg: &str) -> CoreError {
 
 #[cfg(test)]
 mod tests {
+    // 注：CI（build-core.yml）会把失败关键行以 annotation 输出，便于无日志下载权限时定位。
     use super::*;
 
     // ───────────────────── dns_matches：证书主机名匹配 ─────────────────────

@@ -82,6 +82,12 @@ fun PrOnestopScreen(
     var feedback by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
 
+    // 按仓库记忆：该仓库上次用过的描述模板自动预填
+    val repoKey = "$owner/$repo"
+    LaunchedEffect(repoKey) {
+        PrMemoryStore.get(context, repoKey)?.template?.takeIf { it.isNotBlank() }?.let { description = it }
+    }
+
     fun createPr() {
         if (title.isBlank()) { feedback = "请填写 PR 标题"; return }
         scope.launch {
@@ -98,6 +104,7 @@ fun PrOnestopScreen(
             busy = false
             if (prErr == null) {
                 com.branchbase.ui.task.TaskStore.success(context, taskId, "PR 已创建")
+                PrMemoryStore.save(context, repoKey, template = description)
                 onCreated("PR 已创建 · $branchName → $baseBranch")
             } else {
                 com.branchbase.ui.task.TaskStore.fail(context, taskId, prErr)
@@ -497,6 +504,15 @@ fun PrMergeScreen(
     var busy by remember { mutableStateOf(false) }
     var feedback by remember { mutableStateOf<String?>(null) }
 
+    // 按仓库记忆：合并策略与「合并后删分支」预选
+    val repoKey = "$owner/$repo"
+    LaunchedEffect(repoKey) {
+        PrMemoryStore.get(context, repoKey)?.let { m ->
+            strategy = m.mergeStrategy.coerceIn(0, 2)
+            deleteBranch = m.deleteBranch
+        }
+    }
+
     val methods = listOf("squash", "merge", "rebase")
 
     fun doMerge() {
@@ -515,6 +531,7 @@ fun PrMergeScreen(
             }
             busy = false
             com.branchbase.ui.task.TaskStore.success(context, taskId, note)
+            PrMemoryStore.save(context, repoKey, strategy = strategy, deleteBranch = deleteBranch)
             onMerged(note)
         }
     }
