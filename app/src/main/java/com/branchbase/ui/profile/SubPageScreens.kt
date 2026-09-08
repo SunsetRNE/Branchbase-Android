@@ -628,6 +628,8 @@ private sealed interface LocalPage {
     data class DeleteWarn(val name: String, val unpushed: kotlin.collections.List<com.branchbase.ui.decision.UnpushedCommit>) : LocalPage
     data class Stage(val name: String) : LocalPage
     data class Identity(val name: String, val message: String) : LocalPage
+    /** 本地分支管理（列表 / 切换 / 新建 / 删除） */
+    data class Branches(val name: String) : LocalPage
 }
 
 /**
@@ -668,6 +670,20 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
         .getString("commit.author.email", "") ?: "branchbase@users.noreply.github.com"
 
     fun dirOf(name: String) = File(repoRoot, name).absolutePath
+
+    // 各仓库当前分支（用于行内显示；随仓库列表变化刷新）
+    var branchMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    LaunchedEffect(repos) {
+        val m = mutableMapOf<String, String>()
+        repos.forEach { r ->
+            val st = withContext(Dispatchers.IO) {
+                RustBridge.gitStatus(dirOf(r))?.let { parseGitStatus(it) }
+            }
+            st?.branch?.takeIf { it.isNotBlank() }?.let { m[r] = it }
+        }
+        branchMap = m
+    }
+    fun branchOf(name: String) = branchMap[name] ?: "—"
 
     /** pull 三态：成功 / 分叉（→ Fork 决策页）/ 失败。 */
     fun doPull(name: String) {
@@ -850,6 +866,87 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
             )
             return
         }
+        is LocalPage.Branches -> {
+            var branchList by remember(p.name) { mutableStateOf<List<LocalBranch>>(emptyList()) }
+            var branchDirty by remember(p.name) { mutableIntStateOf(0) }
+            var branchBusy by remember(p.name) { mutableStateOf(false) }
+            var branchError by remember(p.name) { mutableStateOf<String?>(null) }
+            var reloadKey by remember(p.name) { mutableIntStateOf(0) }
+
+            LaunchedEffect(p.name, reloadKey) {
+                branchList = withContext(Dispatchers.IO) { parseLocalBranches(RustBridge.localBranches(dirOf(p.name))) }
+                branchDirty = withContext(Dispatchers.IO) {
+                    RustBridge.gitStatus(dirOf(p.name))?.let { parseGitStatus(it) }?.dirty?.size ?: 0
+                }
+            }
+
+            BranchesScreen(
+                repoName = p.name,
+                branches = branchList,
+                dirtyCount = branchDirty,
+                busy = branchBusy,
+                error = branchError,
+                onBack = { page = LocalPage.List },
+                onRefresh = { reloadKey++ },
+                onCheckout = { target ->
+                    scope.launch {
+                        branchBusy = true
+                        branchError = null
+                        // 脏工作区：用户已在对话框确认「撤销并切换」
+                        if (branchDirty > 0) {
+                            val discardErr = withContext(Dispatchers.IO) { RustBridge.discardAllChanges(dirOf(p.name)) }
+                            if (discardErr != null) {
+                                branchError = discardErr
+                                branchBusy = false
+                                return@launch
+                            }
+                        }
+                        val err = withContext(Dispatchers.IO) { RustBridge.checkoutBranch(dirOf(p.name), target) }
+                        Logger.net("git checkout $target (${p.name}) → ${err ?: "成功"}", "LocalGit")
+                        branchBusy = false
+                        if (err == null) {
+                            feedback = "已切换到 $target"
+                            page = LocalPage.List
+                        } else {
+                            branchError = err
+                        }
+                    }
+                },
+                onDelete = { target ->
+                    scope.launch {
+                        branchBusy = true
+                        branchError = null
+                        val err = withContext(Dispatchers.IO) { RustBridge.deleteBranchLocal(dirOf(p.name), target) }
+                        Logger.net("git branch -d $target (${p.name}) → ${err ?: "成功"}", "LocalGit")
+                        branchBusy = false
+                        if (err == null) {
+                            feedback = "已删除分支 $target"
+                            reloadKey++
+                        } else {
+                            branchError = err
+                        }
+                    }
+                },
+                onCreate = { newBranch ->
+                    scope.launch {
+                        branchBusy = true
+                        branchError = null
+                        val err = withContext(Dispatchers.IO) {
+                            RustBridge.createBranchLocal(dirOf(p.name), newBranch, "")
+                        }
+                        Logger.net("git switch -c $newBranch (${p.name}) → ${err ?: "成功"}", "LocalGit")
+                        branchBusy = false
+                        if (err == null) {
+                            feedback = "已创建并切换到 $newBranch"
+                            page = LocalPage.List
+                        } else {
+                            branchError = err
+                        }
+                    }
+                },
+            )
+            return
+        }
         is LocalPage.List -> Unit
     }
 
@@ -936,6 +1033,8 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
                 items(repos) { name ->
                     LocalRepoRow(
                         name = name,
+                        branch = branchOf(name),
+                        onBranches = { page = LocalPage.Branches(name) },
                         onPull = { doPull(name) },
                         onPush = { doPush(name) },
                         onCommit = { doStageCommit(name) },
@@ -1006,6 +1105,8 @@ private fun listLocalRepos(root: File): List<String> =
 @Composable
 private fun LocalRepoRow(
     name: String,
+    branch: String,
+    onBranches: () -> Unit,
     onPull: () -> Unit,
     onPush: () -> Unit,
     onCommit: () -> Unit,
@@ -1022,7 +1123,21 @@ private fun LocalRepoRow(
             .border(1.dp, Primer.Border, RoundedCornerShape(8.dp))
             .padding(12.dp),
     ) {
-        Text(name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
+            Spacer(Modifier.weight(1f))
+            // 当前分支胶囊 → 分支管理页
+            Row(
+                Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Primer.Gray150)
+                    .clickable { onBranches() }
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("⑂ ${branch.ifBlank { "—" }}", fontSize = 11.sp, color = Primer.TextSecondary)
+            }
+        }
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             Text("更新", fontSize = 12.sp, color = Primer.Blue500, modifier = Modifier.clickable { onPull() })
@@ -1036,6 +1151,223 @@ private fun LocalRepoRow(
             Text("回退 Git 化", fontSize = 12.sp, color = Primer.TextSecondary, modifier = Modifier.clickable { onRollback() })
             Text("删除", fontSize = 12.sp, color = Primer.Red500, modifier = Modifier.clickable { onDelete() })
         }
+    }
+}
+
+// ───────────────────────── 本地分支管理 ─────────────────────────
+
+/** 本地分支（nativeLocalBranches 的 JSON 解析结果）。 */
+internal data class LocalBranch(
+    val name: String,
+    val isHead: Boolean,
+    val upstream: String,
+    val ahead: Int,
+    val behind: Int,
+)
+
+private fun parseLocalBranches(json: String?): List<LocalBranch> {
+    if (json.isNullOrBlank()) return emptyList()
+    return runCatching {
+        val arr = org.json.JSONArray(json)
+        (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            LocalBranch(
+                name = o.optString("name"),
+                isHead = o.optBoolean("is_head", false),
+                upstream = o.optString("upstream"),
+                ahead = o.optInt("ahead", 0),
+                behind = o.optInt("behind", 0),
+            )
+        }
+    }.getOrDefault(emptyList())
+}
+
+/** main / master 视为受保护分支：删除入口置灰不可点。 */
+private fun isProtectedBranch(name: String) = name == "main" || name == "master"
+
+/**
+ * 本地分支管理页。
+ *
+ * 交互约定（对齐本轮确定的规则）：
+ * - 脏工作区切换：先弹确认，确认后**撤销所有改动再切换**（不做隐式 stash）
+ * - 删除：当前分支不显示删除入口；main/master 置灰
+ * - 新建：基于当前分支，创建后自动切换
+ */
+@Composable
+private fun BranchesScreen(
+    repoName: String,
+    branches: List<LocalBranch>,
+    dirtyCount: Int,
+    busy: Boolean,
+    error: String?,
+    onBack: () -> Unit,
+    onRefresh: () -> Unit,
+    onCheckout: (String) -> Unit,
+    onDelete: (String) -> Unit,
+    onCreate: (String) -> Unit,
+) {
+    var showCreate by remember { mutableStateOf(false) }
+    var newName by remember { mutableStateOf("") }
+    var confirmDelete by remember { mutableStateOf<String?>(null) }
+    var confirmSwitch by remember { mutableStateOf<String?>(null) }
+
+    Column(
+        Modifier.fillMaxSize().background(Primer.BackgroundPrimary)
+            .statusBarsPadding().navigationBarsPadding(),
+    ) {
+        SubPageHeader("分支 · $repoName", onBack) { RefreshButton { onRefresh() } }
+
+        if (dirtyCount > 0) {
+            Text(
+                "工作区有 $dirtyCount 个改动；切换分支若会覆盖它们将被拒绝",
+                fontSize = 11.5.sp,
+                color = Color(0xFF7A5B00),
+                lineHeight = 16.sp,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
+                    .clip(RoundedCornerShape(8.dp)).background(Color(0xFFFFF8E5))
+                    .padding(10.dp),
+            )
+        }
+        error?.let {
+            Text(
+                it,
+                fontSize = 12.sp,
+                color = Primer.Red500,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
+
+        LazyColumn(Modifier.weight(1f)) {
+            items(branches) { b ->
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clickable(enabled = !b.isHead && !busy) {
+                            if (dirtyCount > 0) confirmSwitch = b.name else onCheckout(b.name)
+                        }
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (b.isHead) "●" else "○",
+                        fontSize = 11.sp,
+                        color = if (b.isHead) Primer.Green500 else Primer.TextTertiary,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                b.name,
+                                fontSize = 13.5.sp,
+                                fontWeight = if (b.isHead) FontWeight.SemiBold else FontWeight.Normal,
+                                color = Primer.TextPrimary,
+                            )
+                            if (b.isHead) {
+                                Spacer(Modifier.width(6.dp))
+                                Text("当前", fontSize = 10.sp, color = Primer.Green500)
+                            }
+                        }
+                        val meta = buildString {
+                            if (b.upstream.isNotBlank()) append(b.upstream)
+                            if (b.ahead > 0) { if (isNotEmpty()) append(" · "); append("↑${b.ahead}") }
+                            if (b.behind > 0) { if (isNotEmpty()) append(" · "); append("↓${b.behind}") }
+                        }
+                        if (meta.isNotBlank()) {
+                            Text(meta, fontSize = 10.5.sp, color = Primer.TextTertiary, modifier = Modifier.padding(top = 2.dp))
+                        }
+                    }
+                    if (!b.isHead) {
+                        val protected = isProtectedBranch(b.name)
+                        Text(
+                            "删除",
+                            fontSize = 12.sp,
+                            color = if (protected) Primer.TextTertiary else Primer.Red500,
+                            modifier = Modifier.clickable(enabled = !protected && !busy) { confirmDelete = b.name },
+                        )
+                    }
+                }
+            }
+            item {
+                Spacer(Modifier.height(8.dp))
+                Box(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .border(1.dp, Primer.Border, RoundedCornerShape(10.dp))
+                        .clickable { showCreate = true }
+                        .padding(vertical = 13.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("＋ 新建分支", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
+
+    if (showCreate) {
+        AlertDialog(
+            onDismissRequest = { showCreate = false },
+            title = { Text("新建分支", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary) },
+            text = {
+                Column {
+                    Text(
+                        "基于当前分支创建，创建后自动切换过去。",
+                        fontSize = 12.sp, color = Primer.TextTertiary, lineHeight = 18.sp,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = newName,
+                        onValueChange = { newName = it },
+                        singleLine = true,
+                        placeholder = { Text("分支名，如 feature/login", fontSize = 12.sp, color = Primer.TextTertiary) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = newName.isNotBlank() && !busy,
+                    onClick = { val n = newName.trim(); showCreate = false; newName = ""; onCreate(n) },
+                ) { Text("创建并切换", color = Primer.Blue500) }
+            },
+            dismissButton = { TextButton(onClick = { showCreate = false }) { Text("取消") } },
+        )
+    }
+
+    confirmDelete?.let { target ->
+        AlertDialog(
+            onDismissRequest = { confirmDelete = null },
+            title = { Text("删除分支 $target？", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary) },
+            text = {
+                Text(
+                    "只删除本地分支，不影响远端；未合并的提交会丢失。",
+                    fontSize = 12.sp, color = Primer.TextTertiary, lineHeight = 18.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { confirmDelete = null; onDelete(target) }) { Text("删除", color = Primer.Red500) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text("取消") } },
+        )
+    }
+
+    confirmSwitch?.let { target ->
+        AlertDialog(
+            onDismissRequest = { confirmSwitch = null },
+            title = { Text("先撤销改动？", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary) },
+            text = {
+                Text(
+                    "工作区有 $dirtyCount 个改动，切换分支可能失败或覆盖它们。\n" +
+                        "确认后会先撤销所有改动再切换（此操作不可撤销）。",
+                    fontSize = 12.sp, color = Primer.TextTertiary, lineHeight = 18.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { confirmSwitch = null; onCheckout(target) }) {
+                    Text("撤销并切换", color = Primer.Red500)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmSwitch = null }) { Text("取消") } },
+        )
     }
 }
 

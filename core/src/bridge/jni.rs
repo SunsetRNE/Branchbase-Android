@@ -872,6 +872,83 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitPush<'local>
     into_jstring(&mut env, result)
 }
 
+/// 本地分支列表（JSON 数组：name / is_head / upstream / ahead / behind）
+/// 参数：dir
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeLocalBranches<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let result: crate::error::Result<String> = crate::git::local_branches(&dir);
+    into_jstring(&mut env, result)
+}
+
+/// 切换本地分支（safe checkout，不覆盖未提交改动，返回空串=成功）
+/// 参数：dir, name
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeCheckoutBranch<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+    name: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let name = jstr(&mut env, &name);
+    let result: crate::error::Result<String> =
+        crate::git::checkout_branch(&dir, &name).map(|_| String::new());
+    into_jstring(&mut env, result)
+}
+
+/// 新建本地分支并切换到它（返回空串=成功）
+/// 参数：dir, name, from（空串 = 当前 HEAD）
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeCreateBranchLocal<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+    name: JString<'local>,
+    from: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let name = jstr(&mut env, &name);
+    let from = jstr(&mut env, &from);
+    let result: crate::error::Result<String> =
+        crate::git::create_branch_local(&dir, &name, &from).map(|_| String::new());
+    into_jstring(&mut env, result)
+}
+
+/// 删除本地分支（当前分支会被拒绝，返回空串=成功）
+/// 参数：dir, name
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeDeleteBranchLocal<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+    name: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let name = jstr(&mut env, &name);
+    let result: crate::error::Result<String> =
+        crate::git::delete_branch_local(&dir, &name).map(|_| String::new());
+    into_jstring(&mut env, result)
+}
+
+/// 撤销工作区所有改动（恢复已跟踪文件 + 删除未跟踪文件，返回空串=成功）
+/// 参数：dir
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeDiscardAllChanges<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let result: crate::error::Result<String> =
+        crate::git::discard_all_changes(&dir).map(|_| String::new());
+    into_jstring(&mut env, result)
+}
+
 /// 拉取 latest release 的 signature.txt 校验文件内容
 /// 参数：host, token, owner, repo
 #[no_mangle]

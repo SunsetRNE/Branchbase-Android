@@ -113,6 +113,16 @@ object RustBridge {
 
     private external fun nativeGitPush(dir: String, token: String, branch: String): String
 
+    private external fun nativeLocalBranches(dir: String): String
+
+    private external fun nativeCheckoutBranch(dir: String, name: String): String
+
+    private external fun nativeCreateBranchLocal(dir: String, name: String, from: String): String
+
+    private external fun nativeDeleteBranchLocal(dir: String, name: String): String
+
+    private external fun nativeDiscardAllChanges(dir: String): String
+
     private external fun nativeLatestReleaseSignature(host: String, token: String, owner: String, repo: String): String
 
     private external fun nativeRepoSignature(host: String, token: String, owner: String, repo: String): String
@@ -472,6 +482,46 @@ object RustBridge {
                 "引擎不可用"
             }
         }
+
+    // ── 本地分支管理（列表 / 切换 / 新建 / 删除） ──
+
+    /** 本地分支列表（JSON 数组：name / isHead / upstream / ahead / behind）。 */
+    suspend fun localBranches(dir: String): String? = withContext(Dispatchers.IO) {
+        runCatching { nativeLocalBranches(dir).takeIf { it.isNotBlank() && !it.startsWith("ERROR:") } }.getOrNull()
+    }
+
+    /** 切换本地分支（safe checkout）。null = 成功；其他 = 失败原因（含冲突提示）。 */
+    suspend fun checkoutBranch(dir: String, name: String): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val r = nativeCheckoutBranch(dir, name)
+            if (r.isBlank()) null else r.removePrefix("ERROR:").take(300)
+        }.getOrElse { "引擎不可用" }
+    }
+
+    /** 新建本地分支并切换过去（from 为空 = 当前 HEAD）。null = 成功。 */
+    suspend fun createBranchLocal(dir: String, name: String, from: String = ""): String? =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val r = nativeCreateBranchLocal(dir, name, from)
+                if (r.isBlank()) null else r.removePrefix("ERROR:").take(300)
+            }.getOrElse { "引擎不可用" }
+        }
+
+    /** 删除本地分支（当前分支会被拒绝）。null = 成功。 */
+    suspend fun deleteBranchLocal(dir: String, name: String): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val r = nativeDeleteBranchLocal(dir, name)
+            if (r.isBlank()) null else r.removePrefix("ERROR:").take(300)
+        }.getOrElse { "引擎不可用" }
+    }
+
+    /** 撤销工作区所有改动（恢复已跟踪文件 + 删除未跟踪文件）。null = 成功。 */
+    suspend fun discardAllChanges(dir: String): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val r = nativeDiscardAllChanges(dir)
+            if (r.isBlank()) null else r.removePrefix("ERROR:").take(300)
+        }.getOrElse { "引擎不可用" }
+    }
 
     /** 拉取 latest release 的 signature.txt 校验文件内容（返回文本或 null）。 */
     suspend fun latestReleaseSignature(host: String, token: String, owner: String, repo: String): String? =

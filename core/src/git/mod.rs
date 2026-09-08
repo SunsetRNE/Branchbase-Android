@@ -157,6 +157,168 @@ pub fn commit_repo(dir: &str, message: &str, author_name: &str, author_email: &s
     Ok(id.to_string())
 }
 
+// ── 本地分支管理（列表 / 切换 / 新建 / 删除） ──
+
+/// 当前 HEAD 的短名（detached 或空仓库返回空串）。
+fn head_branch_name(repo: &git2::Repository) -> String {
+    repo.head()
+        .ok()
+        .and_then(|h| h.shorthand().map(|s| s.to_string()))
+        .unwrap_or_default()
+}
+
+/// 本地分支列表（JSON 数组）：name / is_head / upstream / ahead / behind。
+///
+/// 当前分支排最前，其余按名字排序。
+pub fn local_branches(dir: &str) -> Result<String> {
+    use git2::{BranchType, Repository};
+
+    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let head = head_branch_name(&repo);
+
+    let mut out: Vec<serde_json::Value> = Vec::new();
+    let branches = repo
+        .branches(Some(BranchType::Local))
+        .map_err(|e| CoreError::Other(format!("读取分支失败: {e}")))?;
+    for entry in branches {
+        let (branch, _) = entry.map_err(|e| CoreError::Other(format!("读取分支失败: {e}")))?;
+        let name = branch.name().ok().flatten().unwrap_or("").to_string();
+        if name.is_empty() {
+            continue;
+        }
+        let is_head = name == head;
+        let mut upstream = String::new();
+        let mut ahead: usize = 0;
+        let mut behind: usize = 0;
+        if let Ok(up) = branch.upstream() {
+            upstream = up.name().ok().flatten().unwrap_or("").to_string();
+            if let (Some(local_oid), Some(up_oid)) = (branch.get().target(), up.get().target()) {
+                if let Ok((a, b)) = repo.graph_ahead_behind(local_oid, up_oid) {
+                    ahead = a;
+                    behind = b;
+                }
+            }
+        }
+        out.push(json!({
+            "name": name,
+            "is_head": is_head,
+            "upstream": upstream,
+            "ahead": ahead,
+            "behind": behind
+        }));
+    }
+    out.sort_by(|a, b| {
+        let ah = a.get("is_head").and_then(|v| v.as_bool()).unwrap_or(false);
+        let bh = b.get("is_head").and_then(|v| v.as_bool()).unwrap_or(false);
+        bh.cmp(&ah).then_with(|| {
+            let an = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let bn = b.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            an.cmp(bn)
+        })
+    });
+    Ok(json!(out).to_string())
+}
+
+/// 切换本地分支（safe checkout：**不覆盖**未提交改动）。
+///
+/// 若未提交改动会被目标分支覆盖，libgit2 会拒绝（错误信息含 conflict / overwritten），
+/// 由上层提示「撤销改动后再切换」—— 与「脏工作区不隐式 stash」的约定一致。
+pub fn checkout_branch(dir: &str, name: &str) -> Result<()> {
+    use git2::{build::CheckoutBuilder, Repository};
+
+    if name.trim().is_empty() {
+        return Err(CoreError::Other("分支名不能为空".into()));
+    }
+    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+
+    let (object, reference) = repo
+        .revparse_ext(name.trim())
+        .map_err(|e| CoreError::Other(format!("找不到分支 {name}: {e}")))?;
+
+    // SAFE 模式：冲突时失败而不是静默丢改动
+    repo.checkout_tree(&object, Some(CheckoutBuilder::new().safe()))
+        .map_err(|e| CoreError::Other(format!("切换失败: {e}")))?;
+
+    match reference {
+        Some(r) => {
+            let refname = r
+                .name()
+                .ok_or_else(|| CoreError::Other("分支引用名无效".into()))?
+                .to_string();
+            repo.set_head(&refname)
+                .map_err(|e| CoreError::Other(format!("切换 HEAD 失败: {e}")))?;
+        }
+        None => {
+            repo.set_head_detached(object.id())
+                .map_err(|e| CoreError::Other(format!("切换 HEAD 失败: {e}")))?;
+        }
+    }
+    Ok(())
+}
+
+/// 新建本地分支并**立即切换过去**（对齐「新建后默认跟随」的约定）。
+pub fn create_branch_local(dir: &str, name: &str, from: &str) -> Result<()> {
+    use git2::Repository;
+
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(CoreError::Other("分支名不能为空".into()));
+    }
+    if name.contains(' ') {
+        return Err(CoreError::Other("分支名不能含空格".into()));
+    }
+    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    if repo.find_branch(name, git2::BranchType::Local).is_ok() {
+        return Err(CoreError::Other(format!("分支 {name} 已存在")));
+    }
+
+    let base = if from.trim().is_empty() {
+        repo.head()
+            .and_then(|h| h.peel_to_commit())
+            .map_err(|e| CoreError::Other(format!("读取当前提交失败: {e}")))?
+    } else {
+        repo.revparse_single(from.trim())
+            .and_then(|o| o.peel_to_commit())
+            .map_err(|e| CoreError::Other(format!("找不到起点 {from}: {e}")))?
+    };
+
+    repo.branch(name, &base, false)
+        .map_err(|e| CoreError::Other(format!("创建分支失败: {e}")))?;
+    checkout_branch(dir, name)
+}
+
+/// 删除本地分支。当前分支拒绝；调用方另外把 main/master 置灰。
+pub fn delete_branch_local(dir: &str, name: &str) -> Result<()> {
+    use git2::Repository;
+
+    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    if name == head_branch_name(&repo) {
+        return Err(CoreError::Other("不能删除当前分支，请先切换到其他分支".into()));
+    }
+    let mut branch = repo
+        .find_branch(name, git2::BranchType::Local)
+        .map_err(|e| CoreError::Other(format!("找不到分支 {name}: {e}")))?;
+    branch
+        .delete()
+        .map_err(|e| CoreError::Other(format!("删除分支失败: {e}")))?;
+    Ok(())
+}
+
+/// 撤销工作区所有改动（已跟踪文件恢复 + 删除未跟踪文件）。
+///
+/// 用于「脏工作区切换分支」的前置步骤：用户确认后才调用，不做任何隐式丢弃。
+pub fn discard_all_changes(dir: &str) -> Result<()> {
+    use git2::{build::CheckoutBuilder, Repository};
+
+    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let mut cb = CheckoutBuilder::new();
+    cb.force();
+    cb.remove_untracked(true);
+    repo.checkout_head(Some(&mut cb))
+        .map_err(|e| CoreError::Other(format!("撤销改动失败: {e}")))?;
+    Ok(())
+}
+
 /// 本地 git push：推送到 origin
 pub fn push_repo(dir: &str, token: Option<&str>, branch: &str) -> Result<()> {
     use git2::{PushOptions, RemoteCallbacks, Repository};
