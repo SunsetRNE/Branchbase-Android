@@ -143,6 +143,22 @@ object RustBridge {
 
     private external fun nativeGitInitSsl(dir: String): String
 
+    // ── 协作与仓库管理（PR 一条龙 / 合并 / 仓库设置执行层） ──
+
+    private external fun nativeGetRefSha(host: String, token: String, owner: String, repo: String, branch: String): String
+
+    private external fun nativeCreateBranch(host: String, token: String, owner: String, repo: String, branch: String, sha: String): String
+
+    private external fun nativeCreatePullRequest(host: String, token: String, owner: String, repo: String, title: String, body: String, head: String, base: String, draft: String): String
+
+    private external fun nativeMergePullRequest(host: String, token: String, owner: String, repo: String, number: String, mergeMethod: String): String
+
+    private external fun nativeDeleteBranch(host: String, token: String, owner: String, repo: String, branch: String): String
+
+    private external fun nativeUpdateDefaultBranch(host: String, token: String, owner: String, repo: String, branch: String): String
+
+    private external fun nativeDeleteRepo(host: String, token: String, owner: String, repo: String): String
+
     // ── 高层 API（suspend，切 IO 线程） ──
 
     fun coreVersion(): String = nativeCoreVersion()
@@ -524,4 +540,84 @@ object RustBridge {
     } catch (e: Throwable) {
         false // .so 未重编译时优雅降级
     }
+
+    // ── 协作与仓库管理（对齐 docs/decision-pages-gap.md §8.4 执行层） ──
+    // 统一约定：返回 null = 成功；其他 = 失败原因（透出 ERROR: 后文本，截断 160 字符）
+
+    private fun err(r: String): String? =
+        if (r.isBlank()) null else r.removePrefix("ERROR:").take(160)
+
+    /** 读取分支 ref 的 sha（失败返回 null）。 */
+    suspend fun getRefSha(host: String, token: String, owner: String, repo: String, branch: String): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                val r = nativeGetRefSha(host, token, owner, repo, branch)
+                r.takeIf { it.isNotBlank() && !it.startsWith("ERROR:") }
+            } catch (e: Throwable) {
+                null
+            }
+        }
+
+    /** 创建分支（null = 成功）。 */
+    suspend fun createBranch(host: String, token: String, owner: String, repo: String, branch: String, sha: String): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                err(nativeCreateBranch(host, token, owner, repo, branch, sha))
+            } catch (e: Throwable) {
+                "引擎不可用"
+            }
+        }
+
+    /** 创建 PR（null = 成功）。 */
+    suspend fun createPullRequest(
+        host: String, token: String, owner: String, repo: String,
+        title: String, body: String, head: String, base: String, draft: Boolean,
+    ): String? = withContext(Dispatchers.IO) {
+        try {
+            err(nativeCreatePullRequest(host, token, owner, repo, title, body, head, base, if (draft) "1" else "0"))
+        } catch (e: Throwable) {
+            "引擎不可用"
+        }
+    }
+
+    /** 合并 PR（null = 成功）。mergeMethod: merge / squash / rebase */
+    suspend fun mergePullRequest(
+        host: String, token: String, owner: String, repo: String, number: Int, mergeMethod: String,
+    ): String? = withContext(Dispatchers.IO) {
+        try {
+            err(nativeMergePullRequest(host, token, owner, repo, number.toString(), mergeMethod))
+        } catch (e: Throwable) {
+            "引擎不可用"
+        }
+    }
+
+    /** 删除远端分支（null = 成功）。 */
+    suspend fun deleteBranch(host: String, token: String, owner: String, repo: String, branch: String): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                err(nativeDeleteBranch(host, token, owner, repo, branch))
+            } catch (e: Throwable) {
+                "引擎不可用"
+            }
+        }
+
+    /** 修改仓库默认分支（null = 成功）。 */
+    suspend fun updateDefaultBranch(host: String, token: String, owner: String, repo: String, branch: String): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                err(nativeUpdateDefaultBranch(host, token, owner, repo, branch))
+            } catch (e: Throwable) {
+                "引擎不可用"
+            }
+        }
+
+    /** 删除仓库（null = 成功）。 */
+    suspend fun deleteRepo(host: String, token: String, owner: String, repo: String): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                err(nativeDeleteRepo(host, token, owner, repo))
+            } catch (e: Throwable) {
+                "引擎不可用"
+            }
+        }
 }

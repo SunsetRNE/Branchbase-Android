@@ -994,3 +994,196 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitInitSsl<'loc
         crate::git::init_ssl_certs(&dir).map(|_| String::new());
     into_jstring(&mut env, result)
 }
+
+// ── 协作与仓库管理（PR 一条龙 / 合并 / 仓库设置执行层） ──
+
+/// 读取分支 ref 的 sha
+/// 参数：host, token, owner, repo, branch
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGetRefSha<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    owner: JString<'local>,
+    repo: JString<'local>,
+    branch: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let owner = jstr(&mut env, &owner);
+    let repo = jstr(&mut env, &repo);
+    let branch = jstr(&mut env, &branch);
+    let result: crate::error::Result<String> = block_on(async move {
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client)
+            .get_ref_sha(&owner, &repo, &branch)
+            .await
+    });
+    into_jstring(&mut env, result)
+}
+
+/// 创建分支
+/// 参数：host, token, owner, repo, branch, sha
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeCreateBranch<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    owner: JString<'local>,
+    repo: JString<'local>,
+    branch: JString<'local>,
+    sha: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let owner = jstr(&mut env, &owner);
+    let repo = jstr(&mut env, &repo);
+    let branch = jstr(&mut env, &branch);
+    let sha = jstr(&mut env, &sha);
+    let result: crate::error::Result<String> = block_on(async move {
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client)
+            .create_branch(&owner, &repo, &branch, &sha)
+            .await
+    });
+    into_jstring(&mut env, result)
+}
+
+/// 创建 Pull Request
+/// 参数：host, token, owner, repo, title, body, head, base, draft("1"/"0")
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeCreatePullRequest<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    owner: JString<'local>,
+    repo: JString<'local>,
+    title: JString<'local>,
+    body: JString<'local>,
+    head: JString<'local>,
+    base: JString<'local>,
+    draft: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let owner = jstr(&mut env, &owner);
+    let repo = jstr(&mut env, &repo);
+    let title = jstr(&mut env, &title);
+    let body = jstr(&mut env, &body);
+    let head = jstr(&mut env, &head);
+    let base = jstr(&mut env, &base);
+    let draft = jstr(&mut env, &draft) == "1";
+    let result: crate::error::Result<String> = block_on(async move {
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client)
+            .create_pull_request(&owner, &repo, &title, &body, &head, &base, draft)
+            .await
+    });
+    into_jstring(&mut env, result)
+}
+
+/// 合并 Pull Request
+/// 参数：host, token, owner, repo, number, mergeMethod(merge/squash/rebase)
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeMergePullRequest<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    owner: JString<'local>,
+    repo: JString<'local>,
+    number: JString<'local>,
+    merge_method: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let owner = jstr(&mut env, &owner);
+    let repo = jstr(&mut env, &repo);
+    let number = jstr(&mut env, &number);
+    let merge_method = jstr(&mut env, &merge_method);
+    let result: crate::error::Result<String> = block_on(async move {
+        let n: u64 = number.parse().unwrap_or(0);
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client)
+            .merge_pull_request(&owner, &repo, n, &merge_method)
+            .await
+    });
+    into_jstring(&mut env, result)
+}
+
+/// 删除远端分支
+/// 参数：host, token, owner, repo, branch
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeDeleteBranch<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    owner: JString<'local>,
+    repo: JString<'local>,
+    branch: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let owner = jstr(&mut env, &owner);
+    let repo = jstr(&mut env, &repo);
+    let branch = jstr(&mut env, &branch);
+    let result: crate::error::Result<String> = block_on(async move {
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client)
+            .delete_branch(&owner, &repo, &branch)
+            .await
+    });
+    into_jstring(&mut env, result)
+}
+
+/// 修改仓库默认分支
+/// 参数：host, token, owner, repo, branch
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeUpdateDefaultBranch<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    owner: JString<'local>,
+    repo: JString<'local>,
+    branch: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let owner = jstr(&mut env, &owner);
+    let repo = jstr(&mut env, &repo);
+    let branch = jstr(&mut env, &branch);
+    let result: crate::error::Result<String> = block_on(async move {
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client)
+            .update_default_branch(&owner, &repo, &branch)
+            .await
+    });
+    into_jstring(&mut env, result)
+}
+
+/// 删除仓库
+/// 参数：host, token, owner, repo
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeDeleteRepo<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    owner: JString<'local>,
+    repo: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let owner = jstr(&mut env, &owner);
+    let repo = jstr(&mut env, &repo);
+    let result: crate::error::Result<String> = block_on(async move {
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client).delete_repo(&owner, &repo).await
+    });
+    into_jstring(&mut env, result)
+}

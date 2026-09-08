@@ -556,12 +556,62 @@ private fun ForkRow(fork: ForkItem) {
 // ── 设置（占位） ──
 
 @Composable
-fun RepositorySettingsContent() {
-    val items = listOf("通用", "分支", "通知", "许可证")
+fun RepositorySettingsContent(
+    sessionJson: String,
+    owner: String,
+    repo: String,
+    branches: List<String>,
+    defaultBranch: String,
+) {
+    // 0=入口列表 1=仓库设置决策页 2=PR 一条龙
+    var subPage by remember { mutableStateOf(0) }
+    when (subPage) {
+        1 -> {
+            com.branchbase.ui.decision.RepoSettingScreen(
+                sessionJson = sessionJson,
+                owner = owner,
+                repo = repo,
+                branches = branches,
+                defaultBranch = defaultBranch,
+                onBack = { subPage = 0 },
+                onFeedback = {},
+            )
+            return
+        }
+        2 -> {
+            com.branchbase.ui.decision.PrOnestopScreen(
+                sessionJson = sessionJson,
+                owner = owner,
+                repo = repo,
+                baseBranch = defaultBranch,
+                commitMessage = "chore: 通过 Branchbase 提交",
+                changedFiles = emptyList(),
+                onBack = { subPage = 0 },
+                onCreated = { subPage = 0 },
+            )
+            return
+        }
+    }
+    val entries = listOf(
+        Triple("仓库设置（默认分支 / 分支管理 / 危险区）", 1, true),
+        Triple("开 PR 一条龙（新建分支 + 开 PR）", 2, true),
+        Triple("许可证", 0, false),
+    )
     LazyColumn(Modifier.fillMaxSize()) {
-        items(items) { name ->
-            Row(Modifier.fillMaxWidth().padding(14.dp, 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(name, fontSize = 14.sp, color = Primer.TextPrimary, modifier = Modifier.weight(1f))
+        items(entries) { (name, target, enabled) ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .then(if (enabled) Modifier.clickable { subPage = target } else Modifier)
+                    .padding(14.dp, 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    name,
+                    fontSize = 14.sp,
+                    color = if (enabled) Primer.TextPrimary else Primer.TextTertiary,
+                    modifier = Modifier.weight(1f),
+                )
                 Text("›", fontSize = 16.sp, color = Primer.TextTertiary)
             }
         }

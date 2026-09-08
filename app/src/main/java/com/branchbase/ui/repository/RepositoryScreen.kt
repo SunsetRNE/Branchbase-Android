@@ -290,7 +290,13 @@ fun RepositoryScreen(
                         RepoPage.Releases -> ReleaseListContent(sessionJson, owner, repo, refreshTick)
                         RepoPage.PullRequests -> PullListContent(sessionJson, owner, repo, branch, refreshTick, onItemClick = { pullPage = it.number })
                         RepoPage.Commits -> CommitListContent(sessionJson, owner, repo, branch, refreshTick, onItemClick = { commitPage = it.sha })
-                        RepoPage.Settings -> RepositorySettingsContent()
+                        RepoPage.Settings -> RepositorySettingsContent(
+                            sessionJson = sessionJson,
+                            owner = owner,
+                            repo = repo,
+                            branches = branches.map { it.name },
+                            defaultBranch = branch ?: "main",
+                        )
                     }
                 }
             }

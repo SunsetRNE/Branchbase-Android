@@ -172,6 +172,25 @@ impl ApiClient {
     }
 
     /// 下载任意 URL 的文本内容（公开资源，不带鉴权，如 release 附件）
+    /// 带鉴权的 DELETE 请求（删除分支/仓库等），返回 JSON 字符串或空串
+    pub async fn delete_json(&self, path: &str) -> Result<String> {
+        let url = format!("{}{}", self.base_url(), path.trim_start_matches('/'));
+        let resp = self
+            .http
+            .delete(&url)
+            .header("Authorization", format!("token {}", self.token))
+            .header("Accept", "application/json")
+            .header("User-Agent", "Branchbase/0.1")
+            .send()
+            .await?;
+        let status = resp.status();
+        let text = resp.text().await?;
+        if !status.is_success() {
+            return Err(CoreError::Other(format!("HTTP {status}: {text}")));
+        }
+        Ok(text)
+    }
+
     pub async fn get_raw_text(&self, url: &str) -> Result<String> {
         let resp = self
             .http

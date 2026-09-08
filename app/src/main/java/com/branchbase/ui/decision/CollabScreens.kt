@@ -58,6 +58,7 @@ import kotlinx.coroutines.withContext
  */
 @Composable
 fun PrOnestopScreen(
+    sessionJson: String,
     owner: String,
     repo: String,
     baseBranch: String,
@@ -66,18 +67,41 @@ fun PrOnestopScreen(
     onBack: () -> Unit,
     onCreated: (message: String?) -> Unit,
 ) {
+    val host = remember(sessionJson) { runCatching { org.json.JSONObject(sessionJson).optString("host", "github.com") }.getOrDefault("github.com") }
+    val token = remember(sessionJson) {
+        runCatching { org.json.JSONObject(sessionJson).optJSONObject("token")?.optString("access_token").orEmpty() }.getOrDefault("")
+    }
+    val scope = rememberCoroutineScope()
     var step by remember { mutableStateOf(0) }
     var branchName by remember { mutableStateOf("patch-1") }
     var title by remember { mutableStateOf(commitMessage) }
     var description by remember { mutableStateOf("## 变更内容\n- 待补充\n\n## 测试\n- [ ] 已验证") }
     var draftPr by remember { mutableStateOf(false) }
     var feedback by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
+    fun createPr() {
+        if (title.isBlank()) { feedback = "请填写 PR 标题"; return }
+        scope.launch {
+            busy = true
+            feedback = null
+            val sha = withContext(Dispatchers.IO) { RustBridge.getRefSha(host, token, owner, repo, baseBranch) }
+            if (sha == null) { busy = false; feedback = "无法读取基准分支 $baseBranch"; return@launch }
+            val branchErr = withContext(Dispatchers.IO) { RustBridge.createBranch(host, token, owner, repo, branchName, sha) }
+            if (branchErr != null) { busy = false; feedback = "创建分支失败：$branchErr"; return@launch }
+            val prErr = withContext(Dispatchers.IO) {
+                RustBridge.createPullRequest(host, token, owner, repo, title, description, branchName, baseBranch, draftPr)
+            }
+            busy = false
+            if (prErr == null) onCreated("PR 已创建 · $branchName → $baseBranch") else feedback = "创建 PR 失败：$prErr"
+        }
+    }
 
     fun next() {
         when (step) {
             0 -> if (branchName.isBlank() || branchName.contains(' ')) feedback = "分支名不能为空或含空格" else { feedback = null; step = 1 }
             1 -> { feedback = null; step = 2 }
-            2 -> onCreated("PR 已创建 · $branchName → $baseBranch（Git Data API 待接）")
+            2 -> createPr()
         }
     }
 
@@ -170,10 +194,11 @@ fun PrOnestopScreen(
             }
         }
         feedback?.let { FeedbackLine(it, error = true) }
+        if (busy) FeedbackLine("执行中…")
     },
     bottom = {
-        TextButton(onClick = { if (step == 0) onBack() else step-- }, modifier = Modifier.weight(1f)) { Text(if (step == 0) "取消" else "上一步") }
-        Button(onClick = { next() }, modifier = Modifier.weight(1f)) {
+        TextButton(onClick = { if (step == 0) onBack() else step-- }, enabled = !busy, modifier = Modifier.weight(1f)) { Text(if (step == 0) "取消" else "上一步") }
+        Button(onClick = { next() }, enabled = !busy, modifier = Modifier.weight(1f)) {
             Text(if (step == 2) (if (draftPr) "创建草稿 PR" else "创建 PR") else "下一步")
         }
     })
@@ -184,15 +209,55 @@ fun PrOnestopScreen(
  */
 @Composable
 fun RepoSettingScreen(
-    repoName: String,
+    sessionJson: String,
+    owner: String,
+    repo: String,
     branches: List<String>,
     defaultBranch: String,
     onBack: () -> Unit,
-    onDeleteRepo: () -> Unit,
     onFeedback: (String) -> Unit,
 ) {
+    val repoName = "$owner/$repo"
+    val host = remember(sessionJson) { runCatching { org.json.JSONObject(sessionJson).optString("host", "github.com") }.getOrDefault("github.com") }
+    val token = remember(sessionJson) {
+        runCatching { org.json.JSONObject(sessionJson).optJSONObject("token")?.optString("access_token").orEmpty() }.getOrDefault("")
+    }
+    val scope = rememberCoroutineScope()
     var selectedDefault by remember { mutableStateOf(defaultBranch) }
     var mergedBranches by remember { mutableStateOf(setOf("patch-1")) } // 演示：已合并标记
+    var busy by remember { mutableStateOf(false) }
+    var feedback by remember { mutableStateOf<String?>(null) }
+    var deleteBranchTarget by remember { mutableStateOf<String?>(null) }
+    var deleteRepoConfirm by remember { mutableStateOf(false) }
+
+    fun switchDefault(b: String) {
+        scope.launch {
+            busy = true
+            val err = withContext(Dispatchers.IO) { RustBridge.updateDefaultBranch(host, token, owner, repo, b) }
+            busy = false
+            if (err == null) { selectedDefault = b; feedback = "默认分支已切换为 $b"; onFeedback("默认分支已切换为 $b") }
+            else feedback = "切换失败：$err"
+        }
+    }
+
+    fun removeBranch(b: String) {
+        scope.launch {
+            busy = true
+            val err = withContext(Dispatchers.IO) { RustBridge.deleteBranch(host, token, owner, repo, b) }
+            busy = false
+            deleteBranchTarget = null
+            feedback = if (err == null) "已删除分支 $b" else "删除失败：$err"
+        }
+    }
+
+    fun removeRepo() {
+        scope.launch {
+            busy = true
+            val err = withContext(Dispatchers.IO) { RustBridge.deleteRepo(host, token, owner, repo) }
+            busy = false
+            feedback = if (err == null) "仓库已删除" else "删除失败：$err"
+        }
+    }
 
     DecisionScreenShell(
         title = "仓库设置",
@@ -204,7 +269,7 @@ fun RepoSettingScreen(
                 Text("默认分支", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp))
                 branches.forEach { b ->
                     Row(
-                        Modifier.fillMaxWidth().clickable { selectedDefault = b; onFeedback("默认分支已切换为 $b（可撤销）") }.padding(horizontal = 12.dp, vertical = 9.dp),
+                        Modifier.fillMaxWidth().clickable { if (b != selectedDefault && !busy) switchDefault(b) }.padding(horizontal = 12.dp, vertical = 9.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(b, fontSize = 12.sp, color = if (b == selectedDefault) Primer.Blue500 else Primer.TextSecondary, fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f))
@@ -219,7 +284,22 @@ fun RepoSettingScreen(
             Column {
                 branches.forEach { b ->
                     val merged = b in mergedBranches
-                    FactRow(b, if (merged) "已合并" else "未合并 · 删除警告", rightColor = if (merged) Primer.Green500 else Primer.Red500, mono = true)
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(b, fontSize = 12.sp, color = Primer.TextSecondary, fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f))
+                        Text(if (merged) "已合并" else "未合并", fontSize = 11.sp, color = if (merged) Primer.Green500 else Primer.Red500)
+                        if (b != selectedDefault) {
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                "删除",
+                                fontSize = 11.sp,
+                                color = Primer.Red500,
+                                modifier = Modifier.clickable { if (!busy) deleteBranchTarget = b },
+                            )
+                        }
+                    }
                 }
             }
             DecisionNote("删除「未合并」分支需勾选确认：该分支的改动将无法找回。")
@@ -227,14 +307,46 @@ fun RepoSettingScreen(
 
         FactCard("危险操作区") {
             Column {
-                FactRow("删除仓库", "需输入仓库名", rightColor = Primer.Red500)
+                Row(
+                    Modifier.fillMaxWidth().clickable { deleteRepoConfirm = !deleteRepoConfirm }.padding(horizontal = 12.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("删除仓库", fontSize = 12.sp, color = Primer.TextSecondary, modifier = Modifier.weight(1f))
+                    Text(if (deleteRepoConfirm) "已确认" else "点击确认", fontSize = 11.sp, color = Primer.Red500)
+                }
             }
             DecisionNote("删除前展示挽留 stats：⭐ 12 星标 · 🍴 3 复刻 · 128 提交 · 4 贡献者（只读展示，不拦截）。")
         }
+
+        deleteBranchTarget?.let { b ->
+            Spacer(Modifier.height(4.dp))
+            DangerConfirmCard(
+                description = "将永久删除远端分支 $b，该分支的改动无法找回。",
+                confirmLabel = "我确认删除该分支",
+                confirmed = true,
+                onToggle = {},
+            )
+        }
+        feedback?.let { FeedbackLine(it, error = true) }
+        if (busy) FeedbackLine("执行中…")
     },
     bottom = {
-        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("取消") }
-        Button(onClick = onDeleteRepo, colors = ButtonDefaults.buttonColors(containerColor = Primer.Red500), modifier = Modifier.weight(1f)) { Text("删除仓库", color = Color.White) }
+        TextButton(onClick = onBack, enabled = !busy, modifier = Modifier.weight(1f)) { Text("取消") }
+        if (deleteBranchTarget != null) {
+            Button(
+                onClick = { deleteBranchTarget?.let { removeBranch(it) } },
+                enabled = !busy,
+                colors = ButtonDefaults.buttonColors(containerColor = Primer.Red500),
+                modifier = Modifier.weight(1f),
+            ) { Text("删除分支", color = Color.White) }
+        } else {
+            Button(
+                onClick = { if (deleteRepoConfirm) removeRepo() else feedback = "请先在危险操作区点击确认" },
+                enabled = !busy,
+                colors = ButtonDefaults.buttonColors(containerColor = Primer.Red500),
+                modifier = Modifier.weight(1f),
+            ) { Text("删除仓库", color = Color.White) }
+        }
     })
 }
 
@@ -355,14 +467,45 @@ fun PatInputScreen(
  */
 @Composable
 fun PrMergeScreen(
+    sessionJson: String,
+    owner: String,
+    repo: String,
+    prNumber: Int,
     prTitle: String,
     headBranch: String,
     baseBranch: String,
     onBack: () -> Unit,
-    onMerge: (strategy: String, deleteBranch: Boolean) -> Unit,
+    onMerged: (message: String?) -> Unit,
 ) {
+    val host = remember(sessionJson) { runCatching { org.json.JSONObject(sessionJson).optString("host", "github.com") }.getOrDefault("github.com") }
+    val token = remember(sessionJson) {
+        runCatching { org.json.JSONObject(sessionJson).optJSONObject("token")?.optString("access_token").orEmpty() }.getOrDefault("")
+    }
+    val scope = rememberCoroutineScope()
     var strategy by remember { mutableStateOf(0) } // 0=squash 1=merge 2=rebase
     var deleteBranch by remember { mutableStateOf(true) }
+    var busy by remember { mutableStateOf(false) }
+    var feedback by remember { mutableStateOf<String?>(null) }
+
+    val methods = listOf("squash", "merge", "rebase")
+
+    fun doMerge() {
+        scope.launch {
+            busy = true
+            feedback = null
+            val err = withContext(Dispatchers.IO) {
+                RustBridge.mergePullRequest(host, token, owner, repo, prNumber, methods[strategy])
+            }
+            if (err != null) { busy = false; feedback = "合并失败：$err"; return@launch }
+            var note = "已合并 PR #$prNumber"
+            if (deleteBranch) {
+                val delErr = withContext(Dispatchers.IO) { RustBridge.deleteBranch(host, token, owner, repo, headBranch) }
+                if (delErr != null) note += "（分支删除失败：$delErr）"
+            }
+            busy = false
+            onMerged(note)
+        }
+    }
 
     val names = listOf("Squash and merge", "Merge commit", "Rebase and merge")
     val descs = listOf(
@@ -400,10 +543,12 @@ fun PrMergeScreen(
         }
 
         DecisionNote("策略将按仓库记忆最近一次选择（Room），下次默认带入。")
+        feedback?.let { FeedbackLine(it, error = true) }
+        if (busy) FeedbackLine("执行中…")
     },
     bottom = {
-        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("取消") }
-        Button(onClick = { onMerge(names[strategy], deleteBranch) }, modifier = Modifier.weight(1f)) { Text("${names[strategy]} 并合并") }
+        TextButton(onClick = onBack, enabled = !busy, modifier = Modifier.weight(1f)) { Text("取消") }
+        Button(onClick = { doMerge() }, enabled = !busy, modifier = Modifier.weight(1f)) { Text("${names[strategy]} 并合并") }
     })
 }
 

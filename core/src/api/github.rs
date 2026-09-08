@@ -259,3 +259,91 @@ impl GitHubApi {
         self.client.put_empty("/notifications").await
     }
 }
+    // ── 协作与仓库管理（对齐 docs/decision-pages-gap.md §8.4 执行层） ──
+
+    /// 读取分支 ref 的 sha（GET /repos/{o}/{r}/git/ref/heads/{branch}）
+    pub async fn get_ref_sha(&self, owner: &str, repo: &str, branch: &str) -> Result<String> {
+        let path = format!("/repos/{owner}/{repo}/git/ref/heads/{branch}");
+        let json = self.client.get_json(&path).await?;
+        let value: serde_json::Value = serde_json::from_str(&json)?;
+        value["object"]["sha"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| crate::error::CoreError::Other("ref 响应缺少 sha".into()))
+    }
+
+    /// 创建分支（POST /repos/{o}/{r}/git/refs）
+    pub async fn create_branch(
+        &self,
+        owner: &str,
+        repo: &str,
+        branch: &str,
+        sha: &str,
+    ) -> Result<String> {
+        let body = serde_json::json!({
+            "ref": format!("refs/heads/{branch}"),
+            "sha": sha,
+        });
+        let path = format!("/repos/{owner}/{repo}/git/refs");
+        self.client.post_json(&path, &body.to_string()).await
+    }
+
+    /// 创建 Pull Request（POST /repos/{o}/{r}/pulls）
+    pub async fn create_pull_request(
+        &self,
+        owner: &str,
+        repo: &str,
+        title: &str,
+        body_text: &str,
+        head: &str,
+        base: &str,
+        draft: bool,
+    ) -> Result<String> {
+        let body = serde_json::json!({
+            "title": title,
+            "body": body_text,
+            "head": head,
+            "base": base,
+            "draft": draft,
+        });
+        let path = format!("/repos/{owner}/{repo}/pulls");
+        self.client.post_json(&path, &body.to_string()).await
+    }
+
+    /// 合并 Pull Request（PUT /repos/{o}/{r}/pulls/{n}/merge）
+    /// merge_method: merge / squash / rebase
+    pub async fn merge_pull_request(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        merge_method: &str,
+    ) -> Result<String> {
+        let body = serde_json::json!({ "merge_method": merge_method });
+        let path = format!("/repos/{owner}/{repo}/pulls/{number}/merge");
+        self.client.put_json(&path, &body.to_string()).await
+    }
+
+    /// 删除远端分支（DELETE /repos/{o}/{r}/git/refs/heads/{branch}）
+    pub async fn delete_branch(&self, owner: &str, repo: &str, branch: &str) -> Result<String> {
+        let path = format!("/repos/{owner}/{repo}/git/refs/heads/{branch}");
+        self.client.delete_json(&path).await
+    }
+
+    /// 修改仓库默认分支（PATCH /repos/{o}/{r}）
+    pub async fn update_default_branch(
+        &self,
+        owner: &str,
+        repo: &str,
+        branch: &str,
+    ) -> Result<String> {
+        let body = serde_json::json!({ "default_branch": branch });
+        let path = format!("/repos/{owner}/{repo}");
+        self.client.patch_json(&path, &body.to_string()).await
+    }
+
+    /// 删除仓库（DELETE /repos/{o}/{r}）
+    pub async fn delete_repo(&self, owner: &str, repo: &str) -> Result<String> {
+        let path = format!("/repos/{owner}/{repo}");
+        self.client.delete_json(&path).await
+    }
