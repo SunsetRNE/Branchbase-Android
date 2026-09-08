@@ -116,9 +116,15 @@ pub fn commit_repo(dir: &str, message: &str, author_name: &str, author_email: &s
 
     let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
     let mut index = repo.index().map_err(|e| CoreError::Other(format!("读取索引失败: {e}")))?;
+    // 用 "." 而非 "*"：libgit2 的 pathspec 里 "*" 不递归子目录，
+    // 会让子目录里的改动被静默漏掉（提交后工作区仍是 dirty）。
+    // 再补一次 update_all 以覆盖删除/重命名（add_all 不处理删除）。
     index
-        .add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)
+        .add_all(["."].iter(), git2::IndexAddOption::DEFAULT, None)
         .map_err(|e| CoreError::Other(format!("暂存失败: {e}")))?;
+    index
+        .update_all(["."].iter(), None)
+        .map_err(|e| CoreError::Other(format!("同步删除失败: {e}")))?;
     index.write().map_err(|e| CoreError::Other(format!("写索引失败: {e}")))?;
 
     let tree_id = index.write_tree().map_err(|e| CoreError::Other(format!("写树失败: {e}")))?;
