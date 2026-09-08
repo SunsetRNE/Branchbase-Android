@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -486,6 +487,9 @@ fun SettingsScreen(onBack: () -> Unit, onOpenLocalRepo: () -> Unit, onOpenAbout:
     LaunchedEffect(Unit) { Logger.ui("进入设置页", "Compose") }
     val context = LocalContext.current
     var mode by remember { mutableStateOf(commitMode(context)) } // CommitMode?，null = 未配置
+    var showProxyDialog by remember { mutableStateOf(false) }
+    var proxyInput by remember { mutableStateOf(gitProxy(context)) }
+    var proxyFeedback by remember { mutableStateOf<String?>(null) }
 
     Column(
         modifier = Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding(),
@@ -508,14 +512,69 @@ fun SettingsScreen(onBack: () -> Unit, onOpenLocalRepo: () -> Unit, onOpenAbout:
         SettingsSectionTitle("本地仓库")
         LocalRepoEntry(enabled = mode == CommitMode.LOCAL_REPO, onClick = onOpenLocalRepo)
 
+        SettingsSectionTitle("网络")
+        SettingsItem(
+            Icons.Filled.Build,
+            if (gitProxy(context).isBlank()) "Git 代理（未设置）" else "Git 代理：${gitProxy(context)}",
+            onClick = { showProxyDialog = true },
+        )
+
         SettingsSectionTitle("其他")
         SettingsItem(Icons.Filled.AccountCircle, "账号")
         SettingsItem(Icons.Filled.Palette, "外观")
         SettingsItem(Icons.Filled.Notifications, "通知", onClick = onOpenNotificationSettings)
         SettingsItem(Icons.Filled.Info, "关于", onClick = onOpenAbout)
         SettingsItem(Icons.Filled.Build, "日志", onClick = onOpenLog)
+
+        proxyFeedback?.let {
+            Text(it, fontSize = 12.sp, color = if (it.startsWith("已")) Primer.Green500 else Primer.Red500, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+        }
+    }
+
+    if (showProxyDialog) {
+        AlertDialog(
+            onDismissRequest = { showProxyDialog = false },
+            title = { Text("Git 代理") },
+            text = {
+                Column {
+                    Text(
+                        "libgit2（本地仓库 clone/pull/push）的 HTTP 代理。留空表示不使用代理。",
+                        fontSize = 12.sp,
+                        color = Primer.TextTertiary,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = proxyInput,
+                        onValueChange = { proxyInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("http://127.0.0.1:7890 或 socks5://127.0.0.1:1080", fontSize = 12.sp, color = Primer.TextTertiary) },
+                        singleLine = true,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val ok = RustBridge.setGitProxy(context.cacheDir.absolutePath, proxyInput.trim())
+                    if (ok) {
+                        context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
+                            .edit().putString(KEY_GIT_PROXY, proxyInput.trim()).apply()
+                        proxyFeedback = if (proxyInput.isBlank()) "已清除 Git 代理" else "已设置 Git 代理"
+                    } else {
+                        proxyFeedback = "设置失败（引擎不可用）"
+                    }
+                    showProxyDialog = false
+                }) { Text("保存", color = Primer.Blue500) }
+            },
+            dismissButton = { TextButton(onClick = { showProxyDialog = false }) { Text("取消") } },
+        )
     }
 }
+
+internal const val KEY_GIT_PROXY = "git_proxy"
+
+/** 读取已保存的 Git 代理。 */
+internal fun gitProxy(context: Context): String =
+    context.getSharedPreferences("branchbase", Context.MODE_PRIVATE).getString(KEY_GIT_PROXY, "") ?: ""
 
 /** 通知设置子页面：选择通知列表显示模式（4 种，默认平铺），持久化到 SharedPreferences。 */
 @Composable

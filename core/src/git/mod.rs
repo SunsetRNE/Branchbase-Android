@@ -628,7 +628,17 @@ pub fn init_ssl_certs(dir: &str) -> Result<()> {
     //   2. 设 GIT_CONFIG_GLOBAL 环境变量指向它（libgit2 读 global config 时遵循）
     // 证书在首次 clone/pull/push 建立 HTTPS 连接时由已初始化的 OpenSSL 加载。
     let cfg_path = std::path::Path::new(dir).join("branchbase-gitconfig");
-    let cfg_content = format!("[http]\n\tsslCAInfo = {}\n", path.display());
+    // 保留用户已设置的代理行（App 每次启动都会重写本文件）
+    let mut extra = String::new();
+    if let Ok(existing) = std::fs::read_to_string(&cfg_path) {
+        for line in existing.lines() {
+            if line.trim_start().starts_with("proxy") {
+                extra.push_str(line);
+                extra.push('\n');
+            }
+        }
+    }
+    let cfg_content = format!("[http]\n\tsslCAInfo = {}\n{}", path.display(), extra);
     let need_write_cfg = match std::fs::read_to_string(&cfg_path) {
         Ok(existing) => existing != cfg_content,
         Err(_) => true,
@@ -640,5 +650,30 @@ pub fn init_ssl_certs(dir: &str) -> Result<()> {
     std::env::set_var("GIT_CONFIG_GLOBAL", &cfg_path);
     // 双保险：OpenSSL 默认验证路径也会读 SSL_CERT_FILE（若 libgit2 走 openssl 默认路径）
     std::env::set_var("SSL_CERT_FILE", &path);
+    Ok(())
+}
+
+/// 设置/清除 libgit2 的 HTTP 代理（写全局 gitconfig 的 [http] proxy，重启后由
+/// init_ssl_certs 保留）。`proxy` 为空表示清除。
+/// 形如 `http://127.0.0.1:7890` / `socks5://127.0.0.1:1080`。
+pub fn set_git_proxy(dir: &str, proxy: &str) -> Result<()> {
+    let cfg_path = std::path::Path::new(dir).join("branchbase-gitconfig");
+    let mut lines: Vec<String> = match std::fs::read_to_string(&cfg_path) {
+        Ok(existing) => existing
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("proxy"))
+            .map(|l| l.to_string())
+            .collect(),
+        Err(_) => vec!["[http]".to_string()],
+    };
+    if lines.is_empty() {
+        lines.push("[http]".to_string());
+    }
+    if !proxy.trim().is_empty() {
+        lines.push(format!("\tproxy = {}", proxy.trim()));
+    }
+    std::fs::write(&cfg_path, lines.join("\n") + "\n")
+        .map_err(|e| CoreError::Other(format!("写代理配置失败: {e}")))?;
+    std::env::set_var("GIT_CONFIG_GLOBAL", &cfg_path);
     Ok(())
 }

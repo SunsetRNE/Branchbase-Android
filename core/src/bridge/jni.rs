@@ -1187,3 +1187,19 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeDeleteRepo<'loc
     });
     into_jstring(&mut env, result)
 }
+
+/// 设置 libgit2 HTTP 代理（返回空串=成功）
+/// 参数：dir, proxy（空串=清除）
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeSetGitProxy<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+    proxy: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let proxy = jstr(&mut env, &proxy);
+    let result: crate::error::Result<String> =
+        crate::git::set_git_proxy(&dir, &proxy).map(|_| String::new());
+    into_jstring(&mut env, result)
+}

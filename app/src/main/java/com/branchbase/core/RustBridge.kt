@@ -143,6 +143,8 @@ object RustBridge {
 
     private external fun nativeGitInitSsl(dir: String): String
 
+    private external fun nativeSetGitProxy(dir: String, proxy: String): String
+
     // ── 协作与仓库管理（PR 一条龙 / 合并 / 仓库设置执行层） ──
 
     private external fun nativeGetRefSha(host: String, token: String, owner: String, repo: String, branch: String): String
@@ -610,6 +612,16 @@ object RustBridge {
                 "引擎不可用"
             }
         }
+
+    /**
+     * 设置 libgit2 HTTP 代理（写 gitconfig 的 [http] proxy，重启后保留）。
+     * 形如 `http://127.0.0.1:7890` / `socks5://127.0.0.1:1080`；空串清除。
+     */
+    fun setGitProxy(dir: String, proxy: String): Boolean = try {
+        !nativeSetGitProxy(dir, proxy).startsWith("ERROR:")
+    } catch (e: Throwable) {
+        false
+    }
 
     /** 删除仓库（null = 成功）。 */
     suspend fun deleteRepo(host: String, token: String, owner: String, repo: String): String? =
