@@ -16,6 +16,7 @@ pub fn clone_repo(url: &str, into: &str, branch: Option<&str>, token: Option<&st
     use git2::{FetchOptions, RemoteCallbacks};
 
     let mut callbacks = RemoteCallbacks::new();
+    callbacks.certificate_check(check_cert);
     if let Some(tk) = token {
         let tk = tk.to_string();
         callbacks.credentials(move |_url, username, _allowed| {
@@ -27,7 +28,7 @@ pub fn clone_repo(url: &str, into: &str, branch: Option<&str>, token: Option<&st
     }
 
     let mut fo = FetchOptions::new();
-    fo.certificate_check(check_cert).remote_callbacks(callbacks).depth(1); // 浅 clone，减体积
+    fo.remote_callbacks(callbacks).depth(1); // 浅 clone，减体积
 
     let mut builder = RepoBuilder::new();
     builder.fetch_options(fo);
@@ -51,6 +52,7 @@ pub fn pull_repo(dir: &str, token: Option<&str>) -> Result<()> {
         .map_err(|e| CoreError::Other(format!("找不到 origin: {e}")))?;
 
     let mut callbacks = RemoteCallbacks::new();
+    callbacks.certificate_check(check_cert);
     if let Some(tk) = token {
         let tk = tk.to_string();
         callbacks.credentials(move |_url, username, _allowed| {
@@ -60,7 +62,7 @@ pub fn pull_repo(dir: &str, token: Option<&str>) -> Result<()> {
     }
 
     let mut fo = FetchOptions::new();
-    fo.certificate_check(check_cert).remote_callbacks(callbacks);
+    fo.remote_callbacks(callbacks);
     remote
         .fetch(&["refs/heads/*:refs/remotes/origin/*"], Some(&mut fo), None)
         .map_err(|e| CoreError::Other(format!("fetch 失败: {e}")))?;
@@ -147,6 +149,7 @@ pub fn push_repo(dir: &str, token: Option<&str>, branch: &str) -> Result<()> {
         .map_err(|e| CoreError::Other(format!("找不到 origin: {e}")))?;
 
     let mut callbacks = RemoteCallbacks::new();
+    callbacks.certificate_check(check_cert);
     if let Some(tk) = token {
         let tk = tk.to_string();
         callbacks.credentials(move |_url, username, _allowed| {
@@ -156,7 +159,7 @@ pub fn push_repo(dir: &str, token: Option<&str>, branch: &str) -> Result<()> {
     }
 
     let mut opts = PushOptions::new();
-    opts.certificate_check(check_cert).remote_callbacks(callbacks);
+    opts.remote_callbacks(callbacks);
     let refspec = format!("refs/heads/{branch}:refs/heads/{branch}");
     remote
         .push(&[&refspec], Some(&mut opts))
@@ -204,8 +207,8 @@ fn hostname_matches(leaf: &X509, host: &str) -> bool {
         }
     }
     for e in leaf.subject_name().entries_by_nid(Nid::COMMONNAME) {
-        if let Ok(cn) = e.data().as_utf8() {
-            if dns_matches(&cn.to_string().to_lowercase(), &host) {
+        if let Ok(cn) = e.data().to_string() {
+            if dns_matches(&cn.to_lowercase(), &host) {
                 return true;
             }
         }
@@ -219,7 +222,7 @@ fn verify_cert_chain(leaf: &X509) -> bool {
     let mut current = leaf.clone();
     for _ in 0..8 {
         let issuer_name = current.issuer_name();
-        let Some(ca) = certs.iter().find(|c| c.subject_name() == issuer_name) else {
+        let Some(ca) = certs.iter().find(|c| c.subject_name().to_der() == issuer_name.to_der()) else {
             return false;
         };
         let Ok(pubkey) = ca.public_key() else {
@@ -228,7 +231,7 @@ fn verify_cert_chain(leaf: &X509) -> bool {
         if current.verify(&pubkey).is_err() {
             return false;
         }
-        if ca.subject_name() == ca.issuer_name() {
+        if ca.subject_name().to_der() == ca.issuer_name().to_der() {
             return true; // 自签名根，链走通
         }
         current = ca.clone();
@@ -239,9 +242,9 @@ fn verify_cert_chain(leaf: &X509) -> bool {
 /// libgit2 certificate_check 回调：验证通过 → Ok；否则交还 libgit2（其 openssl 后端会失败，
 /// 不会静默放行不安全的连接）
 fn check_cert(
-    cert: &git2::Cert<'_>,
+    cert: &git2::cert::Cert<'_>,
     host: &str,
-) -> Result<git2::CertificateCheckStatus, git2::Error> {
+) -> std::result::Result<git2::CertificateCheckStatus, git2::Error> {
     let Some(x509_cert) = cert.as_x509() else {
         return Ok(git2::CertificateCheckStatus::CertificatePassthrough);
     };
@@ -509,6 +512,7 @@ pub fn push_set_upstream(
     }
 
     let mut callbacks = RemoteCallbacks::new();
+    callbacks.certificate_check(check_cert);
     if let Some(tk) = token {
         let tk = tk.to_string();
         callbacks.credentials(move |_url, username, _allowed| {
@@ -518,7 +522,7 @@ pub fn push_set_upstream(
     }
 
     let mut opts = PushOptions::new();
-    opts.certificate_check(check_cert).remote_callbacks(callbacks);
+    opts.remote_callbacks(callbacks);
     let refspec = format!("refs/heads/{branch}:refs/heads/{branch}");
     remote
         .push(&[&refspec], Some(&mut opts))
