@@ -311,7 +311,7 @@ private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
 // ───────────────────────── Activity 页（真实事件数据） ─────────────────────────
 
 /** 动态事件（由 /users/{login}/received_events 解析）。 */
-private data class ActivityEvent(
+internal data class ActivityEvent(
     val type: String,
     val repo: String,
     val detail: String,
@@ -387,6 +387,12 @@ private fun ProfileActivity(host: String, token: String, login: String) {
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
 
+    // 贡献墙（GraphQL 52 周；失败降级为事件近似并标注范围）
+    var calendar by remember { mutableStateOf<ContributionCalendar?>(null) }
+    var calLoading by remember { mutableStateOf(true) }
+    var calDegraded by remember { mutableStateOf<String?>(null) }
+    var selectedDay by remember { mutableStateOf<ContributionDay?>(null) }
+
     LaunchedEffect(login) {
         loading = true
         error = null
@@ -398,6 +404,31 @@ private fun ProfileActivity(host: String, token: String, login: String) {
             Logger.net("GET /users/$login/received_events → ${events.size} 条", "GitHubAPI")
         }
         loading = false
+    }
+
+    // 贡献日历：GraphQL contributionsCollection（REST 拿不到 52 周）
+    LaunchedEffect(login) {
+        calLoading = true
+        val range = contributionRange()
+        val json = withContext(Dispatchers.IO) {
+            RustBridge.contributionCalendar(host, token, login, range.first, range.second)
+        }
+        val parsed = parseContributionCalendar(json)
+        if (parsed != null) {
+            calendar = parsed
+            Logger.net("POST /graphql contributionsCollection($login) → ${parsed.total} 次贡献", "GraphQL")
+        } else {
+            Logger.net("POST /graphql 不可用，降级为 received_events 近似", "GraphQL")
+        }
+        calLoading = false
+    }
+
+    // 降级：GraphQL 无权限/失败时，用已加载的公开事件近似（仅近 13 周）
+    LaunchedEffect(calendar, events, loading, calLoading) {
+        if (calendar == null && !calLoading && !loading && events.isNotEmpty()) {
+            calendar = fallbackCalendarFromEvents(events, 13)
+            calDegraded = "近 90 天公开活动"
+        }
     }
 
     when {
@@ -426,6 +457,19 @@ private fun ProfileActivity(host: String, token: String, login: String) {
                 StatCard("总记录", "${events.size}", Modifier.weight(1f))
             }
 
+            // 贡献墙（52 周；GraphQL 优先，失败降级为事件近似）
+            ContributionWall(
+                calendar = calendar,
+                loading = calLoading,
+                error = if (calendar == null && !calLoading) "贡献数据不可用（可能是令牌缺少 read:user 权限）" else null,
+                degradedNote = calDegraded,
+                selectedDate = selectedDay?.date,
+                onDaySelected = { selectedDay = it },
+            )
+            selectedDay?.let { day ->
+                ContributionDayDetail(day)
+            }
+
             // 类型分布（Top 5）
             val byType = events.groupingBy { it.type.removeSuffix("Event") }.eachCount()
                 .entries.sortedByDescending { it.value }.take(5)
@@ -439,6 +483,9 @@ private fun ProfileActivity(host: String, token: String, login: String) {
                 }
             }
 
+            // 活动十字坐标轴（类型 × 时间；与下面的活动热力并存）
+            ActivityAxis(events)
+
             // 贡献热力（按天聚合，过去 12 周）
             SectionTitle("活动热力", "过去 12 周")
             Column(Modifier.padding(horizontal = 16.dp)) {
@@ -451,6 +498,38 @@ private fun ProfileActivity(host: String, token: String, login: String) {
                 events.take(30).forEach { e -> EventRow(e) }
             }
             Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+/** 贡献日历查询区间（近一年，ISO8601 UTC）。 */
+private fun contributionRange(): Pair<String, String> {
+    val fmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US)
+    fmt.timeZone = java.util.TimeZone.getTimeZone("UTC")
+    val now = System.currentTimeMillis()
+    return fmt.format(java.util.Date(now - 364L * 24 * 60 * 60 * 1000)) to fmt.format(java.util.Date(now))
+}
+
+/** 贡献墙点选后的当天明细卡。 */
+@Composable
+private fun ContributionDayDetail(day: ContributionDay) {
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)
+            .clip(RoundedCornerShape(8.dp)).background(Primer.Gray150)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(day.date, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+            Spacer(Modifier.weight(1f))
+            Text(
+                if (day.count > 0) "${day.count} 次贡献" else "无贡献",
+                fontSize = 11.5.sp,
+                color = if (day.count > 0) Primer.Green500 else Primer.TextTertiary,
+            )
+        }
+        if (day.count == 0) {
+            Spacer(Modifier.height(4.dp))
+            Text("这一天没有公开贡献记录", fontSize = 11.5.sp, color = Primer.TextTertiary)
         }
     }
 }
