@@ -85,10 +85,20 @@ fun RepositoryOverviewContent(
         loading = true
         error = null
 
-        // 1. 仓库信息
-        val info = RustBridge.getRepoInfo(host, token, owner, repo)
-            ?.takeIf { !it.startsWith("ERROR:") }
-            ?.let { parseRepoInfo(it) }
+        val cacheManager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+        // 手动刷新（refreshTick > 0）时跳过缓存，强制回源；否则缓存优先
+        val cacheFirst = refreshTick == 0
+
+        // 1. 仓库信息（缓存优先，TTL 15 分钟）
+        // 注意缓存键带类型前缀：search_cache 的主键是 key，不同资源若共用 key 会互相覆盖
+        val infoKey = "repo-info:$owner/$repo"
+        var infoJson = if (cacheFirst) cacheManager.get(infoKey, "仓库信息") else null
+        if (infoJson == null) {
+            infoJson = RustBridge.getRepoInfo(host, token, owner, repo)
+                ?.takeIf { !it.startsWith("ERROR:") }
+            if (infoJson != null) cacheManager.put(infoKey, "仓库信息", infoJson)
+        }
+        val info = infoJson?.let { parseRepoInfo(it) }
         if (info != null) repoInfo = info
         // 实际分支：用户选择 ?: 仓库默认分支 ?: main
         effectiveBranch = branch ?: info?.defaultBranch ?: "main"
@@ -98,9 +108,8 @@ fun RepositoryOverviewContent(
         // 否则默认分支首次加载会写入 key="owner/repo@"（空分支），而 branch 随后被解析为真实分支名
         // （如 "main"）后，再次读取会拼出 key="owner/repo@main"，与已写入的 key 不相等，
         // 导致 README 缓存永远无法命中、每次进入都重复拉取远端。
-        val cacheManager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
         val readmeKey = "$owner/$repo@$effectiveBranch"
-        var html = cacheManager.get(readmeKey, "README")
+        var html = if (cacheFirst) cacheManager.get(readmeKey, "README") else null
         if (html == null) {
             html = RustBridge.readmeHtml(host, token, owner, repo, effectiveBranch)
             if (html != null && !html.startsWith("ERROR:")) {
@@ -109,15 +118,25 @@ fun RepositoryOverviewContent(
         }
         readmeHtml = html?.takeIf { !it.startsWith("ERROR:") }
 
-        // 3. 语言
-        RustBridge.getRepoLanguages(host, token, owner, repo)
-            ?.takeIf { !it.startsWith("ERROR:") }
-            ?.let { languages = parseLanguages(it) }
+        // 3. 语言（缓存优先，TTL 1 小时）
+        val langKey = "repo-lang:$owner/$repo"
+        var langJson = if (cacheFirst) cacheManager.get(langKey, "仓库语言") else null
+        if (langJson == null) {
+            langJson = RustBridge.getRepoLanguages(host, token, owner, repo)
+                ?.takeIf { !it.startsWith("ERROR:") }
+            if (langJson != null) cacheManager.put(langKey, "仓库语言", langJson)
+        }
+        langJson?.let { languages = parseLanguages(it) }
 
-        // 4. 贡献者
-        RustBridge.getRepoContributors(host, token, owner, repo)
-            ?.takeIf { !it.startsWith("ERROR:") }
-            ?.let { contributors = parseContributors(it) }
+        // 4. 贡献者（缓存优先，TTL 30 分钟）
+        val contribKey = "repo-contrib:$owner/$repo"
+        var contribJson = if (cacheFirst) cacheManager.get(contribKey, "仓库贡献者") else null
+        if (contribJson == null) {
+            contribJson = RustBridge.getRepoContributors(host, token, owner, repo)
+                ?.takeIf { !it.startsWith("ERROR:") }
+            if (contribJson != null) cacheManager.put(contribKey, "仓库贡献者", contribJson)
+        }
+        contribJson?.let { contributors = parseContributors(it) }
 
         if (info == null) error = "仓库不存在或无权访问"
         loading = false
