@@ -5,9 +5,11 @@ import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.branchbase.BuildConfig
+import com.branchbase.core.AccountStore
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.LogCategory
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.task.TaskStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -169,11 +171,40 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                     _state.value = LoginState.Error("token 交换失败")
                 }
                 else -> {
-                    // 登录成功：持久化会话
+                    // 登录成功：持久化会话，并登记到多账号表（设为当前账号）
                     prefs.edit().putString(KEY_SESSION, session).apply()
                     _state.value = LoginState.LoggedIn(session)
+                    persistAccount(session)
                 }
             }
+        }
+    }
+
+    /**
+     * 登录成功后的账号登记：写入多账号表并设为当前账号。
+     *
+     * login 优先取会话里已写入的 user.login，没有就调 `GET /user` 补全
+     * （顺带确认令牌有效）。登录前产生的孤儿任务在此认领给该账号。
+     */
+    private fun persistAccount(session: String) {
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            val host = runCatching { JSONObject(session).optString("host", "github.com") }.getOrDefault("github.com")
+            val token = AccountStore.accessTokenOf(session)
+            val userJson = if (AccountStore.loginOf(session) == null) {
+                RustBridge.getJson(host, token, "/user")
+            } else {
+                null
+            }
+            val login = AccountStore.loginOf(session)
+                ?: AccountStore.loginFromUserResponse(userJson)
+                ?: return@launch
+            val avatar = runCatching {
+                JSONObject(userJson ?: "").optString("avatar_url").takeIf { it.isNotBlank() }
+            }.getOrNull()
+            AccountStore.add(app, login, session, host, avatar)
+            val claimed = TaskStore.claimOrphans(app)
+            Logger.debug(LogCategory.LOCAL_TASK, "Account", "已登记账号 @$login（认领孤儿任务 $claimed 条）")
         }
     }
 

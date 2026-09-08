@@ -35,6 +35,11 @@ class MainActivity : ComponentActivity() {
             kotlinx.coroutines.runBlocking { com.branchbase.ui.task.TaskStore.prune(applicationContext) }
         }.start()
 
+        // 账号健康检查（启动后跑一次；之后由用户在「设置 → 账号管理」手动检查）
+        Thread {
+            kotlinx.coroutines.runBlocking { com.branchbase.core.AccountChecks.checkAll(applicationContext) }
+        }.start()
+
         // 初始化 git 引擎 TLS 证书信任（主线程同步：仅写文件 + 设环境变量，
         // 不触碰 libgit2；避免后台线程竞态与冷启动期 native 调用）
         val sslOk = RustBridge.gitInitSsl(cacheDir.absolutePath)

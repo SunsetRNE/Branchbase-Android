@@ -67,6 +67,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.branchbase.BuildConfig
 import com.branchbase.R
+import com.branchbase.core.AccountStore
+import com.branchbase.core.LocalRepos
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.notification.NotifLayout
@@ -108,6 +110,7 @@ enum class SubPage(val label: String) {
     Log("日志"),
     NotificationSettings("通知设置"),
     Tasks("任务"),
+    Accounts("账号"),
 }
 
 // ───────────────────────── 缓存机制（内存缓存 + TTL 过期） ─────────────────────────
@@ -185,7 +188,7 @@ internal fun parseProjects(json: String): List<ProjectItem> {
 
 /** 子页面顶部返回导航（返回箭头 + 标题 + 可选右侧操作） */
 @Composable
-private fun SubPageHeader(title: String, onBack: () -> Unit, trailing: @Composable () -> Unit = {}) {
+internal fun SubPageHeader(title: String, onBack: () -> Unit, trailing: @Composable () -> Unit = {}) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -401,7 +404,7 @@ internal enum class CommitMode(val label: String, val desc: String) {
 internal const val KEY_COMMIT_MODE = "commit_mode"
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onOpenLocalRepo: () -> Unit, onOpenAbout: () -> Unit, onOpenLog: () -> Unit, onOpenNotificationSettings: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onOpenLocalRepo: () -> Unit, onOpenAbout: () -> Unit, onOpenLog: () -> Unit, onOpenNotificationSettings: () -> Unit, onOpenAccounts: () -> Unit) {
     LaunchedEffect(Unit) { Logger.ui("进入设置页", "Compose") }
     val context = LocalContext.current
     var mode by remember { mutableStateOf(commitMode(context)) } // CommitMode?，null = 未配置
@@ -410,7 +413,8 @@ fun SettingsScreen(onBack: () -> Unit, onOpenLocalRepo: () -> Unit, onOpenAbout:
     var proxyFeedback by remember { mutableStateOf<String?>(null) }
 
     Column(
-        modifier = Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding(),
+        modifier = Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding()
+            .verticalScroll(rememberScrollState()),
     ) {
         SubPageHeader("设置", onBack)
 
@@ -437,9 +441,10 @@ fun SettingsScreen(onBack: () -> Unit, onOpenLocalRepo: () -> Unit, onOpenAbout:
             onClick = { showProxyDialog = true },
         )
 
+        SettingsSectionTitle("账号")
+        SettingsItem(Icons.Filled.AccountCircle, "账号管理", onClick = onOpenAccounts)
+
         SettingsSectionTitle("其他")
-        SettingsItem(Icons.Filled.AccountCircle, "账号")
-        SettingsItem(Icons.Filled.Palette, "外观")
         SettingsItem(Icons.Filled.Notifications, "通知", onClick = onOpenNotificationSettings)
         SettingsItem(Icons.Filled.Info, "关于", onClick = onOpenAbout)
         SettingsItem(Icons.Filled.Build, "日志", onClick = onOpenLog)
@@ -635,7 +640,8 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
     LaunchedEffect(Unit) { Logger.ui("进入本地仓库页", "Compose") }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val repoRoot = remember { File(context.getExternalFilesDir(null), "repos") }
+    val accountLogin = remember { AccountStore.currentLogin(context) }
+    val repoRoot = remember(accountLogin) { LocalRepos.rootFor(context, accountLogin) }
     var repos by remember { mutableStateOf(listLocalRepos(repoRoot)) }
     val host = remember(sessionJson) { runCatching { JSONObject(sessionJson).optString("host", "github.com") }.getOrDefault("github.com") }
     val token = remember(sessionJson) {

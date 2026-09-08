@@ -117,12 +117,13 @@ fun ProfileScreen(
         when (currentSubPage) {
             SubPage.Stars -> StarsScreen(sessionJson, onBack = { subPage = null }, onOpenRepo = onOpenRepo)
             SubPage.Projects -> ProjectsScreen(sessionJson, onBack = { subPage = null })
-            SubPage.Settings -> SettingsScreen(onBack = { subPage = null }, onOpenLocalRepo = { subPage = SubPage.LocalRepo }, onOpenAbout = { subPage = SubPage.About }, onOpenLog = { subPage = SubPage.Log }, onOpenNotificationSettings = { subPage = SubPage.NotificationSettings })
+            SubPage.Settings -> SettingsScreen(onBack = { subPage = null }, onOpenLocalRepo = { subPage = SubPage.LocalRepo }, onOpenAbout = { subPage = SubPage.About }, onOpenLog = { subPage = SubPage.Log }, onOpenNotificationSettings = { subPage = SubPage.NotificationSettings }, onOpenAccounts = { subPage = SubPage.Accounts })
             SubPage.LocalRepo -> LocalRepoScreen(sessionJson, onBack = { subPage = SubPage.Settings })
             SubPage.About -> AboutScreen(onBack = { subPage = SubPage.Settings })
             SubPage.Log -> LogScreen(onBack = { subPage = SubPage.Settings })
             SubPage.NotificationSettings -> NotificationSettingsScreen(onBack = { subPage = SubPage.Settings })
             SubPage.Tasks -> com.branchbase.ui.task.TaskScreen(onBack = { subPage = null })
+            SubPage.Accounts -> AccountsScreen(onBack = { subPage = SubPage.Settings }, onAdd = onLogout)
             SubPage.EditProfile -> ProfileEditScreen(sessionJson, onBack = { subPage = null }, onSaved = { subPage = null })
         }
         return
