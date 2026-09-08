@@ -37,15 +37,14 @@ fun buildTimestamp(): String =
     System.getenv("BRANCHBASE_BUILD_TIME") ?: LocalDateTime.now(ZoneId.of("Asia/Shanghai"))
         .format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmm"))
 
-// 七位 git 哈希（优先读注入环境变量，回退运行时计算，再回退 unknown）
+// 七位 git 哈希。
+//
+// 配置缓存兼容性：配置阶段**不能启动外部进程**（ProcessBuilder 会让
+// `org.gradle.configuration-cache=true` 直接失败）。CI 与本地构建脚本
+// （tools/build/assemble.sh）都会注入 BRANCHBASE_GIT_HASH；
+// 直接从 IDE 构建时退化为 unknown —— 只影响 BuildConfig 的展示值。
 fun gitShortHash(): String =
-    System.getenv("BRANCHBASE_GIT_HASH") ?: try {
-        ProcessBuilder("git", "rev-parse", "--short=7", "HEAD")
-            .directory(rootProject.projectDir)
-            .redirectErrorStream(true)
-            .start()
-            .inputStream.bufferedReader().readText().trim().ifBlank { "unknown" }
-    } catch (e: Exception) { "unknown" }
+    System.getenv("BRANCHBASE_GIT_HASH")?.takeIf { it.isNotBlank() } ?: "unknown"
 
 val buildTime = buildTimestamp()
 val gitHash = gitShortHash()
