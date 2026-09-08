@@ -107,6 +107,7 @@ fun RepositoryScreen(
     var workflowRunsPage by remember { mutableStateOf<Pair<Long, String>?>(null) } // (workflowId, name)
     var runDetailPage by remember { mutableStateOf(initial?.runId) }
     var jobDetailPage by remember { mutableStateOf<Long?>(null) }
+    var showBranchSync by remember { mutableStateOf(false) }
     var bubbleExpanded by remember { mutableStateOf(false) }
     // 改分支：null = 默认分支；分支列表懒加载；refreshTick 触发强制刷新
     var branch by remember { mutableStateOf<String?>(null) }
@@ -140,6 +141,18 @@ fun RepositoryScreen(
             ?.takeIf { !it.startsWith("ERROR:") }
             ?.let { parseRepoInfo(it) }
             ?.let { info -> if (branch == null) branch = info.defaultBranch }
+    }
+
+    // 分支同步页（全屏）
+    if (showBranchSync) {
+        BackHandler { showBranchSync = false }
+        BranchSyncScreen(
+            sessionJson = sessionJson,
+            owner = owner,
+            repo = repo,
+            onBack = { showBranchSync = false },
+        )
+        return
     }
 
     // 星标/复刻/关注列表页（全屏，覆盖底部导航）
@@ -283,6 +296,7 @@ fun RepositoryScreen(
                             sessionJson = sessionJson, owner = owner, repo = repo, branch = branch, refreshTick = refreshTick,
                             onLinkClick = { dest -> handleLink(dest, context, onOpenRepo, { path, lines -> filePage = path to lines }) { page = it } },
                             onActionClick = { action -> peoplePage = action },
+                            onOpenBranchSync = { showBranchSync = true },
                         )
                         RepoPage.Code -> RepositoryCodeContent(sessionJson, owner, repo, branch, refreshTick, onOpenFile = { filePage = it to null })
                         RepoPage.Issues -> IssueListContent(sessionJson, owner, repo, refreshTick, onItemClick = { issuePage = it.number })

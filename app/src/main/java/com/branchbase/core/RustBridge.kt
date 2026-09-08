@@ -181,6 +181,12 @@ object RustBridge {
 
     private external fun nativeMergePullRequest(host: String, token: String, owner: String, repo: String, number: String, mergeMethod: String): String
 
+    private external fun nativeMergeBranch(host: String, token: String, owner: String, repo: String, base: String, head: String, message: String): String
+
+    private external fun nativeCompareBranches(host: String, token: String, owner: String, repo: String, base: String, head: String): String
+
+    private external fun nativeUpdateRef(host: String, token: String, owner: String, repo: String, branch: String, sha: String, force: String): String
+
     private external fun nativeDeleteBranch(host: String, token: String, owner: String, repo: String, branch: String): String
 
     private external fun nativeUpdateDefaultBranch(host: String, token: String, owner: String, repo: String, branch: String): String
@@ -711,6 +717,52 @@ object RustBridge {
     ): String? = withContext(Dispatchers.IO) {
         try {
             err(nativeMergePullRequest(host, token, owner, repo, number.toString(), mergeMethod))
+        } catch (e: Throwable) {
+            "引擎不可用"
+        }
+    }
+
+    // ── 分支同步（服务端合并，无需本地 clone） ──
+
+    /**
+     * 服务端合并分支：把 [head]（源）合并进 [base]（目标）。
+     *
+     * @return null = 合并成功；"uptodate" = 已是最新（GitHub 204）；其他 = 失败原因（含冲突）
+     */
+    suspend fun mergeBranch(
+        host: String, token: String, owner: String, repo: String,
+        base: String, head: String, message: String = "",
+    ): String? = withContext(Dispatchers.IO) {
+        try {
+            val r = nativeMergeBranch(host, token, owner, repo, base, head, message)
+            when {
+                r.startsWith("ERROR:") -> r.removePrefix("ERROR:").take(300)
+                r.isBlank() -> "uptodate"
+                else -> null
+            }
+        } catch (e: Throwable) {
+            "引擎不可用"
+        }
+    }
+
+    /** 比较两个分支（返回原始 JSON，含 ahead_by / behind_by / status）。 */
+    suspend fun compareBranches(
+        host: String, token: String, owner: String, repo: String, base: String, head: String,
+    ): String? = withContext(Dispatchers.IO) {
+        try {
+            nativeCompareBranches(host, token, owner, repo, base, head)
+                .takeIf { it.isNotBlank() && !it.startsWith("ERROR:") }
+        } catch (e: Throwable) {
+            null
+        }
+    }
+
+    /** 更新分支引用（force=true 为「覆盖」模式，会丢目标分支独有提交）。null = 成功。 */
+    suspend fun updateRef(
+        host: String, token: String, owner: String, repo: String, branch: String, sha: String, force: Boolean,
+    ): String? = withContext(Dispatchers.IO) {
+        try {
+            err(nativeUpdateRef(host, token, owner, repo, branch, sha, if (force) "true" else "false"))
         } catch (e: Throwable) {
             "引擎不可用"
         }

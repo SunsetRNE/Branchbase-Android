@@ -1296,6 +1296,94 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeMergePullReques
     into_jstring(&mut env, result)
 }
 
+/// 服务端合并分支（A 分支同步到 B 分支；已是最新返回空串）
+/// 参数：host, token, owner, repo, base(目标), head(源), message(可空)
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeMergeBranch<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    owner: JString<'local>,
+    repo: JString<'local>,
+    base: JString<'local>,
+    head: JString<'local>,
+    message: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let owner = jstr(&mut env, &owner);
+    let repo = jstr(&mut env, &repo);
+    let base = jstr(&mut env, &base);
+    let head = jstr(&mut env, &head);
+    let message = jstr(&mut env, &message);
+    let result: crate::error::Result<String> = block_on(async move {
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client)
+            .merge_branch(&owner, &repo, &base, &head, &message)
+            .await
+    });
+    into_jstring(&mut env, result)
+}
+
+/// 比较两个分支（返回 ahead_by/behind_by/status 的 JSON）
+/// 参数：host, token, owner, repo, base, head
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeCompareBranches<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    owner: JString<'local>,
+    repo: JString<'local>,
+    base: JString<'local>,
+    head: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let owner = jstr(&mut env, &owner);
+    let repo = jstr(&mut env, &repo);
+    let base = jstr(&mut env, &base);
+    let head = jstr(&mut env, &head);
+    let result: crate::error::Result<String> = block_on(async move {
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client)
+            .compare_branches(&owner, &repo, &base, &head)
+            .await
+    });
+    into_jstring(&mut env, result)
+}
+
+/// 更新分支引用（覆盖模式：force=true）
+/// 参数：host, token, owner, repo, branch, sha, force
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeUpdateRef<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    owner: JString<'local>,
+    repo: JString<'local>,
+    branch: JString<'local>,
+    sha: JString<'local>,
+    force: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let owner = jstr(&mut env, &owner);
+    let repo = jstr(&mut env, &repo);
+    let branch = jstr(&mut env, &branch);
+    let sha = jstr(&mut env, &sha);
+    let force = jstr(&mut env, &force);
+    let result: crate::error::Result<String> = block_on(async move {
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client)
+            .update_ref(&owner, &repo, &branch, &sha, force == "true" || force == "1")
+            .await
+    });
+    into_jstring(&mut env, result)
+}
+
 /// 删除远端分支
 /// 参数：host, token, owner, repo, branch
 #[no_mangle]

@@ -393,6 +393,61 @@ impl GitHubApi {
             .ok_or_else(|| crate::error::CoreError::Other("ref 响应缺少 sha".into()))
     }
 
+    /// 服务端合并分支（`POST /repos/{o}/{r}/merges`）—— 「A 分支同步到 B 分支」。
+    ///
+    /// - `base` = 目标分支，`head` = 源分支
+    /// - 返回合并提交 JSON；**已是最新时返回空串**（GitHub 回 204 No Content）
+    /// - 冲突时 GitHub 回 409，会作为错误透出（提示需要人工解决）
+    pub async fn merge_branch(
+        &self,
+        owner: &str,
+        repo: &str,
+        base: &str,
+        head: &str,
+        message: &str,
+    ) -> Result<String> {
+        let mut body = serde_json::json!({ "base": base, "head": head });
+        if !message.trim().is_empty() {
+            body["commit_message"] = serde_json::json!(message);
+        }
+        self.client
+            .post_json(&format!("/repos/{owner}/{repo}/merges"), &body.to_string())
+            .await
+    }
+
+    /// 比较两个分支（`GET /repos/{o}/{r}/compare/{base}...{head}`）。
+    ///
+    /// 返回 JSON 含 `ahead_by` / `behind_by` / `status`，用于同步前的预览。
+    pub async fn compare_branches(
+        &self,
+        owner: &str,
+        repo: &str,
+        base: &str,
+        head: &str,
+    ) -> Result<String> {
+        self.client
+            .get_json(&format!("/repos/{owner}/{repo}/compare/{base}...{head}"))
+            .await
+    }
+
+    /// 更新分支引用（`PATCH /repos/{o}/{r}/git/refs/heads/{branch}`）。
+    ///
+    /// `force = true` 时即使不是快进也强制移动 —— 对应同步方案里的「覆盖」模式，
+    /// 会丢弃目标分支的独有提交，调用方必须二次确认。
+    pub async fn update_ref(
+        &self,
+        owner: &str,
+        repo: &str,
+        branch: &str,
+        sha: &str,
+        force: bool,
+    ) -> Result<String> {
+        let body = serde_json::json!({ "sha": sha, "force": force });
+        self.client
+            .patch_json(&format!("/repos/{owner}/{repo}/git/refs/heads/{branch}"), &body.to_string())
+            .await
+    }
+
     /// 创建分支（POST /repos/{o}/{r}/git/refs）
     pub async fn create_branch(
         &self,
