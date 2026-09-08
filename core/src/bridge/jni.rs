@@ -625,6 +625,63 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGetJson<'local>
     into_jstring(&mut env, result)
 }
 
+/// 通用 GraphQL 查询（返回 `data` 部分 JSON）
+/// 参数：host, accessToken, query, variablesJson（JSON 对象字符串，空串 = {}）
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGraphQL<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    query: JString<'local>,
+    variables: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let query = jstr(&mut env, &query);
+    let variables = jstr(&mut env, &variables);
+
+    let result: crate::error::Result<String> = block_on(async move {
+        let vars: serde_json::Value = if variables.trim().is_empty() {
+            serde_json::json!({})
+        } else {
+            serde_json::from_str(&variables)?
+        };
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GraphQLApi::new(client).query(&query, vars).await
+    });
+
+    into_jstring(&mut env, result)
+}
+
+/// 贡献日历（GraphQL `contributionsCollection.contributionCalendar`，52 周）
+/// 参数：host, accessToken, login, from(ISO8601), to(ISO8601)
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeContributionCalendar<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    login: JString<'local>,
+    from: JString<'local>,
+    to: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let login = jstr(&mut env, &login);
+    let from = jstr(&mut env, &from);
+    let to = jstr(&mut env, &to);
+
+    let result: crate::error::Result<String> = block_on(async move {
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GraphQLApi::new(client)
+            .contribution_calendar(&login, &from, &to)
+            .await
+    });
+
+    into_jstring(&mut env, result)
+}
+
 /// 将 markdown 渲染为 HTML（返回 HTML 字符串）
 /// 参数：host, accessToken, text
 #[no_mangle]

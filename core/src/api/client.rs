@@ -91,6 +91,29 @@ impl ApiClient {
         Ok(text)
     }
 
+    /// 带鉴权的 POST（`Authorization: bearer`，用于 GraphQL v4 端点）
+    ///
+    /// 与 [post_json] 只差鉴权前缀：REST 用 `token`，GraphQL 文档要求 `bearer`。
+    pub async fn post_bearer_json(&self, path: &str, body: &str) -> Result<String> {
+        let url = format!("{}{}", self.base_url(), path.trim_start_matches('/'));
+        let resp = self
+            .http
+            .post(&url)
+            .header("Authorization", format!("bearer {}", self.token))
+            .header("Accept", "application/json")
+            .header("Content-Type", "application/json")
+            .header("User-Agent", "Branchbase/0.1")
+            .body(body.to_string())
+            .send()
+            .await?;
+        let status = resp.status();
+        let text = resp.text().await?;
+        if !status.is_success() {
+            return Err(CoreError::Other(format!("HTTP {status}: {text}")));
+        }
+        Ok(text)
+    }
+
     /// 带鉴权的 PUT 请求，返回 JSON 字符串（用于更新/新建文件）
     pub async fn put_json(&self, path: &str, body: &str) -> Result<String> {
         let url = format!("{}{}", self.base_url(), path.trim_start_matches('/'));

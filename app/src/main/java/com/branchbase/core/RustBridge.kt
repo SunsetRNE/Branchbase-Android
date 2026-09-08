@@ -95,6 +95,10 @@ object RustBridge {
 
     private external fun nativeGetJson(host: String, token: String, path: String): String
 
+    private external fun nativeGraphQL(host: String, token: String, query: String, variables: String): String
+
+    private external fun nativeContributionCalendar(host: String, token: String, login: String, from: String, to: String): String
+
     private external fun nativeMarkNotificationRead(host: String, token: String, threadId: String): String
 
     private external fun nativeMarkAllNotificationsRead(host: String, token: String): String
@@ -323,6 +327,37 @@ object RustBridge {
         withContext(Dispatchers.IO) {
             nativeGetJson(host, token, path).ifBlank { null }
         }
+
+    /**
+     * 通用 GraphQL 查询（返回 `data` 部分 JSON；null = 失败）。
+     *
+     * 与 [getJson] 共用 ApiClient，差别只在端点与鉴权前缀（`bearer`）。
+     * 失败时返回 `ERROR:` 开头的串（含 HTTP 状态码与响应体），可用
+     * [com.branchbase.core.AccountStore.statusFromResponse] 之类的方式解析。
+     */
+    suspend fun graphQL(
+        host: String,
+        token: String,
+        query: String,
+        variablesJson: String = "",
+    ): String? = withContext(Dispatchers.IO) {
+        nativeGraphQL(host, token, query, variablesJson).ifBlank { null }
+    }
+
+    /**
+     * 贡献日历（GraphQL `contributionsCollection.contributionCalendar`，52 周）。
+     *
+     * @param from ISO8601（如 `2025-09-08T00:00:00Z`），GitHub 要求跨度 ≤ 1 年
+     */
+    suspend fun contributionCalendar(
+        host: String,
+        token: String,
+        login: String,
+        from: String,
+        to: String,
+    ): String? = withContext(Dispatchers.IO) {
+        nativeContributionCalendar(host, token, login, from, to).ifBlank { null }
+    }
 
     /** 标记单条通知已读（PATCH /notifications/threads/{id}），返回是否成功。 */
     suspend fun markNotificationRead(host: String, token: String, threadId: String): Boolean =
