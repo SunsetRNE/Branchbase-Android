@@ -85,6 +85,8 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
         val saved = prefs.getString(KEY_SESSION, null)
         if (!saved.isNullOrBlank()) {
             _state.value = LoginState.LoggedIn(saved)
+            // 补全会话里的 user：老会话或 OAuth 直登时缺失 → 首页/个人页/动态页会退化为占位
+            persistAccount(saved)
             // 静默续期：用 refresh token 刷新 access token（滚动续期）
             refreshSession(saved)
         }
@@ -93,8 +95,10 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
     /** 用 refresh token 刷新 access token，更新持久化的会话（失败则保持原会话） */
     private fun refreshSession(sessionJson: String) {
         viewModelScope.launch {
+            // 取 prefs 里的最新会话：persistAccount 可能刚补全 user，用入参旧值会把它覆盖掉
+            val current = prefs.getString(KEY_SESSION, null)?.takeIf { it.isNotBlank() } ?: sessionJson
             val refreshToken = runCatching {
-                JSONObject(sessionJson).getJSONObject("token").optString("refresh_token")
+                JSONObject(current).getJSONObject("token").optString("refresh_token")
             }.getOrNull()?.takeIf { it.isNotBlank() } ?: return@launch
 
             val newTokenJson = RustBridge.refreshToken(
@@ -108,7 +112,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             val newSession = runCatching {
-                val session = JSONObject(sessionJson)
+                val session = JSONObject(current)
                 session.put("token", JSONObject(newTokenJson))
                 session.toString()
             }.getOrNull() ?: return@launch
@@ -181,28 +185,49 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * 登录成功后的账号登记：写入多账号表并设为当前账号。
+     * 登录成功后的账号登记 + 会话补全。
      *
-     * login 优先取会话里已写入的 user.login，没有就调 `GET /user` 补全
-     * （顺带确认令牌有效）。登录前产生的孤儿任务在此认领给该账号。
+     * **补全 `session.user` 是这里的关键**：OAuth 交换只返回 token，而首页 / 个人页 /
+     * 仓库页 / 编辑资料页都从 `session.user` 取 login / name / avatar / 关注数 ——
+     * 不补全的话这些页面全部退化成占位（个人页显示「用户」+ 0 关注，动态页请求
+     * `/users/用户/received_events` 必然为空）。
+     *
+     * 幂等：会话里已有 `user` 时不发请求，直接登记。
+     * 另外把 login 写入多账号表并设为当前账号，并认领登录前的孤儿任务。
      */
     private fun persistAccount(session: String) {
         viewModelScope.launch {
             val app = getApplication<Application>()
             val host = runCatching { JSONObject(session).optString("host", "github.com") }.getOrDefault("github.com")
             val token = AccountStore.accessTokenOf(session)
-            val userJson = if (AccountStore.loginOf(session) == null) {
-                RustBridge.getJson(host, token, "/user")
-            } else {
-                null
+
+            // 1) 补全 session.user
+            var enriched = session
+            val hasUser = runCatching { JSONObject(session).optJSONObject("user") }.getOrNull() != null
+            if (!hasUser && token.isNotBlank()) {
+                val userJson = RustBridge.getJson(host, token, "/user")
+                val userObj = userJson
+                    ?.takeIf { !it.startsWith("ERROR:") }
+                    ?.let { runCatching { JSONObject(it) }.getOrNull() }
+                if (userObj != null) {
+                    enriched = runCatching { JSONObject(session).put("user", userObj).toString() }
+                        .getOrDefault(session)
+                    prefs.edit().putString(KEY_SESSION, enriched).apply()
+                    _state.value = LoginState.LoggedIn(enriched)
+                    Logger.net("GET /user → 会话补全 user（${userObj.optString("login")}）", "OAuth")
+                } else {
+                    Logger.net("GET /user 失败，会话未补全 user（页面将缺用户信息）", "OAuth")
+                }
             }
-            val login = AccountStore.loginOf(session)
-                ?: AccountStore.loginFromUserResponse(userJson)
-                ?: return@launch
+
+            // 2) 登记到多账号表
+            val login = AccountStore.loginOf(enriched) ?: return@launch
             val avatar = runCatching {
-                JSONObject(userJson ?: "").optString("avatar_url").takeIf { it.isNotBlank() }
+                JSONObject(enriched).optJSONObject("user")?.optString("avatar_url")?.takeIf { it.isNotBlank() }
             }.getOrNull()
-            AccountStore.add(app, login, session, host, avatar)
+            AccountStore.add(app, login, enriched, host, avatar)
+
+            // 3) 认领登录前的孤儿任务
             val claimed = TaskStore.claimOrphans(app)
             Logger.debug(LogCategory.LOCAL_TASK, "Account", "已登记账号 @$login（认领孤儿任务 $claimed 条）")
         }

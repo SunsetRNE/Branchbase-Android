@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
+import com.branchbase.core.AccountStore
 import com.branchbase.core.RustBridge
 import kotlinx.coroutines.launch
 import com.branchbase.ui.theme.Primer
@@ -64,15 +65,17 @@ fun HomeScreen(
     onSearchClick: () -> Unit,
     onRepoClick: (String) -> Unit = {},
 ) {
+    val context = LocalContext.current
     val user = runCatching { JSONObject(sessionJson).getJSONObject("user") }.getOrNull()
-    val login = user?.optString("login", "用户") ?: "用户"
+    // login 兜底：session.user → 当前账号（多账号表）→ 占位
+    val login = user?.optString("login")?.takeIf { it.isNotBlank() && it != "null" }
+        ?: AccountStore.currentLogin(context).takeIf { it.isNotBlank() }
+        ?: "用户"
     val avatarUrl = user?.optString("avatar_url")?.takeIf { it.isNotBlank() }
 
     // 解析 token 与 host，用于拉取数据
     val token = runCatching { JSONObject(sessionJson).getJSONObject("token").optString("access_token") }.getOrNull() ?: ""
     val host = runCatching { JSONObject(sessionJson).optString("host", "github.com") }.getOrDefault("github.com")
-
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences("branchbase", Context.MODE_PRIVATE) }
 

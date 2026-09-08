@@ -53,6 +53,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import androidx.compose.ui.platform.LocalContext
+import com.branchbase.core.AccountStore
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.LogScreen
 import com.branchbase.ui.log.Logger
@@ -79,6 +81,7 @@ fun ProfileScreen(
     onOpenRepo: (String) -> Unit,
 ) {
     val loggedProfile = remember { mutableStateOf(false) }
+    val context = LocalContext.current
     LaunchedEffect(Unit) {
         if (!loggedProfile.value) {
             loggedProfile.value = true
@@ -97,7 +100,12 @@ fun ProfileScreen(
         reposLoading = false
     }
     val user = runCatching { JSONObject(sessionJson).getJSONObject("user") }.getOrNull()
-    val login = user?.optString("login")?.takeIf { it.isNotBlank() && it != "null" } ?: "用户"
+    // login 兜底顺序：session.user.login → 当前账号（多账号表）→ 空
+    // （OAuth 交换的 session 原本只有 token，user 由 LoginViewModel 登录后补全）
+    val accountLogin = remember { AccountStore.currentLogin(context) }
+    val login = user?.optString("login")?.takeIf { it.isNotBlank() && it != "null" }
+        ?: accountLogin.takeIf { it.isNotBlank() }
+        ?: ""
     val name = user?.optString("name")?.takeIf { it.isNotBlank() && it != "null" }
     val avatarUrl = user?.optString("avatar_url")?.takeIf { it.isNotBlank() && it != "null" }
     val bio = user?.optString("bio")?.takeIf { it.isNotBlank() && it != "null" }
