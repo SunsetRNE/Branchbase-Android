@@ -451,7 +451,7 @@ object RustBridge {
             when {
                 r.isBlank() -> null
                 r.startsWith("ERROR:nff") -> "nff"
-                else -> r.removePrefix("ERROR:").take(80)
+                else -> r.removePrefix("ERROR:").take(300)
             }
         } catch (e: Throwable) {
             "引擎不可用"
@@ -466,7 +466,7 @@ object RustBridge {
                 when {
                     r.isBlank() -> null
                     r.startsWith("ERROR:nff") -> "nff"
-                    else -> r.removePrefix("ERROR:").take(80)
+                    else -> r.removePrefix("ERROR:").take(300)
                 }
             } catch (e: Throwable) {
                 "引擎不可用"
@@ -590,7 +590,7 @@ object RustBridge {
                 when {
                     r.isBlank() -> null
                     r.startsWith("ERROR:nff") -> "nff"
-                    else -> r.removePrefix("ERROR:").take(80)
+                    else -> r.removePrefix("ERROR:").take(300)
                 }
             } catch (e: Throwable) {
                 "引擎不可用"

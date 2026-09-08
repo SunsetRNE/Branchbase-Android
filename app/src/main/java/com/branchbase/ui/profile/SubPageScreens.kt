@@ -674,10 +674,13 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
         scope.launch {
             feedback = null
             val taskId = TaskStore.start(context, TaskKind.PULL, "更新仓库 $name")
-            when (val r = withContext(Dispatchers.IO) { RustBridge.gitPullDetailed(dirOf(name), token) }) {
+            val pullResult = withContext(Dispatchers.IO) { RustBridge.gitPullDetailed(dirOf(name), token) }
+            // 错误同时落日志：UI 的 feedback 一闪而过无法回看，日志才能事后定位
+            Logger.net("git pull ($name) → ${pullResult ?: "成功"}", "LocalGit")
+            when (pullResult) {
                 null -> { TaskStore.success(context, taskId, "已更新"); feedback = "已更新 $name" }
                 "nff" -> { TaskStore.fail(context, taskId, "本地与远端分叉（需决策）"); page = LocalPage.Fork(name) }
-                else -> { TaskStore.fail(context, taskId, r ?: "未知错误"); feedback = "更新失败：${r ?: "未知错误"}" }
+                else -> { TaskStore.fail(context, taskId, pullResult); feedback = "更新失败：$pullResult" }
             }
         }
     }
@@ -690,10 +693,12 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
             if (st == null) { feedback = "无法读取仓库状态（引擎不可用）"; return@launch }
             if (!st.hasUpstream) { page = LocalPage.Upstream(name); return@launch }
             val taskId = TaskStore.start(context, TaskKind.PUSH, "推送仓库 $name")
-            when (val r = withContext(Dispatchers.IO) { RustBridge.gitPushDetailed(dirOf(name), token, st.branch) }) {
+            val pushResult = withContext(Dispatchers.IO) { RustBridge.gitPushDetailed(dirOf(name), token, st.branch) }
+            Logger.net("git push ${st.branch} ($name) → ${pushResult ?: "成功"}", "LocalGit")
+            when (pushResult) {
                 null -> { TaskStore.success(context, taskId, "已推送 ${st.branch}"); feedback = "已推送 $name" }
                 "nff" -> { TaskStore.fail(context, taskId, "推送被拒（远端领先）"); page = LocalPage.Fork(name) }
-                else -> { TaskStore.fail(context, taskId, r ?: "未知错误"); feedback = "推送失败：${r ?: "未知错误"}" }
+                else -> { TaskStore.fail(context, taskId, pushResult); feedback = "推送失败：$pushResult" }
             }
         }
     }
@@ -726,6 +731,7 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
             val sha = withContext(Dispatchers.IO) {
                 RustBridge.gitCommit(dirOf(repoName), message, authorName(), authorEmail())
             }
+            Logger.net("git commit ($repoName) → ${sha?.take(7) ?: "失败"}", "LocalGit")
             if (sha != null) TaskStore.success(context, taskId, "已提交 $sha")
             else TaskStore.fail(context, taskId, "提交失败（引擎不可用）")
             feedback = if (sha != null) "已提交（本地 git）" else "提交失败（引擎不可用）"

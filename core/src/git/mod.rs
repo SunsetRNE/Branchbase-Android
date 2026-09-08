@@ -19,8 +19,14 @@ pub fn clone_repo(url: &str, into: &str, branch: Option<&str>, token: Option<&st
     callbacks.certificate_check(check_cert);
     if let Some(tk) = token {
         let tk = tk.to_string();
-        callbacks.credentials(move |_url, username, _allowed| {
+        callbacks.credentials(move |_url, username, allowed| {
             let user = username.unwrap_or("x-access-token");
+            // 按 libgit2 请求的类型作答：先给 USERNAME，再给账密。
+            // 旧实现忽略 allowed、无条件返回 userpass，某些 URL/服务器组合下会被
+            // 判为「不支持的凭证类型」而失败（pull 能用、push 报错这类不对称现象）。
+            if allowed.contains(git2::CredentialType::USERNAME) {
+                return git2::Cred::username(user);
+            }
             git2::Cred::userpass_plaintext(user, &tk)
         });
     } else {
@@ -55,8 +61,14 @@ pub fn pull_repo(dir: &str, token: Option<&str>) -> Result<()> {
     callbacks.certificate_check(check_cert);
     if let Some(tk) = token {
         let tk = tk.to_string();
-        callbacks.credentials(move |_url, username, _allowed| {
+        callbacks.credentials(move |_url, username, allowed| {
             let user = username.unwrap_or("x-access-token");
+            // 按 libgit2 请求的类型作答：先给 USERNAME，再给账密。
+            // 旧实现忽略 allowed、无条件返回 userpass，某些 URL/服务器组合下会被
+            // 判为「不支持的凭证类型」而失败（pull 能用、push 报错这类不对称现象）。
+            if allowed.contains(git2::CredentialType::USERNAME) {
+                return git2::Cred::username(user);
+            }
             git2::Cred::userpass_plaintext(user, &tk)
         });
     }
@@ -158,8 +170,14 @@ pub fn push_repo(dir: &str, token: Option<&str>, branch: &str) -> Result<()> {
     callbacks.certificate_check(check_cert);
     if let Some(tk) = token {
         let tk = tk.to_string();
-        callbacks.credentials(move |_url, username, _allowed| {
+        callbacks.credentials(move |_url, username, allowed| {
             let user = username.unwrap_or("x-access-token");
+            // 按 libgit2 请求的类型作答：先给 USERNAME，再给账密。
+            // 旧实现忽略 allowed、无条件返回 userpass，某些 URL/服务器组合下会被
+            // 判为「不支持的凭证类型」而失败（pull 能用、push 报错这类不对称现象）。
+            if allowed.contains(git2::CredentialType::USERNAME) {
+                return git2::Cred::username(user);
+            }
             git2::Cred::userpass_plaintext(user, &tk)
         });
     }
@@ -533,8 +551,14 @@ pub fn push_set_upstream(
     callbacks.certificate_check(check_cert);
     if let Some(tk) = token {
         let tk = tk.to_string();
-        callbacks.credentials(move |_url, username, _allowed| {
+        callbacks.credentials(move |_url, username, allowed| {
             let user = username.unwrap_or("x-access-token");
+            // 按 libgit2 请求的类型作答：先给 USERNAME，再给账密。
+            // 旧实现忽略 allowed、无条件返回 userpass，某些 URL/服务器组合下会被
+            // 判为「不支持的凭证类型」而失败（pull 能用、push 报错这类不对称现象）。
+            if allowed.contains(git2::CredentialType::USERNAME) {
+                return git2::Cred::username(user);
+            }
             git2::Cred::userpass_plaintext(user, &tk)
         });
     }
