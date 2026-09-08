@@ -222,7 +222,7 @@ fn verify_cert_chain(leaf: &X509) -> bool {
     let mut current = leaf.clone();
     for _ in 0..8 {
         let issuer_name = current.issuer_name();
-        let Some(ca) = certs.iter().find(|c| c.subject_name().to_der() == issuer_name.to_der()) else {
+        let Some(ca) = certs.iter().find(|c| c.subject_name().try_cmp(&issuer_name).ok() == Some(std::cmp::Ordering::Equal)) else {
             return false;
         };
         let Ok(pubkey) = ca.public_key() else {
@@ -231,7 +231,7 @@ fn verify_cert_chain(leaf: &X509) -> bool {
         if current.verify(&pubkey).is_err() {
             return false;
         }
-        if ca.subject_name().to_der() == ca.issuer_name().to_der() {
+        if ca.subject_name().try_cmp(ca.issuer_name()).ok() == Some(std::cmp::Ordering::Equal) {
             return true; // 自签名根，链走通
         }
         current = ca.clone();
