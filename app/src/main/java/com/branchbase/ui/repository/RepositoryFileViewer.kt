@@ -267,7 +267,13 @@ fun FileViewerScreen(
         scope.launch {
             val taskId = com.branchbase.ui.task.TaskStore.start(context, com.branchbase.ui.task.TaskKind.COMMIT, "本地提交 $path")
             val prefs = context.getSharedPreferences("branchbase", android.content.Context.MODE_PRIVATE)
-            val repoDir = File(context.getExternalFilesDir(null), "repos/$owner/$repo").absolutePath
+            val repoDir = File(
+                com.branchbase.core.LocalRepos.rootFor(
+                    context,
+                    com.branchbase.core.AccountStore.currentLogin(context),
+                ),
+                repo,
+            ).absolutePath
             val sha = RustBridge.gitCommit(
                 repoDir, message,
                 prefs.getString("commit.author.name", "Branchbase") ?: "Branchbase",
@@ -287,8 +293,19 @@ fun FileViewerScreen(
 
     // 提交（③本地 git：写入工作树 + 身份检查 + commit）
     fun doLocalCommit() {
+        // 与单文件/多文件路径保持一致：提交信息必填。
+        // （此前缺校验，libgit2 允许空 message，会推出一个 subject 为空的提交）
+        if (commitMsg.isBlank()) { feedback = "请输入提交信息"; return }
         scope.launch {
-            val repoDir = File(context.getExternalFilesDir(null), "repos/$owner/$repo")
+            // 按账号隔离的目录：repos/{login}/{repo}（此前硬编码 repos/{owner}/{repo}，
+            // 只在 owner == login 时恰好成立，换别人的仓库会找不到）
+            val repoDir = File(
+                com.branchbase.core.LocalRepos.rootFor(
+                    context,
+                    com.branchbase.core.AccountStore.currentLogin(context),
+                ),
+                repo,
+            )
             if (!File(repoDir, ".git").exists()) {
                 feedback = "本地仓库不存在：请先在「设置 → 本地仓库」拉取"
                 return@launch
