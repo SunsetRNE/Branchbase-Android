@@ -258,7 +258,7 @@ impl GitHubApi {
     pub async fn mark_all_notifications_read(&self) -> Result<String> {
         self.client.put_empty("/notifications").await
     }
-}
+
     // ── 协作与仓库管理（对齐 docs/decision-pages-gap.md §8.4 执行层） ──
 
     /// 读取分支 ref 的 sha（GET /repos/{o}/{r}/git/ref/heads/{branch}）
@@ -347,3 +347,4 @@ impl GitHubApi {
         let path = format!("/repos/{owner}/{repo}");
         self.client.delete_json(&path).await
     }
+}
