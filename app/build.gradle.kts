@@ -129,6 +129,9 @@ android {
         }
     }
     compileOptions {
+        // Sora Editor 的 language-textmate 要求 app 启用 core library desugaring
+        // （AAR 元数据检查会拦下来，见 :app:checkDebugAarMetadata）
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -167,6 +170,9 @@ dependencies {
 
     // 代码编辑器独立模块（封装 Sora Editor）—— 换库 / 升级 / 移除只动 :editor
     implementation(project(":editor"))
+
+    // core library desugaring：Sora Editor 的 language-textmate 要求
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

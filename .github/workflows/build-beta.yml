@@ -55,8 +55,11 @@ jobs:
           if ! bash tools/build/assemble.sh assembleDebug 2>&1 | tee /tmp/assemble.log; then
             # 失败时把关键行做成 annotation —— 无需日志下载权限即可通过 check-runs API 定位
             echo "::error title=assemble::assembleDebug 失败，关键行如下"
-            grep -aE "^e: |^error:|FAILURE:|What went wrong|^> |Execution failed|Configuration cache|Could not|Cannot|Unresolved" /tmp/assemble.log \
-              | tail -25 \
+            # 先取 Kotlin 编译错误，再取 Gradle FAILURE 段（真实原因在 FAILURE 之后）
+            {
+              grep -aE "^e: |^error:" /tmp/assemble.log | tail -12
+              awk '/^FAILURE:|What went wrong/{flag=1} flag{print; n++} n>=30{exit}' /tmp/assemble.log
+            } | tail -40 \
               | while IFS= read -r line; do
                   safe=$(printf '%s' "$line" | tr -d '\r' | sed 's/::/%3A%3A/g' | cut -c1-400)
                   echo "::error title=assemble::$safe"
