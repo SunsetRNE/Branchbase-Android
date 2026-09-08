@@ -145,6 +145,8 @@ object RustBridge {
 
     private external fun nativeSetGitProxy(dir: String, proxy: String): String
 
+    private external fun nativeUpdateProfile(host: String, token: String, body: String): String
+
     // ── 协作与仓库管理（PR 一条龙 / 合并 / 仓库设置执行层） ──
 
     private external fun nativeGetRefSha(host: String, token: String, owner: String, repo: String, branch: String): String
@@ -622,6 +624,16 @@ object RustBridge {
     } catch (e: Throwable) {
         false
     }
+
+    /** 更新当前用户资料（PATCH /user，body 为 JSON；null = 成功）。 */
+    suspend fun updateProfile(host: String, token: String, body: String): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                err(nativeUpdateProfile(host, token, body))
+            } catch (e: Throwable) {
+                "引擎不可用"
+            }
+        }
 
     /** 删除仓库（null = 成功）。 */
     suspend fun deleteRepo(host: String, token: String, owner: String, repo: String): String? =

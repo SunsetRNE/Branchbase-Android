@@ -100,8 +100,8 @@ import org.json.JSONObject
  */
 enum class SubPage(val label: String) {
     Stars("星标"),
-    Packages("软件包"),
     Projects("项目"),
+    EditProfile("编辑资料"),
     Settings("设置"),
     LocalRepo("本地仓库"),
     About("关于"),
@@ -310,91 +310,6 @@ private fun StarredRepoCard(repo: RepoItem, onClick: () -> Unit) {
             contentAlignment = Alignment.Center,
         ) {
             Text("已星标", fontSize = 12.sp, color = Color(0xFF9A6700))
-        }
-    }
-}
-
-// ───────────────────────── 软件包页 ─────────────────────────
-
-@Composable
-fun PackagesScreen(sessionJson: String, onBack: () -> Unit) {
-    LaunchedEffect(Unit) { Logger.ui("进入软件包页", "Compose") }
-    val token = runCatching { JSONObject(sessionJson).getJSONObject("token").optString("access_token") }.getOrNull() ?: ""
-    val host = runCatching { JSONObject(sessionJson).optString("host", "github.com") }.getOrDefault("github.com")
-    var packages by remember { mutableStateOf<List<PackageItem>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var refreshKey by remember { mutableIntStateOf(0) }
-
-    LaunchedEffect(refreshKey) {
-        val cacheKey = "packages"
-        if (refreshKey == 0) {
-            val cached = ProfileCache.get(cacheKey, ProfileTtl.PACKAGES)
-            if (cached != null) {
-                packages = parsePackages(cached)
-                loading = false
-                return@LaunchedEffect
-            }
-        }
-        loading = true
-        val json = withContext(Dispatchers.IO) { RustBridge.getMyPackages(host, token) }
-        Logger.net("GET /user/packages → ${if (json != null && !json.startsWith("ERROR:")) "200" else "失败"}", "GitHubAPI")
-        if (json != null && !json.startsWith("ERROR:")) {
-            packages = parsePackages(json)
-            ProfileCache.put(cacheKey, json)
-        } else {
-            packages = emptyList()
-        }
-        loading = false
-    }
-
-    Column(
-        modifier = Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding(),
-    ) {
-        SubPageHeader("软件包", onBack) {
-            Text("${packages.size}", fontSize = 13.sp, color = Primer.TextTertiary)
-            Spacer(Modifier.width(12.dp))
-            RefreshButton { refreshKey++ }
-        }
-        if (loading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("加载中", color = Primer.TextTertiary) }
-        } else if (packages.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("暂无软件包", fontSize = 13.sp, color = Primer.TextTertiary) }
-        } else {
-            LazyColumn {
-                items(packages) { pkg -> PackageCard(pkg) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PackageCard(pkg: PackageItem) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.size(32.dp).clip(CircleShape).background(Primer.Blue500), contentAlignment = Alignment.Center) {
-            Text(pkg.name.take(1).uppercase(), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(pkg.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
-            Spacer(Modifier.height(6.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.clip(RoundedCornerShape(10.dp)).background(Primer.Gray150).border(1.dp, Primer.Border, RoundedCornerShape(10.dp)).padding(horizontal = 7.dp, vertical = 1.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(pkg.packageType, fontSize = 11.sp, color = Primer.TextSecondary)
-                }
-                if (pkg.visibility != null) {
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (pkg.visibility == "private") "私有" else "公开", fontSize = 11.sp, color = Primer.TextTertiary)
-                }
-            }
-        }
-        if (pkg.versionCount > 0) {
-            Text("${pkg.versionCount} 版本", fontSize = 12.sp, color = Primer.TextTertiary)
         }
     }
 }

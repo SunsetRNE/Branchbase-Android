@@ -29,7 +29,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
@@ -117,7 +116,6 @@ fun ProfileScreen(
     if (currentSubPage != null) {
         when (currentSubPage) {
             SubPage.Stars -> StarsScreen(sessionJson, onBack = { subPage = null }, onOpenRepo = onOpenRepo)
-            SubPage.Packages -> PackagesScreen(sessionJson, onBack = { subPage = null })
             SubPage.Projects -> ProjectsScreen(sessionJson, onBack = { subPage = null })
             SubPage.Settings -> SettingsScreen(onBack = { subPage = null }, onOpenLocalRepo = { subPage = SubPage.LocalRepo }, onOpenAbout = { subPage = SubPage.About }, onOpenLog = { subPage = SubPage.Log }, onOpenNotificationSettings = { subPage = SubPage.NotificationSettings })
             SubPage.LocalRepo -> LocalRepoScreen(sessionJson, onBack = { subPage = SubPage.Settings })
@@ -125,6 +123,7 @@ fun ProfileScreen(
             SubPage.Log -> LogScreen(onBack = { subPage = SubPage.Settings })
             SubPage.NotificationSettings -> NotificationSettingsScreen(onBack = { subPage = SubPage.Settings })
             SubPage.Tasks -> com.branchbase.ui.task.TaskScreen(onBack = { subPage = null })
+            SubPage.EditProfile -> ProfileEditScreen(sessionJson, onBack = { subPage = null }, onSaved = { subPage = null })
         }
         return
     }
@@ -149,9 +148,9 @@ fun ProfileScreen(
         // 内容（随底部气泡导航栏切换，weight 占据剩余空间）
         Box(Modifier.fillMaxWidth().weight(1f)) {
             when (tab) {
-                ProfileTab.Overview -> ProfileOverview(login, name, avatarUrl, bio, followers, following, publicRepos, repos, reposLoading, onOpenRepo)
+                ProfileTab.Overview -> ProfileOverview(login, name, avatarUrl, bio, followers, following, publicRepos, repos, reposLoading, onOpenRepo, onEdit = { subPage = SubPage.EditProfile })
                 ProfileTab.Repositories -> ProfileRepositories(repos, reposLoading, onOpenRepo)
-                ProfileTab.Activity -> ProfileActivity()
+                ProfileTab.Activity -> ProfileActivity(host, token, login)
             }
         }
 
@@ -185,6 +184,7 @@ private fun ProfileOverview(
     repos: List<RepoItem>,
     loading: Boolean,
     onOpenRepo: (String) -> Unit,
+    onEdit: () -> Unit,
 ) {
     val pinnedRepos = repos.sortedByDescending { it.stars }.take(4)
 
@@ -212,7 +212,11 @@ private fun ProfileOverview(
                     Text(bio, fontSize = 14.sp, color = Primer.TextSecondary, lineHeight = 20.sp)
                 }
                 Spacer(Modifier.height(14.dp))
-                Box(Modifier.fillMaxWidth().height(32.dp).clip(RoundedCornerShape(6.dp)).background(Primer.Gray150).border(1.dp, Primer.Border, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier.fillMaxWidth().height(32.dp).clip(RoundedCornerShape(6.dp)).background(Primer.Gray150)
+                        .border(1.dp, Primer.Border, RoundedCornerShape(6.dp)).clickable { onEdit() },
+                    contentAlignment = Alignment.Center,
+                ) {
                     Text("编辑资料", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Primer.TextPrimary)
                 }
                 Spacer(Modifier.height(10.dp))
@@ -223,14 +227,6 @@ private fun ProfileOverview(
                     Text(" · ", fontSize = 14.sp, color = Primer.TextSecondary)
                     Text("${publicRepos} 仓库", fontSize = 14.sp, color = Primer.TextSecondary)
                 }
-            }
-        }
-        // 成就
-        item {
-            SectionTitle("成就")
-            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                AchievementBadge("⭐", "拉取鲨鱼")
-                AchievementBadge("🚀", "银河大脑")
             }
         }
         // 热门仓库
@@ -260,17 +256,6 @@ private fun SectionTitle(title: String, sub: String? = null) {
         if (sub != null) {
             Text(sub, fontSize = 12.sp, color = Primer.Blue500)
         }
-    }
-}
-
-@Composable
-private fun AchievementBadge(emoji: String, label: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.size(56.dp).clip(CircleShape).background(Color(0xFF1B1F24)), contentAlignment = Alignment.Center) {
-            Text(emoji, fontSize = 24.sp)
-        }
-        Spacer(Modifier.height(6.dp))
-        Text(label, fontSize = 12.sp, color = Primer.TextSecondary)
     }
 }
 
@@ -321,81 +306,248 @@ private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
-// ───────────────────────── Activity 页（🔧 本地渲染解析） ─────────────────────────
+// ───────────────────────── Activity 页（真实事件数据） ─────────────────────────
 
-@Composable
-private fun ProfileActivity() {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        // 贡献图（本地渲染）
-        SectionTitle("贡献图", "🔧 本地渲染")
-        Column(Modifier.padding(horizontal = 16.dp)) {
-            Text("过去一年 179 次贡献", fontSize = 14.sp, color = Primer.TextTertiary)
-            Spacer(Modifier.height(10.dp))
-            ContributionGraph()
-        }
-        // 雷达（本地渲染）
-        SectionTitle("动态概览", "🔧 本地渲染")
-        ActivityRadar(Modifier.padding(horizontal = 16.dp))
-        // 时间线
-        SectionTitle("贡献动态")
-        Column(Modifier.padding(horizontal = 16.dp)) {
-            Text("2026 年 8 月", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
-            Spacer(Modifier.height(8.dp))
-            ContributionBar("SunsetRNE/extractions-data", 37, 78)
-            ContributionBar("SunsetRNE/Sundown", 24, 52)
-            ContributionBar("创建了 21 个仓库", 21, 30)
-            Spacer(Modifier.height(12.dp))
-            Box(Modifier.fillMaxWidth().height(40.dp).clip(RoundedCornerShape(6.dp)).background(Primer.Gray150).border(1.dp, Primer.Border, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
-                Text("查看更多动态", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Primer.Blue500)
+/** 动态事件（由 /users/{login}/received_events 解析）。 */
+private data class ActivityEvent(
+    val type: String,
+    val repo: String,
+    val detail: String,
+    val createdAt: Long,
+)
+
+private fun parseEvents(json: String?): List<ActivityEvent> {
+    if (json.isNullOrBlank() || json.startsWith("ERROR:")) return emptyList()
+    return runCatching {
+        val arr = JSONArray(json)
+        buildList {
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val type = o.optString("type")
+                val repo = o.optJSONObject("repo")?.optString("name").orEmpty()
+                val payload = o.optJSONObject("payload")
+                val detail = when (type) {
+                    "PushEvent" -> "推送了 ${payload?.optInt("size", 0) ?: 0} 个提交"
+                    "CreateEvent" -> "创建了 ${payload?.optString("ref_type").orEmpty().ifBlank { "内容" }}"
+                    "DeleteEvent" -> "删除了 ${payload?.optString("ref_type").orEmpty()}"
+                    "WatchEvent" -> "星标了仓库"
+                    "ForkEvent" -> "复刻了仓库"
+                    "IssueCommentEvent" -> "评论了 issue #${payload?.optJSONObject("issue")?.optInt("number") ?: 0}"
+                    "PullRequestEvent" -> "拉取请求 ${payload?.optString("action").orEmpty()} #${payload?.optJSONObject("pull_request")?.optInt("number") ?: 0}"
+                    "PullRequestReviewEvent" -> "审查了拉取请求"
+                    "ReleaseEvent" -> "发布了 ${payload?.optJSONObject("release")?.optString("tag_name").orEmpty()}"
+                    "PublicEvent" -> "公开了仓库"
+                    "IssuesEvent" -> "issue ${payload?.optString("action").orEmpty()}"
+                    "MemberEvent" -> "添加了协作者"
+                    "GollumEvent" -> "更新了 wiki"
+                    else -> type.removeSuffix("Event")
+                }
+                add(ActivityEvent(type, repo, detail, parseIsoTime(o.optString("created_at"))))
             }
         }
-        Spacer(Modifier.height(16.dp))
+    }.getOrDefault(emptyList())
+}
+
+private fun parseIsoTime(s: String): Long = runCatching {
+    java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
+        timeZone = java.util.TimeZone.getTimeZone("UTC")
+    }.parse(s)?.time ?: 0L
+}.getOrDefault(0L)
+
+private fun eventIcon(type: String) = when (type) {
+    "PushEvent" -> "⇧"
+    "CreateEvent" -> "＋"
+    "DeleteEvent" -> "−"
+    "WatchEvent" -> "★"
+    "ForkEvent" -> "⑂"
+    "IssueCommentEvent", "IssuesEvent" -> "◉"
+    "PullRequestEvent", "PullRequestReviewEvent" -> "⇄"
+    "ReleaseEvent" -> "◆"
+    else -> "•"
+}
+
+private fun relativeTime(ms: Long): String {
+    if (ms <= 0) return ""
+    val diff = System.currentTimeMillis() - ms
+    val min = diff / 60000
+    return when {
+        min < 1 -> "刚刚"
+        min < 60 -> "${min} 分钟前"
+        min < 1440 -> "${min / 60} 小时前"
+        min < 43200 -> "${min / 1440} 天前"
+        else -> "${min / 43200} 个月前"
     }
 }
 
-/** 🔧 本地渲染：贡献图绿阶网格 */
 @Composable
-private fun ContributionGraph() {
-    val levels = listOf(ProfileColors.ContributionL0, ProfileColors.ContributionL1, ProfileColors.ContributionL2, ProfileColors.ContributionL3, ProfileColors.ContributionL4)
-    val data = remember { List(12 * 7) { (0..4).random() } } // 模拟贡献数据
-    Canvas(Modifier.fillMaxWidth().height(70.dp)) {
-        val cell = 9.dp.toPx()
-        val gap = 2.dp.toPx()
-        data.forEachIndexed { idx, lv ->
-            val col = idx / 7
-            val row = idx % 7
-            val x = col * (cell + gap)
-            val y = row * (cell + gap)
-            drawRoundRect(color = levels[lv], topLeft = androidx.compose.ui.geometry.Offset(x, y), size = androidx.compose.ui.geometry.Size(cell, cell), cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()))
+private fun ProfileActivity(host: String, token: String, login: String) {
+    var events by remember { mutableStateOf<List<ActivityEvent>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(login) {
+        loading = true
+        error = null
+        val json = withContext(Dispatchers.IO) { RustBridge.getReceivedEvents(host, token, login) }
+        if (json == null) {
+            error = "无法加载动态（网络或权限受限）"
+        } else {
+            events = parseEvents(json)
+            Logger.net("GET /users/$login/received_events → ${events.size} 条", "GitHubAPI")
+        }
+        loading = false
+    }
+
+    when {
+        loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("加载中…", fontSize = 13.sp, color = Primer.TextTertiary)
+        }
+        error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(error!!, fontSize = 13.sp, color = Primer.TextTertiary)
+        }
+        events.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("暂无公开动态", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
+                Spacer(Modifier.height(4.dp))
+                Text("推送、星标、开 PR 等活动会显示在这里", fontSize = 12.sp, color = Primer.TextTertiary)
+            }
+        }
+        else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            // 统计
+            val now = System.currentTimeMillis()
+            val week = events.count { now - it.createdAt < 7L * 24 * 60 * 60 * 1000 }
+            val month = events.count { now - it.createdAt < 30L * 24 * 60 * 60 * 1000 }
+            SectionTitle("动态概览")
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                StatCard("最近 7 天", "$week", Modifier.weight(1f))
+                StatCard("最近 30 天", "$month", Modifier.weight(1f))
+                StatCard("总记录", "${events.size}", Modifier.weight(1f))
+            }
+
+            // 类型分布（Top 5）
+            val byType = events.groupingBy { it.type.removeSuffix("Event") }.eachCount()
+                .entries.sortedByDescending { it.value }.take(5)
+            if (byType.isNotEmpty()) {
+                SectionTitle("活动类型分布")
+                Column(Modifier.padding(horizontal = 16.dp)) {
+                    val max = byType.first().value.coerceAtLeast(1)
+                    byType.forEach { (label, count) ->
+                        TypeBar(label, count, (count * 100 / max).coerceIn(4, 100))
+                    }
+                }
+            }
+
+            // 贡献热力（按天聚合，过去 12 周）
+            SectionTitle("活动热力", "过去 12 周")
+            Column(Modifier.padding(horizontal = 16.dp)) {
+                ActivityHeatmap(events)
+            }
+
+            // 时间线
+            SectionTitle("最近活动")
+            Column(Modifier.padding(horizontal = 16.dp)) {
+                events.take(30).forEach { e -> EventRow(e) }
+            }
+            Spacer(Modifier.height(16.dp))
         }
     }
 }
 
-/** 🔧 本地渲染：活动雷达图 */
 @Composable
-private fun ActivityRadar(modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxWidth()) {
-        Text("向 SunsetRNE/Janno、SunsetRNE/extractions-data 等 55 个仓库做出贡献", fontSize = 14.sp, color = Primer.TextTertiary)
-        Spacer(Modifier.height(8.dp))
-        Canvas(Modifier.fillMaxWidth().height(110.dp)) {
-            val w = size.width
-            val h = size.height
-            drawLine(color = Primer.Border, start = androidx.compose.ui.geometry.Offset(0f, h / 2), end = androidx.compose.ui.geometry.Offset(w, h / 2))
-            drawLine(color = Primer.Border, start = androidx.compose.ui.geometry.Offset(w / 2, 0f), end = androidx.compose.ui.geometry.Offset(w / 2, h))
-            drawRect(color = ProfileColors.ContributionL1, topLeft = androidx.compose.ui.geometry.Offset(w * 0.46f, h * 0.14f), size = androidx.compose.ui.geometry.Size(14.dp.toPx(), 14.dp.toPx()))
-        }
+private fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier
+            .clip(RoundedCornerShape(8.dp))
+            .border(1.dp, Primer.Border, RoundedCornerShape(8.dp))
+            .padding(vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(value, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
+        Spacer(Modifier.height(2.dp))
+        Text(label, fontSize = 11.sp, color = Primer.TextTertiary)
     }
 }
 
 @Composable
-private fun ContributionBar(label: String, count: Int, percent: Int) {
-    Column(Modifier.padding(bottom = 12.dp)) {
+private fun TypeBar(label: String, count: Int, percent: Int) {
+    Column(Modifier.padding(bottom = 10.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
-            Text("$count 次提交", fontSize = 12.sp, color = Primer.TextTertiary)
+            Text(label, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
+            Text("$count 次", fontSize = 11.5.sp, color = Primer.TextTertiary)
         }
         Spacer(Modifier.height(4.dp))
-        Box(Modifier.fillMaxWidth(percent / 100f).height(8.dp).clip(RoundedCornerShape(4.dp)).background(ProfileColors.ContributionL1))
+        Box(Modifier.fillMaxWidth(percent / 100f).height(7.dp).clip(RoundedCornerShape(4.dp)).background(Primer.Blue500))
+    }
+}
+
+/** 活动热力：按天聚合过去 12 周（84 天）。 */
+@Composable
+private fun ActivityHeatmap(events: List<ActivityEvent>) {
+    val levels = listOf(
+        ProfileColors.ContributionL0, ProfileColors.ContributionL1,
+        ProfileColors.ContributionL2, ProfileColors.ContributionL3, ProfileColors.ContributionL4,
+    )
+    val dayCounts = remember(events) {
+        val dayMs = 24L * 60 * 60 * 1000
+        val today = System.currentTimeMillis() / dayMs * dayMs
+        val counts = IntArray(84)
+        events.forEach { e ->
+            if (e.createdAt > 0) {
+                val idx = ((today - (e.createdAt / dayMs * dayMs)) / dayMs).toInt()
+                if (idx in 0 until 84) counts[83 - idx]++
+            }
+        }
+        counts
+    }
+    val max = (dayCounts.maxOrNull() ?: 0).coerceAtLeast(1)
+    Column {
+        Canvas(Modifier.fillMaxWidth().height(74.dp)) {
+            val cell = 9.dp.toPx()
+            val gap = 2.dp.toPx()
+            dayCounts.forEachIndexed { idx, c ->
+                val col = idx / 7
+                val row = idx % 7
+                val lv = when {
+                    c == 0 -> 0
+                    c * 4 < max -> 1
+                    c * 2 < max -> 2
+                    c * 4 < max * 3 -> 3
+                    else -> 4
+                }
+                drawRoundRect(
+                    color = levels[lv],
+                    topLeft = androidx.compose.ui.geometry.Offset(col * (cell + gap), row * (cell + gap)),
+                    size = androidx.compose.ui.geometry.Size(cell, cell),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()),
+                )
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "共 ${dayCounts.sum()} 次活动 · 最深 ${max} 次/天",
+            fontSize = 11.5.sp,
+            color = Primer.TextTertiary,
+        )
+    }
+}
+
+@Composable
+private fun EventRow(e: ActivityEvent) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.Top) {
+        Box(
+            Modifier.size(24.dp).clip(CircleShape).background(Primer.Gray150),
+            contentAlignment = Alignment.Center,
+        ) { Text(eventIcon(e.type), fontSize = 12.sp, color = Primer.TextSecondary) }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                "${e.repo.ifBlank { "（未知仓库）" }} · ${e.detail}",
+                fontSize = 13.sp,
+                color = Primer.TextPrimary,
+                lineHeight = 18.sp,
+            )
+            Text(relativeTime(e.createdAt), fontSize = 11.5.sp, color = Primer.TextTertiary)
+        }
     }
 }
 
@@ -467,14 +619,6 @@ private fun ProfileBubbleNavigationBar(
                     onClick = {
                         expanded = false
                         onNavigate(SubPage.Stars)
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("软件包") },
-                    leadingIcon = { Icon(Icons.Filled.Inventory2, null, tint = Primer.IconSecondary, modifier = Modifier.size(20.dp)) },
-                    onClick = {
-                        expanded = false
-                        onNavigate(SubPage.Packages)
                     },
                 )
                 DropdownMenuItem(

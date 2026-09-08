@@ -347,4 +347,9 @@ impl GitHubApi {
         let path = format!("/repos/{owner}/{repo}");
         self.client.delete_json(&path).await
     }
+
+    /// 更新当前登录用户资料（PATCH /user，body 为 JSON 字符串）
+    pub async fn update_profile(&self, body: &str) -> Result<String> {
+        self.client.patch_json("/user", body).await
+    }
 }

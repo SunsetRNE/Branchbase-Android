@@ -1203,3 +1203,23 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeSetGitProxy<'lo
         crate::git::set_git_proxy(&dir, &proxy).map(|_| String::new());
     into_jstring(&mut env, result)
 }
+
+/// 更新当前用户资料（PATCH /user，返回空串=成功）
+/// 参数：host, token, body（JSON 字符串）
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeUpdateProfile<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    body: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let body = jstr(&mut env, &body);
+    let result: crate::error::Result<String> = block_on(async move {
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client).update_profile(&body).await
+    });
+    into_jstring(&mut env, result)
+}
