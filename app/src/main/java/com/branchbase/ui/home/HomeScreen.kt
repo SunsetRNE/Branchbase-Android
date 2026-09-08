@@ -49,6 +49,7 @@ import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
 import com.branchbase.core.AccountStore
 import com.branchbase.core.RustBridge
+import com.branchbase.ui.theme.Avatar
 import kotlinx.coroutines.launch
 import com.branchbase.ui.theme.Primer
 import org.json.JSONObject
@@ -242,29 +243,13 @@ private fun SearchBarRow(login: String, avatarUrl: String?, onProfileClick: () -
             Text("搜索 GitHub", fontSize = 14.sp, color = Primer.TextTertiary)
         }
         Spacer(Modifier.width(10.dp))
-        // 头像（40dp 圆，与搜索框同高）
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .clickable { onProfileClick() },
-            contentAlignment = Alignment.Center,
-        ) {
-            if (avatarUrl != null) {
-                AsyncImage(
-                    model = avatarUrl,
-                    contentDescription = login,
-                    modifier = Modifier.size(40.dp).clip(CircleShape),
-                )
-            } else {
-                Box(
-                    modifier = Modifier.fillMaxSize().background(Primer.Blue500),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(login.take(1).uppercase(), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
+        // 头像（40dp 圆，与搜索框同高）—— 统一组件：按尺寸取图 + 首字母占位
+        Avatar(
+            url = avatarUrl,
+            name = login,
+            size = 40.dp,
+            modifier = Modifier.clickable { onProfileClick() },
+        )
     }
 }
 

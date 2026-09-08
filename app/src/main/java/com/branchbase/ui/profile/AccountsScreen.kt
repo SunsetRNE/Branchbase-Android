@@ -51,6 +51,7 @@ import com.branchbase.core.AccountStore
 import com.branchbase.core.LocalRepos
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.theme.Avatar
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -224,21 +225,12 @@ private fun AccountCard(
             .padding(12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(44.dp).clip(CircleShape)
-                    .background(if (isCurrent) Primer.Blue500 else Primer.Gray150),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (account.avatar != null) {
-                    AsyncImage(model = account.avatar, contentDescription = account.login, modifier = Modifier.size(44.dp).clip(CircleShape))
-                } else {
-                    Text(
-                        account.login.take(1).uppercase(),
-                        fontSize = 18.sp, fontWeight = FontWeight.Bold,
-                        color = if (isCurrent) Color.White else Primer.TextSecondary,
-                    )
-                }
-            }
+            Avatar(
+                url = account.avatar,
+                name = account.login,
+                size = 44.dp,
+                background = if (isCurrent) Primer.Blue500 else Primer.Gray150,
+            )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

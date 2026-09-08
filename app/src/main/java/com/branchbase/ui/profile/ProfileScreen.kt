@@ -60,6 +60,7 @@ import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.LogScreen
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.theme.LanguageColors
+import com.branchbase.ui.theme.Avatar
 import com.branchbase.ui.theme.Primer
 import com.branchbase.ui.theme.ProfileColors
 import kotlinx.coroutines.Dispatchers
@@ -204,13 +205,7 @@ private fun ProfileOverview(
         item {
             Column(Modifier.fillMaxWidth().padding(16.dp, 16.dp, 16.dp, 12.dp)) {
                 Row(verticalAlignment = Alignment.Top) {
-                    Box(Modifier.size(64.dp).clip(CircleShape).background(Primer.Blue500), contentAlignment = Alignment.Center) {
-                        if (avatarUrl != null) {
-                            AsyncImage(model = avatarUrl, contentDescription = login, modifier = Modifier.size(64.dp).clip(CircleShape))
-                        } else {
-                            Text(login.take(1).uppercase(), color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
+                    Avatar(url = avatarUrl, name = login, size = 64.dp)
                     Spacer(Modifier.width(14.dp))
                     Column {
                         Text(name ?: login, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
