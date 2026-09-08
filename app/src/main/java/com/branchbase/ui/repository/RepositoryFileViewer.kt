@@ -44,6 +44,7 @@ import com.branchbase.core.RustBridge
 import com.branchbase.ui.decision.AuthorIdentityScreen
 import com.branchbase.ui.decision.DraftInfo
 import com.branchbase.ui.decision.DraftRecoverScreen
+import com.branchbase.ui.decision.OfflineConflictScreen
 import com.branchbase.ui.decision.SensitiveWarningScreen
 import com.branchbase.ui.decision.StageCommitScreen
 import com.branchbase.ui.decision.StageFile
@@ -98,14 +99,41 @@ fun FileViewerScreen(
     // 草稿（D3 隔离目录 files/edit/single/{owner}/{repo}/{path}）
     fun draftFile() = File(context.getExternalFilesDir(null), "edit/single/$owner/$repo/$path")
 
+    /** 草稿的基准 sha 记录（离线冲突检测：提交前与远端当前 sha 比对）。 */
+    fun draftBaseFile() = File(draftFile().absolutePath + ".base")
+
     fun saveDraft() = runCatching {
         draftFile().parentFile?.mkdirs()
         draftFile().writeText(draft)
+        if (sha.isNotBlank()) draftBaseFile().writeText(sha)
     }.isSuccess
 
-    fun clearDraft() = runCatching { draftFile().delete() }.isSuccess
+    fun clearDraft() = runCatching {
+        draftFile().delete()
+        draftBaseFile().delete()
+    }.isSuccess
 
     fun loadDraft(): String? = runCatching { draftFile().takeIf { it.exists() }?.readText() }.getOrNull()
+
+    fun loadDraftBaseSha(): String? =
+        runCatching { draftBaseFile().takeIf { it.exists() }?.readText()?.trim() }.getOrNull()
+
+    /**
+     * 离线冲突检测（P2-4）。
+     *
+     * 草稿保存时记录了当时的远端 sha；提交前重新拉一次远端：
+     * sha 变了说明离线期间别人改过同一文件 → 返回远端内容，交给冲突决策页。
+     * 没有草稿基准（首次编辑）或网络失败时不拦截。
+     */
+    suspend fun detectRemoteChange(): String? {
+        val base = loadDraftBaseSha()?.takeIf { it.isNotBlank() } ?: return null
+        val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/contents/${encodePath(path)}")
+            ?: return null
+        if (json.startsWith("ERROR:")) return null
+        val remoteSha = runCatching { JSONObject(json).optString("sha") }.getOrNull() ?: return null
+        if (remoteSha == base) return null
+        return parseFileContent(json)
+    }
 
     LaunchedEffect(owner, repo, path) {
         loading = true
@@ -159,6 +187,11 @@ fun FileViewerScreen(
         if (message.isBlank()) { feedback = "请输入提交信息"; return }
         if (selectedPaths.isEmpty()) { feedback = "请至少勾选一个文件"; return }
         scope.launch {
+            // 离线冲突检测：当前编辑文件若被他人改过 → 冲突决策页（P2-4）
+            detectRemoteChange()?.let { remote ->
+                page = FilePage.Conflict(local = draft, remote = remote)
+                return@launch
+            }
             submitting = true
             feedback = null
             val root = draftRoot()
@@ -203,6 +236,11 @@ fun FileViewerScreen(
     fun doCommitSingle() {
         if (commitMsg.isBlank()) { feedback = "请输入提交信息"; return }
         scope.launch {
+            // 离线冲突检测：远端已变 → 冲突决策页（P2-4）
+            detectRemoteChange()?.let { remote ->
+                page = FilePage.Conflict(local = draft, remote = remote)
+                return@launch
+            }
             submitting = true
             feedback = null
             val taskId = com.branchbase.ui.task.TaskStore.start(context, com.branchbase.ui.task.TaskKind.COMMIT, "提交 $path")
@@ -460,6 +498,47 @@ fun FileViewerScreen(
             )
             return
         }
+        is FilePage.Conflict -> {
+            OfflineConflictScreen(
+                fileName = path.substringAfterLast('/'),
+                localContent = p.local,
+                remoteContent = p.remote,
+                onBack = { page = FilePage.None },
+                onChoose = { choice ->
+                    page = FilePage.None
+                    when (choice) {
+                        // 保留本地：重新以远端最新 sha 为基准继续提交
+                        "keep" -> scope.launch {
+                            sha = runCatching {
+                                JSONObject(
+                                    RustBridge.getJson(host, token, "/repos/$owner/$repo/contents/${encodePath(path)}")
+                                        ?: "{}",
+                                ).optString("sha")
+                            }.getOrDefault(sha)
+                            doCommitSingle()
+                        }
+                        // 放弃本地，载入远端
+                        "remote" -> {
+                            draft = p.remote
+                            content = p.remote
+                            clearDraft()
+                            editing = false
+                            feedback = "已载入远端版本，本地草稿已删除"
+                        }
+                        // 复制远端为新文件：本地草稿保留，远端另存一份
+                        else -> {
+                            val side = File(draftFile().absolutePath + ".remote")
+                            runCatching {
+                                side.parentFile?.mkdirs()
+                                side.writeText(p.remote)
+                            }
+                            feedback = "远端版本已另存为 ${side.name}"
+                        }
+                    }
+                },
+            )
+            return
+        }
         FilePage.None -> Unit
     }
 
@@ -483,6 +562,8 @@ private sealed interface FilePage {
     data class Stage(val files: List<StageFile>) : FilePage
     data class Identity(val message: String) : FilePage
     data class Draft(val drafts: List<DraftInfo>) : FilePage
+    /** 离线冲突：本地草稿基于的远端 sha 已变化 */
+    data class Conflict(val local: String, val remote: String) : FilePage
 }
 
 /** 解析行号锚点（如 "L12-L34"、"L12"）为闭区间 [start..end]，非法返回 null。 */
