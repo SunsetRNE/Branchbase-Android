@@ -391,6 +391,7 @@ private fun relativeTime(ms: Long): String {
 
 @Composable
 private fun ProfileActivity(host: String, token: String, login: String) {
+    val context = LocalContext.current
     var events by remember { mutableStateOf<List<ActivityEvent>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -404,12 +405,33 @@ private fun ProfileActivity(host: String, token: String, login: String) {
     LaunchedEffect(login) {
         loading = true
         error = null
-        val json = withContext(Dispatchers.IO) { RustBridge.getReceivedEvents(host, token, login) }
+        if (login.isBlank()) {
+            error = "未获取到登录名，请重新登录"
+            loading = false
+            return@LaunchedEffect
+        }
+        // 数据源：`/user/events` 是「认证用户自己的活动」（含私有仓库），
+        // `/users/{login}/events` 是「该用户的公开活动」。
+        // 注意不要用 received_events —— 那是「你关注的人的活动」feed，通常为空。
+        val isSelf = login == AccountStore.currentLogin(context)
+        var source = if (isSelf) "/user/events" else "/users/$login/events"
+        var json = withContext(Dispatchers.IO) { RustBridge.getJson(host, token, "$source?per_page=100") }
+        var parsed = parseEvents(json)
+        if (parsed.isEmpty()) {
+            // 当前用户端点没数据时回退到公开事件端点
+            val fallback = if (isSelf) "/users/$login/events" else "/user/events"
+            val retry = withContext(Dispatchers.IO) { RustBridge.getJson(host, token, "$fallback?per_page=100") }
+            if (parseEvents(retry).isNotEmpty()) {
+                source = fallback
+                json = retry
+                parsed = parseEvents(retry)
+            }
+        }
         if (json == null) {
             error = "无法加载动态（网络或权限受限）"
         } else {
-            events = parseEvents(json)
-            Logger.net("GET /users/$login/received_events → ${events.size} 条", "GitHubAPI")
+            events = parsed
+            Logger.net("GET $source → ${events.size} 条", "GitHubAPI")
         }
         loading = false
     }

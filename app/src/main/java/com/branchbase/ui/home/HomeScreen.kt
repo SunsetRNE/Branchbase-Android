@@ -98,12 +98,14 @@ fun HomeScreen(
     // 加载最近活动（先读缓存，再网络刷新）
     suspend fun loadEvents(refresh: Boolean) {
         if (!refresh) {
-            prefs.getString("received_events", null)?.let { events = parseActivities(it) }
+            prefs.getString("recent_events", null)?.let { events = parseActivities(it) }
         }
-        RustBridge.getReceivedEvents(host, token, login)?.let { json ->
+        // 首页展示「我自己的活动」→ /user/events（含私有仓库）。
+        // 不要用 received_events：那是「我关注的人的活动」feed，通常为空。
+        RustBridge.getJson(host, token, "/user/events?per_page=50")?.let { json ->
             if (!json.startsWith("ERROR:")) {
                 events = parseActivities(json)
-                prefs.edit().putString("received_events", json).apply()
+                prefs.edit().putString("recent_events", json).apply()
             }
         }
     }
