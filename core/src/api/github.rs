@@ -1,7 +1,7 @@
 //! GitHub API 业务方法（基于 ApiClient）
 
 use crate::api::ApiClient;
-use crate::error::Result;
+use crate::error::{CoreError, Result};
 use crate::models::{Branch, Package, Project, Repository, User};
 
 /// GitHub API 门面
@@ -201,6 +201,127 @@ impl GitHubApi {
         }
         let path = format!("/repos/{owner}/{repo}/contents/{path}");
         self.client.put_json(&path, &body.to_string()).await
+    }
+
+    /// 批量提交多个文件（Git Data API：blobs → tree → commit → 更新 ref）。
+    ///
+    /// 用于「多文件模式」：一次提交包含多个文件改动，只产生**一个** commit，
+    /// 而不是 [Self::put_contents] 那种每个文件一个 commit。
+    ///
+    /// 步骤（对齐 GitHub 官方 Git Data 流程）：
+    /// 1. `GET /git/ref/heads/{branch}` 取分支 HEAD commit
+    /// 2. `GET /git/commits/{sha}` 取基线 tree
+    /// 3. 每个文件 `POST /git/blobs`（base64）
+    /// 4. `POST /git/trees`（`base_tree` + 新增/覆盖条目）得新 tree
+    /// 5. `POST /git/commits`（parents = 基线 commit）
+    /// 6. `PATCH /git/refs/heads/{branch}` 指向新 commit
+    ///
+    /// @param files `(仓库内相对路径, 新内容)` 列表，非空
+    /// @return 新 commit 的 sha
+    pub async fn commit_files(
+        &self,
+        owner: &str,
+        repo: &str,
+        branch: &str,
+        message: &str,
+        files: &[(String, String)],
+    ) -> Result<String> {
+        use base64::Engine;
+        if files.is_empty() {
+            return Err(CoreError::Other("没有要提交的文件".into()));
+        }
+
+        // 1) 分支 HEAD
+        let ref_json = self
+            .client
+            .get_json(&format!("/repos/{owner}/{repo}/git/ref/heads/{branch}"))
+            .await?;
+        let ref_value: serde_json::Value = serde_json::from_str(&ref_json)?;
+        let base_commit = ref_value
+            .get("object")
+            .and_then(|o| o.get("sha"))
+            .and_then(|s| s.as_str())
+            .ok_or_else(|| CoreError::Other("读取分支 ref 失败：缺少 object.sha".into()))?
+            .to_string();
+
+        // 2) 基线 tree
+        let commit_json = self
+            .client
+            .get_json(&format!("/repos/{owner}/{repo}/git/commits/{base_commit}"))
+            .await?;
+        let commit_value: serde_json::Value = serde_json::from_str(&commit_json)?;
+        let base_tree = commit_value
+            .get("tree")
+            .and_then(|t| t.get("sha"))
+            .and_then(|s| s.as_str())
+            .ok_or_else(|| CoreError::Other("读取基线 tree 失败".into()))?
+            .to_string();
+
+        // 3) 每个文件一个 blob
+        let mut tree_entries = Vec::with_capacity(files.len());
+        for (path, content) in files {
+            let blob_body = serde_json::json!({
+                "content": base64::engine::general_purpose::STANDARD.encode(content.as_bytes()),
+                "encoding": "base64",
+            });
+            let blob_json = self
+                .client
+                .post_json(&format!("/repos/{owner}/{repo}/git/blobs"), &blob_body.to_string())
+                .await?;
+            let blob_value: serde_json::Value = serde_json::from_str(&blob_json)?;
+            let blob_sha = blob_value
+                .get("sha")
+                .and_then(|s| s.as_str())
+                .ok_or_else(|| CoreError::Other(format!("创建 blob 失败: {path}")))?
+                .to_string();
+            tree_entries.push(serde_json::json!({
+                "path": path,
+                "mode": "100644",
+                "type": "blob",
+                "sha": blob_sha,
+            }));
+        }
+
+        // 4) 新 tree（基于基线 tree，只覆盖本次涉及的文件）
+        let tree_body = serde_json::json!({ "base_tree": base_tree, "tree": tree_entries });
+        let tree_json = self
+            .client
+            .post_json(&format!("/repos/{owner}/{repo}/git/trees"), &tree_body.to_string())
+            .await?;
+        let tree_value: serde_json::Value = serde_json::from_str(&tree_json)?;
+        let new_tree = tree_value
+            .get("sha")
+            .and_then(|s| s.as_str())
+            .ok_or_else(|| CoreError::Other("创建 tree 失败".into()))?
+            .to_string();
+
+        // 5) 新 commit
+        let commit_body = serde_json::json!({
+            "message": message,
+            "tree": new_tree,
+            "parents": [base_commit],
+        });
+        let new_commit_json = self
+            .client
+            .post_json(&format!("/repos/{owner}/{repo}/git/commits"), &commit_body.to_string())
+            .await?;
+        let new_commit_value: serde_json::Value = serde_json::from_str(&new_commit_json)?;
+        let new_commit = new_commit_value
+            .get("sha")
+            .and_then(|s| s.as_str())
+            .ok_or_else(|| CoreError::Other("创建 commit 失败".into()))?
+            .to_string();
+
+        // 6) 移动分支引用
+        let update_body = serde_json::json!({ "sha": new_commit });
+        self.client
+            .patch_json(
+                &format!("/repos/{owner}/{repo}/git/refs/heads/{branch}"),
+                &update_body.to_string(),
+            )
+            .await?;
+
+        Ok(new_commit)
     }
 
     /// 拉取 latest release 的 signature.txt 校验文件内容。

@@ -783,6 +783,54 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativePutContents<'lo
     into_jstring(&mut env, result)
 }
 
+/// 批量提交多个文件（Git Data API：blobs → tree → commit → 更新 ref），返回新 commit sha
+/// 参数：host, token, owner, repo, branch, message, filesJson（`[{"path":"…","content":"…"}]`）
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeCommitFiles<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    owner: JString<'local>,
+    repo: JString<'local>,
+    branch: JString<'local>,
+    message: JString<'local>,
+    files_json: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let owner = jstr(&mut env, &owner);
+    let repo = jstr(&mut env, &repo);
+    let branch = jstr(&mut env, &branch);
+    let message = jstr(&mut env, &message);
+    let files_json = jstr(&mut env, &files_json);
+
+    let result: crate::error::Result<String> = block_on(async move {
+        let parsed: serde_json::Value = serde_json::from_str(&files_json)?;
+        let array = parsed
+            .as_array()
+            .ok_or_else(|| CoreError::Other("filesJson 应为数组".into()))?;
+        if array.is_empty() {
+            return Err(CoreError::Other("没有要提交的文件".into()));
+        }
+        let files: Vec<(String, String)> = array
+            .iter()
+            .map(|f| {
+                (
+                    f.get("path").and_then(|p| p.as_str()).unwrap_or_default().to_string(),
+                    f.get("content").and_then(|c| c.as_str()).unwrap_or_default().to_string(),
+                )
+            })
+            .collect();
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client)
+            .commit_files(&owner, &repo, &branch, &message, &files)
+            .await
+    });
+
+    into_jstring(&mut env, result)
+}
+
 /// 本地 git commit（暂存 + 提交，返回 commit sha）
 /// 参数：dir, message, authorName, authorEmail
 #[no_mangle]

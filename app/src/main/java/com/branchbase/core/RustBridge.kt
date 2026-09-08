@@ -129,6 +129,16 @@ object RustBridge {
         branch: String
     ): String
 
+    private external fun nativeCommitFiles(
+        host: String,
+        token: String,
+        owner: String,
+        repo: String,
+        branch: String,
+        message: String,
+        filesJson: String
+    ): String
+
     // ── 决策页面支持（对齐 docs/decision-pages-gap.md §6） ──
 
     private external fun nativeGitStatus(dir: String): String
@@ -496,6 +506,32 @@ object RustBridge {
         branch: String = ""
     ): String? = withContext(Dispatchers.IO) {
         nativePutContents(host, token, owner, repo, path, message, content, sha, branch).ifBlank { null }
+    }
+
+    /**
+     * 批量提交多个文件（Git Data API），只产生一个 commit。
+     *
+     * 与 [putContents] 的差别：后者每个文件一个 commit，本方法把多个文件改动
+     * 合成一次提交（blobs → tree → commit → 移动 ref）。
+     *
+     * @param files `(仓库内相对路径, 新内容)`
+     * @return 新 commit sha；失败返回 `ERROR:` 开头的串
+     */
+    suspend fun commitFiles(
+        host: String,
+        token: String,
+        owner: String,
+        repo: String,
+        branch: String,
+        message: String,
+        files: List<Pair<String, String>>,
+    ): String? = withContext(Dispatchers.IO) {
+        val json = org.json.JSONArray().apply {
+            files.forEach { (path, content) ->
+                put(org.json.JSONObject().put("path", path).put("content", content))
+            }
+        }.toString()
+        nativeCommitFiles(host, token, owner, repo, branch, message, json).ifBlank { null }
     }
 
     // ── 决策页面支持（对齐 docs/decision-pages-gap.md §6；native 符号缺失时优雅降级） ──

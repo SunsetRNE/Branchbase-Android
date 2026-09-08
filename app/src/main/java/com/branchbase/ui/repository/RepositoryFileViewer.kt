@@ -127,6 +127,78 @@ fun FileViewerScreen(
         if (hits.isNotEmpty()) page = FilePage.Sensitive(hits) else action()
     }
 
+    /** 该仓库的草稿根目录（`edit/single/{owner}/{repo}`，D3 隔离）。 */
+    fun draftRoot() = File(context.getExternalFilesDir(null), "edit/single/$owner/$repo")
+
+    /**
+     * 收集该仓库下所有待提交草稿（多文件模式的数据来源）。
+     *
+     * 含当前正在编辑的文件 —— 它的内容可能还只在内存里（未落盘为草稿）。
+     */
+    fun collectStagedFiles(): List<StageFile> {
+        val root = draftRoot()
+        val out = LinkedHashMap<String, StageFile>()
+        if (root.exists()) {
+            root.walkTopDown().filter { it.isFile }.forEach { f ->
+                val rel = f.relativeTo(root).path
+                out[rel] = StageFile(rel, "M", size = "${f.length()} B", checked = true)
+            }
+        }
+        if (draft.isNotBlank() && !out.containsKey(path)) {
+            out[path] = StageFile(path, "M", checked = true)
+        }
+        return out.values.sortedBy { it.path }
+    }
+
+    /**
+     * 多文件模式：一次提交多个文件（Git Data API，只产生一个 commit）。
+     *
+     * 与单文件模式（[doCommitSingle] 逐个 PUT /contents）的区别就在这里。
+     */
+    fun doBatchCommit(message: String, selectedPaths: List<String>) {
+        if (message.isBlank()) { feedback = "请输入提交信息"; return }
+        if (selectedPaths.isEmpty()) { feedback = "请至少勾选一个文件"; return }
+        scope.launch {
+            submitting = true
+            feedback = null
+            val root = draftRoot()
+            val files = selectedPaths.mapNotNull { rel ->
+                val text = if (rel == path && draft.isNotBlank()) {
+                    draft
+                } else {
+                    runCatching { File(root, rel).takeIf { it.exists() }?.readText() }.getOrNull()
+                }
+                text?.let { rel to it }
+            }
+            if (files.isEmpty()) {
+                feedback = "没有可提交的内容"
+                submitting = false
+                return@launch
+            }
+
+            val taskId = com.branchbase.ui.task.TaskStore.start(
+                context,
+                com.branchbase.ui.task.TaskKind.COMMIT,
+                "提交 ${files.size} 个文件到 $owner/$repo",
+            )
+            val result = RustBridge.commitFiles(host, token, owner, repo, "main", message, files)
+            if (result != null && !result.startsWith("ERROR:")) {
+                com.branchbase.ui.task.TaskStore.success(
+                    context, taskId, "已提交 ${files.size} 个文件 · ${result.take(7)}",
+                )
+                // 提交成功的草稿清理掉
+                files.forEach { (rel, _) -> runCatching { File(root, rel).delete() } }
+                if (files.any { it.first == path }) { content = draft; editing = false }
+                feedback = "已提交 ${files.size} 个文件"
+            } else {
+                val reason = result?.removePrefix("ERROR:") ?: "提交失败"
+                com.branchbase.ui.task.TaskStore.fail(context, taskId, reason)
+                feedback = "提交失败：$reason"
+            }
+            submitting = false
+        }
+    }
+
     // 提交（①单文件提交 PUT contents）
     fun doCommitSingle() {
         if (commitMsg.isBlank()) { feedback = "请输入提交信息"; return }
@@ -203,7 +275,7 @@ fun FileViewerScreen(
             null -> showModePicker = true
             CommitMode.SINGLE_FILE -> proceedWithScan { doCommitSingle() }
             CommitMode.MULTI_FILE -> proceedWithScan {
-                page = FilePage.Stage(listOf(StageFile(path, "M", checked = true)))
+                page = FilePage.Stage(collectStagedFiles())
             }
             CommitMode.LOCAL_REPO -> proceedWithScan { doLocalCommit() }
         }
@@ -328,7 +400,7 @@ fun FileViewerScreen(
                     // 已确认内容可公开：跳过扫描直接执行当前模式的提交
                     when (commitMode(context)) {
                         CommitMode.SINGLE_FILE -> doCommitSingle()
-                        CommitMode.MULTI_FILE -> feedback = "已暂存（批量提交待接 Git Data API）"
+                        CommitMode.MULTI_FILE -> doBatchCommit(commitMsg, collectStagedFiles().map { it.path })
                         CommitMode.LOCAL_REPO -> doLocalCommit()
                         null -> Unit
                     }
@@ -343,9 +415,9 @@ fun FileViewerScreen(
                 mode = CommitMode.MULTI_FILE,
                 onBack = { page = FilePage.None },
                 onPickMode = { /* 已固化 */ },
-                onCommit = { message, _ ->
+                onCommit = { message, selected ->
                     page = FilePage.None
-                    feedback = "已暂存：$message（批量提交待接 Git Data API）"
+                    doBatchCommit(message, selected)
                 },
             )
             return
