@@ -330,20 +330,63 @@ private fun parseEvents(json: String?): List<ActivityEvent> {
     if (json.isNullOrBlank() || json.startsWith("ERROR:")) return emptyList()
     return runCatching {
         val arr = JSONArray(json)
+        val seen = HashSet<String>()
         buildList {
             for (i in 0 until arr.length()) {
                 val o = arr.optJSONObject(i) ?: continue
+                // 分页拉取可能重叠，按事件 id 去重
+                val id = o.optString("id")
+                if (id.isNotBlank() && !seen.add(id)) continue
                 val type = o.optString("type")
                 val repo = o.optJSONObject("repo")?.optString("name").orEmpty()
                 val payload = o.optJSONObject("payload")
                 val detail = when (type) {
-                    "PushEvent" -> "推送了 ${payload?.optInt("size", 0) ?: 0} 个提交"
-                    "CreateEvent" -> "创建了 ${payload?.optString("ref_type").orEmpty().ifBlank { "内容" }}"
-                    "DeleteEvent" -> "删除了 ${payload?.optString("ref_type").orEmpty()}"
+                    // events API 的 PushEvent payload 被裁剪，只有 ref/head/before，
+                    // 没有 size / commits（旧实现读 size 恒为 0，显示「推送了 0 个提交」）
+                    "PushEvent" -> {
+                        val ref = payload?.optString("ref").orEmpty()
+                            .removePrefix("refs/heads/")
+                            .removePrefix("refs/tags/")
+                        val head = payload?.optString("head").orEmpty().take(7)
+                        when {
+                            ref.isNotBlank() && head.isNotBlank() -> "推送到 $ref · $head"
+                            ref.isNotBlank() -> "推送到 $ref"
+                            else -> "推送了代码"
+                        }
+                    }
+                    "CreateEvent" -> {
+                        val kind = when (payload?.optString("ref_type").orEmpty()) {
+                            "branch" -> "分支"
+                            "tag" -> "标签"
+                            "repository" -> "仓库"
+                            else -> "内容"
+                        }
+                        val name = payload?.optString("ref").orEmpty()
+                        if (name.isNotBlank()) "创建了$kind $name" else "创建了$kind"
+                    }
+                    "DeleteEvent" -> {
+                        val kind = when (payload?.optString("ref_type").orEmpty()) {
+                            "branch" -> "分支"
+                            "tag" -> "标签"
+                            else -> "引用"
+                        }
+                        val name = payload?.optString("ref").orEmpty()
+                        if (name.isNotBlank()) "删除了$kind $name" else "删除了$kind"
+                    }
                     "WatchEvent" -> "星标了仓库"
                     "ForkEvent" -> "复刻了仓库"
                     "IssueCommentEvent" -> "评论了 issue #${payload?.optJSONObject("issue")?.optInt("number") ?: 0}"
-                    "PullRequestEvent" -> "拉取请求 ${payload?.optString("action").orEmpty()} #${payload?.optJSONObject("pull_request")?.optInt("number") ?: 0}"
+                    // 编号在 payload 顶层（payload.pull_request.number 未必存在）
+                    "PullRequestEvent" -> {
+                        val n = payload?.optInt("number") ?: payload?.optJSONObject("pull_request")?.optInt("number") ?: 0
+                        val action = when (payload?.optString("action").orEmpty()) {
+                            "opened" -> "打开"
+                            "closed" -> "关闭"
+                            "reopened" -> "重新打开"
+                            else -> payload?.optString("action").orEmpty()
+                        }
+                        "拉取请求 $action #$n"
+                    }
                     "PullRequestReviewEvent" -> "审查了拉取请求"
                     "ReleaseEvent" -> "发布了 ${payload?.optJSONObject("release")?.optString("tag_name").orEmpty()}"
                     "PublicEvent" -> "公开了仓库"
