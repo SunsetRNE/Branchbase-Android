@@ -74,6 +74,8 @@ import com.branchbase.ui.notification.readNotifLayout
 import com.branchbase.ui.notification.writeNotifLayout
 import com.branchbase.ui.theme.LanguageColors
 import com.branchbase.ui.theme.Primer
+import com.branchbase.ui.task.TaskKind
+import com.branchbase.ui.task.TaskStore
 import com.branchbase.ui.decision.AuthorIdentityScreen
 import com.branchbase.ui.decision.DeleteRepoWarningScreen
 import com.branchbase.ui.decision.ForkDecisionScreen
@@ -105,6 +107,7 @@ enum class SubPage(val label: String) {
     About("关于"),
     Log("日志"),
     NotificationSettings("通知设置"),
+    Tasks("任务"),
 }
 
 // ───────────────────────── 缓存机制（内存缓存 + TTL 过期） ─────────────────────────
@@ -749,10 +752,11 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
     fun doPull(name: String) {
         scope.launch {
             feedback = null
+            val taskId = TaskStore.start(context, TaskKind.PULL, "更新仓库 $name")
             when (val r = withContext(Dispatchers.IO) { RustBridge.gitPullDetailed(dirOf(name), token) }) {
-                null -> feedback = "已更新 $name"
-                "nff" -> page = LocalPage.Fork(name)
-                else -> feedback = "更新失败：${r ?: "未知错误"}"
+                null -> { TaskStore.success(context, taskId, "已更新"); feedback = "已更新 $name" }
+                "nff" -> { TaskStore.fail(context, taskId, "本地与远端分叉（需决策）"); page = LocalPage.Fork(name) }
+                else -> { TaskStore.fail(context, taskId, r ?: "未知错误"); feedback = "更新失败：${r ?: "未知错误"}" }
             }
         }
     }
@@ -764,10 +768,11 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
             val st = withContext(Dispatchers.IO) { RustBridge.gitStatus(dirOf(name))?.let { parseGitStatus(it) } }
             if (st == null) { feedback = "无法读取仓库状态（引擎不可用）"; return@launch }
             if (!st.hasUpstream) { page = LocalPage.Upstream(name); return@launch }
+            val taskId = TaskStore.start(context, TaskKind.PUSH, "推送仓库 $name")
             when (val r = withContext(Dispatchers.IO) { RustBridge.gitPushDetailed(dirOf(name), token, st.branch) }) {
-                null -> feedback = "已推送 $name"
-                "nff" -> page = LocalPage.Fork(name)
-                else -> feedback = "推送失败：${r ?: "未知错误"}"
+                null -> { TaskStore.success(context, taskId, "已推送 ${st.branch}"); feedback = "已推送 $name" }
+                "nff" -> { TaskStore.fail(context, taskId, "推送被拒（远端领先）"); page = LocalPage.Fork(name) }
+                else -> { TaskStore.fail(context, taskId, r ?: "未知错误"); feedback = "推送失败：${r ?: "未知错误"}" }
             }
         }
     }
@@ -796,9 +801,12 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
     /** 执行本地 git commit（identity 已就绪）。 */
     fun doGitCommit(repoName: String, message: String) {
         scope.launch {
+            val taskId = TaskStore.start(context, TaskKind.COMMIT, "本地提交 $repoName")
             val sha = withContext(Dispatchers.IO) {
                 RustBridge.gitCommit(dirOf(repoName), message, authorName(), authorEmail())
             }
+            if (sha != null) TaskStore.success(context, taskId, "已提交 $sha")
+            else TaskStore.fail(context, taskId, "提交失败（引擎不可用）")
             feedback = if (sha != null) "已提交（本地 git）" else "提交失败（引擎不可用）"
             page = LocalPage.List
         }
@@ -945,7 +953,10 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
         scope.launch {
             cloning = true
             feedback = null
+            val taskId = TaskStore.start(context, TaskKind.CLONE, "拉取仓库 $fullName")
             val error = RustBridge.gitCloneDetailed("https://github.com/$fullName", target.absolutePath, "", token)
+            if (error == null) TaskStore.success(context, taskId, "已拉取到 ${target.name}")
+            else TaskStore.fail(context, taskId, error)
             Logger.remote(if (error == null) "git clone $fullName 完成" else "git clone $fullName 失败：$error", "libgit2")
             cloning = false
             feedback = if (error == null) "已拉取 $name" else "拉取失败：$error"

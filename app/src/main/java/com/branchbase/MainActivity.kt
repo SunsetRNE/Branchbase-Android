@@ -30,6 +30,11 @@ class MainActivity : ComponentActivity() {
         LogManager.init(applicationContext)
         Logger.ui("App 启动", "System")
 
+        // 清理超期短任务记录（后台，不阻塞启动）
+        Thread {
+            kotlinx.coroutines.runBlocking { com.branchbase.ui.task.TaskStore.prune(applicationContext) }
+        }.start()
+
         // 初始化 git 引擎 TLS 证书信任（主线程同步：仅写文件 + 设环境变量，
         // 不触碰 libgit2；避免后台线程竞态与冷启动期 native 调用）
         val sslOk = RustBridge.gitInitSsl(cacheDir.absolutePath)

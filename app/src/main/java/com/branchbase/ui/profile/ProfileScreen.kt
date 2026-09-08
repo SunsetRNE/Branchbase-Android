@@ -124,6 +124,7 @@ fun ProfileScreen(
             SubPage.About -> AboutScreen(onBack = { subPage = SubPage.Settings })
             SubPage.Log -> LogScreen(onBack = { subPage = SubPage.Settings })
             SubPage.NotificationSettings -> NotificationSettingsScreen(onBack = { subPage = SubPage.Settings })
+            SubPage.Tasks -> com.branchbase.ui.task.TaskScreen(onBack = { subPage = null })
         }
         return
     }
@@ -482,6 +483,14 @@ private fun ProfileBubbleNavigationBar(
                     onClick = {
                         expanded = false
                         onNavigate(SubPage.Projects)
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("任务") },
+                    leadingIcon = { Icon(Icons.Filled.Timeline, null, tint = Primer.IconSecondary, modifier = Modifier.size(20.dp)) },
+                    onClick = {
+                        expanded = false
+                        onNavigate(SubPage.Tasks)
                     },
                 )
                 DropdownMenuItem(

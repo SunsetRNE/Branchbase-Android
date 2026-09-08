@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -67,6 +68,7 @@ fun PrOnestopScreen(
     onBack: () -> Unit,
     onCreated: (message: String?) -> Unit,
 ) {
+    val context = LocalContext.current
     val host = remember(sessionJson) { runCatching { org.json.JSONObject(sessionJson).optString("host", "github.com") }.getOrDefault("github.com") }
     val token = remember(sessionJson) {
         runCatching { org.json.JSONObject(sessionJson).optJSONObject("token")?.optString("access_token").orEmpty() }.getOrDefault("")
@@ -85,6 +87,7 @@ fun PrOnestopScreen(
         scope.launch {
             busy = true
             feedback = null
+            val taskId = com.branchbase.ui.task.TaskStore.start(context, com.branchbase.ui.task.TaskKind.PR, "创建 PR · $branchName → $baseBranch")
             val sha = withContext(Dispatchers.IO) { RustBridge.getRefSha(host, token, owner, repo, baseBranch) }
             if (sha == null) { busy = false; feedback = "无法读取基准分支 $baseBranch"; return@launch }
             val branchErr = withContext(Dispatchers.IO) { RustBridge.createBranch(host, token, owner, repo, branchName, sha) }
@@ -93,7 +96,13 @@ fun PrOnestopScreen(
                 RustBridge.createPullRequest(host, token, owner, repo, title, description, branchName, baseBranch, draftPr)
             }
             busy = false
-            if (prErr == null) onCreated("PR 已创建 · $branchName → $baseBranch") else feedback = "创建 PR 失败：$prErr"
+            if (prErr == null) {
+                com.branchbase.ui.task.TaskStore.success(context, taskId, "PR 已创建")
+                onCreated("PR 已创建 · $branchName → $baseBranch")
+            } else {
+                com.branchbase.ui.task.TaskStore.fail(context, taskId, prErr)
+                feedback = "创建 PR 失败：$prErr"
+            }
         }
     }
 
@@ -481,6 +490,7 @@ fun PrMergeScreen(
     val token = remember(sessionJson) {
         runCatching { org.json.JSONObject(sessionJson).optJSONObject("token")?.optString("access_token").orEmpty() }.getOrDefault("")
     }
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var strategy by remember { mutableStateOf(0) } // 0=squash 1=merge 2=rebase
     var deleteBranch by remember { mutableStateOf(true) }
@@ -493,6 +503,7 @@ fun PrMergeScreen(
         scope.launch {
             busy = true
             feedback = null
+            val taskId = com.branchbase.ui.task.TaskStore.start(context, com.branchbase.ui.task.TaskKind.MERGE, "合并 PR #$prNumber")
             val err = withContext(Dispatchers.IO) {
                 RustBridge.mergePullRequest(host, token, owner, repo, prNumber, methods[strategy])
             }
@@ -503,6 +514,7 @@ fun PrMergeScreen(
                 if (delErr != null) note += "（分支删除失败：$delErr）"
             }
             busy = false
+            com.branchbase.ui.task.TaskStore.success(context, taskId, note)
             onMerged(note)
         }
     }

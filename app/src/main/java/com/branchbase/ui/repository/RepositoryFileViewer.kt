@@ -133,7 +133,13 @@ fun FileViewerScreen(
         scope.launch {
             submitting = true
             feedback = null
+            val taskId = com.branchbase.ui.task.TaskStore.start(context, com.branchbase.ui.task.TaskKind.COMMIT, "提交 $path")
             val result = RustBridge.putContents(host, token, owner, repo, path, commitMsg, draft, sha, "main")
+            if (result != null && !result.startsWith("ERROR:")) {
+                com.branchbase.ui.task.TaskStore.success(context, taskId, "PUT /contents 成功")
+            } else {
+                com.branchbase.ui.task.TaskStore.fail(context, taskId, result?.removePrefix("ERROR:") ?: "提交失败")
+            }
             submitting = false
             if (result != null && !result.startsWith("ERROR:")) {
                 content = draft
@@ -149,6 +155,7 @@ fun FileViewerScreen(
     // 执行本地 git commit（identity 已就绪）
     fun doGitCommit(message: String) {
         scope.launch {
+            val taskId = com.branchbase.ui.task.TaskStore.start(context, com.branchbase.ui.task.TaskKind.COMMIT, "本地提交 $path")
             val prefs = context.getSharedPreferences("branchbase", android.content.Context.MODE_PRIVATE)
             val repoDir = File(context.getExternalFilesDir(null), "repos/$owner/$repo").absolutePath
             val sha = RustBridge.gitCommit(
@@ -157,10 +164,12 @@ fun FileViewerScreen(
                 prefs.getString("commit.author.email", "branchbase@users.noreply.github.com") ?: "branchbase@users.noreply.github.com",
             )
             if (sha != null) {
+                com.branchbase.ui.task.TaskStore.success(context, taskId, "已提交 $sha")
                 clearDraft()
                 editing = false
                 feedback = "已提交（本地 git · $sha）"
             } else {
+                com.branchbase.ui.task.TaskStore.fail(context, taskId, "提交失败（引擎不可用）")
                 feedback = "提交失败（引擎不可用）"
             }
         }
