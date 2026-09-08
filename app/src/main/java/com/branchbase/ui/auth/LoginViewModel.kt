@@ -119,6 +119,9 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
 
             prefs.edit().putString(KEY_SESSION, newSession).apply()
             _state.value = LoginState.LoggedIn(newSession)
+            // 同步到多账号表：否则 AccountChecks 仍拿旧 token 探测，会误报「令牌已失效」
+            val app = getApplication<Application>()
+            AccountStore.current(app)?.let { AccountStore.updateSession(app, it.id, newSession) }
         }
     }
 

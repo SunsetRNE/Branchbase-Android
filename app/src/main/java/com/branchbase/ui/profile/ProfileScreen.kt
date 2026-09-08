@@ -402,6 +402,22 @@ private fun ProfileActivity(host: String, token: String, login: String) {
     var calDegraded by remember { mutableStateOf<String?>(null) }
     var selectedDay by remember { mutableStateOf<ContributionDay?>(null) }
 
+    /** 拉取事件流（最多 3 页 = 300 条，GitHub events 的硬上限）。 */
+    suspend fun fetchEventPages(path: String): List<ActivityEvent> {
+        val all = mutableListOf<ActivityEvent>()
+        for (page in 1..3) {
+            val pageJson = withContext(Dispatchers.IO) {
+                RustBridge.getJson(host, token, "$path?per_page=100&page=$page")
+            } ?: break
+            if (pageJson.startsWith("ERROR:")) break
+            val batch = parseEvents(pageJson)
+            if (batch.isEmpty()) break
+            all += batch
+            if (batch.size < 100) break
+        }
+        return all
+    }
+
     LaunchedEffect(login) {
         loading = true
         error = null
@@ -415,19 +431,17 @@ private fun ProfileActivity(host: String, token: String, login: String) {
         // 注意不要用 received_events —— 那是「你关注的人的活动」feed，通常为空。
         val isSelf = login == AccountStore.currentLogin(context)
         var source = if (isSelf) "/user/events" else "/users/$login/events"
-        var json = withContext(Dispatchers.IO) { RustBridge.getJson(host, token, "$source?per_page=100") }
-        var parsed = parseEvents(json)
+        var parsed = fetchEventPages(source)
         if (parsed.isEmpty()) {
             // 当前用户端点没数据时回退到公开事件端点
             val fallback = if (isSelf) "/users/$login/events" else "/user/events"
-            val retry = withContext(Dispatchers.IO) { RustBridge.getJson(host, token, "$fallback?per_page=100") }
-            if (parseEvents(retry).isNotEmpty()) {
+            val retry = fetchEventPages(fallback)
+            if (retry.isNotEmpty()) {
                 source = fallback
-                json = retry
-                parsed = parseEvents(retry)
+                parsed = retry
             }
         }
-        if (json == null) {
+        if (parsed.isEmpty()) {
             error = "无法加载动态（网络或权限受限）"
         } else {
             events = parsed
@@ -476,15 +490,14 @@ private fun ProfileActivity(host: String, token: String, login: String) {
             }
         }
         else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            // 统计
-            val now = System.currentTimeMillis()
-            val week = events.count { now - it.createdAt < 7L * 24 * 60 * 60 * 1000 }
-            val month = events.count { now - it.createdAt < 30L * 24 * 60 * 60 * 1000 }
-            SectionTitle("动态概览")
+            // 概览统计：用 GraphQL 贡献日历（精确到天）。
+            // 事件流有 100/300 条上限，用它统计「近 7 天 / 30 天」会明显偏小。
+            val stats = remember(calendar) { contributionStats(calendar) }
+            SectionTitle("动态概览", if (stats != null) "按贡献日历" else null)
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                StatCard("最近 7 天", "$week", Modifier.weight(1f))
-                StatCard("最近 30 天", "$month", Modifier.weight(1f))
-                StatCard("总记录", "${events.size}", Modifier.weight(1f))
+                StatCard("近 7 天", "${stats?.week ?: 0}", Modifier.weight(1f))
+                StatCard("近 30 天", "${stats?.month ?: 0}", Modifier.weight(1f))
+                StatCard("近一年", "${stats?.year ?: 0}", Modifier.weight(1f))
             }
 
             // 贡献墙（52 周；GraphQL 优先，失败降级为事件近似）
@@ -530,6 +543,27 @@ private fun ProfileActivity(host: String, token: String, login: String) {
             Spacer(Modifier.height(16.dp))
         }
     }
+}
+
+/** 贡献日历统计（近 7 天 / 30 天 / 全年），数据来自 GraphQL，精确到天。 */
+private data class ContributionStats(val week: Int, val month: Int, val year: Int)
+
+private fun contributionStats(calendar: ContributionCalendar?): ContributionStats? {
+    val days = calendar?.days ?: return null
+    if (days.isEmpty()) return null
+    val fmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+    val dayMs = 24L * 60 * 60 * 1000
+    val today = System.currentTimeMillis()
+    var week = 0
+    var month = 0
+    days.forEach { d ->
+        val t = runCatching { fmt.parse(d.date)?.time ?: 0L }.getOrDefault(0L)
+        if (t <= 0L) return@forEach
+        val ageDays = (today - t) / dayMs
+        if (ageDays < 7) week += d.count
+        if (ageDays < 30) month += d.count
+    }
+    return ContributionStats(week, month, calendar.total)
 }
 
 /** 贡献日历查询区间（近一年，ISO8601 UTC）。 */
