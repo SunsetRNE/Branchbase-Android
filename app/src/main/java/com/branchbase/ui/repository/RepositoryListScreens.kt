@@ -1,6 +1,7 @@
 package com.branchbase.ui.repository
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
@@ -411,9 +413,17 @@ private fun WorkflowRow(item: WorkflowItem, onClick: () -> Unit) {
 // ── 发布列表 ──
 
 @Composable
-fun ReleaseListContent(sessionJson: String, owner: String, repo: String, refreshTick: Int = 0) {
+fun ReleaseListContent(
+    sessionJson: String,
+    owner: String,
+    repo: String,
+    refreshTick: Int = 0,
+    onOpenDetail: (ReleaseItem) -> Unit = {},
+    onCreate: () -> Unit = {},
+) {
     val (host, token, _) = sessionInfo(sessionJson)
     var items by remember { mutableStateOf<List<ReleaseItem>>(emptyList()) }
+    var canPush by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var retryTick by remember { mutableStateOf(0) }
@@ -427,29 +437,90 @@ fun ReleaseListContent(sessionJson: String, owner: String, repo: String, refresh
         } else {
             items = parseReleases(json)
         }
+        // 写权限决定「新建发布」入口是否出现（缺失即视为无权限，保守）
+        canPush = RustBridge.getRepoInfo(host, token, owner, repo)
+            ?.takeIf { !it.startsWith("ERROR:") }
+            ?.let { parseRepoInfo(it)?.canPush } ?: false
         loading = false
     }
 
     when {
         loading -> ListLoading()
         error != null -> ListError(error!!) { retryTick++ }
-        items.isEmpty() -> ListEmpty("暂无发布")
         else -> LazyColumn(Modifier.fillMaxSize()) {
-            items(items) { ReleaseRow(it) }
+            if (canPush) {
+                item {
+                    Box(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(1.dp, Primer.Border, RoundedCornerShape(8.dp))
+                            .clickable { onCreate() }
+                            .padding(vertical = 11.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("＋ 新建发布", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
+                    }
+                }
+            }
+            if (items.isEmpty()) {
+                item { ListEmpty("暂无发布") }
+            } else {
+                items(items) { ReleaseRow(it) { onOpenDetail(it) } }
+            }
         }
     }
 }
 
 @Composable
-private fun ReleaseRow(item: ReleaseItem) {
-    Row(Modifier.fillMaxWidth().padding(12.dp, 16.dp), verticalAlignment = Alignment.Top) {
+private fun ReleaseRow(item: ReleaseItem, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable { onClick() }.padding(12.dp, 14.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
         Icon(Icons.Filled.LocalOffer, null, tint = Primer.Blue500, modifier = Modifier.size(16.dp))
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(item.name, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    item.name,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Primer.TextPrimary,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (item.draft) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "草稿",
+                        fontSize = 10.sp,
+                        color = Color(0xFF9A6700),
+                        modifier = Modifier.clip(RoundedCornerShape(6.dp))
+                            .background(Color(0xFFFFF8E5)).padding(horizontal = 6.dp, vertical = 1.dp),
+                    )
+                }
+                if (item.prerelease) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "预发布",
+                        fontSize = 10.sp,
+                        color = Color(0xFF0A4E9B),
+                        modifier = Modifier.clip(RoundedCornerShape(6.dp))
+                            .background(Color(0xFFE6F1FF)).padding(horizontal = 6.dp, vertical = 1.dp),
+                    )
+                }
+            }
             Spacer(Modifier.height(4.dp))
-            Text("${item.tag} · ${shortTime(item.createdAt)}", fontSize = 11.5.sp, color = Primer.TextTertiary)
+            Text(
+                buildString {
+                    append("${item.tag} · ${shortTime(item.createdAt)}")
+                    if (item.assets.isNotEmpty()) append(" · ${item.assets.size} 个附件")
+                },
+                fontSize = 11.5.sp,
+                color = Primer.TextTertiary,
+            )
         }
+        Text("›", fontSize = 15.sp, color = Primer.TextTertiary)
     }
 }
 

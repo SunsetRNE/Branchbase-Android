@@ -1384,6 +1384,202 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeUpdateRef<'loca
     into_jstring(&mut env, result)
 }
 
+/// 创建 release（草稿/预发布可选，返回原始 JSON）
+/// 参数：host, token, owner, repo, tag, name, body, draft, prerelease, targetCommitish
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeCreateRelease<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    owner: JString<'local>,
+    repo: JString<'local>,
+    tag: JString<'local>,
+    name: JString<'local>,
+    body: JString<'local>,
+    draft: JString<'local>,
+    prerelease: JString<'local>,
+    target_commitish: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let owner = jstr(&mut env, &owner);
+    let repo = jstr(&mut env, &repo);
+    let tag = jstr(&mut env, &tag);
+    let name = jstr(&mut env, &name);
+    let body = jstr(&mut env, &body);
+    let draft = jstr(&mut env, &draft);
+    let prerelease = jstr(&mut env, &prerelease);
+    let target_commitish = jstr(&mut env, &target_commitish);
+    let result: crate::error::Result<String> = block_on(async move {
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client)
+            .create_release(
+                &owner,
+                &repo,
+                &tag,
+                &name,
+                &body,
+                draft == "true" || draft == "1",
+                prerelease == "true" || prerelease == "1",
+                &target_commitish,
+            )
+            .await
+    });
+    into_jstring(&mut env, result)
+}
+
+/// 编辑 release（返回原始 JSON）
+/// 参数：host, token, owner, repo, id, tag, name, body, draft, prerelease
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeUpdateRelease<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    owner: JString<'local>,
+    repo: JString<'local>,
+    id: JString<'local>,
+    tag: JString<'local>,
+    name: JString<'local>,
+    body: JString<'local>,
+    draft: JString<'local>,
+    prerelease: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let owner = jstr(&mut env, &owner);
+    let repo = jstr(&mut env, &repo);
+    let id = jstr(&mut env, &id);
+    let tag = jstr(&mut env, &tag);
+    let name = jstr(&mut env, &name);
+    let body = jstr(&mut env, &body);
+    let draft = jstr(&mut env, &draft);
+    let prerelease = jstr(&mut env, &prerelease);
+    let result: crate::error::Result<String> = block_on(async move {
+        let n: u64 = id.parse().unwrap_or(0);
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client)
+            .update_release(
+                &owner,
+                &repo,
+                n,
+                &tag,
+                &name,
+                &body,
+                draft == "true" || draft == "1",
+                prerelease == "true" || prerelease == "1",
+            )
+            .await
+    });
+    into_jstring(&mut env, result)
+}
+
+/// 删除 release（返回空串=成功）
+/// 参数：host, token, owner, repo, id
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeDeleteRelease<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    owner: JString<'local>,
+    repo: JString<'local>,
+    id: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let owner = jstr(&mut env, &owner);
+    let repo = jstr(&mut env, &repo);
+    let id = jstr(&mut env, &id);
+    let result: crate::error::Result<String> = block_on(async move {
+        let n: u64 = id.parse().unwrap_or(0);
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client).delete_release(&owner, &repo, n).await
+    });
+    into_jstring(&mut env, result)
+}
+
+/// 发表 issue 评论（返回原始 JSON）
+/// 参数：host, token, owner, repo, number, body
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeCreateIssueComment<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    owner: JString<'local>,
+    repo: JString<'local>,
+    number: JString<'local>,
+    body: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let owner = jstr(&mut env, &owner);
+    let repo = jstr(&mut env, &repo);
+    let number = jstr(&mut env, &number);
+    let body = jstr(&mut env, &body);
+    let result: crate::error::Result<String> = block_on(async move {
+        let n: u64 = number.parse().unwrap_or(0);
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client)
+            .create_issue_comment(&owner, &repo, n, &body)
+            .await
+    });
+    into_jstring(&mut env, result)
+}
+
+/// 关闭/重新打开 issue（返回原始 JSON）
+/// 参数：host, token, owner, repo, number, state（open / closed）
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeUpdateIssue<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    owner: JString<'local>,
+    repo: JString<'local>,
+    number: JString<'local>,
+    state: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let owner = jstr(&mut env, &owner);
+    let repo = jstr(&mut env, &repo);
+    let number = jstr(&mut env, &number);
+    let state = jstr(&mut env, &state);
+    let result: crate::error::Result<String> = block_on(async move {
+        let n: u64 = number.parse().unwrap_or(0);
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client)
+            .update_issue(&owner, &repo, n, &state)
+            .await
+    });
+    into_jstring(&mut env, result)
+}
+
+/// 仓库标签列表（返回原始 JSON）
+/// 参数：host, token, owner, repo
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeListLabels<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    owner: JString<'local>,
+    repo: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let owner = jstr(&mut env, &owner);
+    let repo = jstr(&mut env, &repo);
+    let result: crate::error::Result<String> = block_on(async move {
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client).list_labels(&owner, &repo).await
+    });
+    into_jstring(&mut env, result)
+}
+
 /// 删除远端分支
 /// 参数：host, token, owner, repo, branch
 #[no_mangle]

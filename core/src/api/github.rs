@@ -324,6 +324,110 @@ impl GitHubApi {
         Ok(new_commit)
     }
 
+    /// 创建 release（`POST /repos/{o}/{r}/releases`）。
+    ///
+    /// @param draft 草稿（不公开）；@param prerelease 预发布（不占用 latest）
+    /// @param target_commitish 目标分支/commit（空串 = 仓库默认分支）
+    pub async fn create_release(
+        &self,
+        owner: &str,
+        repo: &str,
+        tag: &str,
+        name: &str,
+        body: &str,
+        draft: bool,
+        prerelease: bool,
+        target_commitish: &str,
+    ) -> Result<String> {
+        let mut payload = serde_json::json!({
+            "tag_name": tag,
+            "name": name,
+            "body": body,
+            "draft": draft,
+            "prerelease": prerelease,
+        });
+        if !target_commitish.trim().is_empty() {
+            payload["target_commitish"] = serde_json::json!(target_commitish.trim());
+        }
+        self.client
+            .post_json(&format!("/repos/{owner}/{repo}/releases"), &payload.to_string())
+            .await
+    }
+
+    /// 编辑 release（`PATCH /repos/{o}/{r}/releases/{id}`）。
+    pub async fn update_release(
+        &self,
+        owner: &str,
+        repo: &str,
+        id: u64,
+        tag: &str,
+        name: &str,
+        body: &str,
+        draft: bool,
+        prerelease: bool,
+    ) -> Result<String> {
+        let payload = serde_json::json!({
+            "tag_name": tag,
+            "name": name,
+            "body": body,
+            "draft": draft,
+            "prerelease": prerelease,
+        });
+        self.client
+            .patch_json(&format!("/repos/{owner}/{repo}/releases/{id}"), &payload.to_string())
+            .await
+    }
+
+    /// 删除 release（`DELETE /repos/{o}/{r}/releases/{id}`）。
+    pub async fn delete_release(&self, owner: &str, repo: &str, id: u64) -> Result<String> {
+        self.client
+            .delete_json(&format!("/repos/{owner}/{repo}/releases/{id}"))
+            .await
+    }
+
+    /// 发表 issue 评论（`POST /repos/{o}/{r}/issues/{number}/comments`）。
+    pub async fn create_issue_comment(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        body: &str,
+    ) -> Result<String> {
+        let payload = serde_json::json!({ "body": body });
+        self.client
+            .post_json(
+                &format!("/repos/{owner}/{repo}/issues/{number}/comments"),
+                &payload.to_string(),
+            )
+            .await
+    }
+
+    /// 修改 issue（`PATCH /repos/{o}/{r}/issues/{number}`）。
+    ///
+    /// 目前只用于关闭/重新打开：@param state 取 `"open"` / `"closed"`。
+    pub async fn update_issue(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        state: &str,
+    ) -> Result<String> {
+        let payload = serde_json::json!({ "state": state });
+        self.client
+            .patch_json(
+                &format!("/repos/{owner}/{repo}/issues/{number}"),
+                &payload.to_string(),
+            )
+            .await
+    }
+
+    /// 仓库标签列表（`GET /repos/{o}/{r}/labels`），供 issue 按标签筛选。
+    pub async fn list_labels(&self, owner: &str, repo: &str) -> Result<String> {
+        self.client
+            .get_json(&format!("/repos/{owner}/{repo}/labels?per_page=100"))
+            .await
+    }
+
     /// 拉取 latest release 的 signature.txt 校验文件内容。
     ///
     /// 1. `GET /repos/{owner}/{repo}/releases/latest` 拿到 assets；

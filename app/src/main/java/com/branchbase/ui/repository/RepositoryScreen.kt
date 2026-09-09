@@ -114,6 +114,11 @@ fun RepositoryScreen(
     var branches by remember { mutableStateOf<List<BranchItem>>(emptyList()) }
     var branchCached by remember { mutableStateOf(false) }
     var refreshTick by remember { mutableStateOf(0) }
+    // 发布（Releases）：详情 / 编辑（null 目标 = 新建）/ 当前用户是否有写权限
+    var releaseDetail by remember { mutableStateOf<ReleaseItem?>(null) }
+    var releaseEditTarget by remember { mutableStateOf<ReleaseItem?>(null) }
+    var showReleaseEdit by remember { mutableStateOf(false) }
+    var repoCanPush by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -136,11 +141,50 @@ fun RepositoryScreen(
                     cacheManager.put(key, "分支", json)
                 }
         }
-        // 2. 默认分支
+        // 2. 默认分支 + 当前用户写权限（发布页的编辑/删除判定依赖 canPush）
         RustBridge.getRepoInfo(h, t, owner, repo)
             ?.takeIf { !it.startsWith("ERROR:") }
             ?.let { parseRepoInfo(it) }
-            ?.let { info -> if (branch == null) branch = info.defaultBranch }
+            ?.let { info ->
+                if (branch == null) branch = info.defaultBranch
+                repoCanPush = info.canPush
+            }
+    }
+
+    // 发布编辑页（全屏；releaseEditTarget == null 表示新建）
+    if (showReleaseEdit) {
+        BackHandler { showReleaseEdit = false }
+        ReleaseEditScreen(
+            sessionJson = sessionJson,
+            owner = owner,
+            repo = repo,
+            existing = releaseEditTarget,
+            defaultBranch = branch ?: "main",
+            onBack = { showReleaseEdit = false },
+            onSaved = {
+                showReleaseEdit = false
+                releaseEditTarget = null
+                refreshTick++
+            },
+        )
+        return
+    }
+
+    // 发布详情页（全屏）
+    val currentRelease = releaseDetail
+    if (currentRelease != null) {
+        BackHandler { releaseDetail = null }
+        ReleaseDetailScreen(
+            sessionJson = sessionJson,
+            owner = owner,
+            repo = repo,
+            release = currentRelease,
+            canEdit = repoCanPush,
+            onBack = { releaseDetail = null },
+            onEdit = { releaseEditTarget = currentRelease; showReleaseEdit = true },
+            onDeleted = { releaseDetail = null; refreshTick++ },
+        )
+        return
     }
 
     // 分支同步页（全屏）
@@ -301,7 +345,11 @@ fun RepositoryScreen(
                         RepoPage.Code -> RepositoryCodeContent(sessionJson, owner, repo, branch, refreshTick, onOpenFile = { filePage = it to null })
                         RepoPage.Issues -> IssueListContent(sessionJson, owner, repo, refreshTick, onItemClick = { issuePage = it.number })
                         RepoPage.Workflows -> WorkflowListContent(sessionJson, owner, repo, branch, refreshTick, onItemClick = { workflowRunsPage = it.id to it.name })
-                        RepoPage.Releases -> ReleaseListContent(sessionJson, owner, repo, refreshTick)
+                        RepoPage.Releases -> ReleaseListContent(
+                            sessionJson = sessionJson, owner = owner, repo = repo, refreshTick = refreshTick,
+                            onOpenDetail = { releaseDetail = it },
+                            onCreate = { releaseEditTarget = null; showReleaseEdit = true },
+                        )
                         RepoPage.PullRequests -> PullListContent(sessionJson, owner, repo, branch, refreshTick, onItemClick = { pullPage = it.number })
                         RepoPage.Commits -> CommitListContent(sessionJson, owner, repo, branch, refreshTick, onItemClick = { commitPage = it.sha })
                         RepoPage.Settings -> RepositorySettingsContent(

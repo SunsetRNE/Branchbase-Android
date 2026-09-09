@@ -18,6 +18,10 @@ data class RepoInfo(
     val license: String?,          // spdx_id，无则 null（显示「无」）
     val defaultBranch: String,
     val ownerLogin: String,
+    /** 当前登录用户是否有写权限（`permissions.push`）—— 决定编辑/新建入口是否显示。 */
+    val canPush: Boolean = false,
+    /** 当前登录用户是否有 issue 分诊权限（`permissions.triage`）—— 决定关闭/重开按钮。 */
+    val canTriage: Boolean = false,
 )
 
 // ── 链接跳转目标（对齐 matcher 输出） ──
@@ -69,6 +73,8 @@ fun parseRepoInfo(json: String): RepoInfo? = runCatching {
         license = o.optJSONObject("license")?.optString("spdx_id")?.takeIf { it.isNotBlank() },
         defaultBranch = o.optString("default_branch", "main"),
         ownerLogin = o.optJSONObject("owner")?.optString("login").orEmpty(),
+        // permissions 只在带 token 请求时返回；缺失即视为无写权限（保守）
+        canPush = o.optJSONObject("permissions")?.optBoolean("push", false) ?: false,
     )
 }.getOrNull()
 
@@ -152,10 +158,25 @@ data class CommitItem(
     val date: String,
 )
 
+/** 发布附件（可下载）。 */
+data class ReleaseAsset(
+    val id: Long,
+    val name: String,
+    val size: Long,
+    val downloadUrl: String,
+    val downloadCount: Long,
+)
+
 data class ReleaseItem(
+    val id: Long = 0,
     val tag: String,
     val name: String,
     val createdAt: String,
+    val body: String = "",
+    val draft: Boolean = false,
+    val prerelease: Boolean = false,
+    val author: String = "",
+    val assets: List<ReleaseAsset> = emptyList(),
 )
 
 data class WorkflowItem(
@@ -237,10 +258,28 @@ fun parseReleases(json: String): List<ReleaseItem> = runCatching {
     val arr = JSONArray(json)
     (0 until arr.length()).map { i ->
         val o = arr.getJSONObject(i)
+        val assetArr = o.optJSONArray("assets")
+        val assets = if (assetArr == null) emptyList() else (0 until assetArr.length()).map { j ->
+            val a = assetArr.getJSONObject(j)
+            ReleaseAsset(
+                id = a.optLong("id"),
+                name = a.optString("name"),
+                size = a.optLong("size"),
+                downloadUrl = a.optString("browser_download_url"),
+                downloadCount = a.optLong("download_count"),
+            )
+        }
         ReleaseItem(
+            id = o.optLong("id"),
             tag = o.optString("tag_name"),
             name = o.optString("name").takeIf { it.isNotBlank() } ?: o.optString("tag_name"),
-            createdAt = o.optString("created_at"),
+            // 草稿没有 published_at，退回 created_at
+            createdAt = o.optString("published_at").takeIf { it.isNotBlank() } ?: o.optString("created_at"),
+            body = o.optString("body").orEmpty(),
+            draft = o.optBoolean("draft", false),
+            prerelease = o.optBoolean("prerelease", false),
+            author = o.optJSONObject("author")?.optString("login").orEmpty(),
+            assets = assets,
         )
     }
 }.getOrDefault(emptyList())

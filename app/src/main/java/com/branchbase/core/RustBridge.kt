@@ -189,6 +189,18 @@ object RustBridge {
 
     private external fun nativeDeleteBranch(host: String, token: String, owner: String, repo: String, branch: String): String
 
+    private external fun nativeCreateRelease(host: String, token: String, owner: String, repo: String, tag: String, name: String, body: String, draft: String, prerelease: String, targetCommitish: String): String
+
+    private external fun nativeUpdateRelease(host: String, token: String, owner: String, repo: String, id: String, tag: String, name: String, body: String, draft: String, prerelease: String): String
+
+    private external fun nativeDeleteRelease(host: String, token: String, owner: String, repo: String, id: String): String
+
+    private external fun nativeCreateIssueComment(host: String, token: String, owner: String, repo: String, number: String, body: String): String
+
+    private external fun nativeUpdateIssue(host: String, token: String, owner: String, repo: String, number: String, state: String): String
+
+    private external fun nativeListLabels(host: String, token: String, owner: String, repo: String): String
+
     private external fun nativeUpdateDefaultBranch(host: String, token: String, owner: String, repo: String, branch: String): String
 
     private external fun nativeDeleteRepo(host: String, token: String, owner: String, repo: String): String
@@ -775,6 +787,80 @@ object RustBridge {
                 err(nativeDeleteBranch(host, token, owner, repo, branch))
             } catch (e: Throwable) {
                 "引擎不可用"
+            }
+        }
+
+    // ── 发布（Releases）写操作 ──
+
+    /** 创建 release（返回原始 JSON；null 表示失败）。 */
+    suspend fun createRelease(
+        host: String, token: String, owner: String, repo: String,
+        tag: String, name: String, body: String,
+        draft: Boolean = false, prerelease: Boolean = false, targetCommitish: String = "",
+    ): String? = withContext(Dispatchers.IO) {
+        try {
+            nativeCreateRelease(
+                host, token, owner, repo, tag, name, body,
+                if (draft) "true" else "false", if (prerelease) "true" else "false", targetCommitish,
+            ).takeIf { it.isNotBlank() && !it.startsWith("ERROR:") }
+        } catch (e: Throwable) {
+            null
+        }
+    }
+
+    /** 编辑 release（返回原始 JSON；null 表示失败）。 */
+    suspend fun updateRelease(
+        host: String, token: String, owner: String, repo: String, id: Long,
+        tag: String, name: String, body: String,
+        draft: Boolean = false, prerelease: Boolean = false,
+    ): String? = withContext(Dispatchers.IO) {
+        try {
+            nativeUpdateRelease(
+                host, token, owner, repo, id.toString(), tag, name, body,
+                if (draft) "true" else "false", if (prerelease) "true" else "false",
+            ).takeIf { it.isNotBlank() && !it.startsWith("ERROR:") }
+        } catch (e: Throwable) {
+            null
+        }
+    }
+
+    /** 删除 release（null = 成功）。 */
+    suspend fun deleteRelease(host: String, token: String, owner: String, repo: String, id: Long): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                err(nativeDeleteRelease(host, token, owner, repo, id.toString()))
+            } catch (e: Throwable) {
+                "引擎不可用"
+            }
+        }
+
+    /** 发表 issue 评论（null = 成功，非 null = 错误消息）。 */
+    suspend fun createIssueComment(host: String, token: String, owner: String, repo: String, number: Long, body: String): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                err(nativeCreateIssueComment(host, token, owner, repo, number.toString(), body))
+            } catch (e: Throwable) {
+                "引擎不可用"
+            }
+        }
+
+    /** 关闭 / 重新打开 issue（null = 成功，非 null = 错误消息）。 */
+    suspend fun updateIssue(host: String, token: String, owner: String, repo: String, number: Long, state: String): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                err(nativeUpdateIssue(host, token, owner, repo, number.toString(), state))
+            } catch (e: Throwable) {
+                "引擎不可用"
+            }
+        }
+
+    /** 仓库标签列表（返回原始 JSON；null = 失败）。 */
+    suspend fun listLabels(host: String, token: String, owner: String, repo: String): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                nativeListLabels(host, token, owner, repo).takeIf { it.isNotBlank() && !it.startsWith("ERROR:") }
+            } catch (e: Throwable) {
+                null
             }
         }
 
