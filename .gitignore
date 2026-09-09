@@ -43,6 +43,8 @@ local.properties
 
 # 原型设计草图（HTML 草图，不入库）
 /design/
+
+# 原型设计文档（不入库）
 /docs/
 
 # 校验文件（CI 在 beta 分支生成，main 不保留）
