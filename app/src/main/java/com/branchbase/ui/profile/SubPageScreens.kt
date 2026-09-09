@@ -221,6 +221,7 @@ private fun RefreshButton(onRefresh: () -> Unit) {
 @Composable
 fun StarsScreen(sessionJson: String, onBack: () -> Unit, onOpenRepo: (String) -> Unit) {
     LaunchedEffect(Unit) { Logger.ui("进入星标页", "Compose") }
+    val context = LocalContext.current
     val token = runCatching { JSONObject(sessionJson).getJSONObject("token").optString("access_token") }.getOrNull() ?: ""
     val host = runCatching { JSONObject(sessionJson).optString("host", "github.com") }.getOrDefault("github.com")
     var repos by remember { mutableStateOf<List<RepoItem>>(emptyList()) }
@@ -248,6 +249,15 @@ fun StarsScreen(sessionJson: String, onBack: () -> Unit, onOpenRepo: (String) ->
             repos = emptyList()
         }
         loading = false
+        // 预加载首屏几个仓库的详情（点进去直接命中缓存；计费网络自动跳过）
+        com.branchbase.cache.RepoPrefetcher.warmList(
+            context = context,
+            host = host,
+            token = token,
+            entries = repos.map {
+                it.fullName.substringBefore('/') to it.fullName.substringAfter('/', "")
+            },
+        )
     }
 
     Column(

@@ -17,7 +17,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # HTTP 客户端（GitHub API / OAuth token 交换）
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+# http2：并行预加载的多个请求可复用同一连接多路复用（Client 由 api/client.rs 全局共享）
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "http2"], default-features = false }
 
 # 异步运行时
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }

@@ -52,6 +52,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.cache.PreloadStore
+import com.branchbase.cache.PrefetchReason
+import com.branchbase.cache.RepoPrefetcher
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
@@ -60,6 +63,8 @@ import com.branchbase.ui.profile.CommitModePickerDialog
 import com.branchbase.ui.profile.commitMode
 import com.branchbase.ui.profile.saveCommitMode
 import com.branchbase.ui.theme.Primer
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 /**
@@ -142,33 +147,67 @@ fun RepositoryScreen(
         modeLabel = commitMode(context)?.label
     }
 
-    // 加载分支列表 + 默认分支（进入详情页时）；分支列表走 Room 缓存（命中则跳过远端）
+    /**
+     * 进入仓库页：分支列表 + 仓库信息**并行**加载（原来是两个串行请求），
+     * 分支列表先直出缓存（含过期）再回源，最后触发项目页/其他 tab 的预加载。
+     */
     LaunchedEffect(owner, repo) {
         val (h, t, _) = sessionInfo(sessionJson)
         val cacheManager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
-        val key = "$owner/$repo"
-        // 1. 分支列表：先查缓存，命中则直接展示（缓存命中态），否则拉远端并写缓存
-        val cached = cacheManager.get(key, "分支")
-        if (cached != null) {
-            branchCached = true
-            branches = parseBranches(cached)
-        } else {
-            branchCached = false
-            RustBridge.listBranches(h, t, owner, repo)
-                ?.takeIf { !it.startsWith("ERROR:") }
-                ?.let { json ->
-                    branches = parseBranches(json)
-                    cacheManager.put(key, "分支", json)
+        val branchKey = PreloadStore.branchKey(owner, repo)
+        val branchType = PreloadStore.TYPE_BRANCH
+
+        // ① 分支列表缓存直出（含过期）——切 tab/返回时分支选择器不再空一下
+        cacheManager.getStale(branchKey, branchType)
+            ?.let { parseBranches(it) }
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { branches = it; branchCached = true }
+
+        // ② 并行回源
+        coroutineScope {
+            val branchJob = async {
+                val fresh = cacheManager.get(branchKey, branchType)
+                if (fresh != null) {
+                    parseBranches(fresh) to true
+                } else {
+                    RustBridge.listBranches(h, t, owner, repo)
+                        ?.takeIf { !it.startsWith("ERROR:") }
+                        ?.also { cacheManager.put(branchKey, branchType, it) }
+                        ?.let { parseBranches(it) to false }
                 }
-        }
-        // 2. 默认分支 + 当前用户写权限（发布页的编辑/删除判定依赖 canPush）
-        RustBridge.getRepoInfo(h, t, owner, repo)
-            ?.takeIf { !it.startsWith("ERROR:") }
-            ?.let { parseRepoInfo(it) }
-            ?.let { info ->
+            }
+            val infoJob = async {
+                val infoKey = PreloadStore.infoKey(owner, repo)
+                val cached = cacheManager.get(infoKey, PreloadStore.TYPE_INFO)
+                val json = cached ?: RustBridge.getRepoInfo(h, t, owner, repo)
+                    ?.takeIf { !it.startsWith("ERROR:") }
+                    ?.also { cacheManager.put(infoKey, PreloadStore.TYPE_INFO, it) }
+                json?.let { parseRepoInfo(it) }
+            }
+
+            branchJob.await()?.let { (list, fromCache) ->
+                if (list.isNotEmpty()) {
+                    branches = list
+                    branchCached = fromCache
+                }
+            }
+            // 默认分支 + 当前用户写权限（发布页的编辑/删除判定依赖 canPush）
+            infoJob.await()?.let { info ->
                 if (branch == null) branch = info.defaultBranch
                 repoCanPush = info.canPush
             }
+        }
+
+        // ③ 预加载：项目页四件套（进入页面必然要看）+ 其他 tab（策略决定是否投机）
+        RepoPrefetcher.prefetch(
+            context = context,
+            reason = PrefetchReason.EnterRepo,
+            host = h,
+            token = t,
+            owner = owner,
+            repo = repo,
+            branch = branch,
+        )
     }
 
     // 发布编辑页（全屏；releaseEditTarget == null 表示新建）

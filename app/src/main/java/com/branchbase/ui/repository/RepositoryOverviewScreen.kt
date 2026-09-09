@@ -44,11 +44,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.branchbase.cache.PreloadStore
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
+import com.branchbase.cache.defaultBranchOf
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.theme.LanguageColors
 import com.branchbase.ui.theme.Primer
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import org.json.JSONObject
 
 /**
@@ -82,65 +86,95 @@ fun RepositoryOverviewContent(
     var contributors by remember { mutableStateOf<List<Contributor>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    // 分区加载态：缓存直出后仍可能有一两块在回源，避免显示成「暂无…」
+    var infoLoading by remember { mutableStateOf(true) }
+    var readmeLoading by remember { mutableStateOf(true) }
+    var langLoading by remember { mutableStateOf(true) }
+    var contribLoading by remember { mutableStateOf(true) }
 
+    /**
+     * 加载仓库页数据。
+     *
+     * 三段式（本轮优化）：
+     * 1. **缓存直出**：先读（可过期的）整页缓存 —— 有就立刻渲染，不转圈；
+     * 2. **并行回源**：仓库信息 / 语言 / 贡献者三个请求并发；README 依赖默认分支，
+     *    在拿到分支后立刻与它们并行（原来是 4 个请求串行，一次冷连接握手就要 390ms）；
+     * 3. **按块收敛**：每块数据到达即单独落地，先到的先显示。
+     */
     LaunchedEffect(owner, repo, branch, refreshTick) {
-        loading = true
-        error = null
-
         val cacheManager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
-        // 手动刷新（refreshTick > 0）时跳过缓存，强制回源；否则缓存优先
-        val cacheFirst = refreshTick == 0
+        val force = refreshTick > 0
+        error = null
+        infoLoading = true
+        readmeLoading = true
+        langLoading = true
+        contribLoading = true
 
-        // 1. 仓库信息（缓存优先，TTL 15 分钟）
-        // 注意缓存键带类型前缀：search_cache 的主键是 key，不同资源若共用 key 会互相覆盖
-        val infoKey = "repo-info:$owner/$repo"
-        var infoJson = if (cacheFirst) cacheManager.get(infoKey, "仓库信息") else null
-        if (infoJson == null) {
-            infoJson = RustBridge.getRepoInfo(host, token, owner, repo)
-                ?.takeIf { !it.startsWith("ERROR:") }
-            if (infoJson != null) cacheManager.put(infoKey, "仓库信息", infoJson)
-        }
-        val info = infoJson?.let { parseRepoInfo(it) }
-        if (info != null) repoInfo = info
-        // 实际分支：用户选择 ?: 仓库默认分支 ?: main
-        effectiveBranch = branch ?: info?.defaultBranch ?: "main"
-
-        // 2. README（html 字符串直接交 WebView 渲染）；branch 透传给 readme 接口；HTML 走 Room 缓存（type=README，key=owner/repo@branch）
-        // 注意：缓存 key 必须使用解析后的 effectiveBranch，而非可能为 null 的原始 branch。
-        // 否则默认分支首次加载会写入 key="owner/repo@"（空分支），而 branch 随后被解析为真实分支名
-        // （如 "main"）后，再次读取会拼出 key="owner/repo@main"，与已写入的 key 不相等，
-        // 导致 README 缓存永远无法命中、每次进入都重复拉取远端。
-        val readmeKey = "$owner/$repo@$effectiveBranch"
-        var html = if (cacheFirst) cacheManager.get(readmeKey, "README") else null
-        if (html == null) {
-            html = RustBridge.readmeHtml(host, token, owner, repo, effectiveBranch)
-            if (html != null && !html.startsWith("ERROR:")) {
-                cacheManager.put(readmeKey, "README", html)
+        // ── ① 缓存直出（含过期数据）：命中即先渲染 ──
+        if (!force) {
+            val staleInfo = cacheManager.getStale(PreloadStore.infoKey(owner, repo), PreloadStore.TYPE_INFO)
+            val staleBranch = branch ?: defaultBranchOf(staleInfo) ?: "main"
+            val bundle = PreloadStore.readStaleBundle(cacheManager, owner, repo, staleBranch)
+            if (bundle.usable) {
+                bundle.info?.let { parseRepoInfo(it) }?.let { repoInfo = it }
+                effectiveBranch = staleBranch
+                bundle.readme?.let { readmeHtml = it; readmeLoading = false }
+                bundle.languages?.let { languages = parseLanguages(it); langLoading = false }
+                bundle.contributors?.let { contributors = parseContributors(it); contribLoading = false }
+                loading = false
             }
         }
-        readmeHtml = html?.takeIf { !it.startsWith("ERROR:") }
 
-        // 3. 语言（缓存优先，TTL 1 小时）
-        val langKey = "repo-lang:$owner/$repo"
-        var langJson = if (cacheFirst) cacheManager.get(langKey, "仓库语言") else null
-        if (langJson == null) {
-            langJson = RustBridge.getRepoLanguages(host, token, owner, repo)
-                ?.takeIf { !it.startsWith("ERROR:") }
-            if (langJson != null) cacheManager.put(langKey, "仓库语言", langJson)
+        // ── ② 并行回源 ──
+        coroutineScope {
+            val infoJob = async {
+                val key = PreloadStore.infoKey(owner, repo)
+                val cached = if (force) null else cacheManager.get(key, PreloadStore.TYPE_INFO)
+                val json = cached ?: RustBridge.getRepoInfo(host, token, owner, repo)
+                    ?.takeIf { !it.startsWith("ERROR:") }
+                    ?.also { cacheManager.put(key, PreloadStore.TYPE_INFO, it) }
+                json?.let { parseRepoInfo(it) }
+            }
+            val langJob = async {
+                val key = PreloadStore.langKey(owner, repo)
+                val cached = if (force) null else cacheManager.get(key, PreloadStore.TYPE_LANG)
+                val json = cached ?: RustBridge.getRepoLanguages(host, token, owner, repo)
+                    ?.takeIf { !it.startsWith("ERROR:") }
+                    ?.also { cacheManager.put(key, PreloadStore.TYPE_LANG, it) }
+                json?.let { parseLanguages(it) }
+            }
+            val contribJob = async {
+                val key = PreloadStore.contribKey(owner, repo)
+                val cached = if (force) null else cacheManager.get(key, PreloadStore.TYPE_CONTRIB)
+                val json = cached ?: RustBridge.getRepoContributors(host, token, owner, repo)
+                    ?.takeIf { !it.startsWith("ERROR:") }
+                    ?.also { cacheManager.put(key, PreloadStore.TYPE_CONTRIB, it) }
+                json?.let { parseContributors(it) }
+            }
+
+            val info = infoJob.await()
+            if (info != null) repoInfo = info
+            // 实际分支：用户选择 ?: 仓库默认分支 ?: 上一次的值 ?: main
+            effectiveBranch = branch ?: info?.defaultBranch ?: effectiveBranch
+            infoLoading = false
+            if (info == null && repoInfo == null) error = "仓库不存在或无权访问"
+
+            // README 依赖默认分支 → 拿到分支后立刻与上面两个请求并行
+            val readmeJob = async {
+                val key = PreloadStore.readmeKey(owner, repo, effectiveBranch)
+                val cached = if (force) null else cacheManager.get(key, PreloadStore.TYPE_README)
+                cached ?: RustBridge.readmeHtml(host, token, owner, repo, effectiveBranch)
+                    ?.takeIf { !it.startsWith("ERROR:") }
+                    ?.also { cacheManager.put(key, PreloadStore.TYPE_README, it) }
+            }
+            readmeJob.await()?.let { readmeHtml = it }
+            readmeLoading = false
+            langJob.await()?.let { languages = it }
+            langLoading = false
+            contribJob.await()?.let { contributors = it }
+            contribLoading = false
         }
-        langJson?.let { languages = parseLanguages(it) }
 
-        // 4. 贡献者（缓存优先，TTL 30 分钟）
-        val contribKey = "repo-contrib:$owner/$repo"
-        var contribJson = if (cacheFirst) cacheManager.get(contribKey, "仓库贡献者") else null
-        if (contribJson == null) {
-            contribJson = RustBridge.getRepoContributors(host, token, owner, repo)
-                ?.takeIf { !it.startsWith("ERROR:") }
-            if (contribJson != null) cacheManager.put(contribKey, "仓库贡献者", contribJson)
-        }
-        contribJson?.let { contributors = parseContributors(it) }
-
-        if (info == null) error = "仓库不存在或无权访问"
         loading = false
     }
 
@@ -150,10 +184,12 @@ fun RepositoryOverviewContent(
             .background(Primer.BackgroundPrimary),
     ) {
         when {
-            loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Primer.Blue500)
-            }
-            error != null -> ErrorState(error!!)
+            // 只在「什么都还没有」时占满屏转圈；有缓存直出后立即渲染内容
+            loading && repoInfo == null && readmeHtml == null ->
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Primer.Blue500)
+                }
+            error != null && repoInfo == null -> ErrorState(error!!)
             else -> LazyColumn(Modifier.fillMaxSize()) {
                 item { RepoHeader(repoInfo) }
                 item { ActionRow(repoInfo, onActionClick) }
@@ -180,10 +216,10 @@ fun RepositoryOverviewContent(
                 }
 
                 item { SectionTitle("自述文件 README") }
-                if (readmeHtml == null) {
-                    item { EmptyHint("暂无自述文件") }
-                } else {
-                    item {
+                when {
+                    readmeLoading -> item { SectionLoading("正在加载自述文件…") }
+                    readmeHtml == null -> item { EmptyHint("暂无自述文件") }
+                    else -> item {
                         ReadmeWebView(
                             html = readmeHtml!!,
                             host = host,
@@ -201,14 +237,18 @@ fun RepositoryOverviewContent(
                 item { LicenseRow(repoInfo?.license) }
 
                 item { SectionTitle("贡献者 Contributors") }
-                if (contributors.isEmpty()) {
-                    item { EmptyHint("暂无贡献者") }
-                } else {
-                    items(contributors) { ContributorRow(it) }
+                when {
+                    contribLoading -> item { SectionLoading("正在加载贡献者…") }
+                    contributors.isEmpty() -> item { EmptyHint("暂无贡献者") }
+                    else -> items(contributors, key = { it.login }) { ContributorRow(it) }
                 }
 
                 item { SectionTitle("项目语言 Languages") }
-                item { LanguageSection(languages) }
+                if (langLoading) {
+                    item { SectionLoading("正在加载语言构成…") }
+                } else {
+                    item { LanguageSection(languages) }
+                }
             }
         }
     }
@@ -365,6 +405,23 @@ private fun LanguageSection(langs: List<LanguageStat>) {
 private fun EmptyHint(text: String) {
     Box(Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
         Text(text, fontSize = 13.sp, color = Primer.TextTertiary)
+    }
+}
+
+/** 分区加载态：该块数据仍在回源，避免误显示「暂无…」。 */
+@Composable
+private fun SectionLoading(text: String) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircularProgressIndicator(
+            color = Primer.Blue500,
+            strokeWidth = 2.dp,
+            modifier = Modifier.size(14.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(text, fontSize = 12.sp, color = Primer.TextTertiary)
     }
 }
 

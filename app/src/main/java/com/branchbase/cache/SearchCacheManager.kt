@@ -13,8 +13,14 @@ package com.branchbase.cache
 class SearchCacheManager(private val dao: SearchCacheDao) {
 
     companion object {
-        /** 最大缓存条目数（超出则 LRU 淘汰最旧） */
-        const val MAX_ENTRIES = 100
+        /**
+         * 最大缓存条目数（超出则 LRU 淘汰最旧）。
+         *
+         * 预加载会把「仓库信息 / README / 语言 / 贡献者 / 分支」一次性写入（每仓库最多 5 条），
+         * 100 条只够 20 个仓库；提到 160 条可覆盖约 30 个仓库的往返，同时不至于让
+         * 大 README（数百 KB）把库撑爆。
+         */
+        const val MAX_ENTRIES = 160
 
         /**
          * 不同类型的缓存有效期（毫秒）。
@@ -32,6 +38,8 @@ class SearchCacheManager(private val dao: SearchCacheDao) {
             "仓库信息" -> 15 * 60 * 1000L      // 15 分钟（star 数/默认分支等变化不频繁）
             "仓库语言" -> 60 * 60 * 1000L      // 1 小时（语言构成几乎不变）
             "仓库贡献者" -> 30 * 60 * 1000L    // 30 分钟
+            // 仓库内列表页（代码树/Issue/PR/提交/工作流/发布）：切 tab 秒开，但不能太旧
+            "仓库列表" -> 5 * 60 * 1000L       // 5 分钟
             else -> 30 * 60 * 1000L            // 默认 30 分钟
         }
     }
@@ -42,6 +50,18 @@ class SearchCacheManager(private val dao: SearchCacheDao) {
         dao.deleteExpired(now)
         return dao.get(key, type, now)?.data
     }
+
+    /**
+     * 查询缓存并**忽略 TTL**（stale-while-revalidate 用）。
+     *
+     * 调用方拿到值后必须立即回源刷新（[put]），否则用户会一直看到过期数据。
+     * 典型用法：仓库页先直出上次的内容，再在后台拉最新。
+     */
+    suspend fun getStale(key: String, type: String): String? = dao.getStale(key, type)?.data
+
+    /** 缓存是否存在且未过期（决定是否需要回源 / 是否值得预取）。 */
+    suspend fun isFresh(key: String, type: String): Boolean =
+        dao.get(key, type, System.currentTimeMillis()) != null
 
     /** 写入缓存，并做 LRU 淘汰 */
     suspend fun put(key: String, type: String, data: String) {

@@ -149,6 +149,20 @@ fun SearchScreen(
             }
         }
 
+        // 仓库搜索：预加载前几个结果的详情（点进去直接命中缓存；计费网络自动跳过）
+        fun warmRepos() {
+            if (type != "仓库") return
+            com.branchbase.cache.RepoPrefetcher.warmList(
+                context = context,
+                host = host,
+                token = token,
+                // 仓库结果的 title 就是 full_name（见 parseResults）
+                entries = results.map {
+                    it.title.substringBefore('/') to it.title.substringAfter('/', "")
+                },
+            )
+        }
+
         loading = true
         searchError = null
         scope.launch {
@@ -158,6 +172,7 @@ fun SearchScreen(
                 parseAndSet(cached)
                 searched = true
                 loading = false
+                warmRepos()
                 return@launch
             }
 
@@ -177,6 +192,7 @@ fun SearchScreen(
                 parseAndSet(json)
                 cacheManager.put(cacheKey, type, json)
                 searched = true
+                warmRepos()
             } else {
                 // 搜索失败（网络错误 / 速率限制 / 权限不足等），区别于「无结果」
                 searched = true

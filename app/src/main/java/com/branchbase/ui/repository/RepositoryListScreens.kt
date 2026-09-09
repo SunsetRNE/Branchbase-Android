@@ -39,10 +39,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.branchbase.cache.ListCache
+import com.branchbase.cache.SearchCacheDatabase
+import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.theme.LanguageColors
 import com.branchbase.ui.theme.Primer
@@ -131,8 +135,12 @@ internal suspend fun markdownToHtml(
 @Composable
 fun RepositoryCodeContent(sessionJson: String, owner: String, repo: String, branch: String? = null, refreshTick: Int = 0, onOpenFile: (String) -> Unit) {
     val (host, token, _) = sessionInfo(sessionJson)
+    val context = LocalContext.current
     var path by remember { mutableStateOf("") }
-    var items by remember { mutableStateOf<List<FileTreeItem>>(emptyList()) }
+    // 缓存键先于状态声明：key 变化（切仓库/目录/分支）时列表自动清空，
+    // 避免新请求失败时静默显示上一页内容
+    val cacheKey = ListCache.key(owner, repo, ListCache.PAGE_CODE, ListCache.codeParams(path, branch))
+    var items by remember(cacheKey) { mutableStateOf<List<FileTreeItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var retryTick by remember { mutableStateOf(0) }
@@ -140,13 +148,32 @@ fun RepositoryCodeContent(sessionJson: String, owner: String, repo: String, bran
     LaunchedEffect(owner, repo, path, branch, refreshTick, retryTick) {
         loading = true
         error = null
+        // 只有「本次确实直出了缓存」才在回源失败时静默保留旧内容；否则照常报错
+        var shownStale = false
+        val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+        // 目录与分支都会影响结果，两者都参与缓存键（codeParams 对 null 分支用空串占位）
+
+        // ① 先直出缓存（含过期数据）：切目录/分支或重进页面立即有内容；手动刷新与重试时跳过
+        if (refreshTick == 0 && retryTick == 0) {
+            ListCache.readStale(manager, cacheKey)?.let { cached ->
+                val parsed = parseFileTree(cached)
+                if (parsed.isNotEmpty()) {
+                    items = parsed
+                    shownStale = true
+                    loading = false
+                }
+            }
+        }
+
+        // ② 回源刷新
         val encoded = if (path.isEmpty()) "" else "/${encodePath(path)}"
         val ref = branch?.takeIf { it.isNotBlank() }?.let { b -> "?ref=${encodeRef(b)}" } ?: ""
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/contents$encoded$ref")
         if (json == null || json.startsWith("ERROR:")) {
-            error = json?.removePrefix("ERROR:") ?: "加载失败"
+            if (!shownStale) error = json?.removePrefix("ERROR:") ?: "加载失败"
         } else {
             items = parseFileTree(json)
+            ListCache.write(manager, cacheKey, json)
         }
         loading = false
     }
@@ -158,7 +185,8 @@ fun RepositoryCodeContent(sessionJson: String, owner: String, repo: String, bran
             error != null -> ListError(error!!) { retryTick++ }
             items.isEmpty() -> ListEmpty("空目录")
             else -> LazyColumn(Modifier.fillMaxSize()) {
-                items(items) { f ->
+                // 同一目录内文件名唯一（GitHub contents API 保证），name 可作稳定 key
+                items(items, key = { it.name }) { f ->
                     FileTreeRow(f) {
                         if (f.type == "dir") path = joinPath(path, f.name)
                         else onOpenFile(joinPath(path, f.name))
@@ -230,7 +258,11 @@ private fun formatBytes(n: Long): String = when {
 @Composable
 fun IssueListContent(sessionJson: String, owner: String, repo: String, refreshTick: Int = 0, onItemClick: (IssueItem) -> Unit) {
     val (host, token, _) = sessionInfo(sessionJson)
-    var items by remember { mutableStateOf<List<IssueItem>>(emptyList()) }
+    val context = LocalContext.current
+    // 缓存键先于状态声明：key 变化（切仓库/目录/分支）时列表自动清空，
+    // 避免新请求失败时静默显示上一页内容
+    val cacheKey = ListCache.key(owner, repo, ListCache.PAGE_ISSUES)
+    var items by remember(cacheKey) { mutableStateOf<List<IssueItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var retryTick by remember { mutableStateOf(0) }
@@ -238,11 +270,29 @@ fun IssueListContent(sessionJson: String, owner: String, repo: String, refreshTi
     LaunchedEffect(owner, repo, refreshTick, retryTick) {
         loading = true
         error = null
+        // 只有「本次确实直出了缓存」才在回源失败时静默保留旧内容；否则照常报错
+        var shownStale = false
+        val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+
+        // ① 先直出缓存（含过期数据）
+        if (refreshTick == 0 && retryTick == 0) {
+            ListCache.readStale(manager, cacheKey)?.let { cached ->
+                val parsed = parseIssues(cached)
+                if (parsed.isNotEmpty()) {
+                    items = parsed
+                    shownStale = true
+                    loading = false
+                }
+            }
+        }
+
+        // ② 回源刷新
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/issues?state=all")
         if (json == null || json.startsWith("ERROR:")) {
-            error = json?.removePrefix("ERROR:") ?: "加载失败"
+            if (!shownStale) error = json?.removePrefix("ERROR:") ?: "加载失败"
         } else {
             items = parseIssues(json)
+            ListCache.write(manager, cacheKey, json)
         }
         loading = false
     }
@@ -252,7 +302,8 @@ fun IssueListContent(sessionJson: String, owner: String, repo: String, refreshTi
         error != null -> ListError(error!!) { retryTick++ }
         items.isEmpty() -> ListEmpty("暂无 Issue")
         else -> LazyColumn(Modifier.fillMaxSize()) {
-            items(items) { IssueRow(it) { onItemClick(it) } }
+            // issue number 在仓库内唯一
+            items(items, key = { it.number }) { IssueRow(it) { onItemClick(it) } }
         }
     }
 }
@@ -278,7 +329,11 @@ private fun IssueRow(item: IssueItem, onClick: () -> Unit) {
 @Composable
 fun PullListContent(sessionJson: String, owner: String, repo: String, branch: String? = null, refreshTick: Int = 0, onItemClick: (PullItem) -> Unit) {
     val (host, token, _) = sessionInfo(sessionJson)
-    var items by remember { mutableStateOf<List<PullItem>>(emptyList()) }
+    val context = LocalContext.current
+    // 缓存键先于状态声明：key 变化（切仓库/目录/分支）时列表自动清空，
+    // 避免新请求失败时静默显示上一页内容
+    val cacheKey = ListCache.key(owner, repo, ListCache.PAGE_PULLS, branch ?: "")
+    var items by remember(cacheKey) { mutableStateOf<List<PullItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var retryTick by remember { mutableStateOf(0) }
@@ -286,12 +341,31 @@ fun PullListContent(sessionJson: String, owner: String, repo: String, branch: St
     LaunchedEffect(owner, repo, branch, refreshTick, retryTick) {
         loading = true
         error = null
-        val base = branch?.takeIf { it.isNotBlank() }?.let { b -> "?base=${encodeRef(b)}" } ?: ""
+        // 只有「本次确实直出了缓存」才在回源失败时静默保留旧内容；否则照常报错
+        var shownStale = false
+        val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+        // base 分支影响结果，参与缓存键
+
+        // ① 先直出缓存（含过期数据）
+        if (refreshTick == 0 && retryTick == 0) {
+            ListCache.readStale(manager, cacheKey)?.let { cached ->
+                val parsed = parsePulls(cached)
+                if (parsed.isNotEmpty()) {
+                    items = parsed
+                    shownStale = true
+                    loading = false
+                }
+            }
+        }
+
+        // ② 回源刷新
+        val base = branch?.takeIf { it.isNotBlank() }?.let { b -> "&base=${encodeRef(b)}" } ?: ""
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/pulls?state=all$base")
         if (json == null || json.startsWith("ERROR:")) {
-            error = json?.removePrefix("ERROR:") ?: "加载失败"
+            if (!shownStale) error = json?.removePrefix("ERROR:") ?: "加载失败"
         } else {
             items = parsePulls(json)
+            ListCache.write(manager, cacheKey, json)
         }
         loading = false
     }
@@ -301,7 +375,8 @@ fun PullListContent(sessionJson: String, owner: String, repo: String, branch: St
         error != null -> ListError(error!!) { retryTick++ }
         items.isEmpty() -> ListEmpty("暂无拉取请求")
         else -> LazyColumn(Modifier.fillMaxSize()) {
-            items(items) { PullRow(it) { onItemClick(it) } }
+            // PR number 在仓库内唯一
+            items(items, key = { it.number }) { PullRow(it) { onItemClick(it) } }
         }
     }
 }
@@ -327,7 +402,11 @@ private fun PullRow(item: PullItem, onClick: () -> Unit) {
 @Composable
 fun CommitListContent(sessionJson: String, owner: String, repo: String, branch: String? = null, refreshTick: Int = 0, onItemClick: (CommitItem) -> Unit) {
     val (host, token, _) = sessionInfo(sessionJson)
-    var items by remember { mutableStateOf<List<CommitItem>>(emptyList()) }
+    val context = LocalContext.current
+    // 缓存键先于状态声明：key 变化（切仓库/目录/分支）时列表自动清空，
+    // 避免新请求失败时静默显示上一页内容
+    val cacheKey = ListCache.key(owner, repo, ListCache.PAGE_COMMITS, branch ?: "")
+    var items by remember(cacheKey) { mutableStateOf<List<CommitItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var retryTick by remember { mutableStateOf(0) }
@@ -335,12 +414,31 @@ fun CommitListContent(sessionJson: String, owner: String, repo: String, branch: 
     LaunchedEffect(owner, repo, branch, refreshTick, retryTick) {
         loading = true
         error = null
+        // 只有「本次确实直出了缓存」才在回源失败时静默保留旧内容；否则照常报错
+        var shownStale = false
+        val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+        // 分支影响结果，参与缓存键
+
+        // ① 先直出缓存（含过期数据）
+        if (refreshTick == 0 && retryTick == 0) {
+            ListCache.readStale(manager, cacheKey)?.let { cached ->
+                val parsed = parseCommits(cached)
+                if (parsed.isNotEmpty()) {
+                    items = parsed
+                    shownStale = true
+                    loading = false
+                }
+            }
+        }
+
+        // ② 回源刷新
         val sha = branch?.takeIf { it.isNotBlank() }?.let { b -> "?sha=${encodeRef(b)}" } ?: ""
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/commits$sha")
         if (json == null || json.startsWith("ERROR:")) {
-            error = json?.removePrefix("ERROR:") ?: "加载失败"
+            if (!shownStale) error = json?.removePrefix("ERROR:") ?: "加载失败"
         } else {
             items = parseCommits(json)
+            ListCache.write(manager, cacheKey, json)
         }
         loading = false
     }
@@ -350,7 +448,8 @@ fun CommitListContent(sessionJson: String, owner: String, repo: String, branch: 
         error != null -> ListError(error!!) { retryTick++ }
         items.isEmpty() -> ListEmpty("暂无提交")
         else -> LazyColumn(Modifier.fillMaxSize()) {
-            items(items) { CommitRow(it) { onItemClick(it) } }
+            // commit sha 唯一
+            items(items, key = { it.sha }) { CommitRow(it) { onItemClick(it) } }
         }
     }
 }
@@ -375,7 +474,11 @@ private fun CommitRow(item: CommitItem, onClick: () -> Unit) {
 @Composable
 fun WorkflowListContent(sessionJson: String, owner: String, repo: String, branch: String? = null, refreshTick: Int = 0, onItemClick: (WorkflowItem) -> Unit) {
     val (host, token, _) = sessionInfo(sessionJson)
-    var items by remember { mutableStateOf<List<WorkflowItem>>(emptyList()) }
+    val context = LocalContext.current
+    // 缓存键先于状态声明：key 变化（切仓库/目录/分支）时列表自动清空，
+    // 避免新请求失败时静默显示上一页内容
+    val cacheKey = ListCache.key(owner, repo, ListCache.PAGE_WORKFLOWS)
+    var items by remember(cacheKey) { mutableStateOf<List<WorkflowItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var retryTick by remember { mutableStateOf(0) }
@@ -383,11 +486,30 @@ fun WorkflowListContent(sessionJson: String, owner: String, repo: String, branch
     LaunchedEffect(owner, repo, branch, refreshTick, retryTick) {
         loading = true
         error = null
+        // 只有「本次确实直出了缓存」才在回源失败时静默保留旧内容；否则照常报错
+        var shownStale = false
+        val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+        // 工作流列表接口不带分支参数，无需 params
+
+        // ① 先直出缓存（含过期数据）
+        if (refreshTick == 0 && retryTick == 0) {
+            ListCache.readStale(manager, cacheKey)?.let { cached ->
+                val parsed = parseWorkflows(cached)
+                if (parsed.isNotEmpty()) {
+                    items = parsed
+                    shownStale = true
+                    loading = false
+                }
+            }
+        }
+
+        // ② 回源刷新
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/workflows")
         if (json == null || json.startsWith("ERROR:")) {
-            error = json?.removePrefix("ERROR:") ?: "加载失败"
+            if (!shownStale) error = json?.removePrefix("ERROR:") ?: "加载失败"
         } else {
             items = parseWorkflows(json)
+            ListCache.write(manager, cacheKey, json)
         }
         loading = false
     }
@@ -397,7 +519,8 @@ fun WorkflowListContent(sessionJson: String, owner: String, repo: String, branch
         error != null -> ListError(error!!) { retryTick++ }
         items.isEmpty() -> ListEmpty("暂无工作流")
         else -> LazyColumn(Modifier.fillMaxSize()) {
-            items(items) { WorkflowRow(it) { onItemClick(it) } }
+            // workflow id 唯一
+            items(items, key = { if (it.id != 0L) it.id else it.name }) { WorkflowRow(it) { onItemClick(it) } }
         }
     }
 }
@@ -422,7 +545,11 @@ fun ReleaseListContent(
     onCreate: () -> Unit = {},
 ) {
     val (host, token, _) = sessionInfo(sessionJson)
-    var items by remember { mutableStateOf<List<ReleaseItem>>(emptyList()) }
+    val context = LocalContext.current
+    // 缓存键先于状态声明：key 变化（切仓库/目录/分支）时列表自动清空，
+    // 避免新请求失败时静默显示上一页内容
+    val cacheKey = ListCache.key(owner, repo, ListCache.PAGE_RELEASES)
+    var items by remember(cacheKey) { mutableStateOf<List<ReleaseItem>>(emptyList()) }
     var canPush by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -431,13 +558,31 @@ fun ReleaseListContent(
     LaunchedEffect(owner, repo, refreshTick, retryTick) {
         loading = true
         error = null
+        // 只有「本次确实直出了缓存」才在回源失败时静默保留旧内容；否则照常报错
+        var shownStale = false
+        val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+
+        // ① 先直出缓存（含过期数据）
+        if (refreshTick == 0 && retryTick == 0) {
+            ListCache.readStale(manager, cacheKey)?.let { cached ->
+                val parsed = parseReleases(cached)
+                if (parsed.isNotEmpty()) {
+                    items = parsed
+                    shownStale = true
+                    loading = false
+                }
+            }
+        }
+
+        // ② 回源刷新
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/releases")
         if (json == null || json.startsWith("ERROR:")) {
-            error = json?.removePrefix("ERROR:") ?: "加载失败"
+            if (!shownStale) error = json?.removePrefix("ERROR:") ?: "加载失败"
         } else {
             items = parseReleases(json)
+            ListCache.write(manager, cacheKey, json)
         }
-        // 写权限决定「新建发布」入口是否出现（缺失即视为无权限，保守）
+        // 写权限决定「新建发布」入口是否出现（缺失即视为无权限，保守）；不入缓存
         canPush = RustBridge.getRepoInfo(host, token, owner, repo)
             ?.takeIf { !it.startsWith("ERROR:") }
             ?.let { parseRepoInfo(it)?.canPush } ?: false
@@ -465,7 +610,8 @@ fun ReleaseListContent(
             if (items.isEmpty()) {
                 item { ListEmpty("暂无发布") }
             } else {
-                items(items) { ReleaseRow(it) { onOpenDetail(it) } }
+                // release id 全局唯一；id 缺失（0）时退回 tag（仓库内唯一）兜底，避免重复 key
+                items(items, key = { if (it.id != 0L) it.id else it.tag }) { ReleaseRow(it) { onOpenDetail(it) } }
             }
         }
     }

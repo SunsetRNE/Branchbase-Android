@@ -54,9 +54,11 @@ import com.branchbase.core.AccountStore
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.theme.Avatar
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.branchbase.ui.theme.Primer
+import com.branchbase.cache.RepoPrefetcher
 import org.json.JSONObject
 
 /**
@@ -124,24 +126,42 @@ fun HomeScreen(
     var runningTasks by remember { mutableStateOf<List<com.branchbase.ui.task.TaskRecord>>(emptyList()) }
 
     LaunchedEffect(Unit) {
-        loadStarred(false)
-        loadEvents(false)
-        // 待处理三件套（都是轻量请求，失败静默为 0，不打扰首页）
-        unreadNotifs = withContext(Dispatchers.IO) {
-            RustBridge.getJson(host, token, "/notifications?per_page=100")
-                ?.let { runCatching { org.json.JSONArray(it).length() }.getOrDefault(0) } ?: 0
-        }
-        reviewRequests = withContext(Dispatchers.IO) {
-            RustBridge.searchIssues(host, token, "review-requested:@me state:open type:pr")
-                ?.let { runCatching { org.json.JSONObject(it).optInt("total_count", 0) }.getOrDefault(0) } ?: 0
-        }
-        assignedIssues = withContext(Dispatchers.IO) {
-            RustBridge.searchIssues(host, token, "assignee:@me state:open")
-                ?.let { runCatching { org.json.JSONObject(it).optInt("total_count", 0) }.getOrDefault(0) } ?: 0
+        // 5 个互不依赖的请求并行（原来是串行：星标 → 活动 → 通知 → 评审 → 指派）
+        coroutineScope {
+            launch { loadStarred(false) }
+            launch { loadEvents(false) }
+            // 待处理三件套（都是轻量请求，失败静默为 0，不打扰首页）
+            launch {
+                unreadNotifs = withContext(Dispatchers.IO) {
+                    RustBridge.getJson(host, token, "/notifications?per_page=100")
+                        ?.let { runCatching { org.json.JSONArray(it).length() }.getOrDefault(0) } ?: 0
+                }
+            }
+            launch {
+                reviewRequests = withContext(Dispatchers.IO) {
+                    RustBridge.searchIssues(host, token, "review-requested:@me state:open type:pr")
+                        ?.let { runCatching { org.json.JSONObject(it).optInt("total_count", 0) }.getOrDefault(0) } ?: 0
+                }
+            }
+            launch {
+                assignedIssues = withContext(Dispatchers.IO) {
+                    RustBridge.searchIssues(host, token, "assignee:@me state:open")
+                        ?.let { runCatching { org.json.JSONObject(it).optInt("total_count", 0) }.getOrDefault(0) } ?: 0
+                }
+            }
         }
         // 进行中任务：本地 Room，零网络请求
         runningTasks = com.branchbase.ui.task.TaskStore.list(context)
             .filter { it.status == com.branchbase.ui.task.TaskStatus.RUNNING }
+        // 预加载：星标首屏几个仓库的详情，点进去直接命中缓存（计费网络下自动跳过）
+        RepoPrefetcher.warmList(
+            context = context,
+            host = host,
+            token = token,
+            entries = repos.map {
+                it.fullName.substringBefore('/') to it.fullName.substringAfter('/', "")
+            },
+        )
     }
 
     Column(

@@ -15,6 +15,15 @@ interface SearchCacheDao {
     @Query("SELECT * FROM search_cache WHERE key = :key AND type = :type AND expireAt > :now")
     suspend fun get(key: String, type: String, now: Long): SearchCacheEntity?
 
+    /**
+     * 查询缓存**忽略 TTL**（stale-while-revalidate：先渲染旧数据，再后台刷新）。
+     *
+     * 与 [get] 的差别只有不过滤 `expireAt`：调用方拿到旧数据后必须触发一次回源，
+     * 否则会一直看到过期内容。
+     */
+    @Query("SELECT * FROM search_cache WHERE key = :key AND type = :type")
+    suspend fun getStale(key: String, type: String): SearchCacheEntity?
+
     /** 插入或替换缓存 */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entity: SearchCacheEntity)
