@@ -633,6 +633,8 @@ private sealed interface LocalPage {
     data class Identity(val name: String, val message: String) : LocalPage
     /** 本地分支管理（列表 / 切换 / 新建 / 删除） */
     data class Branches(val name: String) : LocalPage
+    /** 本地 ↔ 远端分支同步（fetch + 按分支推送/拉取/建跟踪） */
+    data class Sync(val name: String) : LocalPage
 }
 
 /**
@@ -958,6 +960,16 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
             )
             return
         }
+        is LocalPage.Sync -> {
+            com.branchbase.ui.repository.LocalBranchSyncScreen(
+                dir = dirOf(p.name),
+                repoName = p.name,
+                token = token,
+                onBack = { page = LocalPage.List },
+                onChanged = { repos = listLocalRepos(repoRoot) },
+            )
+            return
+        }
         is LocalPage.List -> Unit
     }
 
@@ -1047,6 +1059,7 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
                         name = name,
                         branch = branchOf(name),
                         onBranches = { page = LocalPage.Branches(name) },
+                        onSync = { page = LocalPage.Sync(name) },
                         onPull = { doPull(name) },
                         onPush = { doPush(name) },
                         onCommit = { doStageCommit(name) },
@@ -1124,6 +1137,7 @@ private fun LocalRepoRow(
     name: String,
     branch: String,
     onBranches: () -> Unit,
+    onSync: () -> Unit,
     onPull: () -> Unit,
     onPush: () -> Unit,
     onCommit: () -> Unit,
@@ -1159,6 +1173,7 @@ private fun LocalRepoRow(
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             Text("更新", fontSize = 12.sp, color = Primer.Blue500, modifier = Modifier.clickable { onPull() })
             Text("推送", fontSize = 12.sp, color = Primer.Blue500, modifier = Modifier.clickable { onPush() })
+            Text("分支同步", fontSize = 12.sp, color = Primer.Blue500, modifier = Modifier.clickable { onSync() })
             Text("提交", fontSize = 12.sp, color = Primer.Green500, modifier = Modifier.clickable { onCommit() })
             Text("撤销", fontSize = 12.sp, color = Primer.TextSecondary, modifier = Modifier.clickable { onUndo() })
         }

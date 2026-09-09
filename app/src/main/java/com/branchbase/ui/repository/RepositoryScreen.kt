@@ -26,11 +26,14 @@ import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.CompareArrows
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -53,6 +56,9 @@ import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.profile.CommitModePickerDialog
+import com.branchbase.ui.profile.commitMode
+import com.branchbase.ui.profile.saveCommitMode
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.launch
 
@@ -119,8 +125,22 @@ fun RepositoryScreen(
     var releaseEditTarget by remember { mutableStateOf<ReleaseItem?>(null) }
     var showReleaseEdit by remember { mutableStateOf(false) }
     var repoCanPush by remember { mutableStateOf(false) }
+    // 分支管理 / 分支对比 / 本地分支同步（全屏页）
+    var showBranchManage by remember { mutableStateOf(false) }
+    var comparePair by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var showLocalSync by remember { mutableStateOf(false) }
+    // 提交模式（代码页气泡面板直接切换，不必再进「设置」）
+    var showCommitMode by remember { mutableStateOf(false) }
+    var modeLabel by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // 本地 git 相关动作（分支同步页）需要 token
+    val sessionToken = remember(sessionJson) { sessionInfo(sessionJson).second }
+
+    // 提交模式标签随弹窗切换实时刷新
+    LaunchedEffect(showCommitMode) {
+        modeLabel = commitMode(context)?.label
+    }
 
     // 加载分支列表 + 默认分支（进入详情页时）；分支列表走 Room 缓存（命中则跳过远端）
     LaunchedEffect(owner, repo) {
@@ -199,6 +219,56 @@ fun RepositoryScreen(
         return
     }
 
+    // 分支管理页（全屏）
+    if (showBranchManage) {
+        BackHandler { showBranchManage = false }
+        BranchManageScreen(
+            sessionJson = sessionJson,
+            owner = owner,
+            repo = repo,
+            defaultBranch = branch ?: "main",
+            canPush = repoCanPush,
+            onBack = { showBranchManage = false },
+            onOpenCompare = { b, h ->
+                showBranchManage = false
+                comparePair = b to h
+            },
+        )
+        return
+    }
+
+    // 分支对比页（全屏）：显示两个分支的代码片段差异
+    val comparing = comparePair
+    if (comparing != null) {
+        BackHandler { comparePair = null }
+        BranchCompareScreen(
+            sessionJson = sessionJson,
+            owner = owner,
+            repo = repo,
+            initialBase = comparing.first,
+            initialHead = comparing.second,
+            onBack = { comparePair = null },
+            onOpenFile = { p ->
+                comparePair = null
+                filePage = p to null
+            },
+        )
+        return
+    }
+
+    // 本地仓库分支同步页（全屏）
+    if (showLocalSync) {
+        BackHandler { showLocalSync = false }
+        LocalBranchSyncScreen(
+            dir = localRepoDir(context, repo),
+            repoName = repo,
+            token = sessionToken,
+            onBack = { showLocalSync = false },
+            onChanged = { refreshTick++ },
+        )
+        return
+    }
+
     // 星标/复刻/关注列表页（全屏，覆盖底部导航）
     if (peoplePage != null) {
         BackHandler { peoplePage = null }
@@ -221,6 +291,10 @@ fun RepositoryScreen(
             repo = repo,
             path = filePage!!.first,
             highlightLines = filePage!!.second,
+            defaultBranch = branch ?: "main",
+            branches = branches.map { it.name },
+            onOpenBranchManage = { showBranchManage = true },
+            onOpenLocalSync = { showLocalSync = true },
             onBack = { filePage = null },
         )
         return
@@ -362,6 +436,22 @@ fun RepositoryScreen(
                     }
                 }
             }
+
+            // 代码页 Git 气泡面板（覆盖层）：分支管理 / 对比 / 提交模式 / 本地同步 / 刷新
+            if (page == RepoPage.Code) {
+                CodePageGitPanel(
+                    repo = repo,
+                    branches = branches.map { it.name },
+                    defaultBranch = branch ?: branches.firstOrNull()?.name ?: "main",
+                    refreshTick = refreshTick,
+                    modeLabel = modeLabel,
+                    onPickMode = { showCommitMode = true },
+                    onOpenBranchManage = { showBranchManage = true },
+                    onOpenCompare = { b, h -> comparePair = b to h },
+                    onOpenLocalSync = { showLocalSync = true },
+                    onRefresh = { refreshTick++ },
+                )
+            }
         }
 
         RepoBottomBar(
@@ -382,6 +472,104 @@ fun RepositoryScreen(
             },
         )
     }
+
+    // 提交模式选择（代码页气泡面板直接切换，无需再进「设置」）
+    if (showCommitMode) {
+        CommitModePickerDialog(
+            onDismiss = { showCommitMode = false },
+            onConfirm = { mode ->
+                saveCommitMode(context, mode)
+                modeLabel = mode.label
+                showCommitMode = false
+                Logger.ui("提交模式改为 ${mode.label}", "Compose")
+            },
+        )
+    }
+}
+
+/**
+ * 代码页 Git 气泡面板。
+ *
+ * 把原本只在「设置 → 本地仓库」里才有的入口挂到代码页：
+ * 提交模式（就地切换）、分支管理、分支对比、本地分支同步、刷新。
+ * 徽标显示当前本地仓库的待推送/待拉取/改动数，一眼看出是否需要同步。
+ */
+@Composable
+private fun CodePageGitPanel(
+    repo: String,
+    branches: List<String>,
+    defaultBranch: String,
+    refreshTick: Int,
+    modeLabel: String?,
+    onPickMode: () -> Unit,
+    onOpenBranchManage: () -> Unit,
+    onOpenCompare: (String, String) -> Unit,
+    onOpenLocalSync: () -> Unit,
+    onRefresh: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val localGit = rememberLocalRepoGitState(repo, refreshTick)
+    val otherBranch = branches.firstOrNull { it != defaultBranch }
+
+    val actions = listOf(
+        GitBubbleAction(
+            key = "mode",
+            label = "提交模式：${modeLabel ?: "未设置"}",
+            icon = Icons.Filled.Settings,
+            onClick = onPickMode,
+        ),
+        GitBubbleAction(
+            key = "branch",
+            label = "分支管理",
+            icon = Icons.Filled.AccountTree,
+            badge = branches.size.takeIf { it > 0 }?.toString(),
+            onClick = onOpenBranchManage,
+        ),
+        GitBubbleAction(
+            key = "compare",
+            label = "对比分支",
+            icon = Icons.Filled.CompareArrows,
+            enabled = otherBranch != null,
+            onClick = { otherBranch?.let { onOpenCompare(defaultBranch, it) } },
+        ),
+        GitBubbleAction(
+            key = "sync",
+            label = when {
+                !localGit.exists -> "本地仓库未拉取"
+                localGit.needsPush -> "推送本地分支"
+                localGit.needsPull -> "拉取远端分支"
+                else -> "本地分支同步"
+            },
+            icon = Icons.Filled.Sync,
+            badge = when {
+                localGit.diverged -> "分叉"
+                localGit.ahead > 0 -> "↑${localGit.ahead}"
+                localGit.behind > 0 -> "↓${localGit.behind}"
+                else -> null
+            },
+            enabled = localGit.exists,
+            onClick = onOpenLocalSync,
+        ),
+        GitBubbleAction(
+            key = "refresh",
+            label = "刷新",
+            icon = Icons.Filled.Refresh,
+            onClick = onRefresh,
+        ),
+    )
+
+    GitBubblePanel(
+        actions = actions,
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+        title = localGit.summary(),
+        handleBadge = when {
+            localGit.diverged -> "!"
+            localGit.dirtyCount > 0 -> localGit.dirtyCount.toString()
+            localGit.ahead > 0 -> localGit.ahead.toString()
+            else -> null
+        },
+    )
 }
 
 /** README 链接路由（blob 直接打开文件 + 行号高亮；tree 进代码页；issue/pull/commit 映射到列表页） */

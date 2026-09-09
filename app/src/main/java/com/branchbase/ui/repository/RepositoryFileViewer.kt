@@ -18,6 +18,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -74,6 +81,10 @@ fun FileViewerScreen(
     repo: String,
     path: String,
     highlightLines: String? = null,
+    defaultBranch: String = "main",
+    branches: List<String> = emptyList(),
+    onOpenBranchManage: () -> Unit = {},
+    onOpenLocalSync: () -> Unit = {},
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -90,6 +101,10 @@ fun FileViewerScreen(
     var draft by remember { mutableStateOf("") }
     var commitMsg by remember { mutableStateOf("") }
     var showModePicker by remember { mutableStateOf(false) }
+    // true = 选完模式后继续提交（未配置时）；false = 只切换模式（面板就地改）
+    var modePickerForCommit by remember { mutableStateOf(true) }
+    // 本次编辑的提交模式覆盖（气泡面板就地切换，不必再进设置）
+    var modeOverride by remember { mutableStateOf<CommitMode?>(null) }
     var submitting by remember { mutableStateOf(false) }
     var feedback by remember { mutableStateOf<String?>(null) }
 
@@ -324,10 +339,10 @@ fun FileViewerScreen(
         }
     }
 
-    // 提交入口：按提交模式分发（UI 切换）
+    // 提交入口：按提交模式分发（UI 切换）；modeOverride = 本次编辑的就地覆盖
     fun onCommitClick() {
-        when (commitMode(context)) {
-            null -> showModePicker = true
+        when (modeOverride ?: commitMode(context)) {
+            null -> { modePickerForCommit = true; showModePicker = true }
             CommitMode.SINGLE_FILE -> proceedWithScan { doCommitSingle() }
             CommitMode.MULTI_FILE -> proceedWithScan {
                 page = FilePage.Stage(collectStagedFiles())
@@ -335,6 +350,12 @@ fun FileViewerScreen(
             CommitMode.LOCAL_REPO -> proceedWithScan { doLocalCommit() }
         }
     }
+
+    val effectiveMode = modeOverride ?: commitMode(context)
+    val localGit = rememberLocalRepoGitState(repo)
+    var bubbleExpanded by remember { mutableStateOf(false) }
+
+    Box(Modifier.fillMaxSize()) {
 
     Column(
         Modifier
@@ -442,6 +463,76 @@ fun FileViewerScreen(
                 }
             }
         }
+    }
+
+        // Git 气泡面板：编辑态下就地提交/保存草稿，非编辑态下就地进入编辑；
+        // 提交模式与分支入口都在这里，编辑完不用再回「设置」。
+        GitBubblePanel(
+            actions = buildList {
+                if (editing) {
+                    add(
+                        GitBubbleAction("commit", "提交", Icons.Filled.Check, enabled = !submitting) {
+                            onCommitClick()
+                        },
+                    )
+                    add(
+                        GitBubbleAction("draft", "保存草稿", Icons.Filled.Save) {
+                            feedback = if (saveDraft()) "草稿已保存" else "草稿保存失败"
+                        },
+                    )
+                    add(GitBubbleAction("cancel", "取消编辑", Icons.Filled.Close) { editing = false })
+                } else if (!loading && error == null) {
+                    add(
+                        GitBubbleAction("edit", "编辑", Icons.Filled.Edit) {
+                            editing = true
+                            draft = content
+                            // 草稿恢复检测（P2-1）：存在未提交草稿且与远端不同 → 决策页
+                            val saved = loadDraft()
+                            if (saved != null && saved != content) {
+                                page = FilePage.Draft(listOf(DraftInfo(path, "本地草稿", saved.lines().size)))
+                            }
+                        },
+                    )
+                }
+                add(
+                    GitBubbleAction(
+                        "mode",
+                        "提交模式：${effectiveMode?.label ?: "未设置"}",
+                        Icons.Filled.Settings,
+                    ) {
+                        modePickerForCommit = false
+                        showModePicker = true
+                    },
+                )
+                add(GitBubbleAction("branch", "分支管理", Icons.Filled.AccountTree) { onOpenBranchManage() })
+                add(
+                    GitBubbleAction(
+                        "sync",
+                        if (localGit.exists) "本地分支同步" else "本地仓库未拉取",
+                        Icons.Filled.Sync,
+                        badge = when {
+                            localGit.diverged -> "分叉"
+                            localGit.ahead > 0 -> "↑${localGit.ahead}"
+                            localGit.behind > 0 -> "↓${localGit.behind}"
+                            else -> null
+                        },
+                        enabled = localGit.exists,
+                    ) { onOpenLocalSync() },
+                )
+            },
+            expanded = bubbleExpanded,
+            onExpandedChange = { bubbleExpanded = it },
+            title = localGit.summary(),
+            // 顶部停靠：编辑态的底部是「提交信息 + 按钮」，面板停右上角避免遮挡
+            alignment = Alignment.TopEnd,
+            edgePadding = androidx.compose.foundation.layout.PaddingValues(end = 12.dp, top = 52.dp),
+            handleBadge = when {
+                localGit.diverged -> "!"
+                localGit.dirtyCount > 0 -> localGit.dirtyCount.toString()
+                localGit.ahead > 0 -> localGit.ahead.toString()
+                else -> null
+            },
+        )
     }
 
     // ── 决策页分发（覆盖主界面，处理完回主流程） ──
@@ -559,14 +650,19 @@ fun FileViewerScreen(
         FilePage.None -> Unit
     }
 
-    // 提交模式选择弹窗（未配置时）
+    // 提交模式选择弹窗（未配置时选完即提交；面板里改模式则只切换）
     if (showModePicker) {
         CommitModePickerDialog(
             onDismiss = { showModePicker = false },
             onConfirm = { mode ->
                 saveCommitMode(context, mode)
+                modeOverride = mode
                 showModePicker = false
-                onCommitClick()
+                if (modePickerForCommit) {
+                    onCommitClick()
+                } else {
+                    feedback = "提交模式已改为「${mode.label}」（本次编辑立即生效）"
+                }
             },
         )
     }
