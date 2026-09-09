@@ -219,6 +219,129 @@ pub fn local_branches(dir: &str) -> Result<String> {
     Ok(json!(out).to_string())
 }
 
+/// 只刷新远端跟踪引用（fetch，不合并、不动工作区）。
+///
+/// 本地对远端分支同步的「先看清再决定」原语：`pull_repo` 会把当前分支快进，
+/// 而这里只更新 `refs/remotes/origin/*`，因此可以在不打扰工作区的前提下
+/// 得到所有分支相对远端的最新 ahead/behind，再决定推送或拉取。
+///
+/// - `prune = true`：顺带删除远端已不存在的跟踪引用（`FetchPrune::On`）。
+pub fn fetch_remote(dir: &str, token: Option<&str>, prune: bool) -> Result<()> {
+    use git2::{FetchOptions, FetchPrune, RemoteCallbacks, Repository};
+
+    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let mut remote = repo
+        .find_remote("origin")
+        .map_err(|e| CoreError::Other(format!("找不到 origin: {e}")))?;
+
+    let mut callbacks = RemoteCallbacks::new();
+    callbacks.certificate_check(check_cert);
+    if let Some(tk) = token {
+        let tk = tk.to_string();
+        callbacks.credentials(move |_url, username, allowed| {
+            let user = username.unwrap_or("x-access-token");
+            if allowed.contains(git2::CredentialType::USERNAME) {
+                return git2::Cred::username(user);
+            }
+            git2::Cred::userpass_plaintext(user, &tk)
+        });
+    }
+
+    let mut fo = FetchOptions::new();
+    fo.remote_callbacks(callbacks);
+    fo.prune(if prune { FetchPrune::On } else { FetchPrune::Off });
+    remote
+        .fetch(&["refs/heads/*:refs/remotes/origin/*"], Some(&mut fo), None)
+        .map_err(|e| CoreError::Other(format!("fetch 失败: {e}")))?;
+    Ok(())
+}
+
+/// 远端分支清单（`refs/remotes/origin/*`），并带上对应本地分支的跟踪状态。
+///
+/// 输出 JSON 数组：`[{ name, local, has_local, ahead, behind }]`
+/// - `name`：远端分支名（去掉 `origin/` 前缀，`origin/HEAD` 不计入）；
+/// - `local`：跟踪该远端分支的本地分支名（无则空串）；
+/// - `ahead` / `behind`：本地相对该远端的领先/落后提交数（无本地对应时为 0）。
+///
+/// 匹配优先级：先按 upstream 配置匹配；仅当本地同名分支**没有** upstream 时才按名字兜底，
+/// 避免「本地 main 跟踪 origin/other」这类情况被误判成跟踪 origin/main。
+pub fn remote_branches(dir: &str) -> Result<String> {
+    use git2::{BranchType, Oid, Repository};
+    use std::collections::{HashMap, HashSet};
+
+    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+
+    let mut local_oids: HashMap<String, Oid> = HashMap::new();
+    let mut no_upstream: HashSet<String> = HashSet::new();
+    let mut local_by_upstream: HashMap<String, String> = HashMap::new();
+    if let Ok(branches) = repo.branches(Some(BranchType::Local)) {
+        for (branch, _) in branches.flatten() {
+            let name = branch.name().ok().flatten().unwrap_or("").to_string();
+            if name.is_empty() {
+                continue;
+            }
+            if let Some(oid) = branch.get().target() {
+                local_oids.insert(name.clone(), oid);
+            }
+            match branch.upstream() {
+                Ok(up) => {
+                    if let Some(up_name) = up.name().ok().flatten() {
+                        local_by_upstream.insert(up_name.to_string(), name.clone());
+                    }
+                }
+                Err(_) => {
+                    no_upstream.insert(name);
+                }
+            }
+        }
+    }
+
+    let mut out: Vec<serde_json::Value> = Vec::new();
+    let branches = repo
+        .branches(Some(BranchType::Remote))
+        .map_err(|e| CoreError::Other(format!("读取远端分支失败: {e}")))?;
+    for entry in branches {
+        let (branch, _) = entry.map_err(|e| CoreError::Other(format!("读取远端分支失败: {e}")))?;
+        let full = branch.name().ok().flatten().unwrap_or("").to_string();
+        let short = match full.strip_prefix("origin/") {
+            Some(s) if !s.is_empty() && s != "HEAD" => s.to_string(),
+            _ => continue,
+        };
+        let local = local_by_upstream
+            .get(&full)
+            .cloned()
+            .or_else(|| if no_upstream.contains(&short) { Some(short.clone()) } else { None })
+            .unwrap_or_default();
+
+        let mut ahead: usize = 0;
+        let mut behind: usize = 0;
+        if !local.is_empty() {
+            if let (Some(local_oid), Some(remote_oid)) =
+                (local_oids.get(&local), branch.get().target())
+            {
+                if let Ok((a, b)) = repo.graph_ahead_behind(*local_oid, remote_oid) {
+                    ahead = a;
+                    behind = b;
+                }
+            }
+        }
+        out.push(json!({
+            "name": short,
+            "local": local,
+            "has_local": !local.is_empty(),
+            "ahead": ahead,
+            "behind": behind
+        }));
+    }
+    out.sort_by(|a, b| {
+        a.get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .cmp(b.get("name").and_then(|v| v.as_str()).unwrap_or(""))
+    });
+    Ok(json!(out).to_string())
+}
+
 /// 切换本地分支（safe checkout：**不覆盖**未提交改动）。
 ///
 /// 若未提交改动会被目标分支覆盖，libgit2 会拒绝（错误信息含 conflict / overwritten），

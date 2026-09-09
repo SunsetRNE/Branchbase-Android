@@ -115,6 +115,10 @@ object RustBridge {
 
     private external fun nativeLocalBranches(dir: String): String
 
+    private external fun nativeFetchRemote(dir: String, token: String, prune: Boolean): String
+
+    private external fun nativeRemoteBranches(dir: String): String
+
     private external fun nativeCheckoutBranch(dir: String, name: String): String
 
     private external fun nativeCreateBranchLocal(dir: String, name: String, from: String): String
@@ -506,6 +510,24 @@ object RustBridge {
     /** 本地分支列表（JSON 数组：name / isHead / upstream / ahead / behind）。 */
     suspend fun localBranches(dir: String): String? = withContext(Dispatchers.IO) {
         runCatching { nativeLocalBranches(dir).takeIf { it.isNotBlank() && !it.startsWith("ERROR:") } }.getOrNull()
+    }
+
+    /**
+     * 只刷新远端跟踪引用（fetch，不合并、不动工作区）。
+     * @param prune 是否顺带清理远端已删除的跟踪引用
+     * @return null = 成功；其他 = 失败原因
+     */
+    suspend fun fetchRemote(dir: String, token: String = "", prune: Boolean = true): String? =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val r = nativeFetchRemote(dir, token, prune)
+                if (r.isBlank()) null else r.removePrefix("ERROR:").take(300)
+            }.getOrElse { "引擎不可用" }
+        }
+
+    /** 远端分支清单（JSON 数组：name / local / has_local / ahead / behind）。 */
+    suspend fun remoteBranches(dir: String): String? = withContext(Dispatchers.IO) {
+        runCatching { nativeRemoteBranches(dir).takeIf { it.isNotBlank() && !it.startsWith("ERROR:") } }.getOrNull()
     }
 
     /** 切换本地分支（safe checkout）。null = 成功；其他 = 失败原因（含冲突提示）。 */

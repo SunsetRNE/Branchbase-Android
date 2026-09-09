@@ -6,7 +6,7 @@
 //! 约定：返回 JSON 字符串；出错时返回空字符串（Kotlin 侧判空处理）。
 
 use jni::objects::{JClass, JString};
-use jni::sys::jstring;
+use jni::sys::{jboolean, jstring};
 use jni::JNIEnv;
 use std::future::Future;
 use std::sync::OnceLock;
@@ -882,6 +882,39 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeLocalBranches<'
 ) -> jstring {
     let dir = jstr(&mut env, &dir);
     let result: crate::error::Result<String> = crate::git::local_branches(&dir);
+    into_jstring(&mut env, result)
+}
+
+/// 只刷新远端跟踪引用（fetch，不合并、不动工作区；返回空串=成功）
+/// 参数：dir, token(可空), prune(是否顺带清理远端已删除的跟踪引用)
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeFetchRemote<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+    token: JString<'local>,
+    prune: jboolean,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let token = jstr(&mut env, &token);
+    let token_opt = if token.is_empty() { None } else { Some(token.as_str()) };
+    let prune = prune != 0;
+
+    let result: crate::error::Result<String> =
+        crate::git::fetch_remote(&dir, token_opt, prune).map(|_| String::new());
+    into_jstring(&mut env, result)
+}
+
+/// 远端分支清单（JSON 数组：name / local / has_local / ahead / behind）
+/// 参数：dir
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeRemoteBranches<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let result: crate::error::Result<String> = crate::git::remote_branches(&dir);
     into_jstring(&mut env, result)
 }
 
