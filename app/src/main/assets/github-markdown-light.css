@@ -24,7 +24,10 @@
 .markdown-body a { color: #0969da; text-decoration: none; }
 .markdown-body a:hover { text-decoration: underline; }
 .markdown-body strong { font-weight: 600; }
-.markdown-body img { max-width: 100%; box-sizing: border-box; }
+/* 徽章：inline 图片与文字基线对齐，避免一行徽章高低错位（GitHub 网页同款） */
+.markdown-body img { max-width: 100%; box-sizing: border-box; vertical-align: middle; }
+/* 徽章通常包在 <a> 里：去掉边框，保持 shields 原始高度 */
+.markdown-body a > img { border: 0; }
 .markdown-body code, .markdown-body tt {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-size: 85%;
@@ -66,3 +69,62 @@
 .markdown-body .task-list-item { list-style: none; }
 .markdown-body details { display: block; margin-bottom: 16px; }
 .markdown-body summary { cursor: pointer; font-weight: 600; }
+
+/* ── 图表（charts） ── */
+
+/* 宽图 / 统计卡（github-readme-stats 等）：保持原始像素宽，横向拖动看清内容。
+   容器由注入脚本按「自然宽度 > 视口」动态包裹，不影响普通徽章与截图。 */
+.bb-scroll-x {
+  display: block;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  margin-bottom: 16px;
+}
+.bb-scroll-x > img { max-width: none !important; }
+
+/* Mermaid：GitHub API 只返回语法高亮源码（div.highlight-source-mermaid），
+   这里按「图表源码卡」呈现 —— 标题条说明 + 源码等宽，避免看起来像乱码。 */
+.markdown-body .highlight-source-mermaid {
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 16px;
+  background-color: #f6f8fa;
+}
+.markdown-body .highlight-source-mermaid pre { margin: 0; border-radius: 0; background-color: #f6f8fa; }
+.markdown-body .bb-chart-head {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6a6d7c;
+  background-color: #eff1f3;
+  border-bottom: 1px solid #d0d7de;
+  padding: 6px 12px;
+}
+
+/* 代码块 / Mermaid 源码的语法令牌配色（GitHub .highlight 输出）——
+   缺少这组规则时 pl-* 全为纯黑，图表源码几乎不可读。 */
+.markdown-body .pl-k { color: #cf222e; }
+.markdown-body .pl-c1 { color: #0550ae; }
+.markdown-body .pl-ent { color: #116329; }
+.markdown-body .pl-en { color: #8250df; }
+.markdown-body .pl-s, .markdown-body .pl-s1, .markdown-body .pl-s2, .markdown-body .pl-sr { color: #0a3069; }
+.markdown-body .pl-c, .markdown-body .pl-cm { color: #6e7781; font-style: italic; }
+.markdown-body .pl-v, .markdown-body .pl-sm, .markdown-body .pl-mi { color: #953800; }
+.markdown-body .pl-e, .markdown-body .pl-ii { color: #953800; }
+
+/* 表格：GitHub 输出外层包了 markdown-accessiblity-table（原样拼写），
+   内层 table 已按 GitHub 方式横向滚动；这里保证外层不撑破视口。 */
+markdown-accessiblity-table { display: block; max-width: 100%; overflow-x: auto; }
+.markdown-body kbd {
+  display: inline-block;
+  padding: 3px 5px;
+  font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  line-height: 10px;
+  color: #1f2328;
+  vertical-align: middle;
+  background-color: #f6f8fa;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  box-shadow: inset 0 -1px 0 #d0d7de;
+}

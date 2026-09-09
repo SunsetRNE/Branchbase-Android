@@ -309,9 +309,9 @@ fun parseFileContent(json: String): String = runCatching {
 /** 拼接文件树路径 */
 fun joinPath(parent: String, name: String): String = if (parent.isEmpty()) name else "$parent/$name"
 
-/** URL 编码路径（逐段编码，保留 '/' 分隔） */
+/** URL 编码路径（逐段编码，保留 '/' 分隔；空格编码为 `%20` 而非 `+`，路径里 `+` 是字面加号） */
 fun encodePath(path: String): String = path.split("/").joinToString("/") {
-    java.net.URLEncoder.encode(it, "UTF-8")
+    java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20")
 }
 
 /** URL 编码 ref/branch 参数（`/` → `%2F`，空格 → `%20`），供 `?ref=`/`?sha=`/`?base=`/`?branch=` 使用 */
