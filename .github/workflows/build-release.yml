@@ -83,13 +83,26 @@ jobs:
         with:
           name: release-artifacts
 
-      - name: Collect changelog
+      # 改动记录：锚定上一个**正式版**标签（排除 beta），逐条列出提交 + 完整对比链接。
+      # 原实现是 `git log -10`：没有链接、固定 10 条、且不知道上次发的是哪个版本。
+      - name: 生成改动记录（锚定上一个正式版标签）
+        id: notes
         run: |
           {
-            echo "## 近期变更"
+            echo "📦 **正式版 Release**"
             echo ""
-            git log -10 --pretty=format:"- %s"
-          } > CHANGELOG.md
+            echo "- 版本：`v${{ needs.build.outputs.versionName }}`"
+            echo "- 版本码：`${{ needs.build.outputs.versionCode }}` · 提交：`${{ needs.build.outputs.gitHash }}` · 构建时间：${{ needs.build.outputs.buildTime }}"
+            echo ""
+          } > release-body.md
+          bash tools/build/release-notes.sh \
+            --repo "${{ github.repository }}" \
+            --tag "v${{ needs.build.outputs.versionName }}" \
+            --previous-pattern 'v*' \
+            --exclude-substring '-beta' \
+            --previous-out previous-tag.txt >> release-body.md
+          echo "previous=$(cat previous-tag.txt)" >> "$GITHUB_OUTPUT"
+          cat release-body.md
 
       - name: Generate signature file
         run: |
@@ -105,10 +118,15 @@ jobs:
         with:
           tag_name: v${{ needs.build.outputs.versionName }}
           name: 正式版 v${{ needs.build.outputs.versionName }}
-          body_path: CHANGELOG.md
+          body_path: release-body.md
+          # 官方自动生成说明（合并的 PR + 贡献者 + 完整变更链接），分类见 .github/release.yml
+          generate_release_notes: true
+          previous_tag: ${{ steps.notes.outputs.previous }}
           files: |
             *.apk
             signature.txt
             source-${{ needs.build.outputs.versionName }}.tar.gz
           prerelease: false
           draft: false
+          # 正式版设为 latest（Beta 是 pre-release，不会抢占）
+          make_latest: true

@@ -1,0 +1,61 @@
+# 自动生成发布说明（Automatically generated release notes）的分类配置
+#
+# 官方机制：创建 Release 时 GitHub 会依据「自上一个 Release 以来合并的 PR」生成说明，
+# 本文件决定这些 PR 如何分组、哪些不出现。
+# 文档：https://docs.github.com/repositories/releasing-projects-on-github/automatically-generated-release-notes
+#
+# ⚠️ 重要边界：官方那段**只统计合并的 PR**。本项目多数改动直接推送到 main（没有 PR），
+# 因此真正兜底的「改动记录」由 `tools/build/release-notes.sh` 生成（逐条列出区间内的提交 + 完整对比链接），
+# 两个工作流把它作为 `body_path` 传给 action-gh-release，并开启 `generate_release_notes: true`；
+# action 内部会把我们的 body **前置**到官方说明之前
+# （源码：`body = body + "\n\n" + generateNotes.body`），两者互补。
+#
+# 标签命名约定（与下面的 categories 对应）：feat / fix / perf / build / ci / docs / chore
+changelog:
+  exclude:
+    # 这些 PR 不进发布说明
+    labels:
+      - skip-changelog
+      - duplicate
+      - invalid
+      - wontfix
+    # 机器人提交不占版面（注意 YAML 流式序列里的 [ ] 必须加引号）
+    authors:
+      - "dependabot[bot]"
+      - "github-actions[bot]"
+      - "renovate[bot]"
+
+  categories:
+    - title: 🚀 新功能
+      labels:
+        - feat
+        - feature
+        - enhancement
+
+    - title: 🐛 缺陷修复
+      labels:
+        - fix
+        - bug
+        - bugfix
+
+    - title: ⚡ 性能与体验
+      labels:
+        - perf
+        - performance
+        - optimization
+
+    - title: 🧱 构建与 CI
+      labels:
+        - build
+        - ci
+        - chore
+
+    - title: 📄 文档
+      labels:
+        - docs
+        - documentation
+
+    # 兜底：未打上面任何标签的 PR 都归到这里（官方要求 categories 里至少要有一个 `*`）
+    - title: 其他改动
+      labels:
+        - "*"

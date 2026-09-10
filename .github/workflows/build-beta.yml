@@ -120,15 +120,38 @@ jobs:
         id: tag
         run: echo "tag=v${{ needs.build.outputs.standardVersion }}-beta" >> "$GITHUB_OUTPUT"
 
+      # 改动记录：发布页必须能看出「这次发了什么」。
+      # 锚定上一个 beta 标签 → 本次标签，逐条列出提交（带 commit 链接）+ 完整对比链接。
+      - name: 生成改动记录（锚定上一个 beta 标签）
+        id: notes
+        run: |
+          {
+            echo "🧪 **Beta 测试版（Debug 签名）**"
+            echo ""
+            echo "- 版本：\`${{ steps.tag.outputs.tag }}\`"
+            echo "- 标准版本号：\`${{ needs.build.outputs.standardVersion }}\`"
+            echo "- 提交：\`${{ needs.build.outputs.gitHash }}\` · 构建时间：${{ needs.build.outputs.buildTime }}"
+            echo ""
+          } > release-body.md
+          bash tools/build/release-notes.sh \
+            --repo "${{ github.repository }}" \
+            --tag "${{ steps.tag.outputs.tag }}" \
+            --previous-pattern 'v*-beta' \
+            --previous-out previous-tag.txt >> release-body.md
+          echo "previous=$(cat previous-tag.txt)" >> "$GITHUB_OUTPUT"
+          cat release-body.md
+
       - name: 类型判定发布（pre-release）
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: Beta 测试版 ${{ steps.tag.outputs.tag }}
-          body: |
-            🧪 Beta 测试版（Debug 签名）
-            - 版本：`${{ steps.tag.outputs.tag }}`
-            - 标准版本号：`${{ needs.build.outputs.standardVersion }}`
+          body_path: release-body.md
+          # 官方自动生成说明（合并的 PR + 贡献者 + 完整变更链接），分类见 .github/release.yml；
+          # action 会把上面的 body 前置到官方说明之前（body + "\n\n" + generated）
+          generate_release_notes: true
+          # 让官方的「完整变更」链接也锚定上一个 beta 标签，而不是 GitHub 自行挑选的基准
+          previous_tag: ${{ steps.notes.outputs.previous }}
           files: |
             *.apk
             verify/signature.txt
