@@ -271,9 +271,9 @@ fun StarsScreen(sessionJson: String, onBack: () -> Unit, onOpenRepo: (String) ->
         // 原先这里是一个不可点的「搜索星标」占位框，已随占位清理移除；
         // 需要搜索时走首页的搜索入口（全局搜索页支持按仓库/代码等类型检索）。
         if (loading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("加载中", color = Primer.TextTertiary) }
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("加载中", color = Primer.TextTertiary) }
         } else if (repos.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("暂无星标", fontSize = 13.sp, color = Primer.TextTertiary) }
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("暂无星标", fontSize = 13.sp, color = Primer.TextTertiary) }
         } else {
             LazyColumn {
                 items(repos) { repo -> StarredRepoCard(repo, onClick = { onOpenRepo(repo.fullName) }) }
@@ -372,9 +372,9 @@ fun ProjectsScreen(sessionJson: String, onBack: () -> Unit) {
             }
         }
         if (loading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("加载中", color = Primer.TextTertiary) }
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("加载中", color = Primer.TextTertiary) }
         } else if (projects.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("暂无项目", fontSize = 13.sp, color = Primer.TextTertiary) }
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("暂无项目", fontSize = 13.sp, color = Primer.TextTertiary) }
         } else {
             LazyColumn {
                 items(projects) { project -> ProjectCard(project) }
@@ -1043,7 +1043,7 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
         }
 
         if (repos.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Filled.Folder, null, tint = Primer.IconSecondary, modifier = Modifier.size(40.dp))
                     Spacer(Modifier.height(10.dp))
@@ -1053,7 +1053,7 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
                 }
             }
         } else {
-            LazyColumn(Modifier.fillMaxSize()) {
+            LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
                 items(repos) { name ->
                     LocalRepoRow(
                         name = name,
@@ -1436,7 +1436,8 @@ val sig = when (variant) {
     ) {
         SubPageHeader("关于", onBack)
         Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+            // weight(1f)：与顶部 SubPageHeader 同级；fillMaxSize() 会超出容器，底部内容被压住
+            modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(24.dp))

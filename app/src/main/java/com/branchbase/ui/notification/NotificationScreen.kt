@@ -367,6 +367,13 @@ fun NotificationScreen(
         }
     }
 
+    // 筛选行上的计数（都在「当前类型筛选」口径下）：
+    // 「未读 N」= 类型筛选下未读条数；「全部 N」= 类型筛选下全部条数。
+    // （此前 unreadCount 被误传成 totalCount，两个 chip 数字相同）
+    val typed = items.let { if (typeFilter == null) it else it.filter { n -> n.subjectType == typeFilter } }
+    val unreadInType = typed.count { it.unread }
+    val totalInType = typed.size
+
     // 未读数上报（驱动底部导航 badge）：始终基于「全部」列表，不受当前筛选影响
     val unread = items.count { it.unread }
     LaunchedEffect(unread) { onUnreadCountChange(unread) }
@@ -418,28 +425,44 @@ fun NotificationScreen(
             )
         }
 
-        // 整页下拉刷新：列表（含头部筛选行）都在下拉区域内
-        PullToRefreshBox(
-            isRefreshing = refreshing,
-            onRefresh = { load(force = true) },
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            NotificationList(
-                state = loadState,
-                rows = visible,
-                totalCount = items.size,
+        // 筛选行固定在列表之上（不随列表滚动）：
+        // ① 下拉刷新的圆形指示器画在 PullToRefreshBox 顶部，若筛选行是列表首项会被它盖住；
+        // ② 固定后筛选条件随时可见，也避免「加载中筛选行跟着骨架一起动」。
+        // 多选态下不显示筛选行：进入多选时已把筛选固定为「全部 + 无类型筛选」，
+        // 再显示 chip 只会多占一行高度并把列表往下推（两者互斥，位置也对得上原注释）。
+        if (!inSelection) {
+            FilterRow(
                 filter = filter,
                 onFilterChange = { filter = it },
-                layout = layout.value,
-                expandedGroups = expandedGroups.value,
-                onToggleGroup = { toggleGroup(it) },
+                unreadCount = unreadInType,
+                totalCount = totalInType,
+                participating = participating,
+                onParticipatingChange = { participating = it },
                 allTypes = allTypes,
                 typeFilter = typeFilter,
                 onTypeFilterChange = { typeFilter = it },
                 typeMenu = typeMenu,
                 onTypeMenuChange = { typeMenu = it },
-                participating = participating,
-                onParticipatingChange = { participating = it },
+            )
+        }
+
+        // 整页下拉刷新：只包住列表。
+        // ⚠️ 必须用 weight(1f)：在 Column 里用 fillMaxSize() 会让它去占满「父容器整高」，
+        //    与上面的 TopBar / 筛选行叠加后总高超出父容器，而 Compose 默认不裁剪子项，
+        //    超出部分会画到容器边界之外（压住底部导航栏），表现为内容下沉 / UI 挤占。
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = { load(force = true) },
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+        ) {
+            NotificationList(
+                state = loadState,
+                rows = visible,
+                filter = filter,
+                layout = layout.value,
+                expandedGroups = expandedGroups.value,
+                onToggleGroup = { toggleGroup(it) },
+                typeFilter = typeFilter,
                 selectionEnabled = layout.value == NotifLayout.FLAT,
                 selectedIds = selectedIds,
                 onClick = { onNotifClick(it) },
@@ -640,19 +663,11 @@ private fun BulkAction(label: String, icon: ImageVector, enabled: Boolean, onCli
 private fun NotificationList(
     state: LoadState,
     rows: List<Notification>,
-    totalCount: Int,
     filter: NotifFilter,
-    onFilterChange: (NotifFilter) -> Unit,
     layout: NotifLayout,
     expandedGroups: Set<String>,
     onToggleGroup: (String) -> Unit,
-    allTypes: List<String>,
     typeFilter: String?,
-    onTypeFilterChange: (String?) -> Unit,
-    typeMenu: Boolean,
-    onTypeMenuChange: (Boolean) -> Unit,
-    participating: Boolean,
-    onParticipatingChange: (Boolean) -> Unit,
     selectionEnabled: Boolean,
     selectedIds: Set<String>,
     onClick: (Notification) -> Unit,
@@ -669,24 +684,6 @@ private fun NotificationList(
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        // 筛选行放在列表首个 item：整页（含筛选行）都能下拉，同时标题栏不参与滚动
-        item(key = "__filters__") {
-            FilterRow(
-                filter = filter,
-                onFilterChange = { next -> onFilterChange(next) },
-                // 只看「全部」条数：`LazyColumn` 作用域里的 `items(...)` 会遮蔽外层的 items 列表
-                unreadCount = totalCount,
-                totalCount = totalCount,
-                participating = participating,
-                onParticipatingChange = onParticipatingChange,
-                allTypes = allTypes,
-                typeFilter = typeFilter,
-                onTypeFilterChange = onTypeFilterChange,
-                typeMenu = typeMenu,
-                onTypeMenuChange = onTypeMenuChange,
-            )
-        }
-
         when (state) {
             LoadState.Loading -> {
                 items(6) { NotificationSkeleton() }
@@ -1041,16 +1038,34 @@ private fun ErrorState(message: String, onRetry: () -> Unit) {
 }
 
 /**
- * 骨架行：尺寸与 [NotificationRow] 对齐（同圆角 8dp、同内边距 10dp、同高度 56dp），
- * 加载完成切真实行时不跳动。
+ * 骨架行：**结构与尺寸都与 [NotificationRow] 一一对应**
+ * （同 Card 圆角 8dp / 同边框 / 同内边距 10dp / 图标 32dp / 标题行 18dp + 间隔 5dp + meta 行 15dp）。
+ *
+ * 之前是一个固定 56dp 的灰块：与真实行（单行标题约 58dp、双行标题约 76dp）不等高，
+ * 加载完成时整列会向下「沉」一次；现在高度与真实行一致，切换时不跳动。
  */
 @Composable
 private fun NotificationSkeleton() {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .height(56.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(Primer.Gray150),
-    ) {}
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = Primer.BackgroundSecondary),
+        border = BorderStroke(1.dp, Primer.Gray150),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Box(
+                Modifier.size(32.dp).clip(RoundedCornerShape(8.dp)).background(Primer.Gray150),
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Box(Modifier.fillMaxWidth(0.72f).height(18.dp).clip(RoundedCornerShape(4.dp)).background(Primer.Gray150))
+                Spacer(Modifier.height(5.dp))
+                Box(Modifier.fillMaxWidth(0.42f).height(15.dp).clip(RoundedCornerShape(4.dp)).background(Primer.Gray150))
+            }
+        }
+    }
 }

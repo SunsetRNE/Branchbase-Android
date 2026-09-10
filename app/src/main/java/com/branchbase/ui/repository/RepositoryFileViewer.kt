@@ -449,7 +449,8 @@ fun FileViewerScreen(
 
         if (editing) {
             // 编辑模式
-            Column(Modifier.fillMaxSize().padding(12.dp)) {
+            // weight(1f)：根 Column 里已有头部 Row 作为兄弟节点
+            Column(Modifier.weight(1f).fillMaxWidth().padding(12.dp)) {
                 OutlinedTextField(
                     value = draft,
                     onValueChange = { draft = it },
@@ -478,15 +479,15 @@ fun FileViewerScreen(
             }
         } else {
             when {
-                loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                loading -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = Primer.Blue500)
                 }
-                error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                error != null -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Text(error!!, fontSize = 13.sp, color = Primer.TextTertiary)
                 }
                 else -> {
                     val highlightRange = remember(highlightLines) { parseLineRange(highlightLines) }
-                    LazyColumn(Modifier.fillMaxSize()) {
+                    LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
                         itemsIndexed(content.lines()) { i, line ->
                             val lineNo = i + 1
                             val highlighted = highlightRange?.contains(lineNo) == true

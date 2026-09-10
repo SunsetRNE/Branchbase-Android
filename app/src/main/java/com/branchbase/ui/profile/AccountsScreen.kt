@@ -119,7 +119,9 @@ fun AccountsScreen(
         }
 
         if (accounts.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            // weight(1f)：Column 里已经有头部兄弟节点，fillMaxSize() 会按「父容器整高」测量 →
+            // 总高超出容器，超出部分画到边界之外（被底部导航栏压住）
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("还没有账号", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
                     Spacer(Modifier.height(4.dp))
