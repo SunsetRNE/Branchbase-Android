@@ -104,24 +104,14 @@ jobs:
           echo "version=${{ needs.build.outputs.standardVersion }}" >> verify/signature.txt
           echo "fingerprint=AC:AB:BC:09:9F:91:81:8B:58:C5:45:DD:7F:D6:4D:E5:E2:8D:13:31:9E:63:E6:E3:73:02:2B:BB:90:19:F3:DD" >> verify/signature.txt
 
-      - name: 代码变更整合（提交 .so + 校验到 beta 分支）
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          # upload dist/ 时以 dist 为 root，download 后 .so 落在 workspace 根（不带 dist/ 前缀）
-          mkdir -p app/src/main/jniLibs/arm64-v8a
-          cp libbranchbase_core.so app/src/main/jniLibs/arm64-v8a/
-          git checkout -B beta
-          git add -f verify/signature.txt app/src/main/jniLibs/arm64-v8a/libbranchbase_core.so
-          git commit -m "chore: 更新测试版校验配置与 .so v${{ needs.build.outputs.versionName }}" || echo "无变更"
-          git push origin beta --force || true
-
       - name: Generate beta tag
         id: tag
         run: echo "tag=v${{ needs.build.outputs.standardVersion }}-beta" >> "$GITHUB_OUTPUT"
 
       # 改动记录：发布页必须能看出「这次发了什么」。
       # 锚定上一个 beta 标签 → 本次标签，逐条列出提交（带 commit 链接）+ 完整对比链接。
+      # ⚠️ 必须排在「代码变更整合（提交 .so 到 beta 分支）」**之前**：那一步会把 HEAD
+      # 变成 CI 自己产生的提交，之后再取范围就会把这条内部提交也列进改动记录。
       - name: 生成改动记录（锚定上一个 beta 标签）
         id: notes
         run: |
@@ -137,9 +127,22 @@ jobs:
             --repo "${{ github.repository }}" \
             --tag "${{ steps.tag.outputs.tag }}" \
             --previous-pattern 'v*-beta' \
+            --exclude-author 'github-actions[bot]' \
             --previous-out previous-tag.txt >> release-body.md
           echo "previous=$(cat previous-tag.txt)" >> "$GITHUB_OUTPUT"
           cat release-body.md
+
+      - name: 代码变更整合（提交 .so + 校验到 beta 分支）
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # upload dist/ 时以 dist 为 root，download 后 .so 落在 workspace 根（不带 dist/ 前缀）
+          mkdir -p app/src/main/jniLibs/arm64-v8a
+          cp libbranchbase_core.so app/src/main/jniLibs/arm64-v8a/
+          git checkout -B beta
+          git add -f verify/signature.txt app/src/main/jniLibs/arm64-v8a/libbranchbase_core.so
+          git commit -m "chore: 更新测试版校验配置与 .so v${{ needs.build.outputs.versionName }}" || echo "无变更"
+          git push origin beta --force || true
 
       - name: 类型判定发布（pre-release）
         uses: softprops/action-gh-release@v2

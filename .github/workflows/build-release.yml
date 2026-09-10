@@ -100,6 +100,7 @@ jobs:
             --tag "v${{ needs.build.outputs.versionName }}" \
             --previous-pattern 'v*' \
             --exclude-substring '-beta' \
+            --exclude-author 'github-actions[bot]' \
             --previous-out previous-tag.txt >> release-body.md
           echo "previous=$(cat previous-tag.txt)" >> "$GITHUB_OUTPUT"
           cat release-body.md
