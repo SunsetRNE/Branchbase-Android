@@ -23,11 +23,12 @@ import org.json.JSONObject
  * 状态流转（对齐 docs/login-flow-design.md 的状态机）：
  * ```
  * Idle ──startOAuth──▶ Authorizing ──回调code──▶ ExchangingToken
- *   │                                              │
- *   ├──browseAsGuest──▶ Guest                      ├──成功──▶ LoggedIn
- *   │                                              └──失败──▶ Error
+ *                                                 ├──成功──▶ LoggedIn
+ *                                                 └──失败──▶ Error
  * LoggedIn ──logout──▶ Idle
  * ```
+ *
+ * 说明：原「游客浏览（Guest）」只有占位页（`待接入主界面`），已随占位页一并移除。
  *
  * 会话持久化：sessionJson 存入 SharedPreferences，启动时自动恢复登录态。
  */
@@ -36,9 +37,6 @@ import org.json.JSONObject
 sealed interface LoginState {
     /** 初始状态 */
     data object Idle : LoginState
-
-    /** 未登录浏览（游客） */
-    data object Guest : LoginState
 
     /** 正在授权（跳转 GitHub 授权页） */
     data class Authorizing(val authorizeUrl: String, val verifier: String) : LoginState
@@ -254,10 +252,6 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** 游客浏览 */
-    fun browseAsGuest() {
-        _state.value = LoginState.Guest
-    }
-
     /** 登出（清除持久化会话） */
     fun logout() {
         prefs.edit().remove(KEY_SESSION).apply()

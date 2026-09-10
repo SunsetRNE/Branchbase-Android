@@ -484,6 +484,23 @@ impl GitHubApi {
         self.client.put_empty("/notifications").await
     }
 
+    /// 把通知线程标记为「完成」（`DELETE /notifications/threads/{id}`）。
+    ///
+    /// 与「已读」的区别：已读只是 unread=false，仍留在收件箱；完成后从收件箱移除
+    /// （对齐 GitHub 网页版收件箱的 Done）。成功时返回 205 No Content。
+    pub async fn mark_notification_done(&self, thread_id: &str) -> Result<String> {
+        let path = format!("/notifications/threads/{thread_id}");
+        self.client.delete_json(&path).await
+    }
+
+    /// 静音通知线程（`DELETE /notifications/threads/{id}/subscription`）。
+    ///
+    /// 之后该线程的新动态不再产生通知（对齐网页版的 Unsubscribe / Mute）。
+    pub async fn unsubscribe_thread(&self, thread_id: &str) -> Result<String> {
+        let path = format!("/notifications/threads/{thread_id}/subscription");
+        self.client.delete_json(&path).await
+    }
+
     // ── 协作与仓库管理（对齐 docs/decision-pages-gap.md §8.4 执行层） ──
 
     /// 读取分支 ref 的 sha（GET /repos/{o}/{r}/git/ref/heads/{branch}）

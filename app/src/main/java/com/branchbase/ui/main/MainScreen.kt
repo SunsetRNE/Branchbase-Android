@@ -5,13 +5,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.branchbase.ui.home.HomeScreen
 import com.branchbase.ui.navigation.BranchbaseNavigationBar
@@ -27,9 +25,10 @@ import com.branchbase.ui.search.SearchScreen
 import com.branchbase.ui.theme.Primer
 
 /**
- * 主界面骨架：底部导航（3 Tab）+ 内容区。
+ * 主界面骨架：底部导航（2 Tab：首页 / 消息）+ 内容区。
  *
- * 个人页不再作为 Tab，改为点击首页头像进入（返回键回首页）。
+ * 个人页不作为 Tab，改为点击首页头像进入（返回键回首页）；
+ * 原先的「探索」Tab 只有占位页，已随占位页一并移除。
  */
 @Composable
 fun MainScreen(
@@ -128,7 +127,6 @@ fun MainScreen(
                     },
                     onOpenNotifications = { selected = NavDestination.Notifications },
                 )
-                NavDestination.Explore -> Placeholder("探索（待接入）")
                 NavDestination.Notifications -> NotificationScreen(
                     sessionJson = sessionJson,
                     onOpenTarget = { target ->
@@ -141,13 +139,6 @@ fun MainScreen(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun Placeholder(text: String) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text, color = Primer.TextTertiary)
     }
 }
 

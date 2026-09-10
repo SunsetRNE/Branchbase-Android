@@ -56,17 +56,7 @@ fun LoginFlow(
 
     when (val s = state) {
         is LoginState.Idle -> {
-            WelcomeScreen(
-                onSignIn = { viewModel.startOAuth() },
-                onBrowseAsGuest = { viewModel.browseAsGuest() }
-            )
-        }
-
-        is LoginState.Guest -> {
-            // 游客浏览：进入主界面（未登录态）
-            Box(Modifier.fillMaxSize().background(Primer.BackgroundPrimary)) {
-                Text("游客浏览模式（待接入主界面）", Modifier.align(Alignment.Center), color = Primer.TextTertiary)
-            }
+            WelcomeScreen(onSignIn = { viewModel.startOAuth() })
         }
 
         is LoginState.Authorizing -> {

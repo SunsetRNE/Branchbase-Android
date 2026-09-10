@@ -780,7 +780,7 @@ private fun ForkRow(fork: ForkItem) {
     }
 }
 
-// ── 设置（占位） ──
+// ── 设置（入口列表 → 仓库设置决策页 / PR 一条龙） ──
 
 @Composable
 fun RepositorySettingsContent(
@@ -819,10 +819,10 @@ fun RepositorySettingsContent(
             return
         }
     }
+    // 原先还有一条「许可证」占位行（enabled=false，点了没反应），已随占位清理移除
     val entries = listOf(
         Triple("仓库设置（默认分支 / 分支管理 / 危险区）", 1, true),
         Triple("开 PR 一条龙（新建分支 + 开 PR）", 2, true),
-        Triple("许可证", 0, false),
     )
     LazyColumn(Modifier.fillMaxSize()) {
         items(entries) { (name, target, enabled) ->

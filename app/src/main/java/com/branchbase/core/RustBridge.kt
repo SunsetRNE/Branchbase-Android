@@ -103,6 +103,10 @@ object RustBridge {
 
     private external fun nativeMarkAllNotificationsRead(host: String, token: String): String
 
+    private external fun nativeMarkNotificationDone(host: String, token: String, threadId: String): String
+
+    private external fun nativeUnsubscribeThread(host: String, token: String, threadId: String): String
+
     private external fun nativeRenderMarkdown(host: String, token: String, text: String): String
 
     private external fun nativeGitClone(url: String, into: String, branch: String, token: String): String
@@ -435,6 +439,36 @@ object RustBridge {
                 }
             } catch (e: Throwable) {
                 Logger.net("PUT /notifications 异常：${e.message}", "GitHubAPI")
+                false // native 符号缺失（.so 未重编译）时优雅降级
+            }
+        }
+
+    /**
+     * 把通知线程标记为「完成」（`DELETE /notifications/threads/{id}`）。
+     *
+     * 与「已读」的区别：完成后从收件箱移除（对齐网页版收件箱的 Done）。
+     */
+    suspend fun markNotificationDone(host: String, token: String, threadId: String): Boolean =
+        withContext(Dispatchers.IO) {
+            try {
+                !nativeMarkNotificationDone(host, token, threadId).startsWith("ERROR:")
+            } catch (e: Throwable) {
+                Logger.net("DELETE /notifications/threads 异常：${e.message}", "GitHubAPI")
+                false // native 符号缺失（.so 未重编译）时优雅降级
+            }
+        }
+
+    /**
+     * 静音通知线程（`DELETE /notifications/threads/{id}/subscription`）。
+     *
+     * 之后该线程的新动态不再产生通知（对齐网页版的 Unsubscribe）。
+     */
+    suspend fun unsubscribeThread(host: String, token: String, threadId: String): Boolean =
+        withContext(Dispatchers.IO) {
+            try {
+                !nativeUnsubscribeThread(host, token, threadId).startsWith("ERROR:")
+            } catch (e: Throwable) {
+                Logger.net("DELETE /notifications/threads/subscription 异常：${e.message}", "GitHubAPI")
                 false // native 符号缺失（.so 未重编译）时优雅降级
             }
         }

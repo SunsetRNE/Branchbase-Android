@@ -268,18 +268,8 @@ fun StarsScreen(sessionJson: String, onBack: () -> Unit, onOpenRepo: (String) ->
             Spacer(Modifier.width(12.dp))
             RefreshButton { refreshKey++ }
         }
-        // 搜索框（占位）
-        Box(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(36.dp).clip(RoundedCornerShape(6.dp)).background(Primer.Gray150).border(1.dp, Primer.Border, RoundedCornerShape(6.dp)).padding(horizontal = 12.dp),
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Search, contentDescription = null, tint = Primer.TextTertiary, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("搜索星标", fontSize = 13.sp, color = Primer.TextTertiary)
-            }
-        }
-        Spacer(Modifier.height(8.dp))
+        // 原先这里是一个不可点的「搜索星标」占位框，已随占位清理移除；
+        // 需要搜索时走首页的搜索入口（全局搜索页支持按仓库/代码等类型检索）。
         if (loading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("加载中", color = Primer.TextTertiary) }
         } else if (repos.isEmpty()) {

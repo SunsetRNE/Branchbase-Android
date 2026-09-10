@@ -44,7 +44,7 @@ import com.branchbase.ui.theme.Primer
 /**
  * 侧边隐藏 + 弹出气泡导航栏（基础形态 ④）。
  *
- * 3 个主项 + 右侧圆形手柄，点击手柄后隐藏选项以浮动气泡从右下角弹出。
+ * 主项 + 右侧圆形手柄，点击手柄后隐藏选项以浮动气泡从右下角弹出。
  * 对齐 docs/navbar-wireframe.md：手柄 40dp 圆，气泡 chip 40dp·gap 6dp。
  */
 @Composable
@@ -70,7 +70,7 @@ fun EdgeNavigationBar(
                 .background(Primer.BackgroundSecondary),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            NavDestination.entries.take(3).forEach { dest ->
+            NavDestination.entries.forEach { dest ->
                 EdgeNavItem(
                     dest = dest,
                     selected = dest == selected,

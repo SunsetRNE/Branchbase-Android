@@ -1079,6 +1079,54 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeMarkAllNotifica
 
     into_jstring(&mut env, result)
 }
+/// 把通知线程标记为「完成」（DELETE /notifications/threads/{id}，返回空串=成功）
+/// 参数：host, token, threadId
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeMarkNotificationDone<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    thread_id: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let thread_id = jstr(&mut env, &thread_id);
+
+    let result: crate::error::Result<String> = block_on(async move {
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client)
+            .mark_notification_done(&thread_id)
+            .await
+    });
+
+    into_jstring(&mut env, result)
+}
+
+/// 静音通知线程（DELETE /notifications/threads/{id}/subscription，返回空串=成功）
+/// 参数：host, token, threadId
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeUnsubscribeThread<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    thread_id: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let thread_id = jstr(&mut env, &thread_id);
+
+    let result: crate::error::Result<String> = block_on(async move {
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client)
+            .unsubscribe_thread(&thread_id)
+            .await
+    });
+
+    into_jstring(&mut env, result)
+}
+
 // ── 决策页面支持（对齐 docs/decision-pages-gap.md §6） ──
 
 /// 仓库状态（返回 JSON；ERROR:=失败）

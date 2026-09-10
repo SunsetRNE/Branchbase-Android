@@ -66,7 +66,6 @@ private fun OutlineButton(text: String, onClick: () -> Unit) {
 @Composable
 fun WelcomeScreen(
     onSignIn: () -> Unit,
-    onBrowseAsGuest: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -96,53 +95,7 @@ fun WelcomeScreen(
         Spacer(Modifier.weight(1f))
 
         PrimaryButton("登录 / Sign in", onSignIn)
-        Spacer(Modifier.height(8.dp))
-        TextButton(onClick = onBrowseAsGuest) {
-            Text("继续浏览", color = Primer.Blue500, fontSize = 15.sp)
-        }
         Spacer(Modifier.height(16.dp))
-    }
-}
-
-/**
- * 02 · 登录方式 LoginMethodScreen
- */
-@Composable
-fun LoginMethodScreen(
-    onGitHubLogin: () -> Unit,
-    onPatLogin: () -> Unit,
-    onBrowseAsGuest: () -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Primer.BackgroundPrimary)
-            .navigationBarsPadding()
-            .padding(horizontal = HorizontalPadding)
-            .padding(top = 24.dp),
-    ) {
-        Text("登录 Branchbase", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
-        Spacer(Modifier.height(6.dp))
-        Text("使用 GitHub 账号安全登录", fontSize = 14.sp, color = Primer.TextTertiary)
-
-        Spacer(Modifier.height(28.dp))
-        PrimaryButton("使用 GitHub 登录", onGitHubLogin)
-
-        Spacer(Modifier.height(12.dp))
-        OutlineButton("使用 Personal Access Token", onPatLogin)
-
-        Spacer(Modifier.height(18.dp))
-        // 分隔线「或」
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Box(Modifier.weight(1f).height(1.dp).background(Primer.Border))
-            Text("或", modifier = Modifier.padding(horizontal = 12.dp), color = Primer.TextTertiary, fontSize = 12.sp)
-            Box(Modifier.weight(1f).height(1.dp).background(Primer.Border))
-        }
-        Spacer(Modifier.height(18.dp))
-
-        TextButton(onClick = onBrowseAsGuest, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-            Text("先随便逛逛", color = Primer.Blue500, fontSize = 15.sp)
-        }
     }
 }
 
