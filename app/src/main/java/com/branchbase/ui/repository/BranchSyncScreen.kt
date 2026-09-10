@@ -46,6 +46,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.cache.PageCache
+import com.branchbase.cache.SearchCacheDatabase
+import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.theme.Primer
@@ -68,6 +71,17 @@ private fun parseCompare(json: String?): CompareInfo? {
             status = o.optString("status"),
         )
     }.getOrNull()
+}
+
+/** 分支名列表（`GET /repos/{o}/{r}/branches`）：单个条目异常时跳过，不影响其余分支。 */
+private fun parseBranchNames(json: String?): List<String> {
+    if (json.isNullOrBlank()) return emptyList()
+    return runCatching {
+        val arr = JSONArray(json)
+        (0 until arr.length()).mapNotNull { i ->
+            arr.optJSONObject(i)?.optString("name")?.takeIf { it.isNotBlank() }
+        }
+    }.getOrDefault(emptyList())
 }
 
 /**
@@ -106,58 +120,120 @@ fun BranchSyncScreen(
     var confirmOverwrite by remember { mutableStateOf(false) }
     var sourceMenu by remember { mutableStateOf(false) }
     var targetMenu by remember { mutableStateOf(false) }
+    // 同步成功自增：对比缓存已失效，用它重跑下面的比较预览，避免卡片留着同步前的领先/落后
+    var syncTick by remember { mutableIntStateOf(0) }
+
+    /** 自动选中默认源/目标；用户已选且选择仍有效时不覆盖。 */
+    fun pickDefaults(list: List<String>) {
+        if (list.isEmpty()) return
+        if (source.isNotBlank() && target.isNotBlank() && source in list && target in list) return
+        target = list.firstOrNull { it == "beta" } ?: list.first()
+        source = list.firstOrNull { it == "main" } ?: list.last()
+    }
 
     LaunchedEffect(owner, repo) {
         loading = true
-        branches = withContext(Dispatchers.IO) {
-            RustBridge.listBranches(host, token, owner, repo)?.let { json ->
-                runCatching {
-                    val arr = JSONArray(json)
-                    (0 until arr.length()).mapNotNull { i ->
-                        arr.optJSONObject(i)?.optString("name")?.takeIf { it.isNotBlank() }
-                    }
-                }.getOrDefault(emptyList())
-            } ?: emptyList()
+        val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+        // 与分支管理页 / 对比页共用 branchListKey（同一份服务端数据）
+        val cacheKey = PageCache.branchListKey(owner, repo)
+        var shown = false
+
+        // ① 先直出（含过期数据）：进页面立即有分支可选，不用等联网
+        PageCache.cachedFirst(manager, cacheKey, PageCache.TYPE_DETAIL)?.let { cached ->
+            val list = withContext(Dispatchers.IO) { parseBranchNames(cached) }
+            if (list.isNotEmpty()) {
+                branches = list
+                pickDefaults(list)
+                shown = true
+                loading = false
+            }
         }
-        if (branches.isNotEmpty()) {
-            target = branches.firstOrNull { it == "beta" } ?: branches.first()
-            source = branches.firstOrNull { it == "main" } ?: branches.last()
+
+        // ② 回源刷新（缓存未过期时直接复用，不重复联网）
+        PageCache.refresh(manager, cacheKey, PageCache.TYPE_DETAIL) {
+            withContext(Dispatchers.IO) { RustBridge.listBranches(host, token, owner, repo) }
+        }?.let { json ->
+            val list = withContext(Dispatchers.IO) { parseBranchNames(json) }
+            if (list.isNotEmpty()) {
+                branches = list
+                pickDefaults(list)
+                shown = true
+            }
         }
+
+        // 与改造前一致：没拿到任何分支时列表保持为空（页面显示「请选择」）
+        if (!shown) branches = emptyList()
         loading = false
     }
 
-    // 源/目标变化时刷新比较结果（用于预览「领先/落后」）
-    LaunchedEffect(source, target) {
+    // 源/目标变化时刷新比较结果（用于预览「领先/落后」）；同步成功后 syncTick 也会触发重跑
+    LaunchedEffect(source, target, syncTick) {
         if (source.isBlank() || target.isBlank() || source == target) {
             compare = null
             return@LaunchedEffect
         }
-        compare = withContext(Dispatchers.IO) {
-            parseCompare(RustBridge.compareBranches(host, token, owner, repo, target, source))
+        val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+        // 键含 base(=目标) 与 head(=源)：切换任一分支即换键，不复用旧结果
+        val cacheKey = PageCache.compareKey(owner, repo, target, source)
+        var shown = false
+
+        // ① 先直出：切回看过的一对分支立即显示预览
+        PageCache.cachedFirst(manager, cacheKey, PageCache.TYPE_DETAIL)?.let { cached ->
+            val cachedCompare = withContext(Dispatchers.IO) { parseCompare(cached) }
+            if (cachedCompare != null) {
+                compare = cachedCompare
+                shown = true
+            }
+        }
+
+        // ② 回源刷新（缓存未过期时直接复用，不重复联网）
+        val json = PageCache.refresh(manager, cacheKey, PageCache.TYPE_DETAIL) {
+            withContext(Dispatchers.IO) {
+                RustBridge.compareBranches(host, token, owner, repo, target, source)
+            }
+        }
+        val parsed = withContext(Dispatchers.IO) { parseCompare(json) }
+        if (parsed != null) {
+            compare = parsed
+        } else if (!shown) {
+            // 与改造前一致：直出与回源都没拿到 → 不显示预览
+            compare = null
         }
     }
 
     fun doSync() {
         if (source.isBlank() || target.isBlank()) { feedback = "请选择源分支与目标分支"; return }
         if (source == target) { feedback = "源分支与目标分支不能相同"; return }
+        // 本次同步固定的源/目标/模式：请求期间的改动不影响本次请求与缓存失效所用的键
+        val src = source
+        val dst = target
+        val m = mode
         scope.launch {
             busy = true
             feedback = null
             val result = withContext(Dispatchers.IO) {
-                when (mode) {
-                    0 -> RustBridge.mergeBranch(host, token, owner, repo, target, source, "Merge $source into $target")
+                when (m) {
+                    0 -> RustBridge.mergeBranch(host, token, owner, repo, dst, src, "Merge $src into $dst")
                     1, 2 -> {
-                        val sha = RustBridge.getRefSha(host, token, owner, repo, source)
-                        if (sha == null) "无法读取 $source 的提交"
-                        else RustBridge.updateRef(host, token, owner, repo, target, sha, mode == 2)
+                        val sha = RustBridge.getRefSha(host, token, owner, repo, src)
+                        if (sha == null) "无法读取 $src 的提交"
+                        else RustBridge.updateRef(host, token, owner, repo, dst, sha, m == 2)
                     }
                     else -> null
                 }
             }
-            Logger.net("branch sync $source → $target (mode=$mode) → ${result ?: "成功"}", "GitHubAPI")
+            Logger.net("branch sync $src → $dst (mode=$m) → ${result ?: "成功"}", "GitHubAPI")
             busy = false
+            if (result == null || result == "uptodate") {
+                // 同步改变了这个方向的「领先/落后」：旧对比缓存立刻过时，删掉并重跑预览
+                withContext(Dispatchers.IO) {
+                    SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+                        .delete(PageCache.compareKey(owner, repo, dst, src))
+                }
+                syncTick++
+            }
             feedback = when {
-                result == null -> "已同步：$source → $target"
+                result == null -> "已同步：$src → $dst"
                 result == "uptodate" -> "目标分支已是最新，无需同步"
                 result.contains("409") || result.contains("conflict", true) ->
                     "存在冲突，需要人工解决：$result"

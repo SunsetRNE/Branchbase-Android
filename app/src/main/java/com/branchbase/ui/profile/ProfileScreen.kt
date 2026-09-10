@@ -59,6 +59,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import com.branchbase.cache.PageCache
+import com.branchbase.cache.SearchCacheDatabase
+import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.AvatarCache
 import kotlinx.coroutines.launch
 import com.branchbase.core.AccountStore
@@ -69,8 +72,6 @@ import com.branchbase.ui.theme.LanguageColors
 import com.branchbase.ui.theme.Avatar
 import com.branchbase.ui.theme.Primer
 import com.branchbase.ui.theme.ProfileColors
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -101,12 +102,6 @@ fun ProfileScreen(
     val host = runCatching { JSONObject(sessionJson).optString("host", "github.com") }.getOrDefault("github.com")
     var repos by remember { mutableStateOf<List<RepoItem>>(emptyList()) }
     var reposLoading by remember { mutableStateOf(true) }
-    LaunchedEffect(Unit) {
-        val json = withContext(Dispatchers.IO) { RustBridge.getMyRepos(host, token) }
-        Logger.net("GET /user/repos → ${if (json != null) "200" else "失败"}", "GitHubAPI")
-        repos = json?.let { parseRepos(it) } ?: emptyList()
-        reposLoading = false
-    }
     val user = runCatching { JSONObject(sessionJson).getJSONObject("user") }.getOrNull()
     // login 兜底顺序：session.user.login → 当前账号（多账号表）→ 空
     // （OAuth 交换的 session 原本只有 token，user 由 LoginViewModel 登录后补全）
@@ -114,6 +109,46 @@ fun ProfileScreen(
     val login = user?.optString("login")?.takeIf { it.isNotBlank() && it != "null" }
         ?: accountLogin.takeIf { it.isNotBlank() }
         ?: ""
+    // 个人主页缓存（仓库列表 / 贡献日历 / 活动，TTL 10 分钟）
+    val cacheManager = remember(context) {
+        SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+    }
+
+    /**
+     * 我的仓库列表（`/user/repos`）。
+     *
+     * 保持原来的**单次请求**（不翻页）：翻页会让首次进入从 1 次请求变成最多 5 次，
+     * 与「加缓存是为了更快」相悖。这里只做「先直出缓存 → 再回源」。
+     */
+    suspend fun loadRepos() {
+        val key = if (login.isBlank()) null else PageCache.profileKey(login, "repos")
+
+        // ① 先直出缓存（含过期数据）
+        if (key != null) {
+            PageCache.cachedFirst(cacheManager, key, PageCache.TYPE_PROFILE)?.let { cached ->
+                parseRepos(cached).takeIf { it.isNotEmpty() }?.let {
+                    repos = it
+                    reposLoading = false
+                }
+            }
+        }
+
+        // ② 回源并写回
+        val json = if (key != null) {
+            PageCache.refresh(cacheManager, key, PageCache.TYPE_PROFILE) {
+                RustBridge.getMyRepos(host, token)
+            }
+        } else {
+            RustBridge.getMyRepos(host, token)?.takeIf { !it.startsWith("ERROR:") }
+        }
+        json?.let { repos = parseRepos(it) }
+        Logger.net("GET /user/repos → ${if (json == null) "失败/空" else "200（${repos.size} 个仓库）"}", "GitHubAPI")
+    }
+
+    LaunchedEffect(Unit) {
+        loadRepos()
+        reposLoading = false
+    }
     val name = user?.optString("name")?.takeIf { it.isNotBlank() && it != "null" }
     val avatarUrl = user?.optString("avatar_url")?.takeIf { it.isNotBlank() && it != "null" }
     val bio = user?.optString("bio")?.takeIf { it.isNotBlank() && it != "null" }
@@ -461,6 +496,10 @@ private fun relativeTime(ms: Long): String {
 @Composable
 private fun ProfileActivity(host: String, token: String, login: String) {
     val context = LocalContext.current
+    // 动态页专属缓存管理器（活动的每页 + 贡献日历，TTL 10 分钟）
+    val cacheManager = remember(context) {
+        SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+    }
     var events by remember { mutableStateOf<List<ActivityEvent>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -471,11 +510,18 @@ private fun ProfileActivity(host: String, token: String, login: String) {
     var calDegraded by remember { mutableStateOf<String?>(null) }
     var selectedDay by remember { mutableStateOf<ContributionDay?>(null) }
 
-    /** 拉取事件流（最多 3 页 = 300 条，GitHub events 的硬上限）。 */
+    /**
+     * 拉取事件流（最多 3 页 = 300 条，GitHub events 的硬上限）。
+     *
+     * 缓存按页各存一份，key 里带上事件源（`/user/events` 与 `/users/{login}/events`
+     * 权限不同、结果不同，不能共用一份缓存），类型 TYPE_PROFILE（TTL 10 分钟）；
+     * 未加载过的页没有缓存 → 照旧回源，不做预取。
+     */
     suspend fun fetchEventPages(path: String): List<ActivityEvent> {
         val all = mutableListOf<ActivityEvent>()
         for (page in 1..3) {
-            val pageJson = withContext(Dispatchers.IO) {
+            val key = PageCache.profileKey(login, "events:$path:$page")
+            val pageJson = PageCache.refresh(cacheManager, key, PageCache.TYPE_PROFILE) {
                 RustBridge.getJson(host, token, "$path?per_page=100&page=$page")
             } ?: break
             if (pageJson.startsWith("ERROR:")) break
@@ -523,10 +569,19 @@ private fun ProfileActivity(host: String, token: String, login: String) {
     LaunchedEffect(login) {
         calLoading = true
         val range = contributionRange()
-        val json = withContext(Dispatchers.IO) {
+        // key 按查询区间分段（profileKey(login, "calendar:$from:$to")），类型 TYPE_PROFILE
+        val key = PageCache.profileKey(login, "calendar:${range.first}:${range.second}")
+        // ① 先直出缓存（含过期数据）
+        val cachedJson = PageCache.cachedFirst(cacheManager, key, PageCache.TYPE_PROFILE)
+        if (cachedJson != null) {
+            parseContributionCalendar(cachedJson)?.let { calendar = it }
+        }
+        // ② 回源：TTL（10 分钟）内 refresh 直接返回缓存、不发请求；GraphQL 失败时 Rust 侧返回 `ERROR:` 串，
+        // refresh 会挡掉且不覆盖旧缓存（返回 null）→ 此时回退到刚才直出的内容。
+        val freshJson = PageCache.refresh(cacheManager, key, PageCache.TYPE_PROFILE) {
             RustBridge.contributionCalendar(host, token, login, range.first, range.second)
         }
-        val parsed = parseContributionCalendar(json)
+        val parsed = parseContributionCalendar(freshJson ?: cachedJson)
         if (parsed != null) {
             calendar = parsed
             Logger.net("POST /graphql contributionsCollection($login) → ${parsed.total} 次贡献", "GraphQL")

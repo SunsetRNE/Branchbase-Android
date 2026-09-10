@@ -47,6 +47,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.cache.PageCache
+import com.branchbase.cache.SearchCacheDatabase
+import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.decision.AuthorIdentityScreen
 import com.branchbase.ui.decision.DraftInfo
@@ -139,6 +142,9 @@ fun FileViewerScreen(
      * 草稿保存时记录了当时的远端 sha；提交前重新拉一次远端：
      * sha 变了说明离线期间别人改过同一文件 → 返回远端内容，交给冲突决策页。
      * 没有草稿基准（首次编辑）或网络失败时不拦截。
+     *
+     * 这里**刻意不走 PageCache**：冲突检测必须看远端当前状态，读缓存（最长 10 分钟前的）
+     * 会漏判冲突。
      */
     suspend fun detectRemoteChange(): String? {
         val base = loadDraftBaseSha()?.takeIf { it.isNotBlank() } ?: return null
@@ -150,14 +156,51 @@ fun FileViewerScreen(
         return parseFileContent(json)
     }
 
+    /**
+     * 文件内容缓存键（[p] 默认当前文件）。
+     *
+     * ref 用**空串**：内容是按 `GET /contents/{path}` 拉的，而该请求当前**不带 ref 参数**
+     * （由服务端按仓库默认分支返回），所以键里只能写「实际请求的 ref」= 空串。
+     * 不能用 PUT 里那个硬编码的 `"main"`，否则默认分支不是 main 的仓库会串键；
+     * 也不该用 `defaultBranch` 参数——它并不参与这次请求。
+     */
+    fun fileCacheKey(p: String = path) = PageCache.fileKey(owner, repo, p, "")
+
+    /** 缓存管理器：读路径（直出 / 回源）与写路径（提交后失效）共用。 */
+    fun cacheManager() = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+
     LaunchedEffect(owner, repo, path) {
         loading = true
         error = null
+        // 本页没有手动刷新/重试入口（refreshTick/retryTick 留在仓库页），force 恒为 false；
+        // 「提交后必须看到新内容」靠写操作成功后的 delete 失效来实现，而不是靠 force。
+        val manager = cacheManager()
+        val key = fileCacheKey()
         val encoded = encodePath(path)
-        val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/contents/$encoded")
-        if (json == null || json.startsWith("ERROR:")) {
-            error = "文件不存在或无法读取"
-        } else {
+        // 本次是否确实直出了缓存：空文件的内容也是 ""，所以用「解析成功」判定
+        // （缓存里的值只会是回源成功的响应体，parseFileContent 失败才返回 ""）
+        var shown = false
+        var appliedJson: String? = null
+
+        // ① 先直出缓存（含过期数据）：同一文件反复查看立即有内容
+        PageCache.cachedFirst(manager, key, PageCache.TYPE_FILE)?.let { cached ->
+            runCatching { parseFileContent(cached) }.getOrNull()?.let { text ->
+                content = text
+                sha = runCatching { JSONObject(cached).optString("sha") }.getOrDefault("")
+                appliedJson = cached
+                shown = true
+                loading = false
+            }
+        }
+
+        // ② 回源并写回（命中未过期缓存时 refresh 直接返回，不再联网）
+        val json = PageCache.refresh(manager, key, PageCache.TYPE_FILE) {
+            RustBridge.getJson(host, token, "/repos/$owner/$repo/contents/$encoded")
+        }
+        if (json == null) {
+            // 只有「本次确实直出过缓存」才静默保留旧内容；否则保持原有错误提示
+            if (!shown) error = "文件不存在或无法读取"
+        } else if (json != appliedJson) {
             content = parseFileContent(json)
             sha = runCatching { JSONObject(json).optString("sha") }.getOrDefault("")
         }
@@ -236,6 +279,10 @@ fun FileViewerScreen(
                 )
                 // 提交成功的草稿清理掉
                 files.forEach { (rel, _) -> runCatching { File(root, rel).delete() } }
+                // 远端内容已变：本次提交涉及的每个文件都失效缓存（当前文件也在 files 里），
+                // 否则提交后返回再进来还是旧内容（TTL 10 分钟）
+                val manager = cacheManager()
+                files.forEach { (rel, _) -> manager.delete(fileCacheKey(rel)) }
                 if (files.any { it.first == path }) { content = draft; editing = false }
                 feedback = "已提交 ${files.size} 个文件"
             } else {
@@ -270,6 +317,8 @@ fun FileViewerScreen(
                 content = draft
                 editing = false
                 clearDraft()
+                // 远端内容已变：失效文件内容缓存（TTL 10 分钟），否则提交后返回再进来还是旧内容
+                cacheManager().delete(fileCacheKey())
                 feedback = "已提交"
             } else {
                 feedback = "提交失败"
@@ -298,6 +347,9 @@ fun FileViewerScreen(
                 com.branchbase.ui.task.TaskStore.success(context, taskId, "已提交 $sha")
                 clearDraft()
                 editing = false
+                // 本地提交后文件已变：失效内容缓存。本地提交的两条入口（doLocalCommit 直接提交 /
+                // Identity 页补完身份后提交）最终都汇入这里，所以落点放在这个成功分支。
+                cacheManager().delete(fileCacheKey())
                 feedback = "已提交（本地 git · $sha）"
             } else {
                 com.branchbase.ui.task.TaskStore.fail(context, taskId, "提交失败（引擎不可用）")
@@ -617,6 +669,9 @@ fun FileViewerScreen(
                     when (choice) {
                         // 保留本地：重新以远端最新 sha 为基准继续提交
                         "keep" -> scope.launch {
+                            // 远端已变 → 缓存里的旧内容已不可信：先失效（即使紧随的提交失败也不会
+                            // 让用户回来看到冲突前的旧内容），提交成功后新内容会在下次进入时写回
+                            cacheManager().delete(fileCacheKey())
                             sha = runCatching {
                                 JSONObject(
                                     RustBridge.getJson(host, token, "/repos/$owner/$repo/contents/${encodePath(path)}")
@@ -627,6 +682,8 @@ fun FileViewerScreen(
                         }
                         // 放弃本地，载入远端
                         "remote" -> {
+                            // 采用远端版本：旧缓存（冲突前的版本）已失效，否则返回再进来会直出旧内容
+                            scope.launch { cacheManager().delete(fileCacheKey()) }
                             draft = p.remote
                             content = p.remote
                             clearDraft()

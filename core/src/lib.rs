@@ -13,6 +13,7 @@ pub mod auth;
 pub mod bridge;
 pub mod git;
 pub mod html;
+pub mod workflow;
 pub mod models;
 
 /// 库的版本号，供 JNI 层校验 ABI 兼容性

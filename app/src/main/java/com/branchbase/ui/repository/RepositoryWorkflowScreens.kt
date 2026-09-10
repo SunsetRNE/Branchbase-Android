@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -36,6 +37,12 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.cache.PageCache
+import com.branchbase.cache.SearchCacheDatabase
+import com.branchbase.cache.SearchCacheManager
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.theme.Primer
 
@@ -62,30 +69,68 @@ fun WorkflowRunsContent(
     workflowId: Long,
     workflowName: String,
     branch: String? = null,
+    refreshTick: Int = 0,
     onBack: () -> Unit,
     onOpenRun: (Long) -> Unit,
+    onOpenActions: (() -> Unit)? = null,
 ) {
     val (host, token, _) = sessionInfo(sessionJson)
-    var runs by remember { mutableStateOf<List<WorkflowRun>>(emptyList()) }
+    val context = LocalContext.current
+    // 缓存键先于状态声明：切工作流/分支时列表自动清空，避免显示上一页内容
+    val cacheKey = PageCache.runsKey(owner, repo, workflowId, branch.orEmpty())
+    var runs by remember(cacheKey) { mutableStateOf<List<WorkflowRun>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var retryTick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(owner, repo, workflowId, branch, retryTick) {
+    LaunchedEffect(owner, repo, workflowId, branch, refreshTick, retryTick) {
         loading = true
         error = null
+        // 手动刷新/重试必须真的回源
+        val force = refreshTick > 0 || retryTick > 0
+        val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
         // 分支筛选：runs 接口 ?branch={branch}（空串=全部/默认分支）
         val br = branch?.takeIf { it.isNotBlank() }?.let { b -> "?branch=${encodeRef(b)}" } ?: ""
-        val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/workflows/$workflowId/runs$br")
-        if (json == null || json.startsWith("ERROR:")) {
-            error = json?.removePrefix("ERROR:") ?: "加载失败"
+        var shown = false
+
+        // ① 先直出缓存（含过期）：运行历史是最高频的往返页面之一
+        PageCache.cachedFirst(manager, cacheKey, PageCache.TYPE_DETAIL, force)?.let { cached ->
+            parseWorkflowRuns(cached).takeIf { it.isNotEmpty() }?.let {
+                runs = it
+                shown = true
+                loading = false
+            }
+        }
+
+        // ② 回源并写回
+        val json = PageCache.refresh(manager, cacheKey, PageCache.TYPE_DETAIL, force) {
+            RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/workflows/$workflowId/runs$br")
+        }
+        if (json == null) {
+            if (!shown && runs.isEmpty()) error = "加载失败"
         } else {
             runs = parseWorkflowRuns(json)
         }
         loading = false
     }
 
-    FullScreen(title = workflowName, onBack = onBack) {
+    FullScreen(
+        title = workflowName,
+        onBack = onBack,
+        actions = if (onOpenActions != null) {
+            {
+                // 右上角操作入口：召唤工作流操作抽屉（执行工作流 / 查看文件 / 浏览器打开）
+                Icon(
+                    Icons.Filled.MoreVert,
+                    contentDescription = "工作流操作",
+                    tint = Primer.IconPrimary,
+                    modifier = Modifier.size(22.dp).clickable { onOpenActions() },
+                )
+            }
+        } else {
+            {}
+        },
+    ) {
         when {
             loading -> CenterLoading()
             error != null -> ListError(error!!) { retryTick++ }
@@ -108,11 +153,28 @@ private fun WorkflowRunRow(run: WorkflowRun, onClick: () -> Unit) {
         Column(Modifier.weight(1f)) {
             Text(run.name, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, maxLines = 2)
             Spacer(Modifier.height(4.dp))
-            Text("#${run.runNumber} · ${run.headBranch} · ${run.conclusion ?: run.status} · ${shortTime(run.createdAt)}", fontSize = 11.5.sp, color = Primer.TextTertiary)
+            Text(
+                buildString {
+                    append("#").append(run.runNumber)
+                    if (run.runAttempt > 1) append("（第 ${run.runAttempt} 次尝试）")
+                    if (run.event.isNotBlank()) append(" · ").append(eventLabel(run.event))
+                    if (run.headBranch.isNotBlank()) append(" · ").append(run.headBranch)
+                    append(" · ").append(runStatusLabel(run.status, run.conclusion))
+                    val d = formatDuration(durationMillis(run.runStartedAt.ifBlank { run.createdAt }, run.updatedAt))
+                    if (d != "—") append(" · ").append(d)
+                    append(" · ").append(shortTime(run.createdAt))
+                },
+                fontSize = 11.5.sp,
+                color = Primer.TextTertiary,
+            )
         }
     }
 }
 
+/**
+ * 运行详情：委托给 `WorkflowRunDetailScreen`（原生富渲染：run 头部 + jobs→steps 时间线 +
+ * 步骤日志 + 注解 + 产物）。保留本函数名与签名，调用方无需改动。
+ */
 @Composable
 fun RunDetailContent(
     sessionJson: String,
@@ -122,27 +184,14 @@ fun RunDetailContent(
     onBack: () -> Unit,
     onOpenJob: (Long) -> Unit,
 ) {
-    val (host, token, _) = sessionInfo(sessionJson)
-    var jobs by remember { mutableStateOf<List<RunJob>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-
-    LaunchedEffect(owner, repo, runId) {
-        loading = true
-        RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/runs/$runId/jobs")
-            ?.takeIf { !it.startsWith("ERROR:") }
-            ?.let { jobs = parseRunJobs(it) }
-        loading = false
-    }
-
-    FullScreen(title = "Run #$runId", onBack = onBack) {
-        when {
-            loading -> CenterLoading()
-            jobs.isEmpty() -> CenterText("暂无任务")
-            else -> LazyColumn(Modifier.fillMaxSize()) {
-                items(jobs) { job -> RunJobRow(job) { onOpenJob(job.id) } }
-            }
-        }
-    }
+    WorkflowRunDetailScreen(
+        sessionJson = sessionJson,
+        owner = owner,
+        repo = repo,
+        runId = runId,
+        onBack = onBack,
+        onOpenJob = onOpenJob,
+    )
 }
 
 @Composable
@@ -167,18 +216,37 @@ fun JobDetailContent(
     onBack: () -> Unit,
 ) {
     val (host, token, _) = sessionInfo(sessionJson)
+    val context = LocalContext.current
     var steps by remember { mutableStateOf<List<JobStep>>(emptyList()) }
     var logs by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(true) }
 
     LaunchedEffect(owner, repo, jobId) {
         loading = true
-        RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/jobs/$jobId")
-            ?.takeIf { !it.startsWith("ERROR:") }
-            ?.let { steps = parseJobSteps(it) }
-        RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/jobs/$jobId/logs")
-            ?.takeIf { !it.startsWith("ERROR:") }
-            ?.let { logs = it }
+        val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+        val jobKey = PageCache.jobKey(owner, repo, jobId)
+        val logKey = PageCache.jobLogKey(owner, repo, jobId)
+
+        // ① 直出（steps 与日志都可能已缓存）
+        PageCache.cachedFirst(manager, jobKey, PageCache.TYPE_DETAIL)?.let { steps = parseJobSteps(it) }
+        PageCache.cachedFirst(manager, logKey, PageCache.TYPE_FILE)?.let { logs = it }
+        if (steps.isNotEmpty() || logs.isNotBlank()) loading = false
+
+        // ② 回源（steps 与日志并行）
+        coroutineScope {
+            val stepsJob = async {
+                PageCache.refresh(manager, jobKey, PageCache.TYPE_DETAIL) {
+                    RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/jobs/$jobId")
+                }
+            }
+            val logJob = async {
+                PageCache.refresh(manager, logKey, PageCache.TYPE_FILE) {
+                    RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/jobs/$jobId/logs")
+                }
+            }
+            stepsJob.await()?.let { steps = parseJobSteps(it) }
+            logJob.await()?.let { logs = it }
+        }
         loading = false
     }
 
@@ -219,7 +287,12 @@ private fun JobStepRow(step: JobStep) {
 // ── 通用全屏容器 ──
 
 @Composable
-private fun FullScreen(title: String, onBack: () -> Unit, content: @Composable () -> Unit) {
+private fun FullScreen(
+    title: String,
+    onBack: () -> Unit,
+    actions: @Composable () -> Unit = {},
+    content: @Composable () -> Unit,
+) {
     Column(
         Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding(),
     ) {
@@ -229,7 +302,15 @@ private fun FullScreen(title: String, onBack: () -> Unit, content: @Composable (
         ) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).clickable { onBack() })
             Spacer(Modifier.width(8.dp))
-            Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, maxLines = 1)
+            Text(
+                title,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Primer.TextPrimary,
+                maxLines = 1,
+                modifier = Modifier.weight(1f),
+            )
+            actions()
         }
         content()
     }

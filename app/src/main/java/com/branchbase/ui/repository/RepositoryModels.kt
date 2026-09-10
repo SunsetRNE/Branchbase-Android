@@ -183,6 +183,10 @@ data class WorkflowItem(
     val id: Long,
     val name: String,
     val state: String,
+    /** 工作流文件路径（如 `.github/workflows/ci.yml`）—— 读 YAML 判断能否手动触发 */
+    val path: String = "",
+    val htmlUrl: String = "",
+    val badgeUrl: String = "",
 )
 
 data class FileTreeItem(
@@ -293,6 +297,9 @@ fun parseWorkflows(json: String): List<WorkflowItem> = runCatching {
             id = o.optLong("id"),
             name = o.optString("name"),
             state = o.optString("state"),
+            path = o.optString("path"),
+            htmlUrl = o.optString("html_url"),
+            badgeUrl = o.optString("badge_url"),
         )
     }
 }.getOrDefault(emptyList())
@@ -503,6 +510,16 @@ data class WorkflowRun(
     val conclusion: String?,
     val headBranch: String,
     val createdAt: String,
+    val displayTitle: String = "",
+    val event: String = "",
+    val runAttempt: Int = 1,
+    val headSha: String = "",
+    val actor: String = "",
+    val runStartedAt: String = "",
+    val updatedAt: String = "",
+    val htmlUrl: String = "",
+    val path: String = "",
+    val workflowId: Long = 0,
 )
 
 data class RunJob(
@@ -510,6 +527,12 @@ data class RunJob(
     val name: String,
     val status: String,
     val conclusion: String?,
+    val startedAt: String = "",
+    val completedAt: String = "",
+    val runnerName: String = "",
+    val htmlUrl: String = "",
+    /** jobs 接口本身就返回 steps，运行详情页一次请求即可拿到全部步骤 */
+    val steps: List<JobStep> = emptyList(),
 )
 
 data class JobStep(
@@ -517,6 +540,8 @@ data class JobStep(
     val name: String,
     val status: String,
     val conclusion: String?,
+    val startedAt: String = "",
+    val completedAt: String = "",
 )
 
 /** 解析 GET .../actions/workflows/{id}/runs 的 {workflow_runs:[…]} */
@@ -532,6 +557,16 @@ fun parseWorkflowRuns(json: String): List<WorkflowRun> = runCatching {
             conclusion = o.optString("conclusion").takeIf { it.isNotBlank() },
             headBranch = o.optString("head_branch"),
             createdAt = o.optString("created_at"),
+            displayTitle = o.optString("display_title"),
+            event = o.optString("event"),
+            runAttempt = o.optInt("run_attempt", 1),
+            headSha = o.optString("head_sha"),
+            actor = o.optJSONObject("actor")?.optString("login").orEmpty(),
+            runStartedAt = o.optString("run_started_at"),
+            updatedAt = o.optString("updated_at"),
+            htmlUrl = o.optString("html_url"),
+            path = o.optString("path"),
+            workflowId = o.optLong("workflow_id"),
         )
     }
 }.getOrDefault(emptyList())
@@ -546,6 +581,11 @@ fun parseRunJobs(json: String): List<RunJob> = runCatching {
             name = o.optString("name"),
             status = o.optString("status"),
             conclusion = o.optString("conclusion").takeIf { it.isNotBlank() },
+            startedAt = o.optString("started_at"),
+            completedAt = o.optString("completed_at"),
+            runnerName = o.optString("runner_name"),
+            htmlUrl = o.optString("html_url"),
+            steps = parseJobSteps(o.toString()),
         )
     }
 }.getOrDefault(emptyList())
@@ -560,6 +600,8 @@ fun parseJobSteps(json: String): List<JobStep> = runCatching {
             name = o.optString("name"),
             status = o.optString("status"),
             conclusion = o.optString("conclusion").takeIf { it.isNotBlank() },
+            startedAt = o.optString("started_at"),
+            completedAt = o.optString("completed_at"),
         )
     }
 }.getOrDefault(emptyList())

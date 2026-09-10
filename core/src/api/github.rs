@@ -632,4 +632,26 @@ impl GitHubApi {
     pub async fn update_profile(&self, body: &str) -> Result<String> {
         self.client.patch_json("/user", body).await
     }
+
+    /// 手动触发工作流（`POST /repos/{o}/{r}/actions/workflows/{id}/dispatches`）。
+    ///
+    /// - `git_ref`：分支或标签名（必须是仓库里已存在的 ref）；
+    /// - `inputs_json`：输入参数 JSON 对象字符串，如 `{"version":"1.0.13"}`；非法/空串按 `{}` 处理。
+    ///
+    /// 成功时 GitHub 返回 **204 No Content**（body 为空串）；工作流未声明
+    /// `workflow_dispatch` 时返回 422，错误信息由调用方透出。
+    pub async fn dispatch_workflow(
+        &self,
+        owner: &str,
+        repo: &str,
+        workflow_id: u64,
+        git_ref: &str,
+        inputs_json: &str,
+    ) -> Result<String> {
+        let inputs: serde_json::Value =
+            serde_json::from_str(inputs_json).unwrap_or_else(|_| serde_json::json!({}));
+        let body = serde_json::json!({ "ref": git_ref, "inputs": inputs });
+        let path = format!("/repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches");
+        self.client.post_json(&path, &body.to_string()).await
+    }
 }

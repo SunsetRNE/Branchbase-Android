@@ -33,13 +33,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.branchbase.cache.PageCache
+import com.branchbase.cache.SearchCacheDatabase
+import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.theme.Primer
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 
 /**
  * Issue / PR 详情页（列表 → 详情贯通）。
@@ -59,22 +65,64 @@ fun IssueDetailScreen(
     onBack: () -> Unit,
 ) {
     val (host, token, login) = sessionInfo(sessionJson)
+    val context = LocalContext.current
     var detail by remember { mutableStateOf<IssueDetail?>(null) }
     var comments by remember { mutableStateOf<List<CommentItem>>(emptyList()) }
     var bodyHtml by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
 
+    /**
+     * 应用一份 Issue 详情 JSON：解析 + 正文 markdown 渲染（与改造前的渲染路径完全一致）。
+     * 解析不出详情时返回 false —— 此时这一份不能算「直出成功」。
+     */
+    suspend fun applyDetail(json: String): Boolean {
+        val d = runCatching { parseIssueDetail(json) }.getOrNull() ?: return false
+        detail = d
+        if (d.body.isNotBlank()) bodyHtml = markdownToHtml(host, token, d.body)
+        return true
+    }
+
     LaunchedEffect(owner, repo, number) {
         loading = true
-        val d = RustBridge.getJson(host, token, "/repos/$owner/$repo/issues/$number")
-            ?.takeIf { !it.startsWith("ERROR:") }
-            ?.let { parseIssueDetail(it) }
-        if (d != null) {
-            detail = d
-            RustBridge.getJson(host, token, "/repos/$owner/$repo/issues/$number/comments")
-                ?.takeIf { !it.startsWith("ERROR:") }
-                ?.let { comments = parseComments(it) }
-            if (d.body.isNotBlank()) bodyHtml = markdownToHtml(host, token, d.body)
+        // 本页由列表页进入，自身没有手动刷新/重试入口（refreshTick/retryTick 留在列表页），
+        // 因此不存在「必须忽略缓存」的场景：force 恒为 false（PageCache 默认值）。
+        val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+        val detailKey = PageCache.issueKey(owner, repo, number)
+        val commentsKey = PageCache.issueCommentsKey(owner, repo, number)
+        // 失败态由 `detail == null` 表达（保持原「加载失败」文案与空态语义），不需要额外的 error 状态；
+        // appliedJson 用于避免「直出后回源又命中同一份新鲜缓存」时重复解析与重复 markdown 渲染
+        var appliedJson: String? = null
+
+        // ① 先直出缓存（含过期数据）
+        PageCache.cachedFirst(manager, detailKey, PageCache.TYPE_DETAIL)?.let { cached ->
+            if (applyDetail(cached)) {
+                appliedJson = cached
+                loading = false
+            }
+        }
+        // 评论一并直出（空列表与「请求失败」的渲染结果相同，无需区分）
+        PageCache.cachedFirst(manager, commentsKey, PageCache.TYPE_DETAIL)?.let { cached ->
+            runCatching { parseComments(cached) }.getOrNull()?.let { c -> comments = c }
+        }
+
+        // ② 回源并写回：详情与评论并行（原来是详情成功后再串行拉评论）
+        coroutineScope {
+            val detailJob = async {
+                PageCache.refresh(manager, detailKey, PageCache.TYPE_DETAIL) {
+                    RustBridge.getJson(host, token, "/repos/$owner/$repo/issues/$number")
+                }
+            }
+            val commentsJob = async {
+                PageCache.refresh(manager, commentsKey, PageCache.TYPE_DETAIL) {
+                    RustBridge.getJson(host, token, "/repos/$owner/$repo/issues/$number/comments")
+                }
+            }
+            // 回源失败（null）时什么都不做：本次直出过就静默保留旧内容；没直出则 detail 仍为 null → 加载失败
+            val detailJson = detailJob.await()
+            if (detailJson != null && detailJson != appliedJson) applyDetail(detailJson)
+            commentsJob.await()?.let { json ->
+                runCatching { parseComments(json) }.getOrNull()?.let { c -> comments = c }
+            }
         }
         loading = false
     }
@@ -105,22 +153,62 @@ fun PullDetailScreen(
     onBack: () -> Unit,
 ) {
     val (host, token, login) = sessionInfo(sessionJson)
+    val context = LocalContext.current
     var detail by remember { mutableStateOf<PullDetail?>(null) }
     var files by remember { mutableStateOf<List<PullFile>>(emptyList()) }
     var bodyHtml by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
 
+    /**
+     * 应用一份 PR 详情 JSON：解析 + 正文 markdown 渲染（与改造前的渲染路径完全一致）。
+     * 解析不出详情时返回 false —— 此时这一份不能算「直出成功」。
+     */
+    suspend fun applyDetail(json: String): Boolean {
+        val d = runCatching { parsePullDetail(json) }.getOrNull() ?: return false
+        detail = d
+        if (d.body.isNotBlank()) bodyHtml = markdownToHtml(host, token, d.body)
+        return true
+    }
+
     LaunchedEffect(owner, repo, number) {
         loading = true
-        val d = RustBridge.getJson(host, token, "/repos/$owner/$repo/pulls/$number")
-            ?.takeIf { !it.startsWith("ERROR:") }
-            ?.let { parsePullDetail(it) }
-        if (d != null) {
-            detail = d
-            RustBridge.getJson(host, token, "/repos/$owner/$repo/pulls/$number/files")
-                ?.takeIf { !it.startsWith("ERROR:") }
-                ?.let { files = parsePullFiles(it) }
-            if (d.body.isNotBlank()) bodyHtml = markdownToHtml(host, token, d.body)
+        // 与 Issue 详情同一套：本页无手动刷新/重试入口，force 恒为 false（PageCache 默认值）
+        val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+        val detailKey = PageCache.pullKey(owner, repo, number)
+        val filesKey = PageCache.pullFilesKey(owner, repo, number)
+        // 失败态由 `detail == null` 表达（原「加载失败」文案不变），故不需要额外的 error 状态
+        var appliedJson: String? = null
+
+        // ① 先直出缓存（含过期数据）
+        PageCache.cachedFirst(manager, detailKey, PageCache.TYPE_DETAIL)?.let { cached ->
+            if (applyDetail(cached)) {
+                appliedJson = cached
+                loading = false
+            }
+        }
+        // 文件变更一并直出（空列表与「请求失败」的渲染结果相同，无需区分）
+        PageCache.cachedFirst(manager, filesKey, PageCache.TYPE_DETAIL)?.let { cached ->
+            runCatching { parsePullFiles(cached) }.getOrNull()?.let { f -> files = f }
+        }
+
+        // ② 回源并写回：详情与文件变更并行（原来是详情成功后再串行拉文件）
+        coroutineScope {
+            val detailJob = async {
+                PageCache.refresh(manager, detailKey, PageCache.TYPE_DETAIL) {
+                    RustBridge.getJson(host, token, "/repos/$owner/$repo/pulls/$number")
+                }
+            }
+            val filesJob = async {
+                PageCache.refresh(manager, filesKey, PageCache.TYPE_DETAIL) {
+                    RustBridge.getJson(host, token, "/repos/$owner/$repo/pulls/$number/files")
+                }
+            }
+            // 回源失败（null）时什么都不做：本次直出过就静默保留旧内容；没直出则 detail 仍为 null → 加载失败
+            val detailJson = detailJob.await()
+            if (detailJson != null && detailJson != appliedJson) applyDetail(detailJson)
+            filesJob.await()?.let { json ->
+                runCatching { parsePullFiles(json) }.getOrNull()?.let { f -> files = f }
+            }
         }
         loading = false
     }
@@ -263,14 +351,31 @@ fun CommitDetailScreen(
     onBack: () -> Unit,
 ) {
     val (host, token, _) = sessionInfo(sessionJson)
+    val context = LocalContext.current
     var detail by remember { mutableStateOf<CommitDetail?>(null) }
     var loading by remember { mutableStateOf(true) }
 
     LaunchedEffect(owner, repo, sha) {
         loading = true
-        RustBridge.getJson(host, token, "/repos/$owner/$repo/commits/$sha")
-            ?.takeIf { !it.startsWith("ERROR:") }
-            ?.let { detail = parseCommitDetail(it) }
+        // 本页无手动刷新/重试入口，force 恒为 false（PageCache 默认值）
+        val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+        val key = PageCache.commitKey(owner, repo, sha)
+
+        // ① 先直出缓存（含过期数据）：从提交列表返回再进来立即有内容
+        PageCache.cachedFirst(manager, key, PageCache.TYPE_DETAIL)?.let { cached ->
+            runCatching { parseCommitDetail(cached) }.getOrNull()?.let { d ->
+                detail = d
+                loading = false
+            }
+        }
+
+        // ② 回源并写回（命中未过期缓存时 refresh 直接返回，不再联网）；
+        // 失败（null）时不动 detail：直出过就静默保留，没直出则仍为 null → 加载失败
+        PageCache.refresh(manager, key, PageCache.TYPE_DETAIL) {
+            RustBridge.getJson(host, token, "/repos/$owner/$repo/commits/$sha")
+        }?.let { json ->
+            runCatching { parseCommitDetail(json) }.getOrNull()?.let { d -> detail = d }
+        }
         loading = false
     }
 

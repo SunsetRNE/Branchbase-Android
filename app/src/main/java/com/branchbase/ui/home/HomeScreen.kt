@@ -53,6 +53,9 @@ import coil.compose.AsyncImage
 import com.branchbase.core.AccountStore
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.theme.Avatar
+import com.branchbase.cache.PageCache
+import com.branchbase.cache.SearchCacheDatabase
+import com.branchbase.cache.SearchCacheManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -125,28 +128,55 @@ fun HomeScreen(
     var assignedIssues by remember { mutableStateOf(0) }
     var runningTasks by remember { mutableStateOf<List<com.branchbase.ui.task.TaskRecord>>(emptyList()) }
 
+    // 仪表盘计数缓存（TTL 5 分钟）。星标/活动仍走各自的 prefs 缓存，不受影响。
+    val cacheManager = remember(context) {
+        SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+    }
+
+    /**
+     * 计数类请求的「缓存直出 + 回源写回」。
+     *
+     * 语义与改动前一致：失败静默为 0、不打扰首页；区别只在**回源前先读缓存**，
+     * 未过期（5 分钟）时 [PageCache.refresh] 直接返回缓存、不再发请求。
+     * 每次回到前台仍会走一遍这里（本函数无 force 入口），命中未过期缓存即免流量。
+     *
+     * 解析与改动前逐一对应：
+     * - 通知计数 = `/notifications` 返回数组的长度；
+     * - 评审/指派计数 = 搜索接口返回对象的 `total_count`。
+     */
+    suspend fun loadCachedCount(name: String, fetch: suspend () -> String?): Int {
+        val json = PageCache.refresh(cacheManager, PageCache.homeKey(name), PageCache.TYPE_HOME) {
+            withContext(Dispatchers.IO) { fetch() }
+        } ?: return 0
+        return runCatching {
+            if (json.trimStart().startsWith("[")) {
+                org.json.JSONArray(json).length()
+            } else {
+                JSONObject(json).optInt("total_count", 0)
+            }
+        }.getOrDefault(0)
+    }
+
     LaunchedEffect(Unit) {
         // 5 个互不依赖的请求并行（原来是串行：星标 → 活动 → 通知 → 评审 → 指派）
         coroutineScope {
             launch { loadStarred(false) }
             launch { loadEvents(false) }
             // 待处理三件套（都是轻量请求，失败静默为 0，不打扰首页）
+            // 每个计数各自 key（home:unread / home:review / home:assigned），类型 TYPE_HOME（TTL 5 分钟）
             launch {
-                unreadNotifs = withContext(Dispatchers.IO) {
+                unreadNotifs = loadCachedCount("unread") {
                     RustBridge.getJson(host, token, "/notifications?per_page=100")
-                        ?.let { runCatching { org.json.JSONArray(it).length() }.getOrDefault(0) } ?: 0
                 }
             }
             launch {
-                reviewRequests = withContext(Dispatchers.IO) {
+                reviewRequests = loadCachedCount("review") {
                     RustBridge.searchIssues(host, token, "review-requested:@me state:open type:pr")
-                        ?.let { runCatching { org.json.JSONObject(it).optInt("total_count", 0) }.getOrDefault(0) } ?: 0
                 }
             }
             launch {
-                assignedIssues = withContext(Dispatchers.IO) {
+                assignedIssues = loadCachedCount("assigned") {
                     RustBridge.searchIssues(host, token, "assignee:@me state:open")
-                        ?.let { runCatching { org.json.JSONObject(it).optInt("total_count", 0) }.getOrDefault(0) } ?: 0
                 }
             }
         }

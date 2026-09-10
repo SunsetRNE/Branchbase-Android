@@ -3,6 +3,7 @@ package com.branchbase.ui.repository
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -472,7 +473,7 @@ private fun CommitRow(item: CommitItem, onClick: () -> Unit) {
 // ── 工作流列表 ──
 
 @Composable
-fun WorkflowListContent(sessionJson: String, owner: String, repo: String, branch: String? = null, refreshTick: Int = 0, onItemClick: (WorkflowItem) -> Unit) {
+fun WorkflowListContent(sessionJson: String, owner: String, repo: String, branch: String? = null, refreshTick: Int = 0, onItemClick: (WorkflowItem) -> Unit, onLongPress: (WorkflowItem) -> Unit = {}) {
     val (host, token, _) = sessionInfo(sessionJson)
     val context = LocalContext.current
     // 缓存键先于状态声明：key 变化（切仓库/目录/分支）时列表自动清空，
@@ -520,14 +521,23 @@ fun WorkflowListContent(sessionJson: String, owner: String, repo: String, branch
         items.isEmpty() -> ListEmpty("暂无工作流")
         else -> LazyColumn(Modifier.fillMaxSize()) {
             // workflow id 唯一
-            items(items, key = { if (it.id != 0L) it.id else it.name }) { WorkflowRow(it) { onItemClick(it) } }
+            items(items, key = { if (it.id != 0L) it.id else it.name }) {
+                WorkflowRow(it, onClick = { onItemClick(it) }, onLongClick = { onLongPress(it) })
+            }
         }
     }
 }
 
 @Composable
-private fun WorkflowRow(item: WorkflowItem, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable { onClick() }.padding(12.dp, 16.dp), verticalAlignment = Alignment.CenterVertically) {
+/** 工作流行：点击进运行历史；**长按召唤操作抽屉**（执行/查看文件/浏览器打开）。 */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private fun WorkflowRow(item: WorkflowItem, onClick: () -> Unit, onLongClick: () -> Unit = {}) {
+    Row(
+        Modifier.fillMaxWidth()
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(12.dp, 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Text(item.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, modifier = Modifier.weight(1f))
         Text(item.state, fontSize = 11.sp, color = Primer.TextTertiary)
     }

@@ -51,6 +51,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.cache.PageCache
+import com.branchbase.cache.SearchCacheDatabase
+import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.notification.NotifLayout
@@ -93,6 +96,10 @@ fun NotificationScreen(
 
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("branchbase", Context.MODE_PRIVATE) }
+    // 通知列表缓存（TTL 2 分钟，兼顾「未读」时效性）：返回上一层再进来先直出，再后台回源
+    val cacheManager = remember(context) {
+        SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+    }
 
     // 本地「已读 thread id」持久化：远端 PATCH 未生效（.so 未重编译）或异步未完成时，
     // 页面切换返回后仍能保持已读状态（覆盖远端 unread=true）。
@@ -113,7 +120,7 @@ fun NotificationScreen(
     var layout by remember { mutableStateOf(readNotifLayout(context)) } // 通知显示模式（默认平铺）
     val expandedGroups = remember { mutableStateOf(setOf<String>()) } // 已展开的分组 key 集合
 
-    fun load() {
+    fun load(force: Boolean = false) {
         scope.launch {
             loading = true
             error = null
@@ -123,12 +130,27 @@ fun NotificationScreen(
                 append("/notifications?per_page=50&all=true")
                 if (participating) append("&participating=true")
             }
-            val json = withContext(Dispatchers.IO) {
-                RustBridge.getJson(host, token, path)
+            val key = PageCache.notificationKey(path)
+            // 先直出缓存（含过期数据）：返回上一层再进来不再空转一圈转圈。
+            // 首次进入没有缓存 → cachedFirst 返回 null，仍走下面回源，loading 骨架屏不变。
+            val cached = PageCache.cachedFirst(cacheManager, key, PageCache.TYPE_NOTIFICATION, force)
+            if (cached != null) {
+                val ids = readIds()
+                items = parseNotifications(cached).map { n -> if (n.id in ids) n.copy(unread = false) else n }
+                before = items.lastOrNull()?.updatedAt
+                hasMore = items.size >= 50
+                loading = false
+            }
+            // 回源并写回（未过期时直接返回缓存内容，失败返回 null，且不覆盖旧缓存）
+            val json = PageCache.refresh(cacheManager, key, PageCache.TYPE_NOTIFICATION, force) {
+                withContext(Dispatchers.IO) {
+                    RustBridge.getJson(host, token, path)
+                }
             }
             if (json == null || json.startsWith("ERROR:")) {
-                items = emptyList()
-                error = "通知加载失败"
+                // 回源失败：只有「本次确实直出了缓存」时才静默保留旧内容；
+                // 首次进入（无缓存）仍按原语义落到错误态。
+                if (cached == null && items.isEmpty()) error = "通知加载失败"
             } else {
                 val ids = readIds()
                 items = parseNotifications(json).map { n -> if (n.id in ids) n.copy(unread = false) else n }
@@ -152,8 +174,15 @@ fun NotificationScreen(
                 if (participating) append("&participating=true")
                 append("&before=$encoded")
             }
-            val json = withContext(Dispatchers.IO) {
-                RustBridge.getJson(host, token, path)
+            val key = PageCache.notificationKey(path)
+            // 分页（`before` 游标）也走缓存：同一游标 == 同一页，
+            // 未加载过的页没有缓存 → 仍然正常回源（不做任何预取）。
+            // force = true：分页只在滚动触达时调用一次，这里必须真的能拿到下一页，
+            // 不能因为页内已有旧缓存就停止加载（旧缓存仍会被 refresh 成功后覆盖写回）。
+            val json = PageCache.refresh(cacheManager, key, PageCache.TYPE_NOTIFICATION, force = true) {
+                withContext(Dispatchers.IO) {
+                    RustBridge.getJson(host, token, path)
+                }
             }
             if (json == null || json.startsWith("ERROR:")) {
                 hasMore = false
@@ -182,11 +211,22 @@ fun NotificationScreen(
         items = items.map { if (it.id == n.id) it.copy(unread = false) else it }
         scope.launch {
             val ok = RustBridge.markNotificationRead(host, token, n.id)
-            if (!ok && wasUnread) {
-                val ids = readIds().toMutableSet().apply { remove(n.id) }
-                writeIds(ids)
-                items = items.map { if (it.id == n.id) it.copy(unread = true) else it }
-                Toast.makeText(context, "标记已读失败，请重试", Toast.LENGTH_SHORT).show()
+            if (ok) {
+                // 已读状态变了 → 作废本页缓存，否则返回通知页时直出的还是「未读」列表
+                val p = buildString {
+                    append("/notifications?per_page=50&all=true")
+                    if (participating) append("&participating=true")
+                }
+                cacheManager.delete(PageCache.notificationKey(p))
+                // 首页「未读通知」计数是另一个键，一并失效，避免回首页看到旧数字
+                cacheManager.delete(PageCache.homeKey("unread"))
+            } else {
+                if (wasUnread) {
+                    val ids = readIds().toMutableSet().apply { remove(n.id) }
+                    writeIds(ids)
+                    items = items.map { if (it.id == n.id) it.copy(unread = true) else it }
+                    Toast.makeText(context, "标记已读失败，请重试", Toast.LENGTH_SHORT).show()
+                }
             }
         }
         onOpenTarget(resolveTarget(n))
@@ -208,7 +248,7 @@ fun NotificationScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("通知", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary, modifier = Modifier.weight(1f))
-            IconButton(onClick = { load() }) {
+            IconButton(onClick = { load(force = true) }) {
                 Icon(Icons.Filled.Refresh, contentDescription = "刷新", tint = Primer.IconPrimary)
             }
             TextButton(onClick = {
@@ -218,7 +258,16 @@ fun NotificationScreen(
                 items = items.map { it.copy(unread = false) }
                 scope.launch {
                     val ok = RustBridge.markAllNotificationsRead(host, token)
-                    if (!ok) {
+                    if (ok) {
+                        // 全部已读成功 → 作废本页缓存，避免返回后直出「未读」旧列表
+                        val p = buildString {
+                            append("/notifications?per_page=50&all=true")
+                            if (participating) append("&participating=true")
+                        }
+                        cacheManager.delete(PageCache.notificationKey(p))
+                // 首页「未读通知」计数是另一个键，一并失效，避免回首页看到旧数字
+                cacheManager.delete(PageCache.homeKey("unread"))
+                    } else {
                         writeIds(idsBefore)
                         items = items.map { if (it.id in unreadBefore) it.copy(unread = true) else it }
                         Toast.makeText(context, "全部已读失败，请重试", Toast.LENGTH_SHORT).show()

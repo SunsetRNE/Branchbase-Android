@@ -1722,3 +1722,48 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeUpdateProfile<'
     });
     into_jstring(&mut env, result)
 }
+
+/// 解析工作流 YAML 的 `on.workflow_dispatch`（返回 JSON：enabled + inputs[]）
+/// 参数：yaml（工作流文件全文）
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeParseWorkflowInputs<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    yaml: JString<'local>,
+) -> jstring {
+    let yaml = jstr(&mut env, &yaml);
+    let result: crate::error::Result<String> =
+        Ok(crate::workflow::parse_dispatch_spec_json(&yaml));
+    into_jstring(&mut env, result)
+}
+
+/// 手动触发工作流（POST /repos/{o}/{r}/actions/workflows/{id}/dispatches，返回空串=成功）
+/// 参数：host, token, owner, repo, workflowId, gitRef, inputsJson
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeDispatchWorkflow<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    owner: JString<'local>,
+    repo: JString<'local>,
+    workflow_id: JString<'local>,
+    git_ref: JString<'local>,
+    inputs_json: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let owner = jstr(&mut env, &owner);
+    let repo = jstr(&mut env, &repo);
+    let workflow_id = jstr(&mut env, &workflow_id);
+    let git_ref = jstr(&mut env, &git_ref);
+    let inputs_json = jstr(&mut env, &inputs_json);
+    let result: crate::error::Result<String> = block_on(async move {
+        let id: u64 = workflow_id.parse().unwrap_or(0);
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client)
+            .dispatch_workflow(&owner, &repo, id, &git_ref, &inputs_json)
+            .await
+    });
+    into_jstring(&mut env, result)
+}

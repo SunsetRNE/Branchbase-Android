@@ -38,11 +38,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.cache.PageCache
+import com.branchbase.cache.SearchCacheDatabase
+import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.Dispatchers
@@ -72,6 +76,7 @@ fun BranchCompareScreen(
     onBack: () -> Unit,
     onOpenFile: (path: String) -> Unit,
 ) {
+    val context = LocalContext.current
     val host = remember(sessionJson) {
         runCatching { org.json.JSONObject(sessionJson).optString("host", "github.com") }.getOrDefault("github.com")
     }
@@ -94,12 +99,22 @@ fun BranchCompareScreen(
     var showCommits by remember { mutableStateOf(false) }
     var reloadKey by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(owner, repo) {
-        branches = withContext(Dispatchers.IO) {
+    // 分支名列表：与分支管理页共用 branchListKey（同一份服务端数据），进页面先直出再回源
+    LaunchedEffect(owner, repo, reloadKey) {
+        val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+        val cacheKey = PageCache.branchListKey(owner, repo)
+        // 「刷新」按钮同时刷新分支名列表：忽略缓存强制回源
+        val force = reloadKey > 0
+
+        PageCache.cachedFirst(manager, cacheKey, PageCache.TYPE_DETAIL, force)?.let { cached ->
+            val names = withContext(Dispatchers.IO) { parseBranches(cached).map { b -> b.name } }
+            if (names.isNotEmpty()) branches = names
+        }
+        PageCache.refresh(manager, cacheKey, PageCache.TYPE_DETAIL, force) {
             RustBridge.listBranches(host, token, owner, repo)
-                ?.takeIf { !it.startsWith("ERROR:") }
-                ?.let { parseBranches(it).map { b -> b.name } }
-                ?: emptyList()
+        }?.let { json ->
+            val names = withContext(Dispatchers.IO) { parseBranches(json).map { b -> b.name } }
+            if (names.isNotEmpty()) branches = names
         }
     }
 
@@ -113,13 +128,42 @@ fun BranchCompareScreen(
         loading = true
         error = null
         expanded = emptySet()
-        val parsed = withContext(Dispatchers.IO) {
-            parseCompareResult(RustBridge.compareBranches(host, token, owner, repo, base, head))
+        // 手动刷新：忽略缓存强制回源
+        val force = reloadKey > 0
+        val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+        // 键含 base 与 head：切分支即换键，不会复用另一对分支的旧结果
+        val cacheKey = PageCache.compareKey(owner, repo, base, head)
+        // 「本次是否已拿到可展示数据」：直出或回源任一成功即为 true
+        var shown = false
+
+        // ① 先直出（含过期数据）：返回再进、切回看过的分支对都立即有内容
+        PageCache.cachedFirst(manager, cacheKey, PageCache.TYPE_DETAIL, force)?.let { cached ->
+            val cachedResult = withContext(Dispatchers.IO) { parseCompareResult(cached) }
+            if (cachedResult != null) {
+                result = cachedResult
+                // 默认展开第一个文件，进入页面即可看到代码片段
+                cachedResult.files.firstOrNull()?.let { expanded = setOf(it.filename) }
+                shown = true
+                loading = false
+            }
         }
-        result = parsed
-        if (parsed == null) error = "对比失败：无法读取 $base...$head"
-        // 默认展开第一个文件，进入页面即可看到代码片段
-        parsed?.files?.firstOrNull()?.let { expanded = setOf(it.filename) }
+
+        // ② 回源刷新（缓存未过期时直接复用，不重复联网）
+        val json = PageCache.refresh(manager, cacheKey, PageCache.TYPE_DETAIL, force) {
+            RustBridge.compareBranches(host, token, owner, repo, base, head)
+        }
+        val parsed = withContext(Dispatchers.IO) { parseCompareResult(json) }
+        if (parsed != null) {
+            result = parsed
+            shown = true
+            // 默认展开第一个文件，进入页面即可看到代码片段
+            parsed.files.firstOrNull()?.let { expanded = setOf(it.filename) }
+        }
+        // 与改造前一致：既无直出又回源失败 → 清空并给出原错误文案
+        if (!shown) {
+            result = null
+            error = "对比失败：无法读取 $base...$head"
+        }
         loading = false
     }
 

@@ -49,6 +49,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.cache.PageCache
+import com.branchbase.cache.SearchCacheDatabase
+import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.theme.Primer
@@ -108,16 +111,49 @@ fun BranchManageScreen(
     // 删除确认
     var confirmDelete by remember { mutableStateOf<String?>(null) }
 
+    /** 写操作（新建/删除/设为默认）成功后失效分支列表缓存，避免下次进页面看到改动前的列表。 */
+    suspend fun invalidateBranchListCache() {
+        SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+            .delete(PageCache.branchListKey(owner, repo))
+    }
+
     LaunchedEffect(owner, repo, reloadKey) {
         loading = true
         error = null
-        branches = withContext(Dispatchers.IO) {
-            RustBridge.listBranches(host, token, owner, repo)
-                ?.takeIf { !it.startsWith("ERROR:") }
-                ?.let { parseBranches(it) }
-                ?: emptyList()
+        // 手动刷新（reloadKey++）或写操作后的重载：忽略缓存，强制回源
+        val force = reloadKey > 0
+        val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+        val cacheKey = PageCache.branchListKey(owner, repo)
+        // 「本次是否已拿到可展示数据」：直出或回源任一成功即为 true
+        var shown = false
+
+        // ① 先直出（含过期数据）：从仓库页进列表、对比页返回再进都立即有内容
+        PageCache.cachedFirst(manager, cacheKey, PageCache.TYPE_DETAIL, force)?.let { cached ->
+            val parsed = withContext(Dispatchers.IO) { parseBranches(cached) }
+            if (parsed.isNotEmpty()) {
+                branches = parsed
+                shown = true
+                loading = false
+            }
         }
-        if (branches.isEmpty()) error = "暂无分支或加载失败"
+
+        // ② 回源刷新（缓存未过期时直接复用，不重复联网）
+        val json = PageCache.refresh(manager, cacheKey, PageCache.TYPE_DETAIL, force) {
+            withContext(Dispatchers.IO) { RustBridge.listBranches(host, token, owner, repo) }
+        }
+        if (json != null) {
+            val parsed = withContext(Dispatchers.IO) { parseBranches(json) }
+            if (parsed.isNotEmpty()) {
+                branches = parsed
+                shown = true
+            }
+        }
+
+        // 与改造前一致：没有可用缓存且回源也没拿到数据 → 清空并给出原错误文案
+        if (!shown) {
+            branches = emptyList()
+            error = "暂无分支或加载失败"
+        }
         loading = false
     }
 
@@ -142,6 +178,7 @@ fun BranchManageScreen(
             busy = false
             if (err == null) {
                 feedback = "已创建分支 $name"
+                invalidateBranchListCache()
                 reloadKey++
             } else {
                 feedback = "创建失败：$err"
@@ -158,6 +195,7 @@ fun BranchManageScreen(
             busy = false
             if (err == null) {
                 feedback = "已删除分支 $name"
+                invalidateBranchListCache()
                 reloadKey++
             } else {
                 feedback = "删除失败：$err"
@@ -176,6 +214,8 @@ fun BranchManageScreen(
             busy = false
             if (err == null) {
                 default = name
+                // 页内直接改写 default（不重载），但缓存不能留旧列表
+                invalidateBranchListCache()
                 feedback = "默认分支已改为 $name"
             } else {
                 feedback = "修改失败：$err"

@@ -205,6 +205,10 @@ object RustBridge {
 
     private external fun nativeListLabels(host: String, token: String, owner: String, repo: String): String
 
+    private external fun nativeParseWorkflowInputs(yaml: String): String
+
+    private external fun nativeDispatchWorkflow(host: String, token: String, owner: String, repo: String, workflowId: String, gitRef: String, inputsJson: String): String
+
     private external fun nativeUpdateDefaultBranch(host: String, token: String, owner: String, repo: String, branch: String): String
 
     private external fun nativeDeleteRepo(host: String, token: String, owner: String, repo: String): String
@@ -925,4 +929,40 @@ object RustBridge {
                 "引擎不可用"
             }
         }
+
+    // ── 工作流手动触发（workflow_dispatch） ──
+
+    /**
+     * 解析工作流 YAML 的 `on.workflow_dispatch`（返回 JSON：`{enabled, inputs[]}`）。
+     *
+     * 纯本地解析（yaml-rust2），不走网络；失败返回 null。
+     */
+    fun parseWorkflowInputs(yaml: String): String? = try {
+        nativeParseWorkflowInputs(yaml).takeIf { it.isNotBlank() && !it.startsWith("ERROR:") }
+    } catch (e: Throwable) {
+        null
+    }
+
+    /**
+     * 手动触发工作流（`POST /actions/workflows/{id}/dispatches`）。
+     * @param workflowId 工作流 id（数字以字符串传递，沿用现有 JNI 约定）
+     * @param ref 分支或标签名
+     * @param inputsJson 输入参数 JSON 对象字符串（如 `{"version":"1.0.13"}`）
+     * @return null = 成功（GitHub 返回 204）；其他 = 失败原因
+     */
+    suspend fun dispatchWorkflow(
+        host: String,
+        token: String,
+        owner: String,
+        repo: String,
+        workflowId: Long,
+        ref: String,
+        inputsJson: String,
+    ): String? = withContext(Dispatchers.IO) {
+        try {
+            err(nativeDispatchWorkflow(host, token, owner, repo, workflowId.toString(), ref, inputsJson))
+        } catch (e: Throwable) {
+            "引擎不可用"
+        }
+    }
 }

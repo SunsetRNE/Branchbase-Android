@@ -116,6 +116,10 @@ fun RepositoryScreen(
     var pullPage by remember { mutableStateOf(initial?.pullNumber) }
     var commitPage by remember { mutableStateOf(initial?.commitSha) }
     var workflowRunsPage by remember { mutableStateOf<Pair<Long, String>?>(null) } // (workflowId, name)
+    // 工作流：当前运行历史所属的完整条目（操作抽屉需要 path/htmlUrl）+ 抽屉/执行页目标
+    var runsWorkflow by remember { mutableStateOf<WorkflowItem?>(null) }
+    var workflowAction by remember { mutableStateOf<WorkflowItem?>(null) }
+    var dispatchTarget by remember { mutableStateOf<WorkflowItem?>(null) }
     var runDetailPage by remember { mutableStateOf(initial?.runId) }
     var jobDetailPage by remember { mutableStateOf<Long?>(null) }
     var showBranchSync by remember { mutableStateOf(false) }
@@ -207,6 +211,33 @@ fun RepositoryScreen(
             owner = owner,
             repo = repo,
             branch = branch,
+        )
+    }
+
+    // 工作流操作抽屉（长按工作流 / 运行历史右上角按钮召唤）。
+    // 放在所有全屏页分支之前：运行历史/执行页都是「提前 return」的，放尾部会渲染不到。
+    val acting = workflowAction
+    if (acting != null) {
+        WorkflowActionSheet(
+            sessionJson = sessionJson,
+            owner = owner,
+            repo = repo,
+            workflow = acting,
+            onDismiss = { workflowAction = null },
+            onDispatch = {
+                workflowAction = null
+                dispatchTarget = acting
+            },
+            onOpenFile = {
+                workflowAction = null
+                if (acting.path.isNotBlank()) filePage = acting.path to null
+            },
+            onOpenBrowser = {
+                workflowAction = null
+                acting.htmlUrl.takeIf { it.isNotBlank() }?.let { url ->
+                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                }
+            },
         )
     }
 
@@ -405,6 +436,26 @@ fun RepositoryScreen(
         return
     }
 
+    // 手动触发工作流（全屏）
+    val dispatching = dispatchTarget
+    if (dispatching != null) {
+        BackHandler { dispatchTarget = null }
+        WorkflowDispatchScreen(
+            sessionJson = sessionJson,
+            owner = owner,
+            repo = repo,
+            workflow = dispatching,
+            defaultRef = branch ?: "main",
+            onBack = { dispatchTarget = null },
+            onDispatched = {
+                dispatchTarget = null
+                // 回到运行历史并刷新，让新触发的记录尽快出现
+                refreshTick++
+            },
+        )
+        return
+    }
+
     // 工作流运行历史
     if (workflowRunsPage != null) {
         BackHandler { workflowRunsPage = null }
@@ -415,8 +466,10 @@ fun RepositoryScreen(
             workflowId = workflowRunsPage!!.first,
             workflowName = workflowRunsPage!!.second,
             branch = branch,
+            refreshTick = refreshTick,
             onBack = { workflowRunsPage = null },
             onOpenRun = { runDetailPage = it },
+            onOpenActions = { runsWorkflow?.let { workflowAction = it } },
         )
         return
     }
@@ -457,7 +510,11 @@ fun RepositoryScreen(
                         )
                         RepoPage.Code -> RepositoryCodeContent(sessionJson, owner, repo, branch, refreshTick, onOpenFile = { filePage = it to null })
                         RepoPage.Issues -> IssueListContent(sessionJson, owner, repo, refreshTick, onItemClick = { issuePage = it.number })
-                        RepoPage.Workflows -> WorkflowListContent(sessionJson, owner, repo, branch, refreshTick, onItemClick = { workflowRunsPage = it.id to it.name })
+                        RepoPage.Workflows -> WorkflowListContent(
+                            sessionJson, owner, repo, branch, refreshTick,
+                            onItemClick = { runsWorkflow = it; workflowRunsPage = it.id to it.name },
+                            onLongPress = { workflowAction = it },
+                        )
                         RepoPage.Releases -> ReleaseListContent(
                             sessionJson = sessionJson, owner = owner, repo = repo, refreshTick = refreshTick,
                             onOpenDetail = { releaseDetail = it },

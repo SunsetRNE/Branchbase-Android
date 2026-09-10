@@ -34,9 +34,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.cache.PageCache
+import com.branchbase.cache.SearchCacheDatabase
+import com.branchbase.cache.SearchCacheManager
+import com.branchbase.core.AccountStore
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.Dispatchers
@@ -71,15 +76,54 @@ fun SecurityAlertScreen(
     var detail by remember { mutableStateOf<SecurityDetail?>(null) }
     var loading by remember { mutableStateOf(true) }
 
-    LaunchedEffect(owner, repo, subjectUrl) {
+    val context = LocalContext.current
+    val cacheManager = remember(context) {
+        SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+    }
+    // subject.url → 告警接口路径（如 `/repos/o/r/dependabot/alerts/1`）；null = 无法从 URL 提取
+    val path = remember(subjectUrl) { extractPathFromUrl(subjectUrl) }
+    // 键选 profileKey 而非 notificationKey：同一告警路径的结果受**令牌权限**影响
+    // （私有仓库的 Dependabot / code scanning 告警对无权限账号会返回骨架或 404），
+    //   而 notificationKey 只按 path 建键，会让两个账号在同设备上互相污染缓存。
+    //   profileKey 带 login，把结果绑定到当前账号；TTL 仍用 TYPE_NOTIFICATION（2 分钟）。
+    val login = remember(sessionJson) {
+        runCatching { JSONObject(sessionJson).getJSONObject("user").optString("login") }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() && it != "null" }
+            ?: AccountStore.currentLogin(context)
+    }
+    val cacheKey = remember(login, path) {
+        path?.let { PageCache.profileKey(login, "security:$it") }
+    }
+
+    LaunchedEffect(owner, repo, subjectUrl, cacheKey) {
         loading = true
         detail = null
-        val path = extractPathFromUrl(subjectUrl)
-        if (path != null) {
-            val json = withContext(Dispatchers.IO) { RustBridge.getJson(host, token, path) }
-            if (json != null && !json.startsWith("ERROR:")) {
-                detail = parseSecurityDetail(json)
-            }
+        if (path == null || cacheKey == null) {
+            loading = false
+            return@LaunchedEffect
+        }
+        // force 恒为 false：本页没有下拉刷新/重试入口（未新增 UI），直出 + 回源即可
+        val force = false
+
+        // ① 先直出缓存（含过期）：从通知列表点同一条告警不再空转
+        // 注意 parseSecurityDetail 恒非空（失败时返回空 SecurityDetail），所以用「本次是否直出成功」的标志位判定
+        val cached = PageCache.cachedFirst(cacheManager, cacheKey, PageCache.TYPE_NOTIFICATION, force)
+        val shown = cached != null
+        cached?.let {
+            detail = parseSecurityDetail(it)
+            loading = false
+        }
+
+        // ② 回源并写回（未过期时 refresh 直接返回缓存，不发请求；失败返回 null 且不覆盖旧缓存）
+        val json = PageCache.refresh(cacheManager, cacheKey, PageCache.TYPE_NOTIFICATION, force) {
+            withContext(Dispatchers.IO) { RustBridge.getJson(host, token, path) }
+        }
+        if (json != null && !json.startsWith("ERROR:")) {
+            detail = parseSecurityDetail(json)
+        } else if (!shown) {
+            // 无缓存可直出时才保留原有的「回退骨架」语义（detail 保持 null）
+            detail = null
         }
         loading = false
     }
