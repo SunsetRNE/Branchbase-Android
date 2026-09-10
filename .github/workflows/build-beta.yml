@@ -115,14 +115,8 @@ jobs:
       - name: 生成改动记录（锚定上一个 beta 标签）
         id: notes
         run: |
-          {
-            echo "🧪 **Beta 测试版（Debug 签名）**"
-            echo ""
-            echo "- 版本：\`${{ steps.tag.outputs.tag }}\`"
-            echo "- 标准版本号：\`${{ needs.build.outputs.standardVersion }}\`"
-            echo "- 提交：\`${{ needs.build.outputs.gitHash }}\` · 构建时间：${{ needs.build.outputs.buildTime }}"
-            echo ""
-          } > release-body.md
+          # 正文只含两个引用区（「代码变更引用」+「代码提交描述引用」）；
+          # 版本信息由最后一步追加到**整页末尾**（含官方自动说明之后）。
           bash tools/build/release-notes.sh \
             --repo "${{ github.repository }}" \
             --tag "${{ steps.tag.outputs.tag }}" \
@@ -160,3 +154,29 @@ jobs:
             verify/signature.txt
           prerelease: true
           draft: false
+
+      # 版本信息排到整页末尾：先读回当前正文（含 GitHub 官方自动说明），再追加后写回。
+      # 这样页面顺序是「代码变更引用 → 代码提交描述引用 → 官方自动说明 → 版本信息」。
+      - name: 追加版本信息到发布页末尾
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          BODY=$(gh release view "$TAG" --repo "${{ github.repository }}" --json body -q .body)
+          {
+            printf '%s\n\n' "$BODY"
+            echo "---"
+            echo ""
+            echo "### 版本信息"
+            echo ""
+            echo "| 项 | 值 |"
+            echo "| --- | --- |"
+            echo "| 版本 | \`$TAG\` |"
+            echo "| 标准版本号 | \`${{ needs.build.outputs.standardVersion }}\` |"
+            echo "| 版本码 | \`${{ needs.build.outputs.versionCode }}\` |"
+            echo "| 提交 | \`${{ needs.build.outputs.gitHash }}\` |"
+            echo "| 构建时间 | ${{ needs.build.outputs.buildTime }} |"
+            echo "| 签名 | Debug 签名（测试版专用） |"
+          } > final-body.md
+          gh release edit "$TAG" --repo "${{ github.repository }}" --notes-file final-body.md
+          echo "✅ 版本信息已追加到发布页末尾" 

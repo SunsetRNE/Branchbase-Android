@@ -104,18 +104,75 @@ fi
 TOTAL=$(collect_commits "$RANGE" | grep -c . || true)
 mapfile -t COMMITS < <(collect_commits "$RANGE" | head -n "$MAX")
 
-# ── ③ 生成 markdown ──
+# ── ③ 变更统计（供「代码变更引用」用） ──
+#
+# 注意：文件diff用 `git diff --numstat`，二进制文件输出 `-\t-\tpath`，需要单独处理。
+FILES_LIST=()
+FILE_ADD=0
+FILE_DEL=0
+if [ -n "$PREVIOUS" ]; then
+  while IFS=$'\t' read -r added deleted path; do
+    [ -z "${path:-}" ] && continue
+    FILES_LIST+=("$added"$'\t'"$deleted"$'\t'"$path")
+    [[ "$added" =~ ^[0-9]+$ ]] && FILE_ADD=$((FILE_ADD + added))
+    [[ "$deleted" =~ ^[0-9]+$ ]] && FILE_DEL=$((FILE_DEL + deleted))
+  done < <(git diff --numstat "$PREVIOUS..HEAD" 2>/dev/null || true)
+fi
+FILE_COUNT=${#FILES_LIST[@]}
+
+# ── ④ 生成 markdown ──
+#
+# 结构（版本号信息不在这里，由工作流在发布后用 gh release edit 追加到**整页末尾**）：
+#   ## 代码变更引用        —— 完整对比 / 变更范围 / 上一发布 / 变更文件（折叠）
+#   ## 代码提交描述引用     —— 逐条提交（sha 链接 + 提交描述）
 generate() {
-  echo "## 改动记录"
+  # ── 代码变更引用 ──
+  echo "## 代码变更引用"
   echo ""
   if [ -n "$PREVIOUS" ]; then
-    echo "自 [\`$PREVIOUS\`]($BASE_URL/releases/tag/$PREVIOUS) 以来的 **${TOTAL}** 个提交"
-    echo "（[完整对比]($BASE_URL/compare/$PREVIOUS...$TAG)）："
+    echo "- **完整对比**：[\`$PREVIOUS\` → \`$TAG\`]($BASE_URL/compare/$PREVIOUS...$TAG)"
+    stats="**$TOTAL** 个提交"
+    if [ "$FILE_COUNT" -gt 0 ]; then
+      stats="$stats · **$FILE_COUNT** 个文件 · +$FILE_ADD −$FILE_DEL"
+    fi
+    echo "- **变更范围**：$stats"
+    echo "- **上一发布**：[\`$PREVIOUS\`]($BASE_URL/releases/tag/$PREVIOUS)"
   else
-    echo "首次发布（无上一个标签），列出最近 **${TOTAL}** 个提交："
+    echo "- **完整对比**：首次发布（无上一个标签），暂无对比基准"
+    echo "- **变更范围**：最近 **$TOTAL** 个提交"
   fi
   echo ""
 
+  # 变更文件清单（折叠；按变更行数降序，最多列 MAX_FILES 个）
+  local MAX_FILES=25
+  if [ "$FILE_COUNT" -gt 0 ]; then
+    echo "<details>"
+    echo "<summary>变更文件（$FILE_COUNT 个，点击展开）</summary>"
+    echo ""
+    local i=0 entry added deleted path label
+    while IFS=$'\t' read -r added deleted path; do
+      [ -z "${path:-}" ] && continue
+      i=$((i + 1))
+      [ "$i" -gt "$MAX_FILES" ] && break
+      if [[ "$added" =~ ^[0-9]+$ ]]; then
+        label="+$added −$deleted"
+      else
+        label="二进制"
+      fi
+      printf -- '- `%s` — %s\n' "$path" "$label"
+    done < <(printf '%s\n' "${FILES_LIST[@]}" | awk -F'\t' '{a=($1=="-"||$1=="")?0:$1; d=($2=="-"||$2=="")?0:$2; print a+d"\t"$0}' | sort -rn -k1,1 | cut -f2-)
+    echo ""
+    if [ "$FILE_COUNT" -gt "$MAX_FILES" ]; then
+      echo "> 仅列出变更最大的 $MAX_FILES 个文件，其余见上方「完整对比」。"
+      echo ""
+    fi
+    echo "</details>"
+    echo ""
+  fi
+
+  # ── 代码提交描述引用 ──
+  echo "## 代码提交描述引用"
+  echo ""
   if [ "${TOTAL:-0}" -eq 0 ]; then
     echo "> 本次没有新增提交（可能是同一次构建的重跑）。"
     echo ""

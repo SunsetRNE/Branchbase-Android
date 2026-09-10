@@ -88,13 +88,7 @@ jobs:
       - name: 生成改动记录（锚定上一个正式版标签）
         id: notes
         run: |
-          {
-            echo "📦 **正式版 Release**"
-            echo ""
-            echo "- 版本：`v${{ needs.build.outputs.versionName }}`"
-            echo "- 版本码：`${{ needs.build.outputs.versionCode }}` · 提交：`${{ needs.build.outputs.gitHash }}` · 构建时间：${{ needs.build.outputs.buildTime }}"
-            echo ""
-          } > release-body.md
+          # 正文只含两个引用区；版本信息由最后一步追加到整页末尾
           bash tools/build/release-notes.sh \
             --repo "${{ github.repository }}" \
             --tag "v${{ needs.build.outputs.versionName }}" \
@@ -131,3 +125,27 @@ jobs:
           draft: false
           # 正式版设为 latest（Beta 是 pre-release，不会抢占）
           make_latest: true
+
+      # 版本信息排到整页末尾（在官方自动说明之后）
+      - name: 追加版本信息到发布页末尾
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ needs.build.outputs.versionName }}"
+          BODY=$(gh release view "$TAG" --repo "${{ github.repository }}" --json body -q .body)
+          {
+            printf '%s\n\n' "$BODY"
+            echo "---"
+            echo ""
+            echo "### 版本信息"
+            echo ""
+            echo "| 项 | 值 |"
+            echo "| --- | --- |"
+            echo "| 版本 | \`$TAG\` |"
+            echo "| 版本码 | \`${{ needs.build.outputs.versionCode }}\` |"
+            echo "| 提交 | \`${{ needs.build.outputs.gitHash }}\` |"
+            echo "| 构建时间 | ${{ needs.build.outputs.buildTime }} |"
+            echo "| 签名 | Release 签名 |"
+          } > final-body.md
+          gh release edit "$TAG" --repo "${{ github.repository }}" --notes-file final-body.md
+          echo "✅ 版本信息已追加到发布页末尾" 
