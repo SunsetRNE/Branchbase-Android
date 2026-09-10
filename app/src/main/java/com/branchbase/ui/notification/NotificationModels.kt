@@ -46,6 +46,10 @@ data class Notification(
     val subjectType: String,        // 原始 subject.type
     val title: String,              // subject.title
     val url: String,                // subject.url（跳转解析用）
+    // subject.latest_comment_url：该 thread 最新一条评论的 API URL。
+    // 通知行里的「内容预览」（谁说了什么）靠它拉取，见 NotificationPreviewLoader.kt。
+    // 注意它可能退化成 issue/PR 本体或 commit/discussion 的 URL，因此消费方必须校验形态。
+    val latestCommentUrl: String?,
     val repoFullName: String,       // repository.full_name
     val updatedAt: String,          // 原始 ISO8601
     // ── 派生字段 ──
@@ -146,6 +150,9 @@ fun parseNotifications(json: String): List<Notification> = runCatching {
             subjectType = subjectType,
             title = subject.optString("title").ifBlank { "（无标题）" },
             url = subject.optString("url"),
+            // optString 遇到 JSON null 会返回字符串 "null"，显式滤掉
+            latestCommentUrl = subject.optString("latest_comment_url")
+                .takeIf { it.isNotBlank() && it != "null" },
             repoFullName = fullName,
             updatedAt = o.optString("updated_at"),
             kind = tm.kind,
@@ -161,6 +168,24 @@ fun parseNotifications(json: String): List<Notification> = runCatching {
         )
     }
 }.getOrDefault(emptyList())
+
+/**
+ * 类型筛选用到的**短名**。
+ *
+ * 筛选栏的四格各占 1/4 宽（约 79dp，去掉内边距只剩 67dp），「Pull Request」这类原名会被
+ * 省略号吃掉半截，于是格子显示「Pull Requ…」、点开菜单又显示全名，两处对不上。
+ * 这里统一给短名：格子与下拉菜单都显示同一份文案，且都能完整放下。
+ * 只影响显示，筛选比对用的始终是原始的 `subjectType`。
+ */
+fun typeShortName(subjectType: String): String = when (subjectType) {
+    "PullRequest" -> "PR"
+    "Discussion" -> "讨论"
+    "Release" -> "版本"
+    "Commit" -> "提交"
+    "CheckSuite", "CheckRun", "WorkflowRun" -> "工作流"
+    "RepositoryVulnerabilityAlert", "RepositoryAdvisory" -> "安全"
+    else -> subjectType
+}
 
 /** 决策渲染：subject.type → 落地页路由目标 */
 fun resolveTarget(n: Notification): NotifTarget = when (n.subjectType) {

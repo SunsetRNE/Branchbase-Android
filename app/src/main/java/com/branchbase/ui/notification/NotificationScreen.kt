@@ -2,18 +2,19 @@ package com.branchbase.ui.notification
 
 import android.content.Context
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -49,8 +50,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.SwipeToDismissBox
@@ -73,11 +72,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
@@ -107,6 +109,9 @@ private sealed interface LoadState {
 
 /** 批量操作顺序执行时每条之间的间隔（毫秒）：避免同一秒内连发多次写请求触发二级速率限制 */
 private const val NOTIF_BULK_GAP_MS = 120L
+
+/** 一次最多预取多少条 issue/PR 内容预览（每条一次额外请求，宁少勿多，避免二级速率限制） */
+private const val NOTIF_PREVIEW_MAX = 12
 
 /**
  * 消息（通知收件箱）页。
@@ -141,6 +146,8 @@ fun NotificationScreen(
     }
 
     val context = LocalContext.current
+    // 长按进入多选时给一次震动反馈：多选是「模式切换」，没有触觉提示时用户常误以为没生效
+    val haptics = LocalHapticFeedback.current
     val prefs = remember { context.getSharedPreferences("branchbase", Context.MODE_PRIVATE) }
     // 通知列表缓存（TTL 2 分钟，兼顾「未读」时效性）：返回上一层再进来先直出，再后台回源
     val cacheManager = remember(context) {
@@ -169,6 +176,10 @@ fun NotificationScreen(
     // 多选模式：只以「选中集合」为状态本身，进入/退出都由它推导，避免两个状态不同步
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var bulkRunning by remember { mutableStateOf(false) }
+
+    // issue/PR 内容预览：threadId → 最新评论（作者 + 正文），见 NotificationPreviewLoader.kt。
+    // 只增不减：列表刷新 / 标记已读都不清空，避免「已经取回来的预览又消失」这种闪烁。
+    var previews by remember { mutableStateOf<Map<String, NotificationPreview>>(emptyMap()) }
 
     /** 当前列表查询串（缓存键与失效都依赖它，保证两处永远一致） */
     fun listPath(beforeCursor: String? = null): String = buildString {
@@ -261,6 +272,43 @@ fun NotificationScreen(
     }
     LaunchedEffect(participating) { load() }
 
+    // ── issue/PR 内容预览 ──
+    // 通知行原本只有「标题 + 仓库 #编号 + 触发动因」，「提到了你」后面到底是一句评审意见
+    // 还是一个「+1」必须点进详情才知道。这里按需预取最新评论正文补在标题下面。
+    // 三条约束（预览是纯增强，绝不能反过来拖累主列表）：
+    // ① 只取**未读**的 Issue/PullRequest，且最多前 [NOTIF_PREVIEW_MAX] 条 —— 每条预览都是一次额外
+    //    HTTP，全量预取会撞 GitHub 二级速率限制（被限流时整个通知列表一起拉不到）；
+    // ② 并发上限 2（在 prefetchPreviews 内部用 Semaphore 控制），并用 TYPE_NOTIFICATION 缓存
+    //    兜住滚动 / 重组 / 退出再进的重复请求；
+    // ③ 任何一条失败都静默跳过（loader 内部 runCatching），不 Toast、不打断、不影响列表加载态。
+    val previewTargets = items.filter {
+        it.unread &&
+            (it.subjectType == "Issue" || it.subjectType == "PullRequest") &&
+            !it.latestCommentUrl.isNullOrBlank()
+    }.take(NOTIF_PREVIEW_MAX)
+    val previewUrlById = previewTargets.associate { it.id to it.latestCommentUrl }
+    // 已发起过预取的 thread（含失败与空正文）：只用于去重，不作为 LaunchedEffect 的 key
+    val previewRequested = remember { mutableSetOf<String>() }
+    val previewCandidates = previewTargets.map { it.id }
+    // ⚠️ 两个「必须这样写」的点，写错了功能只在第一条上生效：
+    // ① key 只取「候选集合」，**不能**包含「已取到的预览」—— 否则第一条结果回流就改变 key、
+    //    触发 LaunchedEffect 重启并取消整批预取，剩下 11 条永远发不出去（表现为只出 1 条预览）；
+    // ② 真正的请求放进页面级 scope 而不是 LaunchedEffect 自己的协程：候选集合因刷新 / 标记已读
+    //    变化时，effect 会被重启，但在跑的这批请求不该跟着被掐断（去重交给 previewRequested）。
+    LaunchedEffect(previewCandidates) {
+        val fresh = previewCandidates.filter { previewRequested.add(it) }
+        if (fresh.isEmpty()) return@LaunchedEffect
+        scope.launch {
+            prefetchPreviews(
+                context = context,
+                host = host,
+                token = token,
+                threadIds = fresh,
+                commentUrlOf = { id -> previewUrlById[id] },
+            ) { p -> previews = previews + (p.threadId to p) }
+        }
+    }
+
     fun toggleGroup(key: String) {
         expandedGroups.value = if (key in expandedGroups.value) expandedGroups.value - key else expandedGroups.value + key
     }
@@ -302,16 +350,33 @@ fun NotificationScreen(
         bulkRunning = false
     }
 
-    /** 长按进入多选并选中该行；多选下只看「全部」，避免筛选把行藏起来导致已选行不可见 */
+    /**
+     * 长按进入多选并选中该行。
+     *
+     * 重做要点：**不再修改筛选条件**。旧实现进入多选时强制 `filter = ALL` + 清空类型筛选，
+     * 结果是「长按的那一行可能因为筛选被换掉而跑位甚至消失」——用户长按的是眼前这一条，
+     * 列表却在同一帧里换了一批数据，多选刚建立就失去了参照。现在筛选保持原样：
+     * 长按谁就选谁，列表原地不动（`visible` 不变），多选的作用域始终等于**当前筛选下可见的行**。
+     *
+     * 由此带来的两个配套改动：
+     * 1. 分组布局（按仓库 / 按会话 / 两级）下同样可以多选：进入多选时所有分组强制展开
+     *    （见 `NotificationList(forceExpandGroups = ...)`），避免「已选的行被折叠在分组里看不见」；
+     * 2. 「全选」只作用于当前可见的行（含筛选），语义与用户所见一致。
+     */
     fun enterSelection(n: Notification) {
-        filter = NotifFilter.ALL
-        typeFilter = null
         typeMenu = false
         selectedIds = setOf(n.id)
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
     }
 
     fun toggleSelection(n: Notification) {
         selectedIds = if (n.id in selectedIds) selectedIds - n.id else selectedIds + n.id
+    }
+
+    /** 整组选中 / 取消整组（多选态下点分组头）：全选中则整组取消，否则补齐，避免逐条点 */
+    fun toggleGroupSelection(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        selectedIds = if (ids.all { it in selectedIds }) selectedIds - ids else selectedIds + ids
     }
 
     /**
@@ -385,6 +450,10 @@ fun NotificationScreen(
 
     val inSelection = selectedIds.isNotEmpty()
 
+    // 多选态下返回键 = 退出多选（而不是退出页面）：多选时不看内容，返回键留给「取消选择」更符合预期。
+    // enabled = inSelection，非多选态下不拦截，返回键行为完全不变。
+    BackHandler(enabled = inSelection) { exitSelection() }
+
     Column(Modifier.fillMaxSize().background(Primer.BackgroundPrimary)) {
         // 顶部栏（不参与滚动 / 不参与下拉）：标题 + 未读胶囊徽标 + 刷新 + 全部已读
         TopBar(
@@ -409,12 +478,14 @@ fun NotificationScreen(
             },
         )
 
-        // 多选操作条：替代筛选行占据同一位置（默认平铺布局下才允许多选）
+        // 多选操作条：替代筛选行占据同一位置（与筛选行同为一行高度，切换时列表不跳）
         if (inSelection) {
             SelectionBar(
                 selectedCount = selectedIds.size,
+                visibleCount = visible.size,
                 allSelected = selectedIds.size >= visible.size && visible.isNotEmpty(),
                 enabled = !bulkRunning,
+                running = bulkRunning,
                 onSelectAllToggle = {
                     selectedIds = if (selectedIds.size >= visible.size) emptySet() else visible.map { it.id }.toSet()
                 },
@@ -428,8 +499,9 @@ fun NotificationScreen(
         // 筛选行固定在列表之上（不随列表滚动）：
         // ① 下拉刷新的圆形指示器画在 PullToRefreshBox 顶部，若筛选行是列表首项会被它盖住；
         // ② 固定后筛选条件随时可见，也避免「加载中筛选行跟着骨架一起动」。
-        // 多选态下不显示筛选行：进入多选时已把筛选固定为「全部 + 无类型筛选」，
-        // 再显示 chip 只会多占一行高度并把列表往下推（两者互斥，位置也对得上原注释）。
+        // 多选态下筛选行让位给多选条（两者同一位置、同一高度，切换时列表不跳）；
+        // 筛选条件本身保持不变 —— 「已选 N / 共 M 项」里的 M 就是当前筛选下的可见条数，
+        // 用户由此知道多选的作用范围，不会因为筛选行消失而失去上下文。
         if (!inSelection) {
             FilterRow(
                 filter = filter,
@@ -463,11 +535,17 @@ fun NotificationScreen(
                 expandedGroups = expandedGroups.value,
                 onToggleGroup = { toggleGroup(it) },
                 typeFilter = typeFilter,
-                selectionEnabled = layout.value == NotifLayout.FLAT,
+                // 多选在 4 种布局下都可用：以「是否处于多选态」为开关，
+                // 而不是旧的「是否平铺布局」—— 旧写法让分组布局完全无法多选，
+                // 且右滑已读的开关被这个标志顺带绑成了「仅平铺可用」（见 NotificationRow）
+                selectionEnabled = inSelection,
+                forceExpandGroups = inSelection,
+                previews = previews,
                 selectedIds = selectedIds,
                 onClick = { onNotifClick(it) },
                 onLongClick = { enterSelection(it) },
                 onToggleSelection = { toggleSelection(it) },
+                onToggleGroupSelection = { toggleGroupSelection(it) },
                 onSwipeRead = { markReadLocal(it.id); markReadRemote(it) },
                 hasMore = hasMore,
                 loadingMore = loadingMore,
@@ -522,7 +600,16 @@ private fun TopBar(unread: Int, onRefresh: () -> Unit, onMarkAllRead: () -> Unit
     }
 }
 
-/** 筛选行：Material3 FilterChip 统一 token（未读 N / 全部 N / 参与 / 类型） */
+/**
+ * 筛选栏：**4 等分格**（每格 `weight(1f)`）。
+ *
+ * 重做要点（对齐「填充比例 + 数字显示」的诉求）：
+ * - 旧版是 `FlowRow` + 内容宽度自适应：四个 chip 宽度随文字长短参差不齐，数字拼在文字里
+ *   （「未读 3」），既不好扫读也对不齐；
+ * - 现在四格等宽（各占 1/4），标签与数字**分离**：数字用独立徽标呈现，
+ *   0 不显示、>99 显示 99+、选中态徽标反色（白底蓝字）；
+ * - 「类型」格显示当前类型名（超长省略）+ 下拉箭头。
+ */
 @Composable
 private fun FilterRow(
     filter: NotifFilter,
@@ -537,22 +624,40 @@ private fun FilterRow(
     typeMenu: Boolean,
     onTypeMenuChange: (Boolean) -> Unit,
 ) {
-    FlowRow(
-        // 标签较长的语言（如「提到了你的团队」类型名较长）下自动换行，避免窄屏挤爆
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        NotifChip("未读 $unreadCount", filter == NotifFilter.UNREAD) { onFilterChange(NotifFilter.UNREAD) }
-        NotifChip("全部 $totalCount", filter == NotifFilter.ALL) { onFilterChange(NotifFilter.ALL) }
-        NotifChip("参与", participating) { onParticipatingChange(!participating) }
-        Box {
-            NotifChip(
-                label = typeFilter ?: "类型",
+        FilterCell(
+            label = "未读",
+            count = unreadCount,
+            selected = filter == NotifFilter.UNREAD,
+            modifier = Modifier.weight(1f),
+        ) { onFilterChange(NotifFilter.UNREAD) }
+
+        FilterCell(
+            label = "全部",
+            count = totalCount,
+            selected = filter == NotifFilter.ALL,
+            modifier = Modifier.weight(1f),
+        ) { onFilterChange(NotifFilter.ALL) }
+
+        FilterCell(
+            label = "参与",
+            count = null,
+            selected = participating,
+            modifier = Modifier.weight(1f),
+        ) { onParticipatingChange(!participating) }
+
+        Box(Modifier.weight(1f)) {
+            FilterCell(
+                label = typeFilter?.let { typeShortName(it) } ?: "类型",
+                count = null,
                 selected = typeFilter != null,
-                trailing = { Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                onClick = { onTypeMenuChange(true) },
-            )
+                showArrow = true,
+                modifier = Modifier.fillMaxWidth(),
+            ) { onTypeMenuChange(true) }
             DropdownMenu(expanded = typeMenu, onDismissRequest = { onTypeMenuChange(false) }) {
                 DropdownMenuItem(
                     text = { Text("全部类型", fontSize = 13.sp) },
@@ -560,7 +665,8 @@ private fun FilterRow(
                 )
                 allTypes.forEach { t ->
                     DropdownMenuItem(
-                        text = { Text(t, fontSize = 13.sp) },
+                        // 与格子里的显示保持一致（同一份短名），避免「选了 PR 却显示 Pull Request」
+                        text = { Text(typeShortName(t), fontSize = 13.sp) },
                         onClick = { onTypeFilterChange(t); onTypeMenuChange(false) },
                     )
                 }
@@ -569,91 +675,141 @@ private fun FilterRow(
     }
 }
 
+/** 筛选格：标签 + 计数徽标（+ 可选下拉箭头）；四格等宽由调用方 `weight(1f)` 决定。 */
 @Composable
-private fun NotifChip(
+private fun FilterCell(
     label: String,
+    count: Int?,
     selected: Boolean,
-    trailing: (@Composable () -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    showArrow: Boolean = false,
     onClick: () -> Unit,
 ) {
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        label = { Text(label, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold) },
-        trailingIcon = trailing,
-        colors = FilterChipDefaults.filterChipColors(
-            containerColor = Primer.Gray150,
-            labelColor = Primer.TextSecondary,
-            selectedContainerColor = Primer.Blue500,
-            selectedLabelColor = Color.White,
-        ),
-        border = FilterChipDefaults.filterChipBorder(
-            enabled = true,
-            selected = selected,
-            borderColor = Primer.Gray200,
-            selectedBorderColor = Primer.Blue500,
-        ),
-    )
+    val fg = if (selected) Color.White else Primer.TextSecondary
+    Row(
+        modifier = modifier
+            .height(34.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (selected) Primer.Blue500 else Primer.Gray150)
+            .border(1.dp, if (selected) Primer.Blue500 else Primer.Gray200, RoundedCornerShape(8.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 6.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = fg,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            // 类型名可能很长：允许收缩并省略，避免把箭头挤出格子
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        if (count != null && count > 0) {
+            Spacer(Modifier.width(4.dp))
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(if (selected) Color.White else Primer.Blue500.copy(alpha = 0.14f))
+                    .padding(horizontal = 5.dp, vertical = 1.dp),
+            ) {
+                Text(
+                    if (count > 99) "99+" else "$count",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (selected) Primer.Blue500 else Primer.Blue500,
+                    maxLines = 1,
+                )
+            }
+        }
+        if (showArrow) {
+            Spacer(Modifier.width(2.dp))
+            Icon(
+                Icons.Filled.KeyboardArrowDown,
+                contentDescription = null,
+                tint = fg,
+                modifier = Modifier.size(14.dp),
+            )
+        }
+    }
 }
 
-/** 多选模式操作条：已选 N 项 + 全选/取消全选 + 已读/完成/静音 + 退出 */
+/**
+ * 多选操作条：**单行**（高度与筛选行一致，均为 46dp）。
+ *
+ * 重做要点：旧版是「一行计数 + 一行操作按钮」的两行结构（≈100dp），进入多选时列表整体下移
+ * 一大截，刚长按选中的那一行会直接从视野里被推走 —— 用户会以为「长按没生效」。
+ * 现在压成单行：左侧计数（含可见总数），右侧 5 个 40dp 圆形图标按钮，
+ * 与筛选行同高 ⇒ 进入/退出多选时列表**原地不动**。
+ *
+ * 按钮顺序按使用频率排：全选 → 已读 → 完成 → 静音 → 退出。
+ * 每条都有 `contentDescription`（无语义按钮在无障碍下就是隐形按钮）。
+ */
 @Composable
 private fun SelectionBar(
     selectedCount: Int,
+    visibleCount: Int,
     allSelected: Boolean,
     enabled: Boolean,
+    running: Boolean,
     onSelectAllToggle: () -> Unit,
     onRead: () -> Unit,
     onDone: () -> Unit,
     onMute: () -> Unit,
     onExit: () -> Unit,
 ) {
-    Column(
+    Row(
         Modifier
             .fillMaxWidth()
+            .height(46.dp)
             .background(Primer.Blue500.copy(alpha = 0.06f))
-            .padding(horizontal = 12.dp, vertical = 4.dp),
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "已选 $selectedCount 项",
-                fontSize = 12.5.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Primer.TextPrimary,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = onSelectAllToggle, enabled = enabled) {
-                Icon(
-                    Icons.Filled.SelectAll,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = if (enabled) Primer.Blue500 else Primer.Gray300,
-                )
-                Spacer(Modifier.width(4.dp))
-                Text(if (allSelected) "取消全选" else "全选", fontSize = 12.5.sp, color = if (enabled) Primer.Blue500 else Primer.Gray300)
-            }
-            IconButton(onClick = onExit, enabled = enabled) {
-                Icon(Icons.Filled.Close, contentDescription = "退出多选", tint = Primer.IconPrimary)
-            }
+        // 计数：M 是当前筛选下的可见条数，让「全选」的范围可预期；
+        // 批量执行期间换成进度文案（串行请求 + 120ms 间隔，条数多时要几秒）
+        if (running) {
+            CircularProgressIndicator(modifier = Modifier.size(14.dp), color = Primer.Blue500, strokeWidth = 2.dp)
+            Spacer(Modifier.width(6.dp))
         }
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            BulkAction("已读", Icons.Filled.MarkEmailRead, enabled) { onRead() }
-            BulkAction("完成", Icons.Filled.Done, enabled) { onDone() }
-            BulkAction("静音", Icons.Filled.VolumeOff, enabled) { onMute() }
-        }
+        Text(
+            if (running) "处理中…" else "已选 $selectedCount / 共 $visibleCount",
+            fontSize = 12.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Primer.TextPrimary,
+            maxLines = 1,
+            modifier = Modifier.weight(1f),
+        )
+        SelectionAction(
+            icon = Icons.Filled.SelectAll,
+            label = if (allSelected) "取消全选" else "全选",
+            enabled = enabled,
+        ) { onSelectAllToggle() }
+        SelectionAction(Icons.Filled.MarkEmailRead, "标记已读", enabled) { onRead() }
+        SelectionAction(Icons.Filled.Done, "标记完成", enabled) { onDone() }
+        SelectionAction(Icons.Filled.VolumeOff, "静音", enabled) { onMute() }
+        // 退出始终可用：即便批量操作正在跑，用户也该能收起多选态（请求会继续在后台跑完）
+        SelectionAction(Icons.Filled.Close, "退出多选", true) { onExit() }
     }
 }
 
+/** 多选条上的单个图标动作（固定 40dp 触控区，图标 18dp） */
 @Composable
-private fun BulkAction(label: String, icon: ImageVector, enabled: Boolean, onClick: () -> Unit) {
-    TextButton(onClick = onClick, enabled = enabled) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp), tint = if (enabled) Primer.Blue500 else Primer.Gray300)
-        Spacer(Modifier.width(4.dp))
-        Text(label, fontSize = 12.5.sp, color = if (enabled) Primer.Blue500 else Primer.Gray300)
+private fun SelectionAction(
+    icon: ImageVector,
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(40.dp)) {
+        Icon(
+            icon,
+            contentDescription = label,
+            modifier = Modifier.size(18.dp),
+            tint = if (enabled) Primer.Blue500 else Primer.Gray300,
+        )
     }
 }
 
@@ -669,10 +825,13 @@ private fun NotificationList(
     onToggleGroup: (String) -> Unit,
     typeFilter: String?,
     selectionEnabled: Boolean,
+    forceExpandGroups: Boolean,
+    previews: Map<String, NotificationPreview>,
     selectedIds: Set<String>,
     onClick: (Notification) -> Unit,
     onLongClick: (Notification) -> Unit,
     onToggleSelection: (Notification) -> Unit,
+    onToggleGroupSelection: (Set<String>) -> Unit,
     onSwipeRead: (Notification) -> Unit,
     hasMore: Boolean,
     loadingMore: Boolean,
@@ -698,6 +857,7 @@ private fun NotificationList(
                     val rowContent: @Composable (Notification) -> Unit = { n ->
                         NotificationRow(
                             n = n,
+                            preview = previews[n.id],
                             selectionEnabled = selectionEnabled,
                             selected = n.id in selectedIds,
                             onClick = { onClick(n) },
@@ -718,7 +878,11 @@ private fun NotificationList(
                                     CollapsibleGroup(
                                         title = repoName,
                                         unreadCount = list.count { it.unread },
-                                        expanded = repoName in expandedGroups,
+                                        expanded = forceExpandGroups || repoName in expandedGroups,
+                                        // 多选态：分组头点击 = 整组选中/取消（逐条点太慢），并显示组内是否已全选
+                                        selectionMode = forceExpandGroups,
+                                        allSelected = list.all { it.id in selectedIds },
+                                        onToggleSelection = { onToggleGroupSelection(list.map { it.id }.toSet()) },
                                         onToggle = { onToggleGroup(repoName) },
                                     ) {
                                         for (n in list) rowContent(n)
@@ -732,7 +896,11 @@ private fun NotificationList(
                                     CollapsibleGroup(
                                         title = list.first().title,
                                         unreadCount = list.count { it.unread },
-                                        expanded = threadKey in expandedGroups,
+                                        expanded = forceExpandGroups || threadKey in expandedGroups,
+                                        // 多选态：分组头点击 = 整组选中/取消（逐条点太慢），并显示组内是否已全选
+                                        selectionMode = forceExpandGroups,
+                                        allSelected = list.all { it.id in selectedIds },
+                                        onToggleSelection = { onToggleGroupSelection(list.map { it.id }.toSet()) },
                                         onToggle = { onToggleGroup(threadKey) },
                                     ) {
                                         for (n in list) rowContent(n)
@@ -746,7 +914,11 @@ private fun NotificationList(
                                     CollapsibleGroup(
                                         title = repoName,
                                         unreadCount = list.count { it.unread },
-                                        expanded = repoName in expandedGroups,
+                                        expanded = forceExpandGroups || repoName in expandedGroups,
+                                        // 多选态：分组头点击 = 整组选中/取消（逐条点太慢），并显示组内是否已全选
+                                        selectionMode = forceExpandGroups,
+                                        allSelected = list.all { it.id in selectedIds },
+                                        onToggleSelection = { onToggleGroupSelection(list.map { it.id }.toSet()) },
                                         onToggle = { onToggleGroup(repoName) },
                                     ) {
                                         for ((tKey, threadList) in list.groupBy { it.url.ifBlank { it.id } }) {
@@ -754,7 +926,11 @@ private fun NotificationList(
                                                 CollapsibleGroup(
                                                     title = threadList.first().title,
                                                     unreadCount = threadList.count { it.unread },
-                                                    expanded = tKey in expandedGroups,
+                                                    expanded = forceExpandGroups || tKey in expandedGroups,
+                                                    // 多选态：分组头点击 = 整组选中/取消（逐条点太慢），并显示组内是否已全选
+                                                    selectionMode = forceExpandGroups,
+                                                    allSelected = threadList.all { it.id in selectedIds },
+                                                    onToggleSelection = { onToggleGroupSelection(threadList.map { it.id }.toSet()) },
                                                     onToggle = { onToggleGroup(tKey) },
                                                 ) {
                                                     for (n in threadList) rowContent(n)
@@ -795,14 +971,18 @@ private fun NotificationList(
  * 识别特征保留「类型图标块」；未读额外有左侧 3dp 蓝色竖条 + 极浅蓝底 + 加粗标题 + 尾点（多重视觉冗余，
  * 不依赖单一信号，色弱 / 灰度屏也能区分）。
  *
- * 手势分工：
- * - 长按 → 多选（仅在 [selectionEnabled] 的平铺布局下）；
- * - 多选态下点击 → 切换选中（不跳转）；
- * - 右滑（StartToEnd）→ 标记已读、复位、不跳转。
+ * 手势分工（[selectionEnabled] = 当前是否处于多选态）：
+ * - 非多选态：点击 → 打开；长按 → 进入多选并选中该行；
+ * - 多选态：点击 → 切换选中（不跳转）；长按不再重复触发进入多选；
+ * - 右滑（StartToEnd）→ 标记已读、复位、不跳转，**多选态下必须关闭**：
+ *   旧实现用「是否平铺布局」同时控制多选和右滑，导致多选态下未选中的未读行仍可被滑动，
+ *   批量选择过程中很容易误触把行标成已读。现在改为「多选态一律禁用右滑」，
+ *   并且右滑在 4 种布局下都可用（此前只在平铺布局可用属于顺带的耦合，并非设计）。
  */
 @Composable
 private fun NotificationRow(
     n: Notification,
+    preview: NotificationPreview? = null,
     selectionEnabled: Boolean,
     selected: Boolean,
     onClick: () -> Unit,
@@ -810,13 +990,13 @@ private fun NotificationRow(
     onToggleSelection: () -> Unit,
     onSwipeRead: () -> Unit,
 ) {
-    SwipeToReadRow(enabled = selectionEnabled && !selected && n.unread, onRead = onSwipeRead) {
+    SwipeToReadRow(enabled = !selectionEnabled && n.unread, onRead = onSwipeRead) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .combinedClickable(
                     onClick = { if (selectionEnabled) onToggleSelection() else onClick() },
-                    onLongClick = { if (selectionEnabled) onLongClick() },
+                    onLongClick = { if (!selectionEnabled) onLongClick() },
                 ),
             shape = RoundedCornerShape(8.dp),
             colors = CardDefaults.cardColors(
@@ -872,6 +1052,29 @@ private fun NotificationRow(
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
+                        // 内容预览：最新评论「作者：正文」。放在标题与元信息之间 ——
+                        // 「谁说了什么」是决定要不要点进去的关键信息，比仓库名/时间更该靠前。
+                        // 未取到（未预取、取失败、正文为空）时整行不占位，行高回到原来的样子。
+                        if (preview != null) {
+                            Spacer(Modifier.height(4.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (preview.avatarUrl.isNotBlank()) {
+                                    AsyncImage(
+                                        model = preview.avatarUrl,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp).clip(CircleShape),
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                }
+                                Text(
+                                    if (preview.author.isBlank()) preview.body else "${preview.author}：${preview.body}",
+                                    fontSize = 12.sp,
+                                    color = Primer.TextSecondary,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                         Spacer(Modifier.height(5.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -957,13 +1160,20 @@ private fun CollapsibleGroup(
     unreadCount: Int,
     expanded: Boolean,
     onToggle: () -> Unit,
+    // 多选态：分组头点击改为「整组选中/取消」，末端用复选框体现组内是否已全选
+    selectionMode: Boolean = false,
+    allSelected: Boolean = false,
+    onToggleSelection: () -> Unit = {},
     content: @Composable () -> Unit,
 ) {
     Column(
         Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(8.dp)).background(Primer.BackgroundSecondary),
     ) {
         Row(
-            Modifier.fillMaxWidth().clickable { onToggle() }.padding(horizontal = 12.dp, vertical = 12.dp),
+            Modifier
+                .fillMaxWidth()
+                .clickable { if (selectionMode) onToggleSelection() else onToggle() }
+                .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -981,13 +1191,22 @@ private fun CollapsibleGroup(
                 }
                 Spacer(Modifier.width(6.dp))
             }
-            val rotation by animateFloatAsState(if (expanded) 90f else 0f, label = "arrow")
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = if (expanded) "收起分组" else "展开分组",
-                tint = Primer.IconSecondary,
-                modifier = Modifier.size(18.dp).rotate(rotation),
-            )
+            if (selectionMode) {
+                // 纯视觉：点击由整个分组头统一消费，避免一次点击被 Checkbox 与 Row 各消费一次
+                Checkbox(
+                    checked = allSelected,
+                    onCheckedChange = null,
+                    modifier = Modifier.size(20.dp),
+                )
+            } else {
+                val rotation by animateFloatAsState(if (expanded) 90f else 0f, label = "arrow")
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = if (expanded) "收起分组" else "展开分组",
+                    tint = Primer.IconSecondary,
+                    modifier = Modifier.size(18.dp).rotate(rotation),
+                )
+            }
         }
         AnimatedVisibility(visible = expanded, enter = expandVertically(), exit = shrinkVertically()) {
             Column(
