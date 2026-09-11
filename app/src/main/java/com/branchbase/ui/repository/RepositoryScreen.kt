@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,14 +15,21 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.CallSplit
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.History
@@ -31,13 +39,16 @@ import androidx.compose.material.icons.filled.CompareArrows
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,9 +58,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.cache.PreloadStore
@@ -62,6 +77,7 @@ import com.branchbase.ui.log.Logger
 import com.branchbase.ui.profile.CommitModePickerDialog
 import com.branchbase.ui.profile.commitMode
 import com.branchbase.ui.profile.saveCommitMode
+import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -124,6 +140,8 @@ fun RepositoryScreen(
     var jobDetailPage by remember { mutableStateOf<Long?>(null) }
     var showBranchSync by remember { mutableStateOf(false) }
     var bubbleExpanded by remember { mutableStateOf(false) }
+    // 分支切换弹窗（原先是一条占满整行的分支横条，现收进顶部栏胶囊）
+    var showBranchDialog by remember { mutableStateOf(false) }
     // 改分支：null = 默认分支；分支列表懒加载；refreshTick 触发强制刷新
     var branch by remember { mutableStateOf<String?>(null) }
     var branches by remember { mutableStateOf<List<BranchItem>>(emptyList()) }
@@ -483,7 +501,10 @@ fun RepositoryScreen(
     ) {
         RepoHeaderRow(
             title = "$owner/$repo",
+            branch = branch,
+            showBranch = page in branchPages,
             onBack = onBack,
+            onOpenBranches = { showBranchDialog = true },
             onRefresh = {
                 // 强制刷新（bypass cache）：清除分支缓存 + README 缓存，再触发重载
                 scope.launch {
@@ -497,9 +518,7 @@ fun RepositoryScreen(
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             Column(Modifier.fillMaxSize()) {
-                if (page in branchPages) {
-                    BranchSelector(branch = branch, branches = branches, cached = branchCached, onSelect = { branch = it })
-                }
+                // 分支选择器已移到顶部栏（刷新按钮左侧），不再占用一整行
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     when (page) {
                         RepoPage.Overview -> RepositoryOverviewContent(
@@ -565,6 +584,21 @@ fun RepositoryScreen(
                 bubbleExpanded = false
                 page = it
                 Logger.ui("打开「${it.label}」", "Compose")
+            },
+        )
+    }
+
+    // 分支切换弹窗（顶部栏分支胶囊触发）
+    if (showBranchDialog) {
+        BranchSwitchDialog(
+            branches = branches,
+            current = branch,
+            cached = branchCached,
+            onDismiss = { showBranchDialog = false },
+            onSelect = { name ->
+                branch = name
+                showBranchDialog = false
+                Logger.ui("切换分支为 $name", "Compose")
             },
         )
     }
@@ -694,75 +728,236 @@ private fun handleLink(
 // ── 顶部导航 ──
 
 @Composable
-private fun RepoHeaderRow(title: String, onBack: () -> Unit, onRefresh: () -> Unit) {
+private fun RepoHeaderRow(
+    title: String,
+    branch: String?,
+    showBranch: Boolean,
+    onBack: () -> Unit,
+    onRefresh: () -> Unit,
+    onOpenBranches: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
             Icons.AutoMirrored.Filled.ArrowBack,
             contentDescription = "返回",
             tint = Primer.IconPrimary,
-            modifier = Modifier.size(24.dp).clickable { onBack() },
+            modifier = Modifier.size(24.dp).iconTap { onBack() },
         )
         Spacer(Modifier.width(8.dp))
-        Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, maxLines = 1, modifier = Modifier.weight(1f))
+        Text(
+            title,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Primer.TextPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (showBranch) {
+            BranchChip(branch = branch, onClick = onOpenBranches)
+            Spacer(Modifier.width(2.dp))
+        }
         Icon(
             Icons.Filled.Refresh,
             contentDescription = "刷新",
             tint = Primer.IconPrimary,
-            modifier = Modifier.size(22.dp).clickable { onRefresh() },
+            modifier = Modifier.size(22.dp).iconTap { onRefresh() },
         )
     }
 }
 
-/** 需要改分支的页面（显示分支选择器） */
+/**
+ * 当前分支胶囊（顶部栏，刷新按钮左侧）。
+ *
+ * 取代了原先占满整行的灰色横条：横条把内容整体下压一行、下拉菜单与横条同宽，
+ * 分支名长了会截断、分支多了只能滚。现在入口是一枚可点胶囊，点开走 [BranchSwitchDialog]。
+ * 名称限宽 96dp（超出省略），避免长分支名把刷新按钮挤出去。
+ */
+@Composable
+private fun BranchChip(branch: String?, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(Primer.Gray150)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 9.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.AutoMirrored.Filled.CallSplit,
+            contentDescription = null,
+            tint = Primer.IconSecondary,
+            modifier = Modifier.size(13.dp),
+        )
+        Spacer(Modifier.width(5.dp))
+        Text(
+            branch?.takeIf { it.isNotBlank() } ?: "默认分支",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Primer.TextPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 96.dp),
+        )
+        Spacer(Modifier.width(3.dp))
+        Text("\u2304", fontSize = 11.sp, color = Primer.TextTertiary)
+    }
+}
+
+/**
+ * 分支切换弹窗。
+ *
+ * 三个此前缺失的能力：
+ * 1. **可搜索** —— 分支动辄上百个，长列表靠滚不现实；
+ * 2. **可滚动** —— 弹窗内固定最大高度，不吃满整屏；
+ * 3. **状态可见** —— 当前分支打勾、受保护分支有标记、列表来自缓存时在标题里说明。
+ */
+@Composable
+private fun BranchSwitchDialog(
+    branches: List<BranchItem>,
+    current: String?,
+    cached: Boolean,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    val keyword = query.trim()
+    val filtered = remember(branches, keyword) {
+        if (keyword.isEmpty()) branches else branches.filter { it.name.contains(keyword, ignoreCase = true) }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("切换分支", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    buildString {
+                        append("共 ${branches.size} 个分支")
+                        if (cached) append(" · 列表来自本地缓存")
+                    },
+                    fontSize = 11.5.sp,
+                    color = Primer.TextTertiary,
+                )
+            }
+        },
+        text = {
+            Column(Modifier.fillMaxWidth()) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Primer.Gray100)
+                        .border(1.dp, Primer.Gray200, RoundedCornerShape(8.dp))
+                        .padding(horizontal = 9.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Filled.Search, contentDescription = null, tint = Primer.TextTertiary, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(7.dp))
+                    Box(Modifier.weight(1f)) {
+                        if (query.isEmpty()) {
+                            Text("搜索分支", fontSize = 12.5.sp, color = Primer.TextTertiary)
+                        }
+                        BasicTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            singleLine = true,
+                            textStyle = TextStyle(fontSize = 12.5.sp, color = Primer.TextPrimary),
+                            cursorBrush = SolidColor(Primer.Blue500),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
+                when {
+                    branches.isEmpty() -> Text(
+                        "分支列表尚未加载完成：稍等片刻，或关闭弹窗后在顶部栏点刷新。",
+                        fontSize = 12.5.sp,
+                        color = Primer.TextTertiary,
+                        lineHeight = 18.sp,
+                        modifier = Modifier.padding(vertical = 10.dp),
+                    )
+                    filtered.isEmpty() -> Text(
+                        "没有匹配「$keyword」的分支",
+                        fontSize = 12.5.sp,
+                        color = Primer.TextTertiary,
+                        modifier = Modifier.padding(vertical = 10.dp),
+                    )
+                    else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
+                        items(filtered, key = { it.name }) { b ->
+                            BranchRow(
+                                item = b,
+                                selected = b.name == current,
+                                onClick = { onSelect(b.name) },
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("关闭", color = Primer.Blue500) }
+        },
+    )
+}
+
+/** 弹窗里的一行分支：图标 + 名称 +（受保护标记）+ 当前分支勾选 */
+@Composable
+private fun BranchRow(item: BranchItem, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.AutoMirrored.Filled.CallSplit,
+            contentDescription = null,
+            tint = if (selected) Primer.Blue500 else Primer.IconSecondary,
+            modifier = Modifier.size(16.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            item.name,
+            fontSize = 13.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            color = if (selected) Primer.Blue500 else Primer.TextPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (item.protected) {
+            Text(
+                "受保护",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Primer.TextSecondary,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Primer.Gray150)
+                    .padding(horizontal = 6.dp, vertical = 1.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+        }
+        if (selected) {
+            Icon(Icons.Filled.Check, contentDescription = "当前分支", tint = Primer.Blue500, modifier = Modifier.size(16.dp))
+        }
+    }
+}
+
 private val branchPages = setOf(
     RepoPage.Overview, RepoPage.Code, RepoPage.Workflows,
     RepoPage.Commits, RepoPage.PullRequests,
 )
-
-/** 分支选择器：下拉切换分支，切换后触发对应页面重载（branch 变化会进入各页 LaunchedEffect key） */
-@Composable
-private fun BranchSelector(
-    branch: String?,
-    branches: List<BranchItem>,
-    cached: Boolean = false,
-    onSelect: (String) -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val label = branch?.takeIf { it.isNotBlank() } ?: "默认分支"
-    Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Row(
-            Modifier.fillMaxWidth().background(Primer.Gray150).clickable { expanded = true }.padding(horizontal = 12.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.AutoMirrored.Filled.CallSplit, null, tint = Primer.IconSecondary, modifier = Modifier.size(15.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, modifier = Modifier.weight(1f), maxLines = 1)
-            if (cached) {
-                Text("缓存", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Primer.Green500)
-                Spacer(Modifier.width(6.dp))
-            }
-            Text("⌄", fontSize = 13.sp, color = Primer.TextTertiary)
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.fillMaxWidth(0.88f)) {
-            if (branches.isEmpty()) {
-                DropdownMenuItem(text = { Text("暂无分支", color = Primer.TextTertiary) }, onClick = { expanded = false })
-            } else {
-                branches.forEach { b ->
-                    DropdownMenuItem(
-                        text = { Text(b.name, color = if (b.name == branch) Primer.Blue500 else Primer.TextPrimary) },
-                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.CallSplit, null, tint = if (b.name == branch) Primer.Blue500 else Primer.IconSecondary, modifier = Modifier.size(16.dp)) },
-                        onClick = { expanded = false; onSelect(b.name) },
-                    )
-                }
-            }
-        }
-    }
-}
 
 // ── 底部导航（5 项 + ⋮ 气泡） ──
 
