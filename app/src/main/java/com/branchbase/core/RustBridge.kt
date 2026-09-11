@@ -101,8 +101,20 @@ object RustBridge {
     /** 通用 POST：reactions 等尚未专门封装的小接口。 */
     private external fun nativePostJson(host: String, token: String, path: String, body: String): String
 
-    /** 沉浸式翻译：翻译一段文本（一次请求一段，分片在 Translator 里做）。 */
-    private external fun nativeTranslate(text: String, fromLang: String, toLang: String): String
+    /**
+     * 沉浸式翻译：翻译一段文本（一次请求一段，分片在 :translate 模块里做）。
+     *
+     * `optionsJson` 由 `TranslateConfig.engineOptionsJson()` 生成，携带后端与凭据。
+     * **ABI 提示**：这个符号的形参在「接入 DeepSeek」时由 3 个变成 4 个；
+     * 若设备上还是旧 `.so`，调用会抛 UnsatisfiedLinkError 而被 [translateOrError] 兜住
+     * （表现为「翻译服务无响应」），重新编译 core 即可，不会崩。
+     */
+    private external fun nativeTranslate(
+        text: String,
+        fromLang: String,
+        toLang: String,
+        optionsJson: String,
+    ): String
 
     /** 通用 PATCH：编辑评论正文 / 勾选任务清单等。 */
     private external fun nativePatchJson(host: String, token: String, path: String, body: String): String
@@ -418,16 +430,28 @@ object RustBridge {
         }
 
     /**
-     * 翻译一段文本（null = 失败）。
+     * 翻译一段文本，**保留失败原因**（成功 = 译文；失败 = `ERROR:` 开头的错误文本）。
      *
-     * 只翻一段、不做分片：单次长度上限由服务端决定（默认后端 MyMemory 为 500 字符），
-     * 分片与缓存属于「跨页面复用」的策略，放在 `ui/repository/Translator.kt`。
+     * 与其它 JNI 方法同形态（见 [getJson] / [postJson]）。这里刻意不像旧实现那样
+     * 直接折叠成 null：翻译失败的**类别**决定后续行为 —— Key 无效要提示去设置里改、
+     * 额度用尽要熔断、网络类失败才值得退避重试（分类逻辑在 :translate 模块的
+     * `TranslateEngine.classify`，有单测钉住）。
+     *
+     * @param optionsJson 后端与凭据：`{"provider":"mymemory|deepseek","apiKey":"…","model":"…","baseUrl":"…"}`。
+     *   走 JSON 而不是继续加形参，是因为后端选项以后还会长（提示词、术语表、超时），
+     *   加字段不必再动 JNI 签名；字段缺失/损坏在 Rust 侧会退化成默认后端。
+     *
+     * 只翻一段、不做分片：单次长度上限由服务端决定（MyMemory 为 500 字符，DeepSeek 不限），
+     * 分片、缓存、串行与重试都属于「跨段落」的策略，放在 `:translate` 模块里。
      */
-    suspend fun translate(text: String, fromLang: String = "en", toLang: String = "zh-CN"): String? =
+    suspend fun translateOrError(
+        text: String,
+        fromLang: String,
+        toLang: String,
+        optionsJson: String = "{}",
+    ): String =
         withContext(Dispatchers.IO) {
-            runCatching { nativeTranslate(text, fromLang, toLang) }
-                .getOrNull()
-                ?.takeIf { it.isNotBlank() && !it.startsWith("ERROR:") }
+            runCatching { nativeTranslate(text, fromLang, toLang, optionsJson) }.getOrDefault("")
         }
 
     /**

@@ -679,7 +679,11 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGetJsonAccept<'
 }
 
 /// 沉浸式翻译：翻译一段文本（原文 + 译文对照用）
-/// 参数：text, fromLang（如 en）, toLang（如 zh-CN）
+///
+/// 参数：text, fromLang（如 en）, toLang（如 zh-CN）, optionsJson
+///   optionsJson = `{"provider":"mymemory|deepseek","apiKey":"…","model":"…","baseUrl":"…"}`
+///   —— 用 JSON 而不是继续加形参：后端选项以后还会长（提示词、术语表、超时），
+///   这里加字段不用再动 JNI 签名。字段缺失/JSON 损坏都会退化成默认后端，不会失败。
 #[no_mangle]
 pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeTranslate<'local>(
     mut env: JNIEnv<'local>,
@@ -687,12 +691,15 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeTranslate<'loca
     text: JString<'local>,
     from: JString<'local>,
     to: JString<'local>,
+    options: JString<'local>,
 ) -> jstring {
     let text = jstr(&mut env, &text);
     let from = jstr(&mut env, &from);
     let to = jstr(&mut env, &to);
+    let options = jstr(&mut env, &options);
     let result: crate::error::Result<String> = block_on(async move {
-        crate::translate::translate(&text, &from, &to).await
+        let options = crate::translate::Options::parse(&options);
+        crate::translate::translate(&text, &from, &to, &options).await
     });
     into_jstring(&mut env, result)
 }

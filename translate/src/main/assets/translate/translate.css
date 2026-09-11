@@ -1,0 +1,104 @@
+/*
+ * 沉浸式翻译 · 页面样式（译文卡片 / 显示模式 / 浮动按钮 / 状态提示）
+ * ──────────────────────────────────────────────────────────────
+ * 全部规则挂在 `.bb-tr*` 前缀与 `body` 上的几个类/属性下，与 GitHub 的 markdown CSS
+ * 完全隔离（不会互相污染）。三种译文样式由 `body[data-bb-style]` 切换，
+ * 只改一个属性、不重建 WebView（对齐网页版「14 种译文主题」的做法，这里先做三种）。
+ */
+
+/* ── 译文块（原文的兄弟节点，原文一个字都不动） ── */
+.bb-tr {
+  margin: 4px 0 10px;
+  padding: 6px 10px;
+  border-left: 3px solid #0969da;
+  background: #f6f8fa;
+  color: #41434e;
+  font-size: 13.5px;
+  line-height: 1.65;
+  border-radius: 0 6px 6px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 关闭状态：译文全部隐藏（元素还在 DOM 里，重新打开无需重翻） */
+body:not(.bb-tr-on) .bb-tr { display: none; }
+
+/* 仅译文模式：隐藏原文块，只留译文（切回对照只需去掉 body 上的类） */
+body.bb-tr-only .bb-tr-src { display: none; }
+
+/* ── 译文样式（设置 → 沉浸式翻译 → 译文样式） ── */
+
+/* card：蓝色左边框卡片（默认，辨识度最高） */
+body[data-bb-style="card"] .bb-tr {
+  border-left: 3px solid #0969da;
+  background: #f6f8fa;
+}
+
+/* underline：无底色，只用虚线下划线标出译文 */
+body[data-bb-style="underline"] .bb-tr {
+  margin: 2px 0 10px;
+  padding: 2px 0 3px;
+  border-left: none;
+  border-bottom: 1px dashed #8c959f;
+  background: transparent;
+  border-radius: 0;
+}
+
+/* plain：无边框无底色，淡灰字（最不打扰阅读） */
+body[data-bb-style="plain"] .bb-tr {
+  margin: 2px 0 10px;
+  padding: 0;
+  border-left: none;
+  background: transparent;
+  color: #6e7781;
+  border-radius: 0;
+}
+
+/* ── 浮动按钮（页面里唯一的控件） ── */
+#bb-tr-btn {
+  position: fixed;
+  right: 14px;
+  bottom: 16px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 700 14px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+  border: 1px solid #d0d7de;
+  background: #ffffff;
+  color: #0969da;
+  box-shadow: 0 2px 8px rgba(5, 5, 5, .18);
+  z-index: 2147483000;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#bb-tr-btn.bb-tr-btn-on { border-color: transparent; }
+
+/* ── 状态提示（额度用尽 / 失败 / 显示模式切换） ── */
+#bb-tr-tip {
+  position: fixed;
+  right: 14px;
+  bottom: 62px;
+  max-width: 70vw;
+  padding: 7px 11px;
+  border-radius: 8px;
+  background: rgba(27, 31, 36, .92);
+  color: #ffffff;
+  font: 12px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+  line-height: 1.5;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity .18s ease, transform .18s ease;
+  pointer-events: none;
+  z-index: 2147483000;
+}
+
+#bb-tr-tip.bb-tr-tip-show {
+  opacity: 1;
+  transform: translateY(0);
+}

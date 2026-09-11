@@ -119,12 +119,76 @@ androidComponents {
 
 ---
 
-## 三、相关文件索引
+## 三、AGP 9 / Kotlin 2.3 新建模块的三个坑（:`translate` 落地时踩到）
+
+### 1. Kotlin 插件不用（也不能）自己加
+
+AGP 9.0 起**内置 Kotlin 支持**：library 模块只 apply `com.android.library`，`src/main/java` 下的 `.kt`
+就会被编译。显式加 `alias(libs.plugins.kotlin.android)` 会直接失败：
+
+```
+The 'org.jetbrains.kotlin.android' plugin is no longer required for Kotlin support since AGP 9.0.
+```
+
+只有需要 Compose 的模块才额外 apply `org.jetbrains.kotlin.plugin.compose`（`:app` / `:editor` 即如此；
+纯 Kotlin 的 `:translate` 只 apply `android.library`）。
+
+### 2. Kotlin 块注释是**可嵌套**的：注释里别出现 `/*`
+
+在 KDoc 里写 `` `assets/translate/*` `` 会开始一个**嵌套注释**，把后面的 `android { }` 整段吞掉。
+报错完全指不到真正原因：
+
+```
+Android Gradle Plugin: project ':translate' does not specify `compileSdk` in build.gradle.kts
+```
+
+同一坑还会以 `Syntax error: ... Expecting a top level declaration`（文件末尾）的形式出现。
+规则：注释文本里不要出现 `/*`（写目录就写 `translate/`）。
+
+### 3. 中文命名的测试方法 + lambda 需要 UTF-8 locale
+
+形如 `` fun `磁盘缓存跨实例命中`() { runBlocking { … } } `` 的测试会生成
+`TranslateCacheTest$磁盘缓存跨实例命中$1.class`。若 JVM 的 `sun.jnu.encoding` 不是 UTF-8
+（proot / 精简容器里 locale 常是 POSIX），写盘直接失败：
+
+```
+java.nio.file.InvalidPathException: Malformed input or input contains unmappable characters
+→ Internal compiler error
+```
+
+`-Dsun.jnu.encoding=UTF-8` **无法覆盖**（该属性由 JVM 启动时的 locale 决定），
+所以 `tools/env/env.rc` 里导出了 `LANG/LC_ALL=C.UTF-8`；已有的 Gradle 守护进程要用
+`./gradlew --stop` 重启一次才会生效。
+
+---
+
+## 四、Rust ↔ Kotlin 的 JNI 契约（改了就要重建 `.so`）
+
+JNI 导出函数是**按名字 + 形参个数**硬匹配的：`RustBridge.nativeTranslate(text, from, to, optionsJson)`
+对应 `Java_com_branchbase_core_RustBridge_nativeTranslate`。两边不同步时的表现是
+`UnsatisfiedLinkError`（被 `RustBridge` 的 `runCatching` 兜住，表现为「翻译服务无响应」，
+**不会崩**），但功能是哑的，所以：
+
+| 场景 | 要做的事 |
+|------|---------|
+| 给某个 JNI 函数加/改形参（如接入 DeepSeek 时 `nativeTranslate` 由 3 参改 4 参） | 改完必须重建 `.so`：`tools/build/build-core.sh --mode=local`（ARM64 本机约 18 分钟） |
+| 只是加字段（不想动签名，也不想让旧 `.so` 报错） | 优先**传 JSON 参数**（如 `optionsJson`），Rust 侧 `serde` 解析、字段缺失走默认值 |
+| CI | `build-core.sh --mode=ci` 用 cargo-ndk 交叉编译，产物提交到 `beta` 分支；`main` 不留 `.so` |
+
+> 本地验证顺序建议：`cargo test --lib`（纯逻辑）→ `cargo test --test deepseek_http`
+> （回环服务验证真实 HTTP 请求形状，不联网、不需要 Key）→ 重建 `.so` → `assembleDebug`。
+
+---
+
+## 五、相关文件索引
 
 | 文件 | 作用 |
 |------|------|
 | `version.properties` | 工程版本号 / 版本码（手动维护） |
 | `app/build.gradle.kts` | 版本号标准化（优先读环境变量注入）+ APK 命名 + 签名配置 |
+| `translate/build.gradle.kts` | 沉浸式翻译模块（纯 Kotlin library，无 Compose；模块边界与移除步骤写在文件头注释） |
+| `core/src/translate/` | 翻译后端（`mod.rs` 选后端 + `mymemory.rs` / `deepseek.rs`），改这里要重建 `.so` |
+| `core/tests/deepseek_http.rs` | 回环服务验证 DeepSeek 请求形状的集成测试（不联网、不需要 Key） |
 | `gradle/libs.versions.toml` | AGP / Kotlin / Compose 等依赖版本 |
 | `gradle/wrapper/gradle-wrapper.properties` | Gradle 9.1.0（distributionUrl 固定腾讯云镜像） |
 | `setup_android_env.sh` | 本地环境一键入口（委托 tools/env/ 三脚本，无镜像测速） |

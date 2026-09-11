@@ -1,4 +1,4 @@
-package com.branchbase.ui.repository
+package com.branchbase.translate
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -11,7 +11,7 @@ import org.junit.Test
  * 而是把一条英文告警当成「译文」返回（`QUERY LENGTH LIMIT DONE...`），
  * 页面上就出现「译文是一句英文错误」。分片是唯一挡住这种情况的地方。
  */
-class TranslatorTest {
+class TextSegmenterTest {
 
     @Test
     fun `短文本不分片`() {

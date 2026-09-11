@@ -30,8 +30,12 @@ Branchbase/
 │       ├── api/         #   GitHub API 客户端（REST / GraphQL）
 │       ├── bridge/      #   JNI 导出函数
 │       ├── git/         #   libgit2 封装（clone/pull/commit/push）
+│       ├── translate/   #   翻译后端（MyMemory 匿名 / DeepSeek 或任意 OpenAI 兼容服务，自带 Key）
 │       └── html/        #   README 渲染 HTML 解析 + 链接跳转
 ├── editor/              # 代码编辑器独立模块（封装 Sora Editor，换库/移除只动这里）
+├── translate/           # 沉浸式翻译独立模块（设置/分片/占位符保护/缓存/调度/页面脚本）
+│   ├── src/main/java/com/branchbase/translate/   #   纯逻辑 + Android 适配 + WebView 桥
+│   └── src/main/assets/translate/                #   页面脚本（01-core ~ 04-boot）与译文 CSS
 ├── tools/               # 环境与构建脚本（tools/env、tools/build）
 ├── .github/workflows/   # CI/CD（Beta / Release）
 ├── version.properties   # 工程版本号配置（手动维护）
@@ -51,7 +55,95 @@ Branchbase/
 - **代码搜索**：仓库 / 用户 / issue / 代码 / 提交 / 主题多类型搜索
 - **提交模式**：单文件 / 多文件 / 本地仓库（对齐 GitHub 官方行为）
 - **本地仓库**：libgit2 浅 clone / pull（fast-forward）/ commit / push
+- **沉浸式翻译**：正文页原文 + 译文对照（独立 `:translate` 模块，见下文）
 - **关于页**：版本号标准化展示（工程版本 / 标准版本 / 构建时间 / 七位哈希）
+
+## 🌐 沉浸式翻译（模块化实现）
+
+在**正文页**（自述文件 README、Issue / PR 主帖、发布说明 —— 即 WebView 渲染的那些页面）把每个段落
+翻成目标语言、插在原文下方，形成「原文 + 译文」对照；页内右下角的「译」按钮可随时开关，
+长按在「对照 / 仅译文」之间切换，整页可见文本 ≤ 5000 字符时一次翻完，更长则按视口滚动逐段翻译。
+
+设计对齐网页版[沉浸式翻译](https://github.com/immersive-translate/immersive-translate)
+（可读源码的开源旧版：[old-immersive-translate](https://github.com/immersive-translate/old-immersive-translate)）：
+沿用「独立译文容器 + 视口优先 + 持久缓存 + 请求限流 + 占位符保护」的思路，落成 Android 侧的分层实现。
+
+### 模块划分（`:translate`）
+
+依赖方向单向：`:app → :translate`，模块内不引用任何 App 类型；翻译**后端由 App 注入**
+（`RustTranslateEngine` → `core/src/translate.rs`，默认 MyMemory 匿名接口）。
+
+| 文件 | 职责 |
+|------|------|
+| `TranslateLanguages.kt` | 语言模型（中英两向）+ 页面判定参数 `PageRules`（含注入 JS 的 JSON） |
+| `TranslateProvider.kt` | 可选后端：MyMemory（免费）/ DeepSeek（自带 API Key，OpenAI 兼容） |
+| `TranslateTextPolicy.kt` | 「这一段值不值得翻」的权威判定（纯函数，可单测） |
+| `TextSegmenter.kt` | 长文本分片：段落 → 句末 → 空格 → 硬切（后端 500 字符硬上限） |
+| `PlaceholderGuard.kt` | 占位符保护：URL / `@提及` / `#编号` / 邮箱 / 模板变量 / 提交 SHA |
+| `TranslateCache.kt` | 进程内 LRU + 磁盘追加日志缓存（跨进程复用） |
+| `TranslateEngine.kt` | 后端接口 + 失败分类（`QUOTA` / `NETWORK` / `UNSUPPORTED` / `UNKNOWN`） |
+| `TranslateScheduler.kt` | 全局串行闸门 + 指数退避重试 + 两级熔断 |
+| `Translator.kt` | 门面：判定 → 缓存 → 保护 → 分片 → 调度 → 还原 → 回写缓存 |
+| `TranslateConfig.kt` | 用户设置与读写（自动翻译 / 目标语言 / 显示方式 / 样式 / 本地缓存 / 保护） |
+| `TranslatePage.kt` | 页面资产装载：`assets/translate/*` 的 CSS 与四个脚本按序拼接 |
+| `TranslateBridge.kt` | WebView JS 桥（`request` / `retry` / `state`，异步回调 + 状态回推） |
+| `TranslateRuntime.kt` | 装配点：`Application.onCreate` 里 `install(this, RustTranslateEngine())` |
+
+页面脚本同样按职责拆分（`translate/src/main/assets/translate/`）：
+`01-core.js`（配置 / 状态机 / 批量队列）、`02-dom.js`（段落收集 / 跳过 / 插入 / 视口）、
+`03-ui.js`（浮动按钮与状态）、`04-boot.js`（启动与策略）、`translate.css`（译文样式）。
+
+界面侧：设置页（设置 → 沉浸式翻译）负责所有开关；正文页由 `ReadmeWebView` 拼装页面资产，
+不参与任何翻译逻辑。
+
+### 翻译服务：可以自带 DeepSeek API Key
+
+默认用 **MyMemory**（公开匿名接口，零配置，额度约 5000 词/天，本质是句子库匹配）。
+想要更好的长句 / 术语一致性时，在**设置 → 沉浸式翻译 → 翻译服务**里切到 **DeepSeek** 并填入自己的 Key：
+
+- 走 OpenAI 兼容的 `POST /chat/completions`（`Authorization: Bearer <key>`），
+  **模型名与接入地址都可改**——官方模型名会随版本调整，接口兼容又意味着可以接中转 / 自建网关；
+- 请求体只带 `model` / `messages` / `stream:false`：**不传 temperature**，
+  官方对「翻译推荐温度」的说法变过，与其钉死一个可能被弃用的参数，不如用服务端默认；
+- 系统提示词里唯一承担职责的一条是「`⟦n⟧` 占位符必须原样保留」（配合下面的占位符保护），
+  另外要求「只输出译文、不加引号/前缀」，Rust 侧还会兜底清理模型爱加的外壳（`译文：`、包裹引号）；
+- Key 只存在 App 私有 SharedPreferences、**绝不注入网页**（有单测钉住这条边界），设置页里可以
+  「保存并测试连接」，失败原因会区分「Key 无效 / 余额不足 / 网络不可达」；
+- 实现落在 `core/src/translate/`（`mod.rs` 选后端 + 2 个 provider），Kotlin 侧只是换一个后端选项，
+  分片、缓存、串行、熔断全部复用同一套。
+
+### 关键设计决策
+
+1. **译文是原文的兄弟节点，原文一个字都不改** —— 网页版旧实现把译文写回原文本节点、再靠隐藏副本
+   实现双语，导致「切回原文 / 切换对照」都依赖额外状态并互相打架；独立容器天然幂等（有容器=已翻译）。
+2. **判定规则只有一个真源** —— 阈值与跳过正则定义在 Kotlin 的 `PageRules`，随设置注入
+   `window.__bbTranslate.rules`，JS 只使用不定义；原生侧仍做权威判定，防止脚本版本漂移。
+3. **占位符保护** —— 待译文本里的 URL / `@提及` / `#编号` / 提交 SHA 等先换成 `⟦n⟧`，
+   译后还原；任一占位符丢失即判失败，并**不加保护地重翻一次**（对齐网页版「还原失败就重译该段」）。
+4. **三种熔断** —— 额度用尽（余额/限流）与 API Key 无效都立刻停发请求（继续发只是浪费额度、
+   或被 401 刷屏），二者状态分开，页面分别提示「稍后再试」与「去设置检查 Key」；
+   连续 3 次其它失败也暂停。状态回推页面，按钮变成「可重试」，而不是「点了没反应」。
+5. **缓存两层** —— 内存 LRU（512 条）+ 磁盘追加日志（2000 条，`filesDir/translate/cache.tsv`），
+   键含源/目标语言；磁盘坏行跳过而不是让缓存整体失效。
+6. **短页一次翻完、长页视口优先** —— 候选文本 ≤ 5000 字符直接全翻；超过则按 `IntersectionObserver`
+   滚动逐段，避免一次几百个请求烧光额度、卡住首屏。
+7. **译文样式只改一个根属性** —— `body[data-bb-style]`（卡片 / 下划线 / 淡灰），切换不重翻、不重建 WebView。
+8. **JS 只做 DOM** —— 网络、缓存、串行与重试全在 Kotlin，桥上一次只传一批（≤3 段）文本，
+   避免把整页内容或配置在 JS ↔ Native 之间来回搬。[#3262](https://github.com/immersive-translate/immersive-translate/issues/3262)
+   的 OOM 正是「大对象过桥」造成的。
+
+### 已知边界
+
+- 生效范围是 **WebView 渲染的正文页**；评论区由 Compose 原生渲染（`MarkdownBody`），暂不在范围内；
+- 后端支持 MyMemory 与「任意 OpenAI 兼容服务」（DeepSeek 官方 / 中转 / 自建）两种态；
+  再加一家（DeepL 等）只需在 `core/src/translate/` 加一个 provider + 设置页加一项；
+- 术语库 / 自定义提示词 / 悬停看原文等网页版高级能力未实现
+  （`TranslateEngine` 的 options JSON 与提示词构建是预留的落点，
+  `translate/build.gradle.kts` 里写了移除步骤）。
+
+参考：[主仓库](https://github.com/immersive-translate/immersive-translate) ·
+[开源旧版源码](https://github.com/immersive-translate/old-immersive-translate) ·
+[官网文档](https://immersivetranslate.com/docs/usage/)
 
 ## 🔧 构建
 
@@ -82,6 +174,14 @@ chmod +x ./setup_android_env.sh
 ./gradlew assembleDebug     # Debug（版本号尾部附加 -Beta）
 ./gradlew assembleRelease   # Release（需配置签名密钥）
 ```
+
+### 单元测试
+```bash
+./gradlew :app:testDebugUnitTest :translate:testDebugUnitTest   # 业务层 + 沉浸式翻译模块
+cd core && cargo test                                            # Rust 核心
+```
+> 容器/proot 环境先 `source tools/env/env.rc`（其中导出了 `LANG/LC_ALL=C.UTF-8`：
+> JVM 的文件名编码取自 locale，非 UTF-8 时中文命名的测试方法会编译失败，见 `BUILD-NOTES.md`）。
 
 ### Rust 核心
 ```bash

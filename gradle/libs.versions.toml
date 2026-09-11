@@ -19,6 +19,9 @@ ksp = "2.3.10"
 # 注意：只能填 Maven Central 上已发布的版本（0.24.x 目前只有 tag、未发仓），
 # 填未发布版本会让依赖解析直接失败。
 soraEditor = "0.23.6"
+# 协程：:translate 不依赖 Compose，拿不到传递依赖，必须自己声明。
+# 版本与 :app 侧解析结果对齐，避免同一份 kotlinx-coroutines 出现两个版本。
+coroutines = "1.9.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -48,10 +51,14 @@ androidx-room-compiler = { group = "androidx.room", name = "room-compiler", vers
 # 只被 :editor 模块引用 —— 换库或删除时只动那一个模块
 sora-editor = { group = "io.github.Rosemoe.sora-editor", name = "editor", version.ref = "soraEditor" }
 sora-editor-textmate = { group = "io.github.Rosemoe.sora-editor", name = "language-textmate", version.ref = "soraEditor" }
+# 协程：:translate 的串行闸门 / 退避重试 / 磁盘缓存都要用（见 translate/build.gradle.kts）
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }
+# 注意：AGP 9 起「内置 Kotlin 支持」，不要再声明 org.jetbrains.kotlin.android
+# （应用会直接报 no longer required since AGP 9.0；Compose 模块只需 kotlin-compose）
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 

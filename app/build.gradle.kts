@@ -171,6 +171,10 @@ dependencies {
     // 代码编辑器独立模块（封装 Sora Editor）—— 换库 / 升级 / 移除只动 :editor
     implementation(project(":editor"))
 
+    // 沉浸式翻译独立模块（设置 / 分片 / 占位符保护 / 缓存 / 调度 / 页面脚本）
+    // :app 只提供后端实现（RustTranslateEngine）并在 Application 里 install 一次
+    implementation(project(":translate"))
+
     // core library desugaring：Sora Editor 的 language-textmate 要求
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 
