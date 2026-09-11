@@ -625,6 +625,123 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGetJson<'local>
     into_jstring(&mut env, result)
 }
 
+/// 关闭/重新打开 issue 并指定原因（返回原始 JSON）
+/// 参数：host, token, owner, repo, number, state（open / closed）, stateReason（completed / not_planned / 空串）
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeUpdateIssueState<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    owner: JString<'local>,
+    repo: JString<'local>,
+    number: JString<'local>,
+    state: JString<'local>,
+    state_reason: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let owner = jstr(&mut env, &owner);
+    let repo = jstr(&mut env, &repo);
+    let number = jstr(&mut env, &number);
+    let state = jstr(&mut env, &state);
+    let state_reason = jstr(&mut env, &state_reason);
+    let result: crate::error::Result<String> = block_on(async move {
+        let n: u64 = number.parse().unwrap_or(0);
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client)
+            .update_issue_state(&owner, &repo, n, &state, &state_reason)
+            .await
+    });
+    into_jstring(&mut env, result)
+}
+
+/// 通用 GET（自定义 Accept）：timeline 等端点需要特定 media type
+/// 参数：host, token, path, accept
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGetJsonAccept<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    path: JString<'local>,
+    accept: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let path = jstr(&mut env, &path);
+    let accept = jstr(&mut env, &accept);
+    let result: crate::error::Result<String> = block_on(async move {
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client).get_json_accept(&path, &accept).await
+    });
+    into_jstring(&mut env, result)
+}
+
+/// 通用 PATCH（返回原始 JSON）：编辑评论正文 / 勾选任务清单等
+/// 参数：host, token, path, bodyJson
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativePatchJson<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    path: JString<'local>,
+    body: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let path = jstr(&mut env, &path);
+    let body = jstr(&mut env, &body);
+    let result: crate::error::Result<String> = block_on(async move {
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client).patch_json(&path, &body).await
+    });
+    into_jstring(&mut env, result)
+}
+
+/// 通用 DELETE（返回原始 JSON）：用于「取消反应」等需要撤回的操作
+/// 参数：host, token, path
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeDeleteJson<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    path: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let path = jstr(&mut env, &path);
+    let result: crate::error::Result<String> = block_on(async move {
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client).delete_json(&path).await
+    });
+    into_jstring(&mut env, result)
+}
+
+/// 通用 POST（返回原始 JSON）：用于 reactions 等没有专门封装的小接口
+/// 参数：host, token, path, bodyJson
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativePostJson<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    path: JString<'local>,
+    body: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let path = jstr(&mut env, &path);
+    let body = jstr(&mut env, &body);
+    let result: crate::error::Result<String> = block_on(async move {
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client).post_json(&path, &body).await
+    });
+    into_jstring(&mut env, result)
+}
+
 /// 通用 GraphQL 查询（返回 `data` 部分 JSON）
 /// 参数：host, accessToken, query, variablesJson（JSON 对象字符串，空串 = {}）
 #[no_mangle]

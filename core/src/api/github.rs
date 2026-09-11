@@ -421,6 +421,54 @@ impl GitHubApi {
             .await
     }
 
+    /// 关闭/重新打开 issue 并指定 `state_reason`（`completed` / `not_planned` / `reopened`）。
+    ///
+    /// 与 [GitHubApi::update_issue] 的差别很关键：只传 `state=closed` 时 GitHub 一律按
+    /// `completed` 归档，而移动端「关闭并评论 ▾」要区分「已完成 / 不计划实施」，
+    /// 必须显式带 `state_reason`。`state_reason` 为空串时不带该字段（等价旧行为）。
+    pub async fn update_issue_state(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        state: &str,
+        state_reason: &str,
+    ) -> Result<String> {
+        let payload = if state_reason.is_empty() {
+            serde_json::json!({ "state": state })
+        } else {
+            serde_json::json!({ "state": state, "state_reason": state_reason })
+        };
+        self.client
+            .patch_json(
+                &format!("/repos/{owner}/{repo}/issues/{number}"),
+                &payload.to_string(),
+            )
+            .await
+    }
+
+    /// 通用 GET（自定义 `Accept`）：timeline 等需要特定 media type 的端点。
+    pub async fn get_json_accept(&self, path: &str, accept: &str) -> Result<String> {
+        self.client.get_json_with_accept(path, accept).await
+    }
+
+    /// 通用 POST：reactions 这类尚未专门封装的小接口（`POST /issues/{n}/reactions` 等）。
+    pub async fn post_json(&self, path: &str, body: &str) -> Result<String> {
+        self.client.post_json(path, body).await
+    }
+
+    /// 通用 PATCH：编辑评论正文、勾选任务清单、改 issue 字段等「只改一个字段」的场景。
+    /// 与 [update_issue_state] 的区别是它不预设 body 形状，调用方直接给 JSON。
+    pub async fn patch_json(&self, path: &str, body: &str) -> Result<String> {
+        self.client.patch_json(path, body).await
+    }
+
+    /// 通用 DELETE：用于「取消反应」这类需要撤回的操作（`DELETE /reactions/{id}`）。
+    /// 没有它就只能加反应不能撤，误触无法挽回。
+    pub async fn delete_json(&self, path: &str) -> Result<String> {
+        self.client.delete_json(path).await
+    }
+
     /// 仓库标签列表（`GET /repos/{o}/{r}/labels`），供 issue 按标签筛选。
     pub async fn list_labels(&self, owner: &str, repo: &str) -> Result<String> {
         self.client

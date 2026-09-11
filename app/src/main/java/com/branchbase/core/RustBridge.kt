@@ -95,6 +95,18 @@ object RustBridge {
 
     private external fun nativeGetJson(host: String, token: String, path: String): String
 
+    /** 通用 GET（自定义 Accept）：timeline 等端点需要特定 media type。 */
+    private external fun nativeGetJsonAccept(host: String, token: String, path: String, accept: String): String
+
+    /** 通用 POST：reactions 等尚未专门封装的小接口。 */
+    private external fun nativePostJson(host: String, token: String, path: String, body: String): String
+
+    /** 通用 PATCH：编辑评论正文 / 勾选任务清单等。 */
+    private external fun nativePatchJson(host: String, token: String, path: String, body: String): String
+
+    /** 通用 DELETE：取消反应等撤回操作。 */
+    private external fun nativeDeleteJson(host: String, token: String, path: String): String
+
     private external fun nativeGraphQL(host: String, token: String, query: String, variables: String): String
 
     private external fun nativeContributionCalendar(host: String, token: String, login: String, from: String, to: String): String
@@ -206,6 +218,9 @@ object RustBridge {
     private external fun nativeCreateIssueComment(host: String, token: String, owner: String, repo: String, number: String, body: String): String
 
     private external fun nativeUpdateIssue(host: String, token: String, owner: String, repo: String, number: String, state: String): String
+
+    /** 关闭/重新打开 issue 并指定 `state_reason`（completed / not_planned）。 */
+    private external fun nativeUpdateIssueState(host: String, token: String, owner: String, repo: String, number: String, state: String, stateReason: String): String
 
     private external fun nativeListLabels(host: String, token: String, owner: String, repo: String): String
 
@@ -376,6 +391,107 @@ object RustBridge {
     suspend fun getJson(host: String, token: String, path: String): String? =
         withContext(Dispatchers.IO) {
             nativeGetJson(host, token, path).ifBlank { null }
+        }
+
+    /**
+     * 通用 GET（自定义 `Accept`）。
+     *
+     * 与 [getJson] 的唯一差别是 media type：GitHub 的部分端点（issue timeline 等）
+     * 只在特定 `Accept` 下返回所需的 JSON 结构，用默认的 `application/json`
+     * 会拿到一个字段缺失的兼容响应。
+     */
+    suspend fun getJsonAccept(host: String, token: String, path: String, accept: String): String? =
+        withContext(Dispatchers.IO) {
+            nativeGetJsonAccept(host, token, path, accept).ifBlank { null }
+        }
+
+    /**
+     * 通用 POST（返回原始 JSON，null = 失败）。
+     * 用于 reactions 这类「一个端点一个动作」的小接口，避免为每条动作都加一个 native 函数。
+     */
+    suspend fun postJson(host: String, token: String, path: String, bodyJson: String): String? =
+        withContext(Dispatchers.IO) {
+            nativePostJson(host, token, path, bodyJson).ifBlank { null }
+        }
+
+    /**
+     * 通用 PATCH（返回原始 JSON，null = 无响应；失败时是 `ERROR:` 开头的串）。
+     *
+     * 与 [postJson] 同一形态：调用方关心响应体时用它（编辑评论会回传更新后的评论对象）。
+     */
+    suspend fun patchJson(host: String, token: String, path: String, bodyJson: String): String? =
+        withContext(Dispatchers.IO) {
+            nativePatchJson(host, token, path, bodyJson).ifBlank { null }
+        }
+
+    /**
+     * 编辑 issue 评论正文（null = 成功，非 null = 错误消息）。
+     *
+     * 任务清单勾选、改错别字都走它：GitHub 没有「只改一个勾」的接口，
+     * 必须把整段 Markdown 正文 PATCH 回去。
+     */
+    suspend fun updateIssueComment(
+        host: String,
+        token: String,
+        owner: String,
+        repo: String,
+        commentId: Long,
+        body: String,
+    ): String? = withContext(Dispatchers.IO) {
+        try {
+            val payload = org.json.JSONObject().put("body", body).toString()
+            err(nativePatchJson(host, token, "/repos/$owner/$repo/issues/comments/$commentId", payload))
+        } catch (e: Throwable) {
+            "引擎不可用"
+        }
+    }
+
+    /** 编辑 issue 主帖正文（null = 成功，非 null = 错误消息）。 */
+    suspend fun updateIssueBody(
+        host: String,
+        token: String,
+        owner: String,
+        repo: String,
+        number: Long,
+        body: String,
+    ): String? = withContext(Dispatchers.IO) {
+        try {
+            val payload = org.json.JSONObject().put("body", body).toString()
+            err(nativePatchJson(host, token, "/repos/$owner/$repo/issues/$number", payload))
+        } catch (e: Throwable) {
+            "引擎不可用"
+        }
+    }
+
+    /** 删除 issue 评论（null = 成功，非 null = 错误消息）。 */
+    suspend fun deleteIssueComment(
+        host: String,
+        token: String,
+        owner: String,
+        repo: String,
+        commentId: Long,
+    ): String? = withContext(Dispatchers.IO) {
+        try {
+            err(nativeDeleteJson(host, token, "/repos/$owner/$repo/issues/comments/$commentId"))
+        } catch (e: Throwable) {
+            "引擎不可用"
+        }
+    }
+
+    /**
+     * 通用 DELETE（null = 成功，非 null = 错误消息）。
+     *
+     * 与 [postJson] 配对使用：GitHub 的 reactions 是「POST 添加 / DELETE 撤销」两步，
+     * 只有 POST 的话误触无法挽回。
+     */
+    suspend fun deleteJson(host: String, token: String, path: String): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                // 成功时 204 无响应体（空串）→ err() 返回 null
+                err(nativeDeleteJson(host, token, path))
+            } catch (e: Throwable) {
+                "引擎不可用"
+            }
         }
 
     /**
@@ -899,6 +1015,29 @@ object RustBridge {
         withContext(Dispatchers.IO) {
             try {
                 err(nativeCreateIssueComment(host, token, owner, repo, number.toString(), body))
+            } catch (e: Throwable) {
+                "引擎不可用"
+            }
+        }
+
+    /**
+     * 关闭 / 重新打开 issue 并指定原因（null = 成功，非 null = 错误消息）。
+     *
+     * `stateReason` 取 `completed` / `not_planned` / `reopened`；
+     * 只传 `state=closed` 时 GitHub 一律按 `completed` 归档，因此「不计划实施」必须走这里。
+     */
+    suspend fun updateIssueState(
+        host: String,
+        token: String,
+        owner: String,
+        repo: String,
+        number: Long,
+        state: String,
+        stateReason: String,
+    ): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                err(nativeUpdateIssueState(host, token, owner, repo, number.toString(), state, stateReason))
             } catch (e: Throwable) {
                 "引擎不可用"
             }
