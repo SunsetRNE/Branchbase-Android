@@ -4,8 +4,13 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -17,10 +22,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.branchbase.MainActivity
+import com.branchbase.ui.theme.AppIcon
 import com.branchbase.ui.theme.Primer
 
 /**
@@ -66,8 +73,14 @@ fun LoginFlow(
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(intent)
             }
-            // 打开浏览器期间显示过渡页
-            Box(Modifier.fillMaxSize().background(Primer.BackgroundPrimary), contentAlignment = Alignment.Center) {
+            // 打开浏览器期间显示过渡页（带应用图标，避免一整屏空白）
+            Column(
+                Modifier.fillMaxSize().background(Primer.BackgroundPrimary),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                AppIcon(size = 72.dp, shape = RoundedCornerShape(20.dp))
+                Spacer(Modifier.height(18.dp))
                 Text(
                     "正在打开 GitHub 授权页，请稍候…",
                     color = Primer.TextTertiary
@@ -76,8 +89,14 @@ fun LoginFlow(
         }
 
         is LoginState.ExchangingToken -> {
-            // 加载过渡页
-            Box(Modifier.fillMaxSize().background(Primer.BackgroundPrimary), contentAlignment = Alignment.Center) {
+            // 加载过渡页（换取 token 期间）
+            Column(
+                Modifier.fillMaxSize().background(Primer.BackgroundPrimary),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                AppIcon(size = 72.dp, shape = RoundedCornerShape(20.dp))
+                Spacer(Modifier.height(20.dp))
                 CircularProgressIndicator(color = Primer.Blue500)
             }
         }

@@ -1,7 +1,6 @@
 package com.branchbase.ui.profile
 
 import android.content.Context
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -62,14 +61,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.branchbase.BuildConfig
-import com.branchbase.R
 import com.branchbase.core.AccountStore
 import com.branchbase.core.LocalRepos
 import com.branchbase.core.RustBridge
@@ -78,6 +75,7 @@ import com.branchbase.ui.notification.NotifLayout
 import com.branchbase.ui.notification.readNotifLayout
 import com.branchbase.ui.notification.writeNotifLayout
 import com.branchbase.ui.theme.LanguageColors
+import com.branchbase.ui.theme.AppIcon
 import com.branchbase.ui.theme.Primer
 import com.branchbase.ui.task.TaskKind
 import com.branchbase.ui.task.TaskStore
@@ -1441,17 +1439,9 @@ val sig = when (variant) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(24.dp))
-            // 应用图标（读取 foreground 资源，规避 adaptive-icon 的 painterResource 渲染崩溃）
-            Box(
-                Modifier.size(80.dp).clip(RoundedCornerShape(22.dp)).background(Color(0xFF0d1117)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Image(
-                    painter = painterResource(R.drawable.ic_launcher_foreground),
-                    contentDescription = "应用图标",
-                    modifier = Modifier.size(60.dp),
-                )
-            }
+            // 应用图标：与桌面完全一致的那枚（PackageManager 合成自适应图标两个图层）；
+            // 曾经的手搓近似（只画 foreground + 硬编码 #0d1117）与真实图标并不一致，已移除。
+            AppIcon(size = 80.dp, shape = RoundedCornerShape(22.dp))
             Spacer(Modifier.height(12.dp))
             Text("Branchbase", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
             Spacer(Modifier.height(4.dp))

@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.core.RustBridge
+import com.branchbase.ui.theme.AppIcon
 import com.branchbase.ui.theme.Primer
 
 /**
@@ -77,15 +78,8 @@ fun WelcomeScreen(
     ) {
         Spacer(Modifier.weight(1f))
 
-        // Logo 占位（96dp）
-        Box(
-            modifier = Modifier
-                .size(96.dp)
-                .background(Primer.Blue500, RoundedCornerShape(26.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("B", color = Color.White, fontSize = 40.sp, fontWeight = FontWeight.Bold)
-        }
+        // 应用图标：直接渲染系统当前展示的那枚图标（不再用「蓝底 + 字母 B」占位）
+        AppIcon(size = 96.dp, shape = RoundedCornerShape(26.dp))
 
         Spacer(Modifier.height(22.dp))
         Text("Branchbase", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
