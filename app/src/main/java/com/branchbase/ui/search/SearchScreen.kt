@@ -1,10 +1,6 @@
 package com.branchbase.ui.search
 
 import android.content.Context
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -70,6 +66,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.branchbase.ui.theme.shimmerAlpha
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
@@ -416,12 +413,8 @@ private fun SearchTopBar(
 /** 搜索加载骨架屏（shimmer 微光扫过） */
 @Composable
 private fun SearchSkeleton() {
-    val transition = rememberInfiniteTransition()
-    val alpha by transition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 0.9f,
-        animationSpec = infiniteRepeatable(animation = tween(700), repeatMode = RepeatMode.Reverse),
-    )
+    // 微光规格收在 ui/theme/Motion.kt（通知页骨架用同一份）
+    val alpha by shimmerAlpha()
     Column {
         repeat(5) {
             Column(

@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.ui.theme.selectionColor
 import com.branchbase.ui.theme.Primer
 
 /**
@@ -84,14 +85,14 @@ fun EdgeNavigationBar(
                     .padding(end = 10.dp)
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(if (expanded) Primer.Blue500 else Primer.Border)
+                    .background(selectionColor(expanded, on = Primer.Blue500, off = Primer.Border))
                     .clickable { expanded = !expanded },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     Icons.Filled.MoreHoriz,
                     contentDescription = "更多",
-                    tint = if (expanded) Color.White else Primer.IconPrimary,
+                    tint = selectionColor(expanded, on = Color.White, off = Primer.IconPrimary),
                     modifier = Modifier.size(22.dp),
                 )
             }

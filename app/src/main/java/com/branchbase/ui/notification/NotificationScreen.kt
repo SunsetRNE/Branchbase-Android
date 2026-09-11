@@ -8,8 +8,6 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.animateFloatAsState
@@ -95,6 +93,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.branchbase.ui.theme.shimmerAlpha
+import com.branchbase.ui.theme.revealExit
+import com.branchbase.ui.theme.revealEnter
 import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
@@ -900,7 +901,7 @@ private fun PrefetchHint() {
         delay(4000)
         visible = false
     }
-    AnimatedVisibility(visible = visible, enter = expandVertically(), exit = shrinkVertically()) {
+    AnimatedVisibility(visible = visible, enter = revealEnter(), exit = revealExit()) {
         Row(
             Modifier
                 .padding(start = 12.dp, bottom = 8.dp)
@@ -1048,7 +1049,10 @@ private fun NotificationList(
                     }
                     when (layout) {
                         NotifLayout.FLAT -> {
-                            items(rows, key = { it.id }) { n -> rowContent(n) }
+                            items(rows, key = { it.id }) { n ->
+                                // 增删动画：拉到新通知时滑入、已读移除时收起（列表带 key，位置动画才有意义）
+                                Box(Modifier.animateItem()) { rowContent(n) }
+                            }
                         }
                         NotifLayout.GROUP_BY_REPO -> {
                             // 注意：分组内容必须在 for 循环里逐条调用（不能在 forEach 的普通 lambda 内调用
@@ -1415,7 +1419,7 @@ private fun CollapsibleGroup(
                 )
             }
         }
-        AnimatedVisibility(visible = expanded, enter = expandVertically(), exit = shrinkVertically()) {
+        AnimatedVisibility(visible = expanded, enter = revealEnter(), exit = revealExit()) {
             Column(
                 Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -1476,6 +1480,8 @@ private fun ErrorState(message: String, onRetry: () -> Unit) {
  */
 @Composable
 private fun NotificationSkeleton() {
+    // 之前这里是静态灰块：加载期间整页「死住」，与搜索页骨架（有微光）观感不一致
+    val shimmer by shimmerAlpha()
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
@@ -1488,13 +1494,16 @@ private fun NotificationSkeleton() {
             verticalAlignment = Alignment.Top,
         ) {
             Box(
-                Modifier.size(32.dp).clip(RoundedCornerShape(8.dp)).background(Primer.Gray150),
+                Modifier
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Primer.Gray150.copy(alpha = shimmer)),
             )
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Box(Modifier.fillMaxWidth(0.72f).height(18.dp).clip(RoundedCornerShape(4.dp)).background(Primer.Gray150))
+                Box(Modifier.fillMaxWidth(0.72f).height(18.dp).clip(RoundedCornerShape(4.dp)).background(Primer.Gray150.copy(alpha = shimmer)))
                 Spacer(Modifier.height(5.dp))
-                Box(Modifier.fillMaxWidth(0.42f).height(15.dp).clip(RoundedCornerShape(4.dp)).background(Primer.Gray150))
+                Box(Modifier.fillMaxWidth(0.42f).height(15.dp).clip(RoundedCornerShape(4.dp)).background(Primer.Gray150.copy(alpha = shimmer)))
             }
         }
     }

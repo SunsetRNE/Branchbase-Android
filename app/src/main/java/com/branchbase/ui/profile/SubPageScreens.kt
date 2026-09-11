@@ -67,6 +67,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.branchbase.ui.theme.selectionColor
 import com.branchbase.BuildConfig
 import com.branchbase.core.AccountStore
 import com.branchbase.core.LocalRepos
@@ -552,17 +553,22 @@ internal fun ModeOptionRow(label: String, desc: String, selected: Boolean, onCli
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(if (selected) Color(0xFFF0FFF4) else Color.Transparent)
+            .background(selectionColor(selected, on = Color(0xFFF0FFF4)))
             .clickable { onClick() }
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.Top,
     ) {
+        // 单选圆点：外圈与填充一起渐变（设置页里每个开关都会走这条路径）
         Box(
             modifier = Modifier
                 .size(18.dp)
                 .clip(CircleShape)
-                .border(2.dp, if (selected) Primer.Green500 else Primer.Border, CircleShape)
-                .background(if (selected) Primer.Green500 else Color.Transparent),
+                .border(
+                    2.dp,
+                    selectionColor(selected, on = Primer.Green500, off = Primer.Border),
+                    CircleShape,
+                )
+                .background(selectionColor(selected, on = Primer.Green500)),
         )
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {

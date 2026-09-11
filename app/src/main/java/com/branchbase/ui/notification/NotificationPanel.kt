@@ -2,6 +2,7 @@ package com.branchbase.ui.notification
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -46,11 +47,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.platform.LocalConfiguration
@@ -58,6 +61,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.ui.theme.ElementMotion
+import com.branchbase.ui.theme.selectionColor
+import com.branchbase.ui.theme.AnimatedStateIcon
 import com.branchbase.ui.theme.Primer
 
 /**
@@ -90,13 +96,15 @@ fun NotifFilterFab(
         FloatingActionButton(
             onClick = onClick,
             shape = CircleShape,
-            containerColor = if (open) Primer.Gray900 else Primer.Blue500,
+            containerColor = selectionColor(open, on = Primer.Gray900, off = Primer.Blue500),
             contentColor = Color.White,
             elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp, pressedElevation = 2.dp),
         ) {
-            Icon(
-                if (open) Icons.Filled.Close else Icons.Filled.Tune,
+            // 图标形态切换（筛选 ↔ 关闭）用交叉淡入 + 缩放，位置不跳
+            AnimatedStateIcon(
+                icon = if (open) Icons.Filled.Close else Icons.Filled.Tune,
                 contentDescription = if (open) "关闭筛选面板" else "筛选与视图",
+                tint = Color.White,
                 modifier = Modifier.size(22.dp),
             )
         }
@@ -378,7 +386,13 @@ private fun CategorySegment(
                     Box(
                         Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .background(if (selected) Primer.Blue500 else Primer.Blue500.copy(alpha = 0.14f))
+                            .background(
+                                selectionColor(
+                                    selected,
+                                    on = Primer.Blue500,
+                                    off = Primer.Blue500.copy(alpha = 0.14f),
+                                ),
+                            )
                             .padding(horizontal = 5.dp, vertical = 1.dp),
                     ) {
                         Text(
@@ -443,10 +457,16 @@ private fun LayoutOption(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .background(if (selected) Primer.Blue500.copy(alpha = 0.06f) else Primer.BackgroundPrimary)
+            .background(
+                selectionColor(
+                    selected,
+                    on = Primer.Blue500.copy(alpha = 0.06f),
+                    off = Primer.BackgroundPrimary,
+                ),
+            )
             .border(
                 1.dp,
-                if (selected) Primer.Blue500 else Primer.Gray200,
+                selectionColor(selected, on = Primer.Blue500, off = Primer.Gray200),
                 RoundedCornerShape(10.dp),
             )
             .clickable { onClick() }
@@ -458,12 +478,26 @@ private fun LayoutOption(
                 .padding(top = 2.dp)
                 .size(16.dp)
                 .clip(CircleShape)
-                .border(1.5.dp, if (selected) Primer.Blue500 else Primer.Gray300, CircleShape),
+                .border(1.5.dp, selectionColor(selected, on = Primer.Blue500, off = Primer.Gray300), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            if (selected) {
-                Box(Modifier.size(8.dp).clip(CircleShape).background(Primer.Blue500))
-            }
+            // 选中圆点：用 graphicsLayer 做缩放淡入（只在绘制阶段读动画值，不触发重组）
+            val dot by animateFloatAsState(
+                targetValue = if (selected) 1f else 0f,
+                animationSpec = tween(ElementMotion.ICON_MS),
+                label = "radio-dot",
+            )
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .graphicsLayer {
+                        scaleX = dot
+                        scaleY = dot
+                        alpha = dot
+                    }
+                    .clip(CircleShape)
+                    .background(Primer.Blue500),
+            )
         }
         Spacer(Modifier.width(9.dp))
         Column {
@@ -770,9 +804,9 @@ fun NotifSelectionTopBar(
             Modifier.clip(RoundedCornerShape(8.dp)).clickable { onToggleAll() }.padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                if (allSelected) Icons.Filled.Close else Icons.Filled.SelectAll,
-                null,
+            AnimatedStateIcon(
+                icon = if (allSelected) Icons.Filled.Close else Icons.Filled.SelectAll,
+                contentDescription = null,
                 tint = Primer.Blue500,
                 modifier = Modifier.size(16.dp),
             )

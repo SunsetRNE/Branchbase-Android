@@ -74,6 +74,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import androidx.compose.animation.animateContentSize
+import com.branchbase.ui.theme.selectionColor
 import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
@@ -516,6 +518,8 @@ fun IssueDetailScreen(
                     }
 
                     itemsIndexed(visibleEntries, key = { _, e -> entryKey(e) }) { _, entry ->
+                        // 发评论 / 删评论 / 切筛选时，时间线整条滑入滑出，而不是瞬间重排
+                        Box(Modifier.animateItem()) {
                         when (entry) {
                             is TimelineEntry.Comment -> {
                                 val expanded = expandedComments[entry.comment.id] == true
@@ -548,6 +552,7 @@ fun IssueDetailScreen(
                                 )
                             }
                             is TimelineEntry.Event -> EventRow(entry)
+                        }
                         }
                     }
                 }
@@ -834,11 +839,11 @@ private fun TimelineFilterRow(
                 "${f.label} $count",
                 fontSize = 11.5.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = if (selected) Color.White else Primer.TextSecondary,
+                color = selectionColor(selected, on = Color.White, off = Primer.TextSecondary),
                 modifier = Modifier
                     .padding(end = 6.dp)
                     .clip(CircleShape)
-                    .background(if (selected) Primer.Gray900 else Primer.Gray150)
+                    .background(selectionColor(selected, on = Primer.Gray900, off = Primer.Gray150))
                     .clickable { onChange(f) }
                     .padding(horizontal = 10.dp, vertical = 5.dp),
             )
@@ -955,7 +960,9 @@ private fun CommentCard(
                 1.dp,
                 if (comment.badge == "作者") Primer.Blue500.copy(alpha = 0.35f) else Primer.Gray200,
                 RoundedCornerShape(10.dp),
-            ),
+            )
+            // 长评论「展开/收起」是文本长度变化：让高度做动画，避免整条时间线突然弹跳
+            .animateContentSize(),
     ) {
         CommentHeader(comment.author, comment.avatarUrl, comment.badge, comment.createdAt, comment.isEdited) {
             Box {
@@ -1038,11 +1045,16 @@ private fun ReactionRow(
                     "${emoji(r.content)} ${r.count}",
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = if (r.mine) Primer.Blue600 else Primer.TextSecondary,
+                    color = selectionColor(r.mine, on = Primer.Blue600, off = Primer.TextSecondary),
                     modifier = Modifier
                         .clip(CircleShape)
-                        .border(1.dp, if (r.mine) Primer.Blue500 else Primer.Gray200, CircleShape)
-                        .background(if (r.mine) Primer.Blue500.copy(alpha = 0.10f) else Color.Transparent)
+                        // 点过的反应（r.mine）底色/描边渐变，避免点下去「啪」地变色
+                        .border(
+                            1.dp,
+                            selectionColor(r.mine, on = Primer.Blue500, off = Primer.Gray200),
+                            CircleShape,
+                        )
+                        .background(selectionColor(r.mine, on = Primer.Blue500.copy(alpha = 0.10f)))
                         .clickable { onToggle(r.content) }
                         .padding(horizontal = 9.dp, vertical = 3.dp),
                 )

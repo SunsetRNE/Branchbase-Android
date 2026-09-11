@@ -297,9 +297,10 @@ private fun CompareBody(
                 }
             }
             if (showCommits) {
-                items(result.commits) { c ->
+                // key + animateItem：点「展开」时提交逐条淡入，而不是整块突然出现
+                items(result.commits, key = { it.sha }) { c ->
                     Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                        Modifier.fillMaxWidth().animateItem().padding(horizontal = 16.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(

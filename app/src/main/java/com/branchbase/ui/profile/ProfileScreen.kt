@@ -59,6 +59,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import com.branchbase.ui.theme.selectionColor
 import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
@@ -407,12 +408,16 @@ private fun ProfileRepositories(repos: List<RepoItem>, loading: Boolean, onOpenR
 private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
     Box(
         Modifier.clip(RoundedCornerShape(14.dp))
-            .background(if (selected) Primer.Blue500 else Primer.Gray150)
-            .border(1.dp, if (selected) Primer.Blue500 else Primer.Border, RoundedCornerShape(14.dp))
+            .background(selectionColor(selected, on = Primer.Blue500, off = Primer.Gray150))
+            .border(
+                1.dp,
+                selectionColor(selected, on = Primer.Blue500, off = Primer.Border),
+                RoundedCornerShape(14.dp),
+            )
             .clickable { onClick() }
             .padding(horizontal = 12.dp, vertical = 5.dp),
     ) {
-        Text(label, fontSize = 12.sp, color = if (selected) Color.White else Primer.TextSecondary)
+        Text(label, fontSize = 12.sp, color = selectionColor(selected, on = Color.White, off = Primer.TextSecondary))
     }
 }
 
@@ -923,7 +928,7 @@ private fun ProfileBubbleNavigationBar(
                     .padding(end = 10.dp)
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(if (expanded) Primer.Blue500 else Primer.Border)
+                    .background(selectionColor(expanded, on = Primer.Blue500, off = Primer.Border))
                     .clickable { expanded = !expanded; Logger.ui(if (expanded) "展开 More 菜单" else "关闭 More 菜单", "Compose") },
                 contentAlignment = Alignment.Center,
             ) {
@@ -994,7 +999,8 @@ private fun ProfileNavItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val tint = if (selected) Primer.Blue500 else Primer.IconPrimary
+    // 选中态渐变（图标/文字同色系），避免每次切 Tab 都「跳」一下
+    val tint = selectionColor(selected, on = Primer.Blue500, off = Primer.IconPrimary)
     Column(
         modifier = modifier
             .clickable(onClick = onClick)

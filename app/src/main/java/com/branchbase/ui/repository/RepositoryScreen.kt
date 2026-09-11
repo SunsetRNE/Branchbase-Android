@@ -67,6 +67,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.ui.theme.selectionColor
 import com.branchbase.cache.PreloadStore
 import com.branchbase.cache.PrefetchReason
 import com.branchbase.cache.RepoPrefetcher
@@ -1139,12 +1140,14 @@ private fun RowScope.BottomTab(page: RepoPage, icon: ImageVector, selected: Bool
             .padding(vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(icon, null, tint = if (selected) Primer.Blue500 else Primer.IconPrimary, modifier = Modifier.size(20.dp))
+        // 选中态用 180ms 渐变而不是硬切：底部 Tab 是最高频的点击目标
+        val tint = selectionColor(selected, on = Primer.Blue500, off = Primer.IconPrimary)
+        Icon(icon, null, tint = tint, modifier = Modifier.size(20.dp))
         Spacer(Modifier.height(2.dp))
         Text(
             page.label,
             fontSize = 9.5.sp,
-            color = if (selected) Primer.Blue500 else Primer.TextTertiary,
+            color = selectionColor(selected, on = Primer.Blue500, off = Primer.TextTertiary),
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             maxLines = 1,
         )

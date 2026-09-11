@@ -145,13 +145,18 @@ Branchbase/
 [开源旧版源码](https://github.com/immersive-translate/old-immersive-translate) ·
 [官网文档](https://immersivetranslate.com/docs/usage/)
 
-## 🎞 页面动效（统一规格）
+## 🎞 动效（两层规格：页面 / 元素）
 
-此前全项目**没有任何页面切换动效**：Tab 切换、首页进个人页/搜索/仓库、仓库页里十几个全屏子页、
-个人页的设置子页、任务列表进详情、登录流程各状态、开 PR 三步向导……状态一变内容直接换掉，
-观感是「点一下，画面硬切」。
+此前全项目的动效基本是**零**：页面切换、Tab 切换、选中态、列表增删、加载骨架全是硬切。
+现在动效分成两层，每层只有一处真源，调用方只挑语义、不定参数：
 
-现在动效只有**一处真源**（`app/src/main/java/com/branchbase/ui/navigation/PageTransitions.kt`），
+| 层级 | 真源 | 管什么 |
+|------|------|--------|
+| 页面 | `ui/navigation/PageTransitions.kt` | 整页之间的进出（层级推进 / 同级切换） |
+| 元素 | `ui/theme/Motion.kt` | **同一页面内**元素的状态变化（选中态 / 出现消失 / 图标切换 / 骨架微光） |
+
+### 页面级
+
 页面只声明「我在第几层」（`PageLevel.depth`），方向由层级差决定：
 
 | 场景 | 动效 | 为什么 |
@@ -167,6 +172,22 @@ Branchbase/
 - **路由要把页面数据带上**（如 `RepoRoute.Issue(number)`），不要在页面里现读可变状态；
 - 返回键**按当前路由分派一个**（不要每个页面各挂一个 `BackHandler`）：
   动画期间新旧两个页面会同时存在，两个 BackHandler 会抢同一个返回事件。
+
+### 元素级
+
+| 场景 | 原语 | 时长 | 已接入 |
+|------|------|------|--------|
+| 选中态颜色 | `selectionColor(selected, on, off)` | 180ms | 底部导航（普通 / 玻璃球 / 侧边气泡 / 仓库底栏）、个人页气泡 Tab、筛选 chip、分段控件、日志过滤按钮、设置单选行、Issue 筛选胶囊、反应 chip |
+| 出现 / 消失 | `revealEnter()` / `revealExit()` | 220ms 展开 + 淡入 | 多选工具栏、撤销条、分组展开、阶段预取横幅 |
+| 图标形态切换 | `AnimatedStateIcon(icon, …)` | 200ms 交叉淡入 + 缩放 | 筛选 ↔ 关闭、全选 ↔ 取消、Git 手柄 ↔ 关闭 |
+| 数量徽标 | `CountBadge(count, …)` | 220ms 缩放淡入 | 底部导航未读数（含清零时的淡出） |
+| 骨架屏微光 | `shimmerAlpha()` | 700ms 呼吸 | 通知骨架、搜索骨架（此前通知页是死灰块） |
+| 列表增删 | `Modifier.animateItem()` | 默认 | 通知列表、任务列表、Issue 时间线、分支对比提交列表 |
+| 文本长度变化 | `Modifier.animateContentSize()` | 默认 | Issue 长评论展开 / 收起（不再让整条时间线弹跳） |
+
+取舍：元素级**都不用 spring（回弹）** —— 这类元素在列表里反复出现，
+回弹第一次看是「活泼」、第十次就是「拖沓」；tween 的稳定节奏更适合高频交互。
+动画值尽量在 `graphicsLayer {}` 里读（只在绘制阶段消费），避免每帧重组。
 
 ## 🔧 构建
 

@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.branchbase.ui.theme.selectionColor
 import com.branchbase.ui.theme.Primer
 
 /**
@@ -44,14 +45,14 @@ fun GlassNavigationBar(
                 modifier = Modifier
                     .size(44.dp)
                     .clip(CircleShape)
-                    .background(if (isSelected) Primer.Blue500 else Color.Transparent)
+                    .background(selectionColor(isSelected, on = Primer.Blue500))
                     .clickable { onSelect(dest) },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     dest.icon,
                     contentDescription = dest.label,
-                    tint = if (isSelected) Color.White else Primer.IconPrimary,
+                    tint = selectionColor(isSelected, on = Color.White, off = Primer.IconPrimary),
                     modifier = Modifier.size(22.dp),
                 )
             }

@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.ui.theme.AnimatedStateIcon
 import com.branchbase.ui.theme.Primer
 
 /**
@@ -152,8 +153,8 @@ private fun BubbleHandle(
                 .clickable(onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                if (expanded) Icons.Filled.Close else handleIcon,
+            AnimatedStateIcon(
+                icon = if (expanded) Icons.Filled.Close else handleIcon,
                 contentDescription = if (expanded) "收起 Git 面板" else "展开 Git 面板",
                 tint = Color.White,
                 modifier = Modifier.size(24.dp),

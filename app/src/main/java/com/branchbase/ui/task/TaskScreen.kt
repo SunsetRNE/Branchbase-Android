@@ -193,17 +193,20 @@ fun TaskScreen(onBack: () -> Unit) {
                     } else {
                         LazyColumn(Modifier.weight(1f)) {
                             items(shown, key = { it.id }) { t ->
-                                TaskCard(
-                                    task = t,
-                                    onOpen = { detail = t },
-                                    onDelete = {
-                                        scope.launch {
-                                            TaskStore.delete(context, t.id)
-                                            reload()
-                                            feedback = "已删除记录 #${t.id}"
-                                        }
-                                    },
-                                )
+                                // 任务完成/删除时让整行平滑收起，而不是「啪」地消失
+                                Box(Modifier.animateItem()) {
+                                    TaskCard(
+                                        task = t,
+                                        onOpen = { detail = t },
+                                        onDelete = {
+                                            scope.launch {
+                                                TaskStore.delete(context, t.id)
+                                                reload()
+                                                feedback = "已删除记录 #${t.id}"
+                                            }
+                                        },
+                                    )
+                                }
                             }
                         }
                     }

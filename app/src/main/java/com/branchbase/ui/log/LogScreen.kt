@@ -48,6 +48,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.ui.theme.selectionColor
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Primer
 import java.time.Instant
@@ -146,13 +147,19 @@ fun LogScreen(onBack: () -> Unit) {
                     }
                 }
             }
+            // 「是否有过滤条件」是会随筛选变化的状态：底色与图标色都做渐变
+            val filtered = curCategory != null || curLevel != null || curTag != null
             Box(
                 modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp))
-                    .background(if (curCategory != null || curLevel != null || curTag != null) Primer.Blue500 else Primer.Gray150)
+                    .background(selectionColor(filtered, on = Primer.Blue500, off = Primer.Gray150))
                     .clickable { showFilter = true },
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Filled.FilterList, "过滤", tint = if (curCategory != null || curLevel != null || curTag != null) Color.White else Primer.IconSecondary)
+                Icon(
+                    Icons.Filled.FilterList,
+                    "过滤",
+                    tint = selectionColor(filtered, on = Color.White, off = Primer.IconSecondary),
+                )
             }
         }
 
@@ -177,10 +184,10 @@ fun LogScreen(onBack: () -> Unit) {
                     label,
                     fontSize = 13.sp,
                     fontWeight = if (mode == m) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (mode == m) Primer.Blue500 else Primer.TextTertiary,
+                    color = selectionColor(mode == m, on = Primer.Blue500, off = Primer.TextTertiary),
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     modifier = Modifier.weight(1f).clip(RoundedCornerShape(7.dp))
-                        .background(if (mode == m) Color.White else Color.Transparent)
+                        .background(selectionColor(mode == m, on = Color.White))
                         .clickable { mode = m }.padding(vertical = 8.dp),
                 )
             }
