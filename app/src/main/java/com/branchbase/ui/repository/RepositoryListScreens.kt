@@ -49,6 +49,7 @@ import com.branchbase.cache.ListCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
+import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.LanguageColors
 import com.branchbase.ui.theme.Primer
 import org.json.JSONObject
@@ -721,7 +722,7 @@ fun PeopleListScreen(
                 Icons.AutoMirrored.Filled.ArrowBack,
                 "返回",
                 tint = Primer.IconPrimary,
-                modifier = Modifier.size(24.dp).clickable { onBack() },
+                modifier = Modifier.size(24.dp).iconTap { onBack() },
             )
             Spacer(Modifier.width(8.dp))
             Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)

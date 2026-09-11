@@ -54,6 +54,7 @@ import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -232,7 +233,7 @@ fun BranchManageScreen(
         ) {
             Icon(
                 Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Primer.IconPrimary,
-                modifier = Modifier.size(24.dp).clickable { onBack() },
+                modifier = Modifier.size(24.dp).iconTap { onBack() },
             )
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
@@ -241,7 +242,7 @@ fun BranchManageScreen(
             }
             Icon(
                 Icons.Filled.Refresh, "刷新", tint = Primer.IconPrimary,
-                modifier = Modifier.size(22.dp).clickable(enabled = !busy) { reloadKey++ },
+                modifier = Modifier.size(22.dp).iconTap(enabled = !busy) { reloadKey++ },
             )
         }
 

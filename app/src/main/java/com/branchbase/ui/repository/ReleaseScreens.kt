@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -114,7 +115,7 @@ fun ReleaseDetailScreen(
             ) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Primer.IconPrimary,
-                    modifier = Modifier.size(24.dp).clickable { onBack() },
+                    modifier = Modifier.size(24.dp).iconTap { onBack() },
                 )
                 Spacer(Modifier.width(8.dp))
                 Text("发布详情", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
@@ -279,7 +280,7 @@ fun ReleaseEditScreen(
         ) {
             Icon(
                 Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Primer.IconPrimary,
-                modifier = Modifier.size(24.dp).clickable { onBack() },
+                modifier = Modifier.size(24.dp).iconTap { onBack() },
             )
             Spacer(Modifier.width(8.dp))
             Text(

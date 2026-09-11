@@ -46,6 +46,7 @@ import com.branchbase.core.RustBridge
 import com.branchbase.ui.decision.GitStatus
 import com.branchbase.ui.decision.parseGitStatus
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -213,7 +214,7 @@ fun LocalBranchSyncScreen(
         ) {
             Icon(
                 Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Primer.IconPrimary,
-                modifier = Modifier.size(24.dp).clickable { onBack() },
+                modifier = Modifier.size(24.dp).iconTap { onBack() },
             )
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {

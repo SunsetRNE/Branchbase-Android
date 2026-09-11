@@ -44,6 +44,7 @@ import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import com.branchbase.core.RustBridge
+import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Primer
 
 /**
@@ -123,7 +124,7 @@ fun WorkflowRunsContent(
                     Icons.Filled.MoreVert,
                     contentDescription = "工作流操作",
                     tint = Primer.IconPrimary,
-                    modifier = Modifier.size(22.dp).clickable { onOpenActions() },
+                    modifier = Modifier.size(22.dp).iconTap { onOpenActions() },
                 )
             }
         } else {
@@ -299,7 +300,7 @@ private fun FullScreen(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).clickable { onBack() })
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
             Spacer(Modifier.width(8.dp))
             Text(
                 title,

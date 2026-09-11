@@ -48,6 +48,7 @@ import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
+import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -177,7 +178,7 @@ fun BranchCompareScreen(
         ) {
             Icon(
                 Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Primer.IconPrimary,
-                modifier = Modifier.size(24.dp).clickable { onBack() },
+                modifier = Modifier.size(24.dp).iconTap { onBack() },
             )
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
@@ -199,7 +200,7 @@ fun BranchCompareScreen(
             Box(Modifier.padding(horizontal = 6.dp)) {
                 Icon(
                     Icons.Filled.SwapVert, "互换", tint = Primer.IconPrimary,
-                    modifier = Modifier.size(20.dp).clickable {
+                    modifier = Modifier.size(20.dp).iconTap {
                         val t = base; base = head; head = t
                     },
                 )

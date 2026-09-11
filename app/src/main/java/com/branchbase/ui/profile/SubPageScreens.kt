@@ -74,6 +74,7 @@ import com.branchbase.ui.log.Logger
 import com.branchbase.ui.notification.NotifLayout
 import com.branchbase.ui.notification.readNotifLayout
 import com.branchbase.ui.notification.writeNotifLayout
+import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.LanguageColors
 import com.branchbase.ui.theme.AppIcon
 import com.branchbase.ui.theme.Primer
@@ -195,7 +196,7 @@ internal fun SubPageHeader(title: String, onBack: () -> Unit, trailing: @Composa
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).clickable { onBack() })
+        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
         Spacer(Modifier.width(8.dp))
         Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
         Spacer(Modifier.weight(1f))
@@ -210,7 +211,7 @@ private fun RefreshButton(onRefresh: () -> Unit) {
         Icons.Filled.Refresh,
         contentDescription = "刷新",
         tint = Primer.Blue500,
-        modifier = Modifier.size(20.dp).clickable { onRefresh() },
+        modifier = Modifier.size(20.dp).iconTap { onRefresh() },
     )
 }
 

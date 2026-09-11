@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import com.branchbase.core.RustBridge
+import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -175,7 +176,7 @@ fun WorkflowDispatchScreen(
         ) {
             Icon(
                 Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Primer.IconPrimary,
-                modifier = Modifier.size(24.dp).clickable(enabled = !submitting) { onBack() },
+                modifier = Modifier.size(24.dp).iconTap(enabled = !submitting) { onBack() },
             )
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {

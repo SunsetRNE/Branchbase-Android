@@ -45,6 +45,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -126,7 +127,7 @@ fun TaskScreen(onBack: () -> Unit) {
             Icon(
                 Icons.AutoMirrored.Filled.ArrowBack, "返回",
                 tint = Primer.IconPrimary,
-                modifier = Modifier.size(24.dp).clickable { onBack() },
+                modifier = Modifier.size(24.dp).iconTap { onBack() },
             )
             Spacer(Modifier.width(8.dp))
             Text("任务", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
@@ -394,7 +395,7 @@ private fun TaskDetailScreen(task: TaskRecord, onBack: () -> Unit, onDelete: () 
             Icon(
                 Icons.AutoMirrored.Filled.ArrowBack, "返回",
                 tint = Primer.IconPrimary,
-                modifier = Modifier.size(24.dp).clickable { onBack() },
+                modifier = Modifier.size(24.dp).iconTap { onBack() },
             )
             Spacer(Modifier.width(8.dp))
             Text("任务详情", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)

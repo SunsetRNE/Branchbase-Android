@@ -74,6 +74,7 @@ import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.CodeSyntax
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.launch
@@ -387,7 +388,7 @@ private fun SearchTopBar(
         modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).clickable { onBack() })
+        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
         Spacer(Modifier.width(4.dp))
         Box(
             modifier = Modifier.weight(1f).height(40.dp).clip(RoundedCornerShape(8.dp)).background(Primer.BackgroundSecondary).padding(horizontal = 12.dp),
@@ -408,7 +409,7 @@ private fun SearchTopBar(
             )
         }
         Spacer(Modifier.width(8.dp))
-        Icon(Icons.Filled.Search, contentDescription = "搜索", tint = Primer.Blue500, modifier = Modifier.size(22.dp).clickable { onSearch() })
+        Icon(Icons.Filled.Search, contentDescription = "搜索", tint = Primer.Blue500, modifier = Modifier.size(22.dp).iconTap { onSearch() })
     }
 }
 

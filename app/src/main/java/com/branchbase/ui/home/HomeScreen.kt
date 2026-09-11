@@ -52,6 +52,7 @@ import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
 import com.branchbase.core.AccountStore
 import com.branchbase.core.RustBridge
+import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Avatar
 import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
@@ -524,7 +525,7 @@ private fun SectionHeader(title: String, icon: ImageVector, onRefresh: (() -> Un
                 Icons.Filled.Refresh,
                 contentDescription = "刷新",
                 tint = Primer.IconSecondary,
-                modifier = Modifier.size(18.dp).clickable { onRefresh() },
+                modifier = Modifier.size(18.dp).iconTap { onRefresh() },
             )
         }
     }

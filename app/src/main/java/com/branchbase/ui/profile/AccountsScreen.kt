@@ -51,6 +51,7 @@ import com.branchbase.core.AccountStore
 import com.branchbase.core.LocalRepos
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Avatar
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.Dispatchers
@@ -250,7 +251,7 @@ private fun AccountCard(
                     Icons.Filled.MoreVert,
                     contentDescription = "更多",
                     tint = Primer.TextSecondary,
-                    modifier = Modifier.size(22.dp).clickable { menuOpen = true },
+                    modifier = Modifier.size(22.dp).iconTap { menuOpen = true },
                 )
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     DropdownMenuItem(

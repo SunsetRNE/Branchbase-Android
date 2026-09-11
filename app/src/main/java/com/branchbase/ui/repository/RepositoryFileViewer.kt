@@ -63,6 +63,7 @@ import com.branchbase.ui.profile.CommitMode
 import com.branchbase.ui.profile.CommitModePickerDialog
 import com.branchbase.ui.profile.commitMode
 import com.branchbase.ui.profile.saveCommitMode
+import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.CodeSyntax
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.Dispatchers
@@ -424,7 +425,7 @@ fun FileViewerScreen(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).clickable { onBack() })
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
             Spacer(Modifier.width(8.dp))
             Text(
                 path.substringAfterLast('/'),
