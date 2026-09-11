@@ -29,7 +29,10 @@ else
   "$ENV_DIR/env-prepare.sh"
 fi
 
-echo "[setup] ③ 环境持久化（tools/env/env-persist.sh）"
+echo "[setup] ③ ARM64(proot) 补充准备（lld / cargo-ndk / ARM64 aapt2 / cargo PATH）"
+"$ENV_DIR/env-prepare-arm64-patches.sh"
+
+echo "[setup] ④ 环境持久化（tools/env/env-persist.sh）"
 "$ENV_DIR/env-persist.sh"
 
 echo "[setup] 完成。请执行：source tools/env/env.rc  （或重开 shell）"

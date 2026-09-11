@@ -138,7 +138,10 @@ ensure_rust_android_target() {
 # 替换 ARM64 AAPT2（用 tools/aapt2/ 预存资产）
 replace_aapt2() {
   local bundled_aapt2="$ROOT_DIR/tools/aapt2/aapt2-arm64-v8a"
-  local expected_sha256="e5b5ff7f0d4f6ecd7fa5d05d77fed3f09f6f1bf80f078b8aada82bc578848561"
+  # 来源：Ubuntu noble 的 aapt 包（1:14~beta1-2build3）自带的 aarch64 原生 aapt2，
+  # 即 /usr/lib/android-sdk/build-tools/debian/aapt2。Google Maven 的 aapt2 只有 x86-64，
+  # 官方 NDK/SDK 也不发布 linux-aarch64，故 ARM64 环境只能用这一支。
+  local expected_sha256="b38bf2f3a4e5332c8999e91280b5d2aace3bfcc98cdd9d11dbf66e45fd87c926"
   [[ -f "$bundled_aapt2" ]] || { log "预存 AAPT2 缺失：$bundled_aapt2"; return 0; }
 
   local actual; actual=$(sha256sum "$bundled_aapt2" | awk '{print $1}')

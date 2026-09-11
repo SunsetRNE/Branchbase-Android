@@ -56,7 +56,7 @@ Branchbase/
 - Android SDK（compileSdk 35）
 - Rust 工具链（编译 `core/`）
 
-### ARM64 环境一键准备（判定 → 准备 → 持久化，三脚本解耦）
+### ARM64 环境一键准备（判定 → 准备 → 持久化，脚本解耦）
 ```bash
 chmod +x ./setup_android_env.sh
 ./setup_android_env.sh   # 委托 tools/env/ 下的三脚本，无镜像测速，预存资产 + 固定镜像
@@ -65,6 +65,7 @@ chmod +x ./setup_android_env.sh
 环境脚本（`tools/env/`）：
 - `env-detect.sh`：纯判定（java/sdk/gradle/rust/aapt2），输出 JSON，零副作用
 - `env-prepare.sh`：缺失才下载（预存资产优先 + 固定镜像）
+- `env-prepare-arm64-patches.sh`：ARM64(proot) 补充准备（lld / cargo-ndk / 自包含 aarch64 aapt2 并绑定到全局 `~/.gradle/gradle.properties` / env.rc 的 cargo PATH）；**非 aarch64 自动跳过**
 - `env-persist.sh`：仅在 `~/.bashrc` 追加一行 `source tools/env/env.rc`
 
 编译脚本（`tools/build/`）：
