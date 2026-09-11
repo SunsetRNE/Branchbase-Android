@@ -31,6 +31,9 @@ object PageCache {
     // ── 键 ──
     fun issueKey(owner: String, repo: String, number: Long) = "detail:issue:$owner/$repo#$number"
     fun issueCommentsKey(owner: String, repo: String, number: Long) = "detail:issue-comments:$owner/$repo#$number"
+
+    /** Issue 时间线（评论 + 事件混排，`GET /issues/{n}/timeline`）。 */
+    fun issueTimelineKey(owner: String, repo: String, number: Long) = "detail:issue-timeline:$owner/$repo#$number"
     fun pullKey(owner: String, repo: String, number: Long) = "detail:pull:$owner/$repo#$number"
     fun pullFilesKey(owner: String, repo: String, number: Long) = "detail:pull-files:$owner/$repo#$number"
     fun commitKey(owner: String, repo: String, sha: String) = "detail:commit:$owner/$repo@$sha"

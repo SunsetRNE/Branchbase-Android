@@ -1,7 +1,6 @@
 package com.branchbase.cache
 
 import android.content.Context
-import android.net.ConnectivityManager
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.repository.encodePath
 import com.branchbase.ui.repository.encodeRef
@@ -41,18 +40,14 @@ object RepoPrefetcher {
 
     private const val DEDUPE_WINDOW_MS = 60_000L
 
-    /** 预加载开关（设置项，默认开）。 */
-    fun enabled(context: Context): Boolean =
-        context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
-            .getBoolean("prefetch.enabled", true)
+    /** 预加载开关（设置项，默认开）。判定实现见 `PrefetchPolicy.prefetchEnabled`（消息页预加载共用）。 */
+    fun enabled(context: Context): Boolean = prefetchEnabled(context)
 
     /**
      * 当前网络是否计费（移动数据）。取不到状态时**按计费处理**（保守：不投机预取）。
+     * 判定实现见 `PrefetchPolicy.networkMetered`（消息页预加载共用）。
      */
-    fun metered(context: Context): Boolean = runCatching {
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        cm.isActiveNetworkMetered
-    }.getOrDefault(true)
+    fun metered(context: Context): Boolean = networkMetered(context)
 
     /**
      * 按场景触发预加载（立即返回，不阻塞调用方）。

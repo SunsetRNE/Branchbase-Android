@@ -48,101 +48,14 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 
 /**
- * Issue / PR 详情页（列表 → 详情贯通）。
+ * PR / 提交 详情页（列表 → 详情贯通）。
+ *
+ * Issue 详情已独立到 `IssueDetailScreen.kt`（时间线、反应、输入器等体量较大），
+ * 本文件保留 PR 与提交详情，以及两个页面共用的页头 / 居中态 / diff 渲染。
  *
  * 对齐 `docs/repository-detail-wireframe.md`：
- * Issue：标题 + 状态胶囊 + 标签 + 正文 + 评论 timeline。
  * PR：标题 + 状态 + 分支合并信息 + 描述 + 文件变更（+/- 统计）。
- * 正文当前为纯文本（markdown 原始），后续可经 markdown API 转 HTML 复用 ReadmeRenderer。
  */
-
-@Composable
-fun IssueDetailScreen(
-    sessionJson: String,
-    owner: String,
-    repo: String,
-    number: Long,
-    onBack: () -> Unit,
-) {
-    val (host, token, login) = sessionInfo(sessionJson)
-    val context = LocalContext.current
-    var detail by remember { mutableStateOf<IssueDetail?>(null) }
-    var comments by remember { mutableStateOf<List<CommentItem>>(emptyList()) }
-    var bodyHtml by remember { mutableStateOf<String?>(null) }
-    var loading by remember { mutableStateOf(true) }
-
-    /**
-     * 应用一份 Issue 详情 JSON：解析 + 正文 markdown 渲染（与改造前的渲染路径完全一致）。
-     * 解析不出详情时返回 false —— 此时这一份不能算「直出成功」。
-     */
-    suspend fun applyDetail(json: String): Boolean {
-        val d = runCatching { parseIssueDetail(json) }.getOrNull() ?: return false
-        detail = d
-        if (d.body.isNotBlank()) bodyHtml = markdownToHtml(host, token, d.body)
-        return true
-    }
-
-    LaunchedEffect(owner, repo, number) {
-        loading = true
-        // 本页由列表页进入，自身没有手动刷新/重试入口（refreshTick/retryTick 留在列表页），
-        // 因此不存在「必须忽略缓存」的场景：force 恒为 false（PageCache 默认值）。
-        val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
-        val detailKey = PageCache.issueKey(owner, repo, number)
-        val commentsKey = PageCache.issueCommentsKey(owner, repo, number)
-        // 失败态由 `detail == null` 表达（保持原「加载失败」文案与空态语义），不需要额外的 error 状态；
-        // appliedJson 用于避免「直出后回源又命中同一份新鲜缓存」时重复解析与重复 markdown 渲染
-        var appliedJson: String? = null
-
-        // ① 先直出缓存（含过期数据）
-        PageCache.cachedFirst(manager, detailKey, PageCache.TYPE_DETAIL)?.let { cached ->
-            if (applyDetail(cached)) {
-                appliedJson = cached
-                loading = false
-            }
-        }
-        // 评论一并直出（空列表与「请求失败」的渲染结果相同，无需区分）
-        PageCache.cachedFirst(manager, commentsKey, PageCache.TYPE_DETAIL)?.let { cached ->
-            runCatching { parseComments(cached) }.getOrNull()?.let { c -> comments = c }
-        }
-
-        // ② 回源并写回：详情与评论并行（原来是详情成功后再串行拉评论）
-        coroutineScope {
-            val detailJob = async {
-                PageCache.refresh(manager, detailKey, PageCache.TYPE_DETAIL) {
-                    RustBridge.getJson(host, token, "/repos/$owner/$repo/issues/$number")
-                }
-            }
-            val commentsJob = async {
-                PageCache.refresh(manager, commentsKey, PageCache.TYPE_DETAIL) {
-                    RustBridge.getJson(host, token, "/repos/$owner/$repo/issues/$number/comments")
-                }
-            }
-            // 回源失败（null）时什么都不做：本次直出过就静默保留旧内容；没直出则 detail 仍为 null → 加载失败
-            val detailJson = detailJob.await()
-            if (detailJson != null && detailJson != appliedJson) applyDetail(detailJson)
-            commentsJob.await()?.let { json ->
-                runCatching { parseComments(json) }.getOrNull()?.let { c -> comments = c }
-            }
-        }
-        loading = false
-    }
-
-    Column(
-        Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding(),
-    ) {
-        DetailHeader("#$number", onBack)
-        when {
-            loading -> CenterLoading()
-            detail == null -> CenterText("加载失败")
-            else -> LazyColumn(Modifier.fillMaxSize()) {
-                item { IssueHead(detail!!) }
-                if (bodyHtml != null) item { ReadmeWebView(bodyHtml!!, host, owner, repo, "main", login, token, onLinkClick = {}) }
-                else if (detail!!.body.isNotBlank()) item { CommentBody(detail!!.body, detail!!.author, detail!!.createdAt) }
-                items(comments) { c -> CommentCard(c) }
-            }
-        }
-    }
-}
 
 @Composable
 fun PullDetailScreen(
@@ -242,33 +155,6 @@ private fun DetailHeader(title: String, onBack: () -> Unit) {
         Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).clickable { onBack() })
         Spacer(Modifier.width(8.dp))
         Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
-    }
-}
-
-@Composable
-private fun IssueHead(d: IssueDetail) {
-    Column(Modifier.fillMaxWidth().padding(16.dp)) {
-        Text(d.title, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary, lineHeight = 22.sp)
-        Spacer(Modifier.height(6.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(12.dp).clip(CircleShape).background(stateColor(d.state)))
-            Spacer(Modifier.width(6.dp))
-            Text(d.state, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = stateColor(d.state))
-            Spacer(Modifier.width(8.dp))
-            Text("${d.author} 于 ${shortTime(d.createdAt)} 打开", fontSize = 12.sp, color = Primer.TextTertiary)
-        }
-        if (d.labels.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Row {
-                d.labels.forEach { label ->
-                    Box(
-                        Modifier.padding(end = 6.dp).clip(RoundedCornerShape(10.dp)).background(Primer.Blue500).padding(horizontal = 8.dp, vertical = 2.dp),
-                    ) {
-                        Text(label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-                    }
-                }
-            }
-        }
     }
 }
 

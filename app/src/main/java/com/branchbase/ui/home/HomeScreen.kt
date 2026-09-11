@@ -62,6 +62,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.branchbase.ui.theme.Primer
 import com.branchbase.cache.RepoPrefetcher
+import com.branchbase.ui.notification.NotificationPrefetcher
 import org.json.JSONObject
 
 /**
@@ -164,10 +165,16 @@ fun HomeScreen(
             launch { loadEvents(false) }
             // 待处理三件套（都是轻量请求，失败静默为 0，不打扰首页）
             // 每个计数各自 key（home:unread / home:review / home:assigned），类型 TYPE_HOME（TTL 5 分钟）
+            // 消息首屏预取（需求 ③）：原来这里请求 `/notifications?per_page=100` **只为了数长度**，
+            // 而消息页进去还要再请求一次首屏 —— 同一份数据两条腿各拉一遍。
+            // 现在这一步把首屏做完整：写 PageCache（落盘）+ 填 NotifSnapshot（已解析），
+            // 未读数也从同一份数据算出，于是「进消息页」= 0 次网络 + 0 帧骨架。
+            // 被策略跳过（计费网络 / 关闭了预加载开关）时返回 null，回退到原来的计数路径。
             launch {
-                unreadNotifs = loadCachedCount("unread") {
-                    RustBridge.getJson(host, token, "/notifications?per_page=100")
-                }
+                unreadNotifs = NotificationPrefetcher.warmUp(context, host, token)
+                    ?: loadCachedCount("unread") {
+                        RustBridge.getJson(host, token, "/notifications?per_page=100")
+                    }
             }
             launch {
                 reviewRequests = loadCachedCount("review") {

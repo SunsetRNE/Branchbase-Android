@@ -366,22 +366,115 @@ fun encodeRef(ref: String): String =
 
 // ── 详情模型（Issue/PR/评论/文件变更） ──
 
+/** 标签（名字 + 颜色）。颜色是 6 位十六进制（GitHub 给的是不带 `#` 的 RGB）。 */
+data class LabelChip(val name: String, val colorHex: String) {
+    /** 按亮度决定文字用黑还是白（网页版同款算法），否则浅色标签上的白字会看不见。 */
+    val onColor: androidx.compose.ui.graphics.Color
+        get() {
+            val hex = colorHex.removePrefix("#")
+            if (hex.length < 6) return androidx.compose.ui.graphics.Color.White
+            val r = hex.substring(0, 2).toIntOrNull(16) ?: 0
+            val g = hex.substring(2, 4).toIntOrNull(16) ?: 0
+            val b = hex.substring(4, 6).toIntOrNull(16) ?: 0
+            val lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
+            return if (lum > 0.62) androidx.compose.ui.graphics.Color(0xFF24292F) else androidx.compose.ui.graphics.Color.White
+        }
+
+    val color: androidx.compose.ui.graphics.Color
+        get() = runCatching {
+            androidx.compose.ui.graphics.Color(0xFF000000L or (colorHex.removePrefix("#").toLong(16) and 0xFFFFFFL))
+        }.getOrDefault(androidx.compose.ui.graphics.Color(0xFF6A6D7C))
+}
+
+/**
+ * Issue 详情。
+ *
+ * 相比最初版本补齐了「网页版有、移动端此前没有」的元信息：
+ * 状态原因（completed / not_planned）、标签颜色、指派者、里程碑、评论数。
+ * 这些字段 REST 的 `/issues/{n}` 本来就返回，属于解析侧白丢的信息。
+ */
 data class IssueDetail(
     val number: Long,
     val title: String,
-    val state: String,
+    val state: String,              // open / closed
+    val stateReason: String?,       // completed / not_planned / reopened / null
     val body: String,
     val author: String,
+    val authorAvatar: String?,
     val createdAt: String,
-    val labels: List<String>,
+    val labels: List<LabelChip>,
+    val assignees: List<String>,
+    val milestone: String?,
+    val commentsCount: Int,
+    /** 主帖自身的反应（GitHub 的 issue 对象同样带 reactions 计数）。 */
+    val reactions: List<ReactionSummary> = emptyList(),
+) {
+    val isOpen: Boolean get() = state.equals("open", ignoreCase = true)
+}
+
+/** 一条反应（emoji + 计数 + 我是否已选）。 */
+data class ReactionSummary(
+    val content: String,   // GitHub 的 content 值：+1 / -1 / laugh / hooray / confused / heart / rocket / eyes
+    val emoji: String,
+    val count: Int,
+    val mine: Boolean,
 )
 
+/** 反应 content → emoji（顺序即界面展示顺序）。 */
+val REACTION_ORDER: List<Pair<String, String>> = listOf(
+    "+1" to "👍", "-1" to "👎", "laugh" to "😄", "hooray" to "🎉",
+    "confused" to "😕", "heart" to "❤️", "rocket" to "🚀", "eyes" to "👀",
+)
+
+fun emojiOf(content: String): String = REACTION_ORDER.firstOrNull { it.first == content }?.second ?: "👍"
+
+/** 一条评论。 */
 data class CommentItem(
+    val id: Long,
     val author: String,
     val avatarUrl: String?,
     val body: String,
     val createdAt: String,
-)
+    /** OWNER / MEMBER / COLLABORATOR / CONTRIBUTOR / NONE，用于「作者 / 协作者」徽章 */
+    val authorAssociation: String?,
+    val reactions: List<ReactionSummary>,
+    val isIssueAuthor: Boolean,
+    /** 编辑过的评论网页版会标「已编辑」；GitHub 用 updated_at != created_at 表达。 */
+    val isEdited: Boolean = false,
+) {
+    /** 徽章文案（没有徽章时返回 null）：作者优先于协作者身份。 */
+    val badge: String?
+        get() = when {
+            isIssueAuthor -> "作者"
+            authorAssociation.equals("OWNER", true) -> "Owner"
+            authorAssociation.equals("MEMBER", true) -> "Member"
+            authorAssociation.equals("COLLABORATOR", true) -> "Collaborator"
+            authorAssociation.equals("CONTRIBUTOR", true) -> "Contributor"
+            else -> null
+        }
+}
+
+/**
+ * 时间线条目：评论与事件按时间混排。
+ *
+ * GitHub 的 `/issues/{n}/timeline` 把「评论」也作为一种 event（`commented`）返回，
+ * 因此时间线是单一数据源；拿不到时间线时（网络/权限）回退到 `/comments` +
+ * 「无事件」的降级形态，页面结构不变。
+ */
+sealed interface TimelineEntry {
+    val createdAt: String
+
+    data class Comment(val comment: CommentItem) : TimelineEntry {
+        override val createdAt: String get() = comment.createdAt
+    }
+
+    data class Event(
+        val kind: String,
+        val actor: String,
+        val text: String,
+        override val createdAt: String,
+    ) : TimelineEntry
+}
 
 data class PullDetail(
     val number: Long,
@@ -405,30 +498,122 @@ data class PullFile(
 fun parseIssueDetail(json: String): IssueDetail? = runCatching {
     val o = JSONObject(json)
     val labels = o.optJSONArray("labels")?.let { arr ->
-        (0 until arr.length()).map { i -> arr.getJSONObject(i).optString("name") }
+        (0 until arr.length()).map { i ->
+            val l = arr.getJSONObject(i)
+            LabelChip(l.optString("name"), l.optString("color", "6A6D7C"))
+        }
+    } ?: emptyList()
+    val assignees = o.optJSONArray("assignees")?.let { arr ->
+        (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i)?.optString("login")?.takeIf { it.isNotBlank() } }
     } ?: emptyList()
     IssueDetail(
         number = o.optLong("number"),
         title = o.optString("title"),
         state = o.optString("state"),
+        stateReason = o.optString("state_reason").takeIf { it.isNotBlank() && it != "null" },
         body = o.optString("body").orEmpty(),
         author = o.optJSONObject("user")?.optString("login").orEmpty(),
+        authorAvatar = o.optJSONObject("user")?.optString("avatar_url")?.takeIf { it.isNotBlank() },
         createdAt = o.optString("created_at"),
         labels = labels,
+        assignees = assignees,
+        milestone = o.optJSONObject("milestone")?.optString("title")?.takeIf { it.isNotBlank() && it != "null" },
+        commentsCount = o.optInt("comments", 0),
+        reactions = parseReactions(o.optJSONObject("reactions")),
     )
 }.getOrNull()
 
-/** 解析 GET /repos/{o}/{r}/issues/{n}/comments 数组 */
-fun parseComments(json: String): List<CommentItem> = runCatching {
+/** 解析 reactions 子对象（缺失 / 全 0 时返回空列表，界面据此整行不渲染）。 */
+fun parseReactions(o: JSONObject?, mine: Map<String, Boolean> = emptyMap()): List<ReactionSummary> {
+    val r = o ?: return emptyList()
+    return REACTION_ORDER.mapNotNull { (content, emoji) ->
+        val count = r.optInt(content, 0)
+        if (count <= 0) null else ReactionSummary(content, emoji, count, mine[content] == true)
+    }
+}
+
+/** 把 timeline / comments 里的一条「评论对象」解析为 [CommentItem]。 */
+fun parseCommentObject(o: JSONObject, issueAuthor: String = ""): CommentItem? {
+    val body = o.optString("body").orEmpty()
+    val id = o.optLong("id")
+    if (id == 0L && body.isBlank()) return null
+    val login = o.optJSONObject("user")?.optString("login").orEmpty()
+    return CommentItem(
+        id = id,
+        author = login,
+        avatarUrl = o.optJSONObject("user")?.optString("avatar_url")?.takeIf { it.isNotBlank() },
+        body = body,
+        createdAt = o.optString("created_at"),
+        authorAssociation = o.optString("author_association").takeIf { it.isNotBlank() && it != "null" },
+        reactions = parseReactions(o.optJSONObject("reactions")),
+        isIssueAuthor = issueAuthor.isNotBlank() && login == issueAuthor,
+        isEdited = o.optString("updated_at").let { u -> u.isNotBlank() && u != o.optString("created_at") },
+    )
+}
+
+/** 解析 GET /repos/{o}/{r}/issues/{n}/comments 数组（无事件信息的降级路径） */
+fun parseComments(json: String, issueAuthor: String = ""): List<CommentItem> = runCatching {
     val arr = JSONArray(json)
-    (0 until arr.length()).map { i ->
+    (0 until arr.length()).mapNotNull { i -> parseCommentObject(arr.getJSONObject(i), issueAuthor) }
+}.getOrDefault(emptyList())
+
+/**
+ * 解析 GET /repos/{o}/{r}/issues/{n}/timeline（`Accept: application/vnd.github+json`）。
+ *
+ * 只保留**移动端能讲清楚**的事件类型，未知事件一律忽略 —— 宁可少一条事件，
+ * 也不要出现「某事件」这种没有信息量的占位行。事件文案在解析期就拼好，
+ * 界面层只负责画，避免渲染逻辑里塞满 when 分支。
+ */
+fun parseIssueTimeline(json: String, issueAuthor: String = ""): List<TimelineEntry> = runCatching {
+    val arr = JSONArray(json)
+    (0 until arr.length()).mapNotNull { i ->
         val o = arr.getJSONObject(i)
-        CommentItem(
-            author = o.optJSONObject("user")?.optString("login").orEmpty(),
-            avatarUrl = o.optJSONObject("user")?.optString("avatar_url")?.takeIf { it.isNotBlank() },
-            body = o.optString("body").orEmpty(),
-            createdAt = o.optString("created_at"),
-        )
+        val event = o.optString("event")
+        val actor = o.optJSONObject("actor")?.optString("login")
+            ?: o.optJSONObject("user")?.optString("login").orEmpty()
+        val at = o.optString("created_at")
+
+        if (event == "commented") {
+            return@mapNotNull parseCommentObject(o, issueAuthor)?.let { TimelineEntry.Comment(it) }
+        }
+
+        val text: String? = when (event) {
+            "labeled" -> o.optJSONObject("label")?.optString("name")
+                ?.let { "$actor 添加了标签「$it」" }
+            "unlabeled" -> o.optJSONObject("label")?.optString("name")
+                ?.let { "$actor 移除了标签「$it」" }
+            "assigned" -> o.optJSONObject("assignee")?.optString("login")
+                ?.let { "$actor 指派给 @$it" }
+            "unassigned" -> o.optJSONObject("assignee")?.optString("login")
+                ?.let { "$actor 取消了 @$it 的指派" }
+            "closed" -> {
+                val reason = o.optString("state_reason")
+                val suffix = if (reason == "not_planned") "（不计划实施）" else "（已完成）"
+                "$actor 关闭了此 issue$suffix"
+            }
+            "reopened" -> "$actor 重新打开了此 issue"
+            "milestoned" -> o.optJSONObject("milestone")?.optString("title")
+                ?.let { "$actor 加入里程碑「$it」" }
+            "demilestoned" -> o.optJSONObject("milestone")?.optString("title")
+                ?.let { "$actor 移除了里程碑「$it」" }
+            "renamed" -> o.optJSONObject("rename")?.let { r ->
+                val from = r.optString("from")
+                val to = r.optString("to")
+                "$actor 把标题从「$from」改为「$to」"
+            }
+            "referenced" -> {
+                val sha = o.optString("commit_id").take(7)
+                if (sha.isBlank()) "$actor 引用了此 issue" else "$actor 在提交 $sha 中引用了此 issue"
+            }
+            "cross-referenced" -> {
+                val src = o.optJSONObject("source")?.optJSONObject("issue")
+                val num = src?.optLong("number") ?: 0L
+                val title = src?.optString("title").orEmpty()
+                if (num > 0) "$actor 在 #$num $title 中引用了此 issue" else "$actor 引用了此 issue"
+            }
+            else -> null
+        }
+        text?.let { TimelineEntry.Event(event, actor, it, at) }
     }
 }.getOrDefault(emptyList())
 

@@ -37,6 +37,10 @@ sealed class NotifTarget {
 /**
  * 通知模型。
  * 原始字段 1:1 对齐 `GET /notifications` 返回；派生字段解析时计算，供 UI 直接消费。
+ *
+ * ⚠️ [updatedAtMs] 是**原始时间戳**，[relativeTimeOf] 在渲染期计算相对时间。
+ * 改造前把「3 分钟前」在解析期算成字符串，一旦列表来自内存快照/缓存，
+ * 这个字符串就被冻结成常量（首页预取后进消息页会显示过期时间）。
  */
 data class Notification(
     // ── 原始字段 ──
@@ -51,7 +55,8 @@ data class Notification(
     // 注意它可能退化成 issue/PR 本体或 commit/discussion 的 URL，因此消费方必须校验形态。
     val latestCommentUrl: String?,
     val repoFullName: String,       // repository.full_name
-    val updatedAt: String,          // 原始 ISO8601
+    val updatedAt: String,          // 原始 ISO8601（展示/排查用）
+    val updatedAtMs: Long,          // 原始时间的毫秒值（相对时间在渲染期由它算出）
     // ── 派生字段 ──
     val kind: NotifKind,
     val icon: ImageVector,
@@ -62,8 +67,10 @@ data class Notification(
     val repo: String,
     val targetNumber: Long?,        // issue/PR/run/release 编号
     val targetSha: String?,         // commit sha
-    val relativeTime: String,
-)
+) {
+    /** issue / PR 这两类才有「内容预览」与「过往 Issue」语义。 */
+    val issueLike: Boolean get() = subjectType == "Issue" || subjectType == "PullRequest"
+}
 
 /** subject.type → (kind, 图标, 语义色, 标签) */
 private data class TypeMeta(val kind: NotifKind, val icon: ImageVector, val tint: Color, val label: String)
@@ -109,11 +116,19 @@ private fun extractNumber(url: String): Long? =
 private fun extractSha(url: String): String? =
     Regex("/commits/([0-9a-fA-F]+)").find(url)?.groupValues?.get(1)
 
-/** 相对时间（刚刚 / N 分钟前 / N 小时前 / 昨天 / 月日） */
-private fun fmtTime(iso: String): String {
-    if (iso.isBlank()) return ""
-    val t = runCatching { java.time.Instant.parse(iso).toEpochMilli() }.getOrNull() ?: return ""
-    val diff = System.currentTimeMillis() - t
+/** ISO8601 → 毫秒（解析失败返回 0，调用方按「时间未知」处理） */
+fun parseIsoMs(iso: String): Long =
+    runCatching { java.time.Instant.parse(iso).toEpochMilli() }.getOrDefault(0L)
+
+/**
+ * 相对时间（**渲染期计算**，输入原始毫秒时间戳）。
+ *
+ * 放在渲染期而不是解析期的原因见 [Notification.updatedAtMs] 的注释；
+ * 预加载快照会存几十分钟，解析期算好的相对时间必然失真。
+ */
+fun relativeTimeOf(ms: Long, nowMs: Long = System.currentTimeMillis()): String {
+    if (ms <= 0L) return ""
+    val diff = (nowMs - ms).coerceAtLeast(0L)
     val m = diff / 60000
     val h = diff / 3600000
     val d = diff / 86400000
@@ -122,11 +137,55 @@ private fun fmtTime(iso: String): String {
         m < 60 -> "$m 分钟前"
         h < 24 -> "$h 小时前"
         d == 1L -> "昨天"
+        d < 30 -> "$d 天前"
         else -> {
-            val dt = java.time.Instant.ofEpochMilli(t).atZone(java.time.ZoneId.systemDefault())
+            val dt = java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault())
             "${dt.monthValue} 月 ${dt.dayOfMonth} 日"
         }
     }
+}
+
+/**
+ * 由「原始字段 + 派生规则」构造 [Notification]。
+ *
+ * 统一入口的意义：网络解析与本地归档回读（[ArchivedThread.toNotification]）
+ * 走同一条派生规则，不会出现「归档回来的行没有图标/胶囊色」这种两套逻辑。
+ */
+fun notificationOf(
+    id: String,
+    unread: Boolean,
+    reason: String,
+    subjectType: String,
+    title: String,
+    url: String,
+    latestCommentUrl: String?,
+    repoFullName: String,
+    updatedAtMs: Long,
+    updatedAt: String = "",
+): Notification {
+    val tm = TYPE_META[subjectType] ?: FALLBACK_TYPE
+    val rm = REASON_META[reason] ?: FALLBACK_REASON
+    return Notification(
+        id = id,
+        unread = unread,
+        reason = reason,
+        subjectType = subjectType,
+        title = title.ifBlank { "（无标题）" },
+        url = url,
+        latestCommentUrl = latestCommentUrl,
+        repoFullName = repoFullName,
+        updatedAt = updatedAt,
+        updatedAtMs = updatedAtMs,
+        kind = tm.kind,
+        icon = tm.icon,
+        tint = tm.tint,
+        reasonLabel = rm.label,
+        reasonColor = rm.color,
+        owner = repoFullName.substringBefore('/'),
+        repo = repoFullName.substringAfter('/', ""),
+        targetNumber = extractNumber(url),
+        targetSha = extractSha(url),
+    )
 }
 
 /** 解析 `GET /notifications` 返回的 JSON 数组 */
@@ -135,48 +194,69 @@ fun parseNotifications(json: String): List<Notification> = runCatching {
     (0 until arr.length()).map { i ->
         val o = arr.getJSONObject(i)
         val subject = o.optJSONObject("subject") ?: org.json.JSONObject()
-        val subjectType = subject.optString("type", "Issue")
-        val tm = TYPE_META[subjectType] ?: FALLBACK_TYPE
-        val reason = o.optString("reason", "subscribed")
-        val rm = REASON_META[reason] ?: FALLBACK_REASON
-        val fullName = o.optJSONObject("repository")?.optString("full_name").orEmpty()
-        val owner = fullName.substringBefore('/')
-        val repo = fullName.substringAfter('/', "")
-
-        Notification(
+        val updatedAt = o.optString("updated_at")
+        notificationOf(
             id = o.optString("id"),
             unread = o.optBoolean("unread"),
-            reason = reason,
-            subjectType = subjectType,
-            title = subject.optString("title").ifBlank { "（无标题）" },
+            reason = o.optString("reason", "subscribed"),
+            subjectType = subject.optString("type", "Issue"),
+            title = subject.optString("title"),
             url = subject.optString("url"),
             // optString 遇到 JSON null 会返回字符串 "null"，显式滤掉
             latestCommentUrl = subject.optString("latest_comment_url")
                 .takeIf { it.isNotBlank() && it != "null" },
-            repoFullName = fullName,
-            updatedAt = o.optString("updated_at"),
-            kind = tm.kind,
-            icon = tm.icon,
-            tint = tm.tint,
-            reasonLabel = rm.label,
-            reasonColor = rm.color,
-            owner = owner,
-            repo = repo,
-            targetNumber = extractNumber(subject.optString("url")),
-            targetSha = extractSha(subject.optString("url")),
-            relativeTime = fmtTime(o.optString("updated_at")),
+            repoFullName = o.optJSONObject("repository")?.optString("full_name").orEmpty(),
+            updatedAtMs = parseIsoMs(updatedAt),
+            updatedAt = updatedAt,
         )
     }
 }.getOrDefault(emptyList())
 
 /**
- * 类型筛选用到的**短名**。
+ * 首屏列表的查询串（**唯一真源**）。
  *
- * 筛选栏的四格各占 1/4 宽（约 79dp，去掉内边距只剩 67dp），「Pull Request」这类原名会被
- * 省略号吃掉半截，于是格子显示「Pull Requ…」、点开菜单又显示全名，两处对不上。
- * 这里统一给短名：格子与下拉菜单都显示同一份文案，且都能完整放下。
- * 只影响显示，筛选比对用的始终是原始的 `subjectType`。
+ * 预加载器与页面必须用同一份串拼键：少一个 `&all=true` 就会导致
+ * 预取写的键与页面读的键不一致、缓存永不命中（仓库页的 README 键已经踩过一次）。
  */
+fun notifListPath(participating: Boolean = false, before: String? = null): String = buildString {
+    append("/notifications?per_page=50&all=true")
+    if (participating) append("&participating=true")
+    if (before != null) append("&before=").append(java.net.URLEncoder.encode(before, "UTF-8"))
+}
+
+// ───────────────────────── 筛选 / 视图维度（右下角面板用） ─────────────────────────
+
+/**
+ * 分类（面板第一段）。
+ *
+ * 与改造前的「未读 / 全部」两格相比新增两类：
+ * - [PARTICIPATING]：服务端 `participating=true`（我参与/被提及的会话），此前没有入口；
+ * - [DONE]：本地归档（GitHub 没有 done 列表，官方 App 也是本地维护），
+ *   让「处理完的消息」有一个可回看的去处，而不是从列表里凭空消失。
+ */
+enum class NotifCategory(val label: String) {
+    UNREAD("未读"),
+    ALL("全部"),
+    PARTICIPATING("参与"),
+    DONE("已完成"),
+}
+
+/** 时间范围（客户端过滤，基于 `updated_at`）。 */
+enum class NotifRange(val label: String, val maxAgeMs: Long?) {
+    TODAY("今天", 24 * 60 * 60 * 1000L),
+    THREE_DAYS("近 3 天", 3 * 24 * 60 * 60 * 1000L),
+    WEEK("近 7 天", 7 * 24 * 60 * 60 * 1000L),
+    ALL("全部", null),
+}
+
+/** 排序。 */
+enum class NotifSort(val label: String) {
+    NEWEST("最新在前"),
+    OLDEST("最早在前"),
+    UNREAD_FIRST("未读优先"),
+}
+
+/** 类型筛选用到的**短名**（面板芯片与列表胶囊共用，避免同类型两种文案）。 */
 fun typeShortName(subjectType: String): String = when (subjectType) {
     "PullRequest" -> "PR"
     "Discussion" -> "讨论"
