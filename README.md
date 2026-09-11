@@ -145,6 +145,29 @@ Branchbase/
 [开源旧版源码](https://github.com/immersive-translate/old-immersive-translate) ·
 [官网文档](https://immersivetranslate.com/docs/usage/)
 
+## 🎞 页面动效（统一规格）
+
+此前全项目**没有任何页面切换动效**：Tab 切换、首页进个人页/搜索/仓库、仓库页里十几个全屏子页、
+个人页的设置子页、任务列表进详情、登录流程各状态、开 PR 三步向导……状态一变内容直接换掉，
+观感是「点一下，画面硬切」。
+
+现在动效只有**一处真源**（`app/src/main/java/com/branchbase/ui/navigation/PageTransitions.kt`），
+页面只声明「我在第几层」（`PageLevel.depth`），方向由层级差决定：
+
+| 场景 | 动效 | 为什么 |
+|------|------|--------|
+| 有层级的推进 / 返回（`PageSwitcher`） | 水平滑动 1/4 屏 + 淡入淡出 | 子页有前后关系：前进从右进、返回向右出 |
+| 同级切换（`TabSwitcher`，含仓库页切 Tab） | 淡入淡出 + 轻微上浮 | 同级没有前后关系，横向滑动会暗示错误的层级 |
+
+约定：
+- **页面状态要收敛成一条路由**（枚举 / data class），交给 `PageSwitcher` 渲染 ——
+  它同时承担「渲染哪个页面」和「动画期间把旧状态原样交给退场内容」两件事。
+  用 `if (x != null) { 页面(); return }` 的老写法做不到后者：状态一清空，
+  退场中的页面会先变成空白、再淡出（看起来像闪烁）；
+- **路由要把页面数据带上**（如 `RepoRoute.Issue(number)`），不要在页面里现读可变状态；
+- 返回键**按当前路由分派一个**（不要每个页面各挂一个 `BackHandler`）：
+  动画期间新旧两个页面会同时存在，两个 BackHandler 会抢同一个返回事件。
+
 ## 🔧 构建
 
 ### 环境要求

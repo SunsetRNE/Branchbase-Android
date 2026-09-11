@@ -63,6 +63,9 @@ import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.AvatarCache
+import com.branchbase.ui.navigation.PageLevel
+import com.branchbase.ui.navigation.PageSwitcher
+import com.branchbase.ui.navigation.TabSwitcher
 import kotlinx.coroutines.launch
 import com.branchbase.core.AccountStore
 import com.branchbase.core.RustBridge
@@ -160,62 +163,96 @@ fun ProfileScreen(
     var tab by remember { mutableStateOf(ProfileTab.Overview) }
     var subPage by remember { mutableStateOf<SubPage?>(null) }
 
-    // 子页面跳转时拦截系统返回，返回个人主页
+    // 唯一路由：子页栈（depth>0）或主页三 Tab（depth=0）。
+    // 原来是 `if (currentSubPage != null) { when(...); return }` —— 状态一变整棵树换掉、无过渡；
+    // 现在交给 PageSwitcher：进子页从右滑入、返回向右滑出，主页三个 Tab 之间淡入淡出。
+    val route: ProfileRoute = subPage?.let { ProfileRoute.Sub(it) } ?: ProfileRoute.Main(tab)
+
+    // 子页面跳转时拦截系统返回，返回个人主页（按路由启用，动画期间不会重复响应）
     BackHandler(subPage != null) { subPage = null }
 
-    // 气泡弹窗选项直接跳转子页面（不留存导航栏层级）
-    val currentSubPage = subPage
-    if (currentSubPage != null) {
-        when (currentSubPage) {
-            SubPage.Stars -> StarsScreen(sessionJson, onBack = { subPage = null }, onOpenRepo = onOpenRepo)
-            SubPage.Projects -> ProjectsScreen(sessionJson, onBack = { subPage = null })
-            SubPage.Settings -> SettingsScreen(onBack = { subPage = null }, onOpenLocalRepo = { subPage = SubPage.LocalRepo }, onOpenAbout = { subPage = SubPage.About }, onOpenLog = { subPage = SubPage.Log }, onOpenNotificationSettings = { subPage = SubPage.NotificationSettings }, onOpenTranslate = { subPage = SubPage.Translate }, onOpenAccounts = { subPage = SubPage.Accounts }, onOpenCommitMode = { subPage = SubPage.CommitMode })
-            SubPage.LocalRepo -> LocalRepoScreen(sessionJson, onBack = { subPage = SubPage.Settings })
-            SubPage.About -> AboutScreen(onBack = { subPage = SubPage.Settings })
-            SubPage.Log -> LogScreen(onBack = { subPage = SubPage.Settings })
-            SubPage.NotificationSettings -> NotificationSettingsScreen(onBack = { subPage = SubPage.Settings })
-            SubPage.Translate -> TranslateSettingsScreen(onBack = { subPage = SubPage.Settings })
-            SubPage.Tasks -> com.branchbase.ui.task.TaskScreen(onBack = { subPage = null })
-            SubPage.Accounts -> AccountsScreen(onBack = { subPage = SubPage.Settings }, onAdd = onLogout)
-            SubPage.CommitMode -> CommitModeScreen(onBack = { subPage = SubPage.Settings })
-            SubPage.EditProfile -> ProfileEditScreen(sessionJson, onBack = { subPage = null }, onSaved = { subPage = null })
-        }
-        return
-    }
+    PageSwitcher(state = route, modifier = Modifier.fillMaxSize(), label = "profile-page") { r ->
+        when (r) {
+            is ProfileRoute.Sub -> when (r.page) {
+                SubPage.Stars -> StarsScreen(sessionJson, onBack = { subPage = null }, onOpenRepo = onOpenRepo)
+                SubPage.Projects -> ProjectsScreen(sessionJson, onBack = { subPage = null })
+                SubPage.Settings -> SettingsScreen(onBack = { subPage = null }, onOpenLocalRepo = { subPage = SubPage.LocalRepo }, onOpenAbout = { subPage = SubPage.About }, onOpenLog = { subPage = SubPage.Log }, onOpenNotificationSettings = { subPage = SubPage.NotificationSettings }, onOpenTranslate = { subPage = SubPage.Translate }, onOpenAccounts = { subPage = SubPage.Accounts }, onOpenCommitMode = { subPage = SubPage.CommitMode })
+                SubPage.LocalRepo -> LocalRepoScreen(sessionJson, onBack = { subPage = SubPage.Settings })
+                SubPage.About -> AboutScreen(onBack = { subPage = SubPage.Settings })
+                SubPage.Log -> LogScreen(onBack = { subPage = SubPage.Settings })
+                SubPage.NotificationSettings -> NotificationSettingsScreen(onBack = { subPage = SubPage.Settings })
+                SubPage.Translate -> TranslateSettingsScreen(onBack = { subPage = SubPage.Settings })
+                SubPage.Tasks -> com.branchbase.ui.task.TaskScreen(onBack = { subPage = null })
+                SubPage.Accounts -> AccountsScreen(onBack = { subPage = SubPage.Settings }, onAdd = onLogout)
+                SubPage.CommitMode -> CommitModeScreen(onBack = { subPage = SubPage.Settings })
+                SubPage.EditProfile -> ProfileEditScreen(sessionJson, onBack = { subPage = null }, onSaved = { subPage = null })
+            }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Primer.BackgroundPrimary)
-            .statusBarsPadding()
-            .navigationBarsPadding(),
-    ) {
-        // 顶部导航
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
-            Spacer(Modifier.width(4.dp))
-            Text(login, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
-        }
+            is ProfileRoute.Main -> Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Primer.BackgroundPrimary)
+                    .statusBarsPadding()
+                    .navigationBarsPadding(),
+            ) {
+                // 顶部导航
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
+                    Spacer(Modifier.width(4.dp))
+                    Text(login, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+                }
 
-        // 内容（随底部气泡导航栏切换，weight 占据剩余空间）
-        Box(Modifier.fillMaxWidth().weight(1f)) {
-            when (tab) {
-                ProfileTab.Overview -> ProfileOverview(login, name, avatarUrl, bio, followers, following, publicRepos, repos, reposLoading, onOpenRepo, onEdit = { subPage = SubPage.EditProfile })
-                ProfileTab.Repositories -> ProfileRepositories(repos, reposLoading, onOpenRepo)
-                ProfileTab.Activity -> ProfileActivity(host, token, login)
+                // 内容（随底部气泡导航栏切换，weight 占据剩余空间）
+                Box(Modifier.fillMaxWidth().weight(1f)) {
+                    TabSwitcher(
+                        state = r.tab,
+                        modifier = Modifier.fillMaxSize(),
+                        label = "profile-tab",
+                    ) { t ->
+                        when (t) {
+                            ProfileTab.Overview -> ProfileOverview(login, name, avatarUrl, bio, followers, following, publicRepos, repos, reposLoading, onOpenRepo, onEdit = { subPage = SubPage.EditProfile })
+                            ProfileTab.Repositories -> ProfileRepositories(repos, reposLoading, onOpenRepo)
+                            ProfileTab.Activity -> ProfileActivity(host, token, login)
+                        }
+                    }
+                }
+
+                // 气泡导航栏（基础形态 ④）：3 主项 + 右侧手柄弹出 More 菜单
+                ProfileBubbleNavigationBar(
+                    selected = r.tab,
+                    onSelect = { tab = it; Logger.ui("切换到「${it.label}」", "Compose") },
+                    onLogout = onLogout,
+                    onNavigate = { subPage = it; Logger.ui("打开「${it.label}」", "Compose") },
+                )
             }
         }
+    }
+}
 
-        // 气泡导航栏（基础形态 ④）：3 主项 + 右侧手柄弹出 More 菜单
-        ProfileBubbleNavigationBar(
-            selected = tab,
-            onSelect = { tab = it; Logger.ui("切换到「${it.label}」", "Compose") },
-            onLogout = onLogout,
-            onNavigate = { subPage = it; Logger.ui("打开「${it.label}」", "Compose") },
-        )
+/**
+ * 个人页路由。
+ *
+ * 层级：主页三 Tab（0）→ 一级子页（1：星标 / 项目 / 任务 / 编辑资料 / 设置）→
+ * 设置的下级页（2：本地仓库 / 关于 / 日志 / 通知设置 / 沉浸式翻译 / 账号 / 提交模式）。
+ * 这样「设置 → 关于」是推进，「关于 → 设置」是返回，方向都对得上用户的操作。
+ */
+private sealed interface ProfileRoute : PageLevel {
+
+    data class Main(val tab: ProfileTab) : ProfileRoute {
+        override val depth: Int get() = 0
+    }
+
+    data class Sub(val page: SubPage) : ProfileRoute {
+        override val depth: Int get() = when (page) {
+            SubPage.LocalRepo, SubPage.About, SubPage.Log, SubPage.NotificationSettings,
+            SubPage.Translate, SubPage.Accounts, SubPage.CommitMode,
+            -> 2
+
+            else -> 1
+        }
     }
 }
 

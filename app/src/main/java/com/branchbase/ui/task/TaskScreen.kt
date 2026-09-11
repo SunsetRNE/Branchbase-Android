@@ -45,6 +45,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.ui.navigation.PageLevel
+import com.branchbase.ui.navigation.PageSwitcher
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.delay
@@ -86,294 +88,305 @@ fun TaskScreen(onBack: () -> Unit) {
         }
     }
 
-    val current = detail
-    if (current != null) {
-        TaskDetailScreen(
-            task = current,
-            onBack = { detail = null },
-            onDelete = {
-                scope.launch {
-                    TaskStore.delete(context, current.id)
-                    detail = null
-                    reload()
-                    feedback = "已删除记录 #${current.id}"
-                }
-            },
-        )
-        return
-    }
+    // 唯一路由：任务详情（从列表点进来）或任务列表。
+    // 原来是 `if (detail != null) { 详情(); return }` —— 状态一变直接换页、没有过渡。
+    // 详情所需的数据放进路由（退场动画期间 detail 可能已被清空，靠 AnimatedContent 保留旧路由）。
+    val route: TaskRoute = detail?.let { TaskRoute.Detail(it) } ?: TaskRoute.List
 
-    val shown = tasks.filter {
-        when (filter) {
-            TaskFilter.ALL -> true
-            TaskFilter.RUNNING -> it.status == TaskStatus.RUNNING
-            TaskFilter.SUCCESS -> it.status == TaskStatus.SUCCESS
-            TaskFilter.FAILED -> it.status == TaskStatus.FAILED
-        }
-    }
-
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(Primer.BackgroundPrimary)
-            .statusBarsPadding()
-            .navigationBarsPadding(),
-    ) {
-        // 头部
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.AutoMirrored.Filled.ArrowBack, "返回",
-                tint = Primer.IconPrimary,
-                modifier = Modifier.size(24.dp).iconTap { onBack() },
-            )
-            Spacer(Modifier.width(8.dp))
-            Text("任务", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
-            Spacer(Modifier.weight(1f))
-            Text("${tasks.size} 条记录", fontSize = 12.sp, color = Primer.TextTertiary)
-        }
-
-        // 筛选 chips
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            TaskFilter.entries.forEach { f ->
-                val n = when (f) {
-                    TaskFilter.ALL -> tasks.size
-                    TaskFilter.RUNNING -> tasks.count { it.status == TaskStatus.RUNNING }
-                    TaskFilter.SUCCESS -> tasks.count { it.status == TaskStatus.SUCCESS }
-                    TaskFilter.FAILED -> tasks.count { it.status == TaskStatus.FAILED }
-                }
-                val on = filter == f
-                Text(
-                    "${f.label} $n",
-                    fontSize = 12.5.sp,
-                    fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (on) Color.White else Primer.TextSecondary,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(if (on) Primer.Blue500 else Color.White)
-                        .border(1.dp, if (on) Primer.Blue500 else Primer.Border, RoundedCornerShape(16.dp))
-                        .clickable { filter = f }
-                        .padding(horizontal = 14.dp, vertical = 7.dp),
-                )
-            }
-        }
-
-        feedback?.let {
-            Text(it, fontSize = 12.sp, color = Primer.Green500, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-        }
-
-        // 列表
-        if (shown.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("暂无任务记录", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "拉取仓库、提交文件、创建 PR 等操作会在这里留下记录",
-                        fontSize = 12.sp,
-                        color = Primer.TextTertiary,
-                    )
-                }
-            }
-        } else {
-            LazyColumn(Modifier.weight(1f)) {
-                items(shown, key = { it.id }) { t ->
-                    TaskCard(
-                        task = t,
-                        onOpen = { detail = t },
-                        onDelete = {
-                            scope.launch {
-                                TaskStore.delete(context, t.id)
-                                reload()
-                                feedback = "已删除记录 #${t.id}"
-                            }
-                        },
-                    )
-                }
-            }
-        }
-
-        // 底部操作条
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            BottomBtn("清理已完成", Primer.TextSecondary, Modifier.weight(1f)) {
-                clearAllMode = false
-                confirmed = false
-                showClearDialog = true
-            }
-            BottomBtn("全部清除", Primer.Red500, Modifier.weight(1f)) {
-                clearAllMode = true
-                confirmed = false
-                showClearDialog = true
-            }
-        }
-    }
-
-    if (showClearDialog) {
-        val finished = tasks.count { it.status != TaskStatus.RUNNING }
-        val running = tasks.count { it.status == TaskStatus.RUNNING }
-        AlertDialog(
-            onDismissRequest = { showClearDialog = false },
-            title = { Text(if (clearAllMode) "清除全部任务记录" else "清理已完成/失败记录") },
-            text = {
-                Column {
-                    Text(
-                        if (clearAllMode) "将清除全部 $finished 条已结束记录与 $running 个运行中记录（运行中任务会被中断记录）。"
-                        else "将清理 $finished 条已结束记录，保留 $running 个运行中任务。",
-                        fontSize = 13.sp,
-                        color = Primer.TextSecondary,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text("任务记录仅存本地，删除后不可恢复。", fontSize = 12.sp, color = Primer.TextTertiary)
-                    Spacer(Modifier.height(10.dp))
-                    Row(
-                        Modifier.clickable { confirmed = !confirmed },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
-                            Modifier
-                                .size(18.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                                .border(2.dp, if (confirmed) Primer.Red500 else Primer.Border, RoundedCornerShape(4.dp))
-                                .then(if (confirmed) Modifier.background(Primer.Red500) else Modifier),
-                            contentAlignment = Alignment.Center,
-                        ) { if (confirmed) Text("✓", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                        Spacer(Modifier.width(8.dp))
-                        Text("我确认清理这些记录", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = confirmed,
-                    onClick = {
+    PageSwitcher(state = route, modifier = Modifier.fillMaxSize(), label = "task-page") { r ->
+        when (r) {
+            is TaskRoute.Detail -> {
+                val current = r.task
+                TaskDetailScreen(
+                    task = current,
+                    onBack = { detail = null },
+                    onDelete = {
                         scope.launch {
-                            val n = if (clearAllMode) TaskStore.clearAll(context) else TaskStore.clearFinished(context)
-                            showClearDialog = false
+                            TaskStore.delete(context, current.id)
+                            detail = null
                             reload()
-                            feedback = "已清理 $n 条记录"
+                            feedback = "已删除记录 #${current.id}"
                         }
                     },
-                ) { Text("清理", color = if (confirmed) Primer.Red500 else Primer.TextTertiary) }
-            },
-            dismissButton = { TextButton(onClick = { showClearDialog = false }) { Text("取消") } },
-        )
-    }
-}
+                )
+            }
 
-@Composable
-private fun BottomBtn(label: String, color: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Box(
-        modifier
-            .clip(RoundedCornerShape(8.dp))
-            .border(1.dp, color, RoundedCornerShape(8.dp))
-            .background(Color.White)
-            .clickable { onClick() }
-            .padding(vertical = 10.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = color)
-    }
-}
+            // ── 任务列表 ──
+            TaskRoute.List -> {
+                val shown = tasks.filter {
+                    when (filter) {
+                        TaskFilter.ALL -> true
+                        TaskFilter.RUNNING -> it.status == TaskStatus.RUNNING
+                        TaskFilter.SUCCESS -> it.status == TaskStatus.SUCCESS
+                        TaskFilter.FAILED -> it.status == TaskStatus.FAILED
+                    }
+                }
 
-@Composable
-private fun TaskCard(task: TaskRecord, onOpen: () -> Unit, onDelete: () -> Unit) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .border(1.dp, Primer.Border, RoundedCornerShape(10.dp))
-            .background(Color.White)
-            .clickable { onOpen() },
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                Modifier
-                    .size(9.dp)
-                    .clip(CircleShape)
-                    .background(
-                        when (task.status) {
-                            TaskStatus.RUNNING -> Primer.Blue500
-                            TaskStatus.SUCCESS -> Primer.Green500
-                            TaskStatus.FAILED -> Primer.Red500
-                            TaskStatus.CANCELED -> Primer.Gray500
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Primer.BackgroundPrimary)
+                        .statusBarsPadding()
+                        .navigationBarsPadding(),
+                ) {
+                    // 头部
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack, "返回",
+                            tint = Primer.IconPrimary,
+                            modifier = Modifier.size(24.dp).iconTap { onBack() },
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("任务", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+                        Spacer(Modifier.weight(1f))
+                        Text("${tasks.size} 条记录", fontSize = 12.sp, color = Primer.TextTertiary)
+                    }
+
+                    // 筛选 chips
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        TaskFilter.entries.forEach { f ->
+                            val n = when (f) {
+                                TaskFilter.ALL -> tasks.size
+                                TaskFilter.RUNNING -> tasks.count { it.status == TaskStatus.RUNNING }
+                                TaskFilter.SUCCESS -> tasks.count { it.status == TaskStatus.SUCCESS }
+                                TaskFilter.FAILED -> tasks.count { it.status == TaskStatus.FAILED }
+                            }
+                            val on = filter == f
+                            Text(
+                                "${f.label} $n",
+                                fontSize = 12.5.sp,
+                                fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (on) Color.White else Primer.TextSecondary,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(if (on) Primer.Blue500 else Color.White)
+                                    .border(1.dp, if (on) Primer.Blue500 else Primer.Border, RoundedCornerShape(16.dp))
+                                    .clickable { filter = f }
+                                    .padding(horizontal = 14.dp, vertical = 7.dp),
+                            )
+                        }
+                    }
+
+                    feedback?.let {
+                        Text(it, fontSize = 12.sp, color = Primer.Green500, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    }
+
+                    // 列表
+                    if (shown.isEmpty()) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("暂无任务记录", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "拉取仓库、提交文件、创建 PR 等操作会在这里留下记录",
+                                    fontSize = 12.sp,
+                                    color = Primer.TextTertiary,
+                                )
+                            }
+                        }
+                    } else {
+                        LazyColumn(Modifier.weight(1f)) {
+                            items(shown, key = { it.id }) { t ->
+                                TaskCard(
+                                    task = t,
+                                    onOpen = { detail = t },
+                                    onDelete = {
+                                        scope.launch {
+                                            TaskStore.delete(context, t.id)
+                                            reload()
+                                            feedback = "已删除记录 #${t.id}"
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
+
+                    // 底部操作条
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        BottomBtn("清理已完成", Primer.TextSecondary, Modifier.weight(1f)) {
+                            clearAllMode = false
+                            confirmed = false
+                            showClearDialog = true
+                        }
+                        BottomBtn("全部清除", Primer.Red500, Modifier.weight(1f)) {
+                            clearAllMode = true
+                            confirmed = false
+                            showClearDialog = true
+                        }
+                    }
+                }
+
+                if (showClearDialog) {
+                    val finished = tasks.count { it.status != TaskStatus.RUNNING }
+                    val running = tasks.count { it.status == TaskStatus.RUNNING }
+                    AlertDialog(
+                        onDismissRequest = { showClearDialog = false },
+                        title = { Text(if (clearAllMode) "清除全部任务记录" else "清理已完成/失败记录") },
+                        text = {
+                            Column {
+                                Text(
+                                    if (clearAllMode) "将清除全部 $finished 条已结束记录与 $running 个运行中记录（运行中任务会被中断记录）。"
+                                    else "将清理 $finished 条已结束记录，保留 $running 个运行中任务。",
+                                    fontSize = 13.sp,
+                                    color = Primer.TextSecondary,
+                                )
+                                Spacer(Modifier.height(6.dp))
+                                Text("任务记录仅存本地，删除后不可恢复。", fontSize = 12.sp, color = Primer.TextTertiary)
+                                Spacer(Modifier.height(10.dp))
+                                Row(
+                                    Modifier.clickable { confirmed = !confirmed },
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Box(
+                                        Modifier
+                                            .size(18.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .border(2.dp, if (confirmed) Primer.Red500 else Primer.Border, RoundedCornerShape(4.dp))
+                                            .then(if (confirmed) Modifier.background(Primer.Red500) else Modifier),
+                                        contentAlignment = Alignment.Center,
+                                    ) { if (confirmed) Text("✓", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("我确认清理这些记录", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+                                }
+                            }
                         },
-                    ),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                task.title,
-                fontSize = 13.5.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Primer.TextPrimary,
-                maxLines = 1,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                task.kind.label,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                color = Primer.TextSecondary,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Primer.Gray150)
-                    .padding(horizontal = 6.dp, vertical = 1.dp),
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                "删除",
-                fontSize = 11.sp,
-                color = Primer.Red500,
-                modifier = Modifier.clickable { onDelete() },
-            )
-        }
-        Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 11.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("开始 ${formatTime(task.createdAt)}", fontSize = 11.5.sp, color = Primer.TextTertiary)
-                Text(
-                    if (task.status == TaskStatus.RUNNING) "已运行 ${formatDuration(System.currentTimeMillis() - task.createdAt)}"
-                    else "耗时 ${formatDuration((task.finishedAt ?: task.updatedAt) - task.createdAt)}",
-                    fontSize = 11.5.sp,
-                    color = Primer.TextTertiary,
-                )
-                Text(task.status.label, fontSize = 11.5.sp, color = Primer.TextTertiary)
-            }
-            if (task.detail.isNotBlank()) {
-                Spacer(Modifier.height(5.dp))
-                Text(
-                    task.detail,
-                    fontSize = 11.5.sp,
-                    color = if (task.status == TaskStatus.FAILED) Primer.Red500 else Primer.TextSecondary,
-                    maxLines = 2,
-                )
-            }
-            if (task.status == TaskStatus.RUNNING) {
-                Spacer(Modifier.height(9.dp))
-                if (task.progress in 0..100) {
-                    LinearProgressIndicator(
-                        progress = { task.progress / 100f },
-                        modifier = Modifier.fillMaxWidth().height(5.dp),
-                        color = Primer.Blue500,
-                        trackColor = Primer.Gray200,
-                    )
-                } else {
-                    LinearProgressIndicator(
-                        modifier = Modifier.fillMaxWidth().height(5.dp),
-                        color = Primer.Blue500,
-                        trackColor = Primer.Gray200,
+                        confirmButton = {
+                            TextButton(
+                                enabled = confirmed,
+                                onClick = {
+                                    scope.launch {
+                                        val n = if (clearAllMode) TaskStore.clearAll(context) else TaskStore.clearFinished(context)
+                                        showClearDialog = false
+                                        reload()
+                                        feedback = "已清理 $n 条记录"
+                                    }
+                                },
+                            ) { Text("清理", color = if (confirmed) Primer.Red500 else Primer.TextTertiary) }
+                        },
+                        dismissButton = { TextButton(onClick = { showClearDialog = false }) { Text("取消") } },
                     )
                 }
+                    }
+                }
+            }
+        }
+
+        @Composable
+        private fun BottomBtn(label: String, color: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+            Box(
+                modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(1.dp, color, RoundedCornerShape(8.dp))
+                    .background(Color.White)
+                    .clickable { onClick() }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = color)
+            }
+        }
+
+        @Composable
+        private fun TaskCard(task: TaskRecord, onOpen: () -> Unit, onDelete: () -> Unit) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .border(1.dp, Primer.Border, RoundedCornerShape(10.dp))
+                    .background(Color.White)
+                    .clickable { onOpen() },
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier
+                            .size(9.dp)
+                            .clip(CircleShape)
+                            .background(
+                                when (task.status) {
+                                    TaskStatus.RUNNING -> Primer.Blue500
+                                    TaskStatus.SUCCESS -> Primer.Green500
+                                    TaskStatus.FAILED -> Primer.Red500
+                                    TaskStatus.CANCELED -> Primer.Gray500
+                                },
+                            ),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        task.title,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Primer.TextPrimary,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        task.kind.label,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Primer.TextSecondary,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Primer.Gray150)
+                            .padding(horizontal = 6.dp, vertical = 1.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "删除",
+                        fontSize = 11.sp,
+                        color = Primer.Red500,
+                        modifier = Modifier.clickable { onDelete() },
+                    )
+                }
+                Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 11.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("开始 ${formatTime(task.createdAt)}", fontSize = 11.5.sp, color = Primer.TextTertiary)
+                        Text(
+                            if (task.status == TaskStatus.RUNNING) "已运行 ${formatDuration(System.currentTimeMillis() - task.createdAt)}"
+                            else "耗时 ${formatDuration((task.finishedAt ?: task.updatedAt) - task.createdAt)}",
+                            fontSize = 11.5.sp,
+                            color = Primer.TextTertiary,
+                        )
+                        Text(task.status.label, fontSize = 11.5.sp, color = Primer.TextTertiary)
+                    }
+                    if (task.detail.isNotBlank()) {
+                        Spacer(Modifier.height(5.dp))
+                        Text(
+                            task.detail,
+                            fontSize = 11.5.sp,
+                            color = if (task.status == TaskStatus.FAILED) Primer.Red500 else Primer.TextSecondary,
+                            maxLines = 2,
+                        )
+                    }
+                    if (task.status == TaskStatus.RUNNING) {
+                        Spacer(Modifier.height(9.dp))
+                        if (task.progress in 0..100) {
+                            LinearProgressIndicator(
+                                progress = { task.progress / 100f },
+                                modifier = Modifier.fillMaxWidth().height(5.dp),
+                                color = Primer.Blue500,
+                                trackColor = Primer.Gray200,
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth().height(5.dp),
+                                color = Primer.Blue500,
+                                trackColor = Primer.Gray200,
+                            )
+                        }
             }
         }
     }
@@ -501,4 +514,20 @@ private fun formatDuration(ms: Long): String {
     val m = s / 60
     if (m < 60) return "${m}m ${s % 60}s"
     return "${m / 60}h ${m % 60}m"
+}
+
+/**
+ * 任务页路由：列表（第 0 层）与详情（第 1 层）。
+ *
+ * 层级差决定方向 —— 进详情从右滑入、返回向右滑出。
+ */
+private sealed interface TaskRoute : PageLevel {
+
+    data object List : TaskRoute {
+        override val depth: Int get() = 0
+    }
+
+    data class Detail(val task: TaskRecord) : TaskRoute {
+        override val depth: Int get() = 1
+    }
 }

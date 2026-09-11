@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -38,6 +39,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.core.RustBridge
+import com.branchbase.ui.navigation.TabSwitcher
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -126,85 +128,88 @@ fun PrOnestopScreen(
         subtitle = "$owner/$repo · 步骤 ${step + 1}/3",
         onBack = onBack,
     content = {
-        when (step) {
-            0 -> {
-                DecisionNote("将改动放入新分支并提交，随后基于该分支开 PR。当前分支 $baseBranch（保护分支，禁止直接推送）。")
-                FactCard("分支命名") {
-                    Column(Modifier.padding(12.dp)) {
-                        Text("新分支名", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
-                        OutlinedTextField(
-                            value = branchName,
-                            onValueChange = { branchName = it },
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                            textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
-                            singleLine = true,
-                        )
-                        Text("基于（base）", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary, modifier = Modifier.padding(top = 10.dp))
-                        OutlinedTextField(
-                            value = baseBranch,
-                            onValueChange = {},
-                            enabled = false,
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                            textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
-                            singleLine = true,
-                        )
-                    }
-                }
-                DecisionNote("分支名自动校验：不含空格 / 不与现有分支冲突 / 不命中保护分支命名规则。")
-            }
-            1 -> {
-                DecisionNote("勾选本次提交文件（对齐 P0-2 暂存勾选），提交信息将作为 PR 默认标题。")
-                FactCard("变更文件") {
-                    Column {
-                        changedFiles.forEach { f -> FactRow(f, mono = true) }
-                    }
-                }
-                FactCard("提交信息") {
-                    Column(Modifier.padding(12.dp)) {
-                        OutlinedTextField(
-                            value = commitMessage,
-                            onValueChange = {},
-                            enabled = false,
-                            modifier = Modifier.fillMaxWidth(),
-                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
-                        )
-                    }
-                }
-            }
-            else -> {
-                FactCard("目标") {
-                    FactRow("base", "$baseBranch（合并到）")
-                    FactRow("head", "$branchName（改动源）")
-                }
-                FactCard("PR 信息") {
-                    Column(Modifier.padding(12.dp)) {
-                        Text("标题", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
-                        OutlinedTextField(
-                            value = title,
-                            onValueChange = { title = it },
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
-                            singleLine = true,
-                        )
-                        Text("描述（模板预填）", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary, modifier = Modifier.padding(top = 10.dp))
-                        OutlinedTextField(
-                            value = description,
-                            onValueChange = { description = it },
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
-                        )
-                    }
-                }
-                FactCard("选项") {
-                    Row(
-                        Modifier.fillMaxWidth().clickable { draftPr = !draftPr }.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("草稿 PR", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
-                            Text("暂不通知审阅者，可随时转为正式", fontSize = 11.5.sp, color = Primer.TextTertiary)
+        // 三步向导（填分支 → 确认信息 → 创建）：步骤之间没有层级，用同级淡入淡出提示「翻到下一步」
+        TabSwitcher(state = step, modifier = Modifier.fillMaxSize(), label = "pr-steps") { step ->
+            when (step) {
+                0 -> {
+                    DecisionNote("将改动放入新分支并提交，随后基于该分支开 PR。当前分支 $baseBranch（保护分支，禁止直接推送）。")
+                    FactCard("分支命名") {
+                        Column(Modifier.padding(12.dp)) {
+                            Text("新分支名", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
+                            OutlinedTextField(
+                                value = branchName,
+                                onValueChange = { branchName = it },
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
+                                singleLine = true,
+                            )
+                            Text("基于（base）", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary, modifier = Modifier.padding(top = 10.dp))
+                            OutlinedTextField(
+                                value = baseBranch,
+                                onValueChange = {},
+                                enabled = false,
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
+                                singleLine = true,
+                            )
                         }
-                        Switch(checked = draftPr, onCheckedChange = { draftPr = it }, colors = SwitchDefaults.colors(checkedTrackColor = Primer.Green500))
+                    }
+                    DecisionNote("分支名自动校验：不含空格 / 不与现有分支冲突 / 不命中保护分支命名规则。")
+                }
+                1 -> {
+                    DecisionNote("勾选本次提交文件（对齐 P0-2 暂存勾选），提交信息将作为 PR 默认标题。")
+                    FactCard("变更文件") {
+                        Column {
+                            changedFiles.forEach { f -> FactRow(f, mono = true) }
+                        }
+                    }
+                    FactCard("提交信息") {
+                        Column(Modifier.padding(12.dp)) {
+                            OutlinedTextField(
+                                value = commitMessage,
+                                onValueChange = {},
+                                enabled = false,
+                                modifier = Modifier.fillMaxWidth(),
+                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
+                            )
+                        }
+                    }
+                }
+                else -> {
+                    FactCard("目标") {
+                        FactRow("base", "$baseBranch（合并到）")
+                        FactRow("head", "$branchName（改动源）")
+                    }
+                    FactCard("PR 信息") {
+                        Column(Modifier.padding(12.dp)) {
+                            Text("标题", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
+                            OutlinedTextField(
+                                value = title,
+                                onValueChange = { title = it },
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
+                                singleLine = true,
+                            )
+                            Text("描述（模板预填）", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary, modifier = Modifier.padding(top = 10.dp))
+                            OutlinedTextField(
+                                value = description,
+                                onValueChange = { description = it },
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
+                            )
+                        }
+                    }
+                    FactCard("选项") {
+                        Row(
+                            Modifier.fillMaxWidth().clickable { draftPr = !draftPr }.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("草稿 PR", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+                                Text("暂不通知审阅者，可随时转为正式", fontSize = 11.5.sp, color = Primer.TextTertiary)
+                            }
+                            Switch(checked = draftPr, onCheckedChange = { draftPr = it }, colors = SwitchDefaults.colors(checkedTrackColor = Primer.Green500))
+                        }
                     }
                 }
             }

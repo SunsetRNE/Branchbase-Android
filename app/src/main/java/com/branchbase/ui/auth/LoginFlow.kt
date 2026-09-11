@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.branchbase.ui.navigation.TabSwitcher
 import com.branchbase.MainActivity
 import com.branchbase.ui.theme.AppIcon
 import com.branchbase.ui.theme.Primer
@@ -61,60 +62,64 @@ fun LoginFlow(
         viewModel.cancel()
     }
 
-    when (val s = state) {
-        is LoginState.Idle -> {
+    // 登录流程的每一步都是「同一个页面的状态变化」（欢迎 → 授权中 → 换 token → 2FA → 进入主界面），
+    // 彼此没有前后层级关系，所以用同级淡入淡出；原来是硬切，从浏览器授权回来时观感像闪屏。
+    TabSwitcher(state = state, modifier = Modifier.fillMaxSize(), label = "login-step") { s ->
+        when (s) {
+            is LoginState.Idle -> {
             WelcomeScreen(onSignIn = { viewModel.startOAuth() })
         }
 
-        is LoginState.Authorizing -> {
-            // 用系统浏览器打开 GitHub 授权页
-            LaunchedEffect(s.authorizeUrl) {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(s.authorizeUrl))
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(intent)
+            is LoginState.Authorizing -> {
+                // 用系统浏览器打开 GitHub 授权页
+                LaunchedEffect(s.authorizeUrl) {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(s.authorizeUrl))
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(intent)
+                }
+                // 打开浏览器期间显示过渡页（带应用图标，避免一整屏空白）
+                Column(
+                    Modifier.fillMaxSize().background(Primer.BackgroundPrimary),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    AppIcon(size = 72.dp, shape = RoundedCornerShape(20.dp))
+                    Spacer(Modifier.height(18.dp))
+                    Text(
+                        "正在打开 GitHub 授权页，请稍候…",
+                        color = Primer.TextTertiary
+                    )
+                }
             }
-            // 打开浏览器期间显示过渡页（带应用图标，避免一整屏空白）
-            Column(
-                Modifier.fillMaxSize().background(Primer.BackgroundPrimary),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                AppIcon(size = 72.dp, shape = RoundedCornerShape(20.dp))
-                Spacer(Modifier.height(18.dp))
-                Text(
-                    "正在打开 GitHub 授权页，请稍候…",
-                    color = Primer.TextTertiary
+
+            is LoginState.ExchangingToken -> {
+                // 加载过渡页（换取 token 期间）
+                Column(
+                    Modifier.fillMaxSize().background(Primer.BackgroundPrimary),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    AppIcon(size = 72.dp, shape = RoundedCornerShape(20.dp))
+                    Spacer(Modifier.height(20.dp))
+                    CircularProgressIndicator(color = Primer.Blue500)
+                }
+            }
+
+            is LoginState.NeedTwoFactor -> {
+                TwoFactorScreen(onVerify = { code -> viewModel.verifyTwoFactor(code) })
+            }
+
+            is LoginState.LoggedIn -> {
+                LoggedInGate(
+                    sessionJson = s.sessionJson,
+                    onLogout = { viewModel.logout() }
                 )
             }
-        }
 
-        is LoginState.ExchangingToken -> {
-            // 加载过渡页（换取 token 期间）
-            Column(
-                Modifier.fillMaxSize().background(Primer.BackgroundPrimary),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                AppIcon(size = 72.dp, shape = RoundedCornerShape(20.dp))
-                Spacer(Modifier.height(20.dp))
-                CircularProgressIndicator(color = Primer.Blue500)
-            }
-        }
-
-        is LoginState.NeedTwoFactor -> {
-            TwoFactorScreen(onVerify = { code -> viewModel.verifyTwoFactor(code) })
-        }
-
-        is LoginState.LoggedIn -> {
-            LoggedInGate(
-                sessionJson = s.sessionJson,
-                onLogout = { viewModel.logout() }
-            )
-        }
-
-        is LoginState.Error -> {
-            Box(Modifier.fillMaxSize().background(Primer.BackgroundPrimary), contentAlignment = Alignment.Center) {
-                Text(s.message, color = Primer.Red500)
+            is LoginState.Error -> {
+                Box(Modifier.fillMaxSize().background(Primer.BackgroundPrimary), contentAlignment = Alignment.Center) {
+                    Text(s.message, color = Primer.Red500)
+                }
             }
         }
     }

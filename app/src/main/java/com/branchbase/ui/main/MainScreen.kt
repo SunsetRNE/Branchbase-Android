@@ -14,6 +14,9 @@ import androidx.compose.ui.Modifier
 import com.branchbase.ui.home.HomeScreen
 import com.branchbase.ui.navigation.BranchbaseNavigationBar
 import com.branchbase.ui.navigation.NavDestination
+import com.branchbase.ui.navigation.PageLevel
+import com.branchbase.ui.navigation.PageSwitcher
+import com.branchbase.ui.navigation.TabSwitcher
 import com.branchbase.ui.notification.NotificationScreen
 import com.branchbase.ui.notification.NotifTarget
 import com.branchbase.ui.notification.SecurityAlertScreen
@@ -29,6 +32,17 @@ import com.branchbase.ui.theme.Primer
  *
  * 个人页不作为 Tab，改为点击首页头像进入（返回键回首页）；
  * 原先的「探索」Tab 只有占位页，已随占位页一并移除。
+ *
+ * ## 页面切换为什么改成「路由 + PageSwitcher」
+ *
+ * 原来是 5 个「提前 return」的 if 依次判断（仓库详情 → 安全警报 → 个人页 → 搜索 → Tab 骨架）：
+ * 状态一变整棵内容树直接换掉，**没有任何过渡**，观感是硬切。
+ * 现在先算出唯一路由 [MainRoute]，交给 [PageSwitcher] 按层级做位移动画：
+ * 进子页从右滑入、返回向右滑出、Tab 之间淡入淡出。
+ *
+ * 路由 `when` 的顺序 = 原来的 return 顺序（前者优先），语义完全等价；
+ * 返回键也从「每个页面各挂一个 BackHandler」收敛成**按当前路由分派的一个**，
+ * 避免动画期间新旧两个页面的 BackHandler 同时存在、抢同一个返回事件。
  */
 @Composable
 fun MainScreen(
@@ -42,103 +56,149 @@ fun MainScreen(
     var showSecurity by remember { mutableStateOf<NotifTarget.Security?>(null) }
     var notifUnread by remember { mutableStateOf(0) }
 
-    // 仓库详情页（点击仓库进入；通知深链接可直达详情子页）
+    // 唯一路由（条件顺序与原「提前 return」一致，前者优先）
     val currentRepo = showRepo
-    if (currentRepo != null) {
-        BackHandler { showRepo = null }
-        RepositoryScreen(
-            sessionJson = sessionJson,
-            owner = currentRepo.owner,
-            repo = currentRepo.repo,
-            onBack = { showRepo = null },
-            onOpenRepo = { o, r -> showRepo = RepoDeepLink(o, r) },
-            initial = currentRepo,
-        )
-        return
-    }
-
-    // 安全警报落地页（通知 Security 类型直达；提供「查看仓库」入口）
     val currentSecurity = showSecurity
-    if (currentSecurity != null) {
-        BackHandler { showSecurity = null }
-        SecurityAlertScreen(
-            sessionJson = sessionJson,
-            owner = currentSecurity.owner,
-            repo = currentSecurity.repo,
-            title = currentSecurity.title,
-            subjectUrl = currentSecurity.subjectUrl,
-            onBack = { showSecurity = null },
-            onOpenRepo = {
-                showSecurity = null
-                showRepo = RepoDeepLink(currentSecurity.owner, currentSecurity.repo)
-            },
-        )
-        return
+    val route: MainRoute = when {
+        currentRepo != null -> MainRoute.Repo(currentRepo)
+        currentSecurity != null -> MainRoute.Security(currentSecurity)
+        showProfile -> MainRoute.Profile
+        showSearch -> MainRoute.Search
+        else -> MainRoute.Tabs(selected)
     }
 
-    // 个人页（头像进入）
-    if (showProfile) {
-        BackHandler { showProfile = false }
-        ProfileScreen(
-            sessionJson = sessionJson,
-            onBack = { showProfile = false },
-            onLogout = onLogout,
-            onOpenRepo = { fullName ->
-                val parts = fullName.split("/")
-                if (parts.size >= 2) showRepo = RepoDeepLink(parts[0], parts[1])
-            },
-        )
-        return
+    // 返回键按路由分派
+    BackHandler(enabled = route.depth > 0) {
+        when (route) {
+            is MainRoute.Repo -> showRepo = null
+            is MainRoute.Security -> showSecurity = null
+            MainRoute.Profile -> showProfile = false
+            MainRoute.Search -> showSearch = false
+            is MainRoute.Tabs -> Unit
+        }
     }
 
-    // 搜索页（搜索框进入）
-    if (showSearch) {
-        BackHandler { showSearch = false }
-        SearchScreen(
-            sessionJson = sessionJson,
-            onBack = { showSearch = false },
-        )
-        return
-    }
-
-    Scaffold(
-        containerColor = Primer.BackgroundPrimary,
-        bottomBar = {
-            BranchbaseNavigationBar(
-                selected = selected,
-                onSelect = { selected = it },
-                badgeCounts = mapOf(NavDestination.Notifications to notifUnread),
+    PageSwitcher(state = route, modifier = Modifier.fillMaxSize(), label = "main-page") { r ->
+        when (r) {
+            // 仓库详情页（点击仓库进入；通知深链接可直达详情子页）
+            is MainRoute.Repo -> RepositoryScreen(
+                sessionJson = sessionJson,
+                owner = r.link.owner,
+                repo = r.link.repo,
+                onBack = { showRepo = null },
+                onOpenRepo = { o, r2 -> showRepo = RepoDeepLink(o, r2) },
+                initial = r.link,
             )
-        },
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-        ) {
-            when (selected) {
-                NavDestination.Home -> HomeScreen(
-                    sessionJson = sessionJson,
-                    onProfileClick = { showProfile = true },
-                    onSearchClick = { showSearch = true },
-                    onRepoClick = { fullName ->
-                        val parts = fullName.split("/")
-                        if (parts.size >= 2) showRepo = RepoDeepLink(parts[0], parts[1])
-                    },
-                    onOpenNotifications = { selected = NavDestination.Notifications },
-                )
-                NavDestination.Notifications -> NotificationScreen(
-                    sessionJson = sessionJson,
-                    onOpenTarget = { target ->
-                        when (target) {
-                            is NotifTarget.Security -> showSecurity = target
-                            else -> showRepo = toDeepLink(target)
+
+            // 安全警报落地页（通知 Security 类型直达；提供「查看仓库」入口）
+            is MainRoute.Security -> SecurityAlertScreen(
+                sessionJson = sessionJson,
+                owner = r.target.owner,
+                repo = r.target.repo,
+                title = r.target.title,
+                subjectUrl = r.target.subjectUrl,
+                onBack = { showSecurity = null },
+                onOpenRepo = {
+                    showSecurity = null
+                    showRepo = RepoDeepLink(r.target.owner, r.target.repo)
+                },
+            )
+
+            // 个人页（头像进入）
+            MainRoute.Profile -> ProfileScreen(
+                sessionJson = sessionJson,
+                onBack = { showProfile = false },
+                onLogout = onLogout,
+                onOpenRepo = { fullName ->
+                    val parts = fullName.split("/")
+                    if (parts.size >= 2) showRepo = RepoDeepLink(parts[0], parts[1])
+                },
+            )
+
+            // 搜索页（搜索框进入）
+            MainRoute.Search -> SearchScreen(
+                sessionJson = sessionJson,
+                onBack = { showSearch = false },
+            )
+
+            // Tab 骨架（首页 / 消息：同级切换做淡入淡出）
+            is MainRoute.Tabs -> Scaffold(
+                containerColor = Primer.BackgroundPrimary,
+                bottomBar = {
+                    BranchbaseNavigationBar(
+                        selected = r.destination,
+                        onSelect = { selected = it },
+                        badgeCounts = mapOf(NavDestination.Notifications to notifUnread),
+                    )
+                },
+            ) { innerPadding ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
+                ) {
+                    TabSwitcher(
+                        state = r.destination,
+                        modifier = Modifier.fillMaxSize(),
+                        label = "main-tab",
+                    ) { dest ->
+                        when (dest) {
+                            NavDestination.Home -> HomeScreen(
+                                sessionJson = sessionJson,
+                                onProfileClick = { showProfile = true },
+                                onSearchClick = { showSearch = true },
+                                onRepoClick = { fullName ->
+                                    val parts = fullName.split("/")
+                                    if (parts.size >= 2) showRepo = RepoDeepLink(parts[0], parts[1])
+                                },
+                                onOpenNotifications = { selected = NavDestination.Notifications },
+                            )
+
+                            NavDestination.Notifications -> NotificationScreen(
+                                sessionJson = sessionJson,
+                                onOpenTarget = { target ->
+                                    when (target) {
+                                        is NotifTarget.Security -> showSecurity = target
+                                        else -> showRepo = toDeepLink(target)
+                                    }
+                                },
+                                onUnreadCountChange = { notifUnread = it },
+                            )
                         }
-                    },
-                    onUnreadCountChange = { notifUnread = it },
-                )
+                    }
+                }
             }
         }
+    }
+}
+
+/**
+ * 主界面顶层路由。
+ *
+ * 层级（[PageLevel.depth]）决定切换方向：Tab 骨架在最外层（0），个人页 / 搜索是第二层（1），
+ * 仓库详情与安全警报可能从任意一层打开、也可能互相跳转，因此放第三层（2）——
+ * 这样「首页 → 仓库详情」是推进（从右进），「仓库详情 → 个人页」是返回（向右出）。
+ */
+private sealed interface MainRoute : PageLevel {
+
+    data class Tabs(val destination: NavDestination) : MainRoute {
+        override val depth: Int get() = 0
+    }
+
+    data object Profile : MainRoute {
+        override val depth: Int get() = 1
+    }
+
+    data object Search : MainRoute {
+        override val depth: Int get() = 1
+    }
+
+    data class Repo(val link: RepoDeepLink) : MainRoute {
+        override val depth: Int get() = 2
+    }
+
+    data class Security(val target: NotifTarget.Security) : MainRoute {
+        override val depth: Int get() = 2
     }
 }
 
