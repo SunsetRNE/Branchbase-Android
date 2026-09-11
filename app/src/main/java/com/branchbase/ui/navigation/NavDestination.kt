@@ -15,6 +15,6 @@ enum class NavDestination(
     val label: String,
     val icon: ImageVector,
 ) {
-    Home("Home", Icons.Filled.Home),
+    Home("首页", Icons.Filled.Home),
     Notifications("消息", Icons.Filled.Notifications),
 }

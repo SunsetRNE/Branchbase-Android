@@ -113,6 +113,21 @@ internal fun shortTime(iso: String): String = runCatching {
     }
 }.getOrDefault(iso)
 
+/**
+ * GitHub 的 `state` 字段 → 中文文案。
+ *
+ * 此前 Issue/PR 列表直接把原始值（`open` / `closed` / `merged`）当文案渲染，
+ * 于是同一屏里「星标者 / 分支 / 提交」都是中文，唯独自状态是英文。
+ * 未知状态**原样返回**，不吞掉后端新增的类型。
+ */
+internal fun stateLabelOf(state: String): String = when (state.lowercase()) {
+    "open" -> "开启"
+    "closed" -> "已关闭"
+    "merged" -> "已合并"
+    "draft" -> "草稿"
+    else -> state
+}
+
 internal fun stateColor(state: String): Color = when (state) {
     "open" -> Primer.Green500
     "closed" -> Primer.Red500
@@ -540,7 +555,7 @@ private fun WorkflowRow(item: WorkflowItem, onClick: () -> Unit, onLongClick: ()
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(item.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, modifier = Modifier.weight(1f))
-        Text(item.state, fontSize = 11.sp, color = Primer.TextTertiary)
+        Text(stateLabelOf(item.state), fontSize = 11.sp, color = Primer.TextTertiary)
     }
 }
 

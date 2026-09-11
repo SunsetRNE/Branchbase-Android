@@ -283,9 +283,9 @@ private fun ActionRow(info: RepoInfo?, onActionClick: (String) -> Unit) {
             .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        ActionButton(Icons.Filled.Star, "Star", info?.stars) { onActionClick("star") }
-        ActionButton(Icons.AutoMirrored.Filled.CallSplit, "Fork", info?.forks) { onActionClick("fork") }
-        ActionButton(Icons.Filled.Visibility, "Watch", info?.watchers) { onActionClick("watch") }
+        ActionButton(Icons.Filled.Star, "星标", info?.stars) { onActionClick("star") }
+        ActionButton(Icons.AutoMirrored.Filled.CallSplit, "复刻", info?.forks) { onActionClick("fork") }
+        ActionButton(Icons.Filled.Visibility, "关注", info?.watchers) { onActionClick("watch") }
     }
 }
 
@@ -359,7 +359,7 @@ private fun ContributorRow(c: Contributor) {
         }
         Spacer(Modifier.width(10.dp))
         Text(c.login, fontSize = 13.sp, color = Primer.Blue500, modifier = Modifier.weight(1f))
-        Text("${c.commits} commits", fontSize = 12.sp, color = Primer.TextTertiary)
+        Text("${c.commits} 次提交", fontSize = 12.sp, color = Primer.TextTertiary)
     }
 }
 

@@ -87,7 +87,7 @@ import kotlinx.coroutines.launch
  * Issue 单消息页（需求 ④，对标 github.com issue 页）。
  *
  * 与改造前的差别（改造前只有：返回栏 + 标题/状态/作者 + 标签 + 正文 + 评论列表）：
- * - **头部**：状态徽章三态（Open / Closed as completed / Closed as not planned）、带颜色的标签、
+ * - **头部**：状态徽章三态（开启 / 已关闭（已完成）/ 已关闭（不计划实施））、带颜色的标签、
  *   指派者、里程碑、评论数；
  * - **时间线**：评论与事件（labeled / assigned / referenced / milestoned / closed / reopened / renamed…）
  *   按时间混排；拿不到 timeline 时自动降级为「只有评论」，页面结构不变；
@@ -726,10 +726,10 @@ private fun IssueAppBar(
 private data class StatePill(val label: String, val color: Color)
 
 private fun statePillOf(d: IssueDetail): StatePill = when {
-    d.isOpen -> StatePill("Open", Primer.Green500)
-    d.stateReason == "not_planned" -> StatePill("Closed as not planned", Primer.Gray600)
-    d.stateReason == "completed" -> StatePill("Closed as completed", Primer.Purple500)
-    else -> StatePill("Closed", Primer.Red500)
+    d.isOpen -> StatePill("开启", Primer.Green500)
+    d.stateReason == "not_planned" -> StatePill("已关闭（不计划实施）", Primer.Gray600)
+    d.stateReason == "completed" -> StatePill("已关闭（已完成）", Primer.Purple500)
+    else -> StatePill("已关闭", Primer.Red500)
 }
 
 @Composable

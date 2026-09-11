@@ -558,13 +558,13 @@ private fun RepoCard(repo: StarredRepo, onClick: () -> Unit = {}) {
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Star, contentDescription = "star", tint = Primer.IconSecondary, modifier = Modifier.size(14.dp))
+                Icon(Icons.Filled.Star, contentDescription = "星标", tint = Primer.IconSecondary, modifier = Modifier.size(14.dp))
                 Spacer(Modifier.width(2.dp))
                 Text(repo.stars, fontSize = 12.sp, color = Primer.TextSecondary)
             }
             if (repo.forks != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.CallSplit, contentDescription = "fork", tint = Primer.IconSecondary, modifier = Modifier.size(14.dp))
+                    Icon(Icons.Filled.CallSplit, contentDescription = "复刻", tint = Primer.IconSecondary, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(2.dp))
                     Text(repo.forks, fontSize = 12.sp, color = Primer.TextSecondary)
                 }

@@ -132,7 +132,7 @@ fun SearchScreen(
             }
             // Issues / 拉取请求 类型限定（复用 /search/issues，type:pr 区分）
             when (type) {
-                "Issues" -> append(" type:issue")
+                "议题" -> append(" type:issue")
                 "拉取请求" -> append(" type:pr")
             }
         }
@@ -182,7 +182,7 @@ fun SearchScreen(
                 "代码" -> RustBridge.searchCode(host, token, q)
                 "仓库" -> RustBridge.searchRepositories(host, token, q, sortKey)
                 "用户" -> RustBridge.searchUsers(host, token, q)
-                "Issues", "拉取请求" -> RustBridge.searchIssues(host, token, q)
+                "议题", "拉取请求" -> RustBridge.searchIssues(host, token, q)
                 "提交" -> RustBridge.searchCommits(host, token, q)
                 "主题" -> RustBridge.searchTopics(host, token, q)
                 else -> null
@@ -617,7 +617,7 @@ private fun MatchCountPill(count: Int) {
     ) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(Primer.Border))
         Spacer(Modifier.width(5.dp))
-        Text("Matches: $count", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
+        Text("匹配 $count 处", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
     }
 }
 
@@ -930,7 +930,7 @@ private fun parseResults(json: String, type: String): Pair<List<SearchItem>, Lon
                     title = it.optString("login"),
                     subtitle = it.optString("html_url").orEmpty(),
                 )
-                "Issues" -> SearchItem(
+                "议题" -> SearchItem(
                     title = it.optString("title"),
                     subtitle = it.optString("html_url").orEmpty(),
                     meta = it.optString("state"),
@@ -1122,12 +1122,12 @@ private data class TopicResult(
     val name: String,
 )
 
-private val types = listOf("代码", "仓库", "Issues", "拉取请求", "用户", "提交", "主题")
+private val types = listOf("代码", "仓库", "议题", "拉取请求", "用户", "提交", "主题")
 
 private val sortOptions = listOf(
     "" to "最佳匹配",
     "stars" to "最多星标",
-    "forks" to "最多 Fork",
+    "forks" to "最多复刻",
     "updated" to "最近更新",
 )
 

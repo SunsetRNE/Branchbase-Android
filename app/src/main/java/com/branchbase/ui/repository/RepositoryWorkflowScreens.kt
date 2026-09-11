@@ -250,7 +250,7 @@ fun JobDetailContent(
         loading = false
     }
 
-    FullScreen(title = "Job #$jobId", onBack = onBack) {
+    FullScreen(title = "作业 #$jobId", onBack = onBack) {
         when {
             loading -> CenterLoading()
             else -> LazyColumn(Modifier.fillMaxSize()) {

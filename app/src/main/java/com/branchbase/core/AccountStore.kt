@@ -22,8 +22,8 @@ enum class AccountStatus(val label: String) {
 
 /** 认证方式。 */
 enum class AuthKind(val label: String) {
-    OAUTH("OAuth"),
-    PAT("PAT"),
+    OAUTH("OAuth 授权"),
+    PAT("PAT 令牌"),
     UNKNOWN("未知"),
 }
 
