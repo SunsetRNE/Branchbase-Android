@@ -49,7 +49,7 @@ import kotlinx.coroutines.withContext
 /**
  * 工作流操作抽屉（底部弹层）：对单个工作流提供「手动触发 / 查看 YAML / 浏览器打开」三个入口。
  *
- * 对齐 `docs/workflow-wireframe.md`：
+ * 行为约定：
  * - 能否手动触发取决于工作流 YAML 是否声明 `workflow_dispatch`；
  *   REST 的 workflow 对象不含输入定义，因此必须读文件 → 本地解析（不走网络）。
  * - 读文件失败（无权限/网络/路径缺失）一律按「不可手动触发」处理，只保留只读入口，

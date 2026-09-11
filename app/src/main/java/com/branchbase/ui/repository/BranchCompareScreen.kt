@@ -58,7 +58,7 @@ private const val SNIPPET_PREVIEW_LINES = 120
 /**
  * 分支对比页：显示两个分支的**代码片段差异**。
  *
- * 对齐 `docs/repository-detail-wireframe.md`「文件对比（Compare branches）」：
+ * 文件对比（Compare branches）：
  * - 对比头：`比较 base ← head` + 领先/落后 + 文件数
  * - 文件行：状态标签 + 路径 + `+N -M`
  * - 代码片段：unified diff 逐行渲染，增行 `#E6FFEC` / 删行 `#FFEBE9`、

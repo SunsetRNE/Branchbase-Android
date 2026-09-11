@@ -6,7 +6,7 @@ import org.json.JSONObject
 /**
  * 分支对比（`GET /repos/{o}/{r}/compare/{base}...{head}`）的数据模型与解析。
  *
- * 对齐 `docs/repository-detail-wireframe.md` §「文件对比（Compare branches）」：
+ * 文件对比（Compare branches）的页面结构：
  * 对比头（`比较 base ← head` + 领先/落后）→ 文件列表（文件名 + `+N -M`）→ 文件内代码片段（unified diff）。
  *
  * 注意 GitHub 的边界：单次最多返回 300 个文件，且**超大 diff 不给 `patch` 字段**

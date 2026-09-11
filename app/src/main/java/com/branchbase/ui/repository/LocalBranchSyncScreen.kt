@@ -54,7 +54,7 @@ import kotlinx.coroutines.withContext
 /**
  * 本地仓库「分支同步」页（设置 → 本地仓库 → 某仓库 → 分支同步）。
  *
- * 补齐 `docs/decision-pages-gap.md` §8.5 记录的空缺：原实现只有「当前分支 pull / push」，
+ * 补齐能力空缺：原实现只有「当前分支 pull / push」，
  * 没有 fetch、看不到远端独有分支，也分不清「未跟踪 / 可推送 / 可拉取 / 分叉」。
  *
  * 本页的同步逻辑（全部落在真实 git 语义上）：

@@ -49,7 +49,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /**
- * 安全警报落地页（对齐 `docs/notification-wireframe.md` §4）。
+ * 安全警报落地页。
  *
  * 通知 `RepositoryVulnerabilityAlert` / `RepositoryAdvisory` 类型点击后直达本页；
  * 通过 subject.url 提取 path，复用 `RustBridge.getJson` 拉取 Dependabot alerts /

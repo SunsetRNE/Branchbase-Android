@@ -20,7 +20,7 @@ import org.json.JSONObject
 /**
  * 登录状态机。
  *
- * 状态流转（对齐 docs/login-flow-design.md 的状态机）：
+ * 状态流转（Idle → Authorizing → ExchangingToken → NeedTwoFactor → LoggedIn / Error）：
  * ```
  * Idle ──startOAuth──▶ Authorizing ──回调code──▶ ExchangingToken
  *                                                 ├──成功──▶ LoggedIn

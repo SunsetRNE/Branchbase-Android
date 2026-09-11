@@ -36,7 +36,7 @@ import androidx.compose.ui.unit.sp
 import com.branchbase.ui.theme.Primer
 
 /**
- * 决策页面通用组件（对齐 docs/decision-pages-gap.md §3.2 四要素 + §3.4 事实与决策分离）。
+ * 决策页面通用组件（决策页四要素 + 事实与决策分离）。
  */
 
 /** 选项标签（推荐/危险） */

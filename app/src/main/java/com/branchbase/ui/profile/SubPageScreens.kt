@@ -640,7 +640,7 @@ private sealed interface LocalPage {
 /**
  * 本地仓库列表页。每个仓库独立 Git（更新/删除），「＋拉取仓库」列出我的仓库并浅 clone。
  * clone 通过 `RustBridge.gitClone`（libgit2）。
- * 决策收口（对齐 docs/decision-pages-gap.md）：pull/push 分叉 → Fork 页；删除升级警告；提交/撤销/上游/回退入口。
+ * 决策收口：pull/push 分叉 → Fork 页；删除升级警告；提交/撤销/上游/回退入口。
  */
 @Composable
 fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
@@ -1407,7 +1407,7 @@ private fun BranchesScreen(
 
 /**
  * 关于页：展示应用图标 + 版本号信息（工程/标准/Git 包/构建时间/七位哈希）+ 最新构建校验提示。
- * 对齐 docs/versioning.md 与 design/about-prototype.html。
+ * 版本口径：工程版本（semver）+ 标准版本（版本-时间-哈希），并做本地/远端签名指纹对照。
  */
 @Composable
 fun AboutScreen(onBack: () -> Unit) {

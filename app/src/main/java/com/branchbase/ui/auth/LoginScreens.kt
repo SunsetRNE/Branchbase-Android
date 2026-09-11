@@ -23,7 +23,7 @@ import com.branchbase.ui.theme.Primer
  * 登录流程 Compose 界面（骨架）。
  *
  * 设计基准：360dp × 792dp，状态栏 40dp / 手势条 16dp 安全区。
- * 间距规范见 docs/login-wireframe.md。
+ * 间距规范：水平内边距 22dp（HorizontalPadding）、按钮圆角 8dp（BtnShape）。
  */
 
 private val BtnShape = RoundedCornerShape(8.dp)

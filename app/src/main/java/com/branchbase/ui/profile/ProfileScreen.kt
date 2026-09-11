@@ -846,7 +846,7 @@ private fun EventRow(e: ActivityEvent) {
 // ───────────────────────── 气泡导航栏（基础形态 ④） ─────────────────────────
 
 /**
- * Profile 页切换导航：侧边隐藏 + 弹出气泡（对齐 docs/navbar-wireframe.md ④ 与 EdgeNavigationBar）。
+ * Profile 页切换导航：侧边隐藏 + 弹出气泡（与 EdgeNavigationBar 的气泡规格同源）。
  *
  * 3 个主项（Overview/Repositories/Activity）+ 右侧圆形手柄，点击手柄弹出 More 菜单气泡。
  * 手柄 40dp 圆，气泡白底圆角 16dp，距底 68dp、右侧对齐。

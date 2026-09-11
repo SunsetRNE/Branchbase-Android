@@ -15,7 +15,7 @@ import com.branchbase.ui.theme.Primer
 import org.json.JSONArray
 
 /**
- * 通知解析模块（对齐 `docs/notification-parsing-module.md`）。
+ * 通知解析模块。
  *
  * 数据模型 + `subject.type`/`reason` 语义映射 + JSON 解析 + 跳转目标抽取。
  * 读取复用 `RustBridge.getJson(host, token, "/notifications")`，无需新增 native 函数。

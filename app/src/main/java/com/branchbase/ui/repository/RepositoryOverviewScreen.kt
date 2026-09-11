@@ -58,7 +58,7 @@ import org.json.JSONObject
 /**
  * 项目页（仓库首页）。
  *
- * 对齐 `docs/repository-overview-wireframe.md`：
+ * 结构：
  * 仓库头（owner/名/描述）→ 星标/复刻/关注 → README → 许可证 → 贡献者 → 语言比例条。
  * 数据源：getRepoInfo / readmeHtml+parseHtml / getRepoLanguages / getRepoContributors。
  */

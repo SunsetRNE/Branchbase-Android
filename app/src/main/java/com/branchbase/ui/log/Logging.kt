@@ -7,7 +7,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.ArrayDeque
 
-/** 日志类别（4 类，对齐 docs/logging-design.md） */
+/** 日志类别（4 类：UI / 网络 / 远端 / 本地） */
 enum class LogCategory(val label: String) {
     UI_RENDER("UI"),
     NETWORK("网络"),

@@ -70,7 +70,7 @@ import kotlinx.coroutines.launch
 /**
  * 仓库详情页容器：顶部返回 + 内容区（分页切换）+ 底部导航（5 项 + ⋮ 气泡）。
  *
- * 对齐 `docs/repository-navigation-wireframe.md`：
+ * 底部导航：
  * 底部 5 项（项目页/代码/issue/工作流/发布）+ ⋮ 气泡（拉取请求/提交/设置）。
  * README 链接与星标/复刻/关注按钮的回调在此统一路由。
  */

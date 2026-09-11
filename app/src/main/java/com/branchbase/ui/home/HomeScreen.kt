@@ -68,7 +68,7 @@ import org.json.JSONObject
 /**
  * 首页 Dashboard。
  *
- * 对齐 docs/home-wireframe.md：搜索栏+头像 / 快捷方式 / 我的星标 / 最近活动。
+ * 结构：搜索栏+头像 / 待处理 / 进行中 / 常用仓库 / 最近活动。
  */
 @Composable
 fun HomeScreen(

@@ -20,7 +20,7 @@ import com.branchbase.ui.theme.Primer
 /**
  * 普通底部导航栏（基础形态 ①）。
  *
- * 对齐 docs/navbar-wireframe.md：栏高 60dp，4 Tab 均分，图标 22dp + 文字 11sp。
+ * 规格：栏高 60dp，4 Tab 均分，图标 22dp + 文字 11sp。
  */
 @Composable
 fun BranchbaseNavigationBar(
@@ -55,7 +55,7 @@ fun BranchbaseNavigationBar(
 /**
  * 数量 badge（通用组件，可叠加到任意导航变体）。
  *
- * 对齐 docs/navbar-wireframe.md：16dp 高胶囊，红底白字 10sp。
+ * 规格：16dp 高胶囊，红底白字 10sp。
  */
 @Composable
 fun CountBadge(

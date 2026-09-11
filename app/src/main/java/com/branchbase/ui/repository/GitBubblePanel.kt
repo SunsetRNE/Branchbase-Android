@@ -57,7 +57,7 @@ data class GitBubbleAction(
 )
 
 /**
- * Git 功能气泡按钮面板（对齐 `docs/navbar-wireframe.md` ④ 的气泡规格）。
+ * Git 功能气泡按钮面板。
  *
  * 折叠态 = 右下角 52dp 圆手柄（可带徽标）；展开态 = 自下而上的 40dp 圆图标 + 白色标签胶囊
  * （圆角 16dp、间距 6dp、阴影 2dp），点击空白处收起。

@@ -74,8 +74,8 @@ import java.io.File
 /**
  * 文件查看器（blob）：拉取 `contents/{path}` 的 base64 内容，解码后按行号展示。
  *
- * 对齐 `docs/repository-overview-wireframe.md` 的「文件查看（blob + 高亮 + 行号）」。
- * 语法高亮当前为「等宽 + 行号」基础形态，全语言高亮后续接 syntect（见 third-party-components.md）。
+ * 文件查看（blob + 高亮 + 行号）。
+ * 语法高亮当前为「等宽 + 行号」基础形态，全语言高亮后续接 syntect。
  */
 @Composable
 fun FileViewerScreen(
@@ -111,7 +111,7 @@ fun FileViewerScreen(
     var submitting by remember { mutableStateOf(false) }
     var feedback by remember { mutableStateOf<String?>(null) }
 
-    // ── 决策页状态机（对齐 docs/decision-pages-gap.md） ──
+    // ── 决策页状态机 ──
     var page by remember { mutableStateOf<FilePage>(FilePage.None) }
 
     // 草稿（D3 隔离目录 files/edit/single/{owner}/{repo}/{path}）

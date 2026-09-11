@@ -4,7 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * 决策页面数据模型（对齐 docs/decision-pages-gap.md §4 的事实区）。
+ * 决策页面数据模型（事实区模型：只描述客观状态，与决策呈现分离）。
  */
 
 /** 仓库状态（nativeGitStatus JSON 解析结果） */

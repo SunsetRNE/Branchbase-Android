@@ -31,13 +31,17 @@ Branchbase/
 │       ├── bridge/      #   JNI 导出函数
 │       ├── git/         #   libgit2 封装（clone/pull/commit/push）
 │       └── html/        #   README 渲染 HTML 解析 + 链接跳转
-├── docs/                # 设计文档（wireframe / 规范）
+├── editor/              # 代码编辑器独立模块（封装 Sora Editor，换库/移除只动这里）
+├── tools/               # 环境与构建脚本（tools/env、tools/build）
 ├── .github/workflows/   # CI/CD（Beta / Release）
 ├── version.properties   # 工程版本号配置（手动维护）
 └── setup_android_env.sh # ARM64 AAPT2 替换脚本
 ```
 
-> `design/`（原型草图）、`re-workspace/`（逆向资源）、`tools/aapt2/`（官方二进制）、`.kotlin/` 等目录已加入 `.gitignore`，不入库。
+> `docs/`（设计文档 wireframe / 规范）、`design/`（原型草图）、`re-workspace/`（逆向资源）、
+> `tools/aapt2/`（官方二进制）、`.kotlin/` 等目录已加入 `.gitignore`，**不入库**。
+> 因此代码注释里不再引用这些文件路径 —— 规格与结论直接写在注释与本文档中；
+> 迁移过程中丢失的文档请以代码与本文档为准。
 
 ## 🚀 功能特性
 
@@ -87,7 +91,7 @@ cargo build --release       # 生成 libbranchbase_core.so
 
 ## 🔖 版本号规范
 
-采用「工程版本号 + 标准版本号」双轨制，详见 `docs/versioning.md`：
+采用「工程版本号 + 标准版本号」双轨制（原设计文档未入库，规则以本节为准）：
 
 ```
 标准版本号 = 工程版本号-年月日-时分-七位哈希

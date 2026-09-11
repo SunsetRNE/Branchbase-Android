@@ -47,8 +47,7 @@ import com.branchbase.core.RustBridge
 import com.branchbase.ui.theme.Primer
 
 /**
- * 工作流（Actions）四级页面：工作流列表（已有）→ 运行历史 → Run 详情（jobs）→ Job 详情（steps+日志）。
- * 对齐 `docs/workflow-wireframe.md`。
+ * 工作流（Actions）四级页面：工作流列表 → 运行历史 → Run 详情（jobs）→ Job 详情（steps+日志）。
  */
 
 private fun runStatusColor(status: String, conclusion: String?): Color = when (conclusion) {

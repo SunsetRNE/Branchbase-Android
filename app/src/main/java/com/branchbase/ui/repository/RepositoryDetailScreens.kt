@@ -53,7 +53,7 @@ import kotlinx.coroutines.coroutineScope
  * Issue 详情已独立到 `IssueDetailScreen.kt`（时间线、反应、输入器等体量较大），
  * 本文件保留 PR 与提交详情，以及两个页面共用的页头 / 居中态 / diff 渲染。
  *
- * 对齐 `docs/repository-detail-wireframe.md`：
+ * 结构：
  * PR：标题 + 状态 + 分支合并信息 + 描述 + 文件变更（+/- 统计）。
  */
 

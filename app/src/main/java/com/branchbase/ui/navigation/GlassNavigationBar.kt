@@ -21,7 +21,7 @@ import com.branchbase.ui.theme.Primer
 /**
  * 悬浮玻璃球导航栏（基础形态 ②）。
  *
- * 对齐 docs/navbar-wireframe.md：胶囊 56dp·圆角 28dp·离底 12dp，内项 44dp 圆。
+ * 规格：胶囊 56dp·圆角 28dp·离底 12dp，内项 44dp 圆。
  * 毛玻璃用半透明背景模拟（真正的 backdrop blur 后续可用 RenderEffect / haze 库实现）。
  */
 @Composable

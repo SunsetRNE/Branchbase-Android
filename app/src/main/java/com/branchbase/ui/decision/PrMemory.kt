@@ -12,7 +12,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 /**
- * PR 按仓库记忆（对齐 `docs/decision-pages-gap.md` §8.4）。
+ * PR 按仓库记忆。
  *
  * 记录两件每次开 PR / 合并都要重复决定的事：
  * - **描述模板**：同一仓库的 PR 描述结构通常固定，首次填写后自动预填

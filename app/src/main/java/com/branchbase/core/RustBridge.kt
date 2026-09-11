@@ -169,7 +169,7 @@ object RustBridge {
         filesJson: String
     ): String
 
-    // ── 决策页面支持（对齐 docs/decision-pages-gap.md §6） ──
+    // ── 决策页面支持（PR 对比 / 提交准备 / 同步决策） ──
 
     private external fun nativeGitStatus(dir: String): String
 
@@ -778,7 +778,7 @@ object RustBridge {
         nativeCommitFiles(host, token, owner, repo, branch, message, json).ifBlank { null }
     }
 
-    // ── 决策页面支持（对齐 docs/decision-pages-gap.md §6；native 符号缺失时优雅降级） ──
+    // ── 决策页面支持（PR 对比 / 提交准备 / 同步决策；native 符号缺失时优雅降级） ──
 
     /** 仓库状态（JSON：branch/ahead/behind/hasUpstream/remoteUrl/dirty/unpushed）。 */
     suspend fun gitStatus(dir: String): String? = withContext(Dispatchers.IO) {
@@ -860,7 +860,7 @@ object RustBridge {
         false // .so 未重编译时优雅降级
     }
 
-    // ── 协作与仓库管理（对齐 docs/decision-pages-gap.md §8.4 执行层） ──
+    // ── 协作与仓库管理（分支 / 发布 / issue 的执行层） ──
     // 统一约定：返回 null = 成功；其他 = 失败原因（透出 ERROR: 后文本，截断 160 字符）
 
     private fun err(r: String): String? =

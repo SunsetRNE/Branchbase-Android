@@ -63,8 +63,7 @@ import org.json.JSONObject
 /**
  * 分支管理页（服务端 API，不依赖本地 clone）。
  *
- * 对齐 `docs/decision-pages-gap.md` P1-2「分支管理」与 `docs/repository-detail-wireframe.md`
- * 「文件对比（Compare branches）」：
+ * 分支管理与分支对比：
  * - 列表：默认分支 / 受保护分支有标记；每行可直接「对比」（默认分支 ← 该分支）
  * - 新建：指定来源分支（`GET git/ref` 取 sha → `POST git/refs`）
  * - 删除：默认分支与受保护分支不显示入口；删除前二次确认
