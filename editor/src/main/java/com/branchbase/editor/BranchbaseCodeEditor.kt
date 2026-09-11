@@ -68,7 +68,13 @@ fun BranchbaseCodeEditor(
  */
 object EditorModuleInfo {
     const val NAME = "Sora Editor"
-    const val VERSION = "0.23.0"
+
+    /**
+     * 上游版本号：来自版本目录 `libs.versions.toml` 的 `soraEditor`，
+     * 经 `build.gradle.kts` 注入成 BuildConfig。**不要在这里手写版本号** ——
+     * 手写副本不会随依赖升级而变，且编译/测试都发现不了，只有关于页会悄悄说谎。
+     */
+    val VERSION: String get() = BuildConfig.SORA_VERSION
     const val MODULE = ":editor"
     const val LICENSE = "LGPL-2.1"
     const val HOMEPAGE = "https://github.com/Rosemoe/sora-editor"

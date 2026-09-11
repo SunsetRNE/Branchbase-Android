@@ -27,6 +27,6 @@ rootProject.name = "Branchbase"
 include(":app")
 // 代码编辑器独立模块（封装 Sora Editor）：
 // 换库 / 升级 / 移除只动这个模块，主应用只依赖它的公开 API。
-// 选型与版本见 docs/third-party-components.md §3，关于页也留了痕迹。
+// 选型与版本只在 gradle/libs.versions.toml 维护，关于页也留了痕迹（EditorModuleInfo）。
 include(":editor")
  

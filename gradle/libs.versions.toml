@@ -13,8 +13,12 @@ composeBom = "2026.01.01"
 coil = "2.7.0"
 room = "2.8.4"
 ksp = "2.3.10"
-# 代码编辑器（独立 :editor 模块专用，见 docs/third-party-components.md §3）
-soraEditor = "0.23.0"
+# 代码编辑器：:editor 模块封装的第三方库，选型与版本只在这里维护。
+# 版本号会被注入 :editor 的 BuildConfig（见 editor/build.gradle.kts），
+# 关于页展示的版本读的就是这个值 —— 不存在第二处需要手改的地方。
+# 注意：只能填 Maven Central 上已发布的版本（0.24.x 目前只有 tag、未发仓），
+# 填未发布版本会让依赖解析直接失败。
+soraEditor = "0.23.6"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
