@@ -678,6 +678,25 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGetJsonAccept<'
     into_jstring(&mut env, result)
 }
 
+/// 沉浸式翻译：翻译一段文本（原文 + 译文对照用）
+/// 参数：text, fromLang（如 en）, toLang（如 zh-CN）
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeTranslate<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    text: JString<'local>,
+    from: JString<'local>,
+    to: JString<'local>,
+) -> jstring {
+    let text = jstr(&mut env, &text);
+    let from = jstr(&mut env, &from);
+    let to = jstr(&mut env, &to);
+    let result: crate::error::Result<String> = block_on(async move {
+        crate::translate::translate(&text, &from, &to).await
+    });
+    into_jstring(&mut env, result)
+}
+
 /// 通用 PATCH（返回原始 JSON）：编辑评论正文 / 勾选任务清单等
 /// 参数：host, token, path, bodyJson
 #[no_mangle]

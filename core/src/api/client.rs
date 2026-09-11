@@ -12,7 +12,7 @@ use std::time::Duration;
 /// 串行 + 每次重建连接 ≈ 3.4s，共享连接池后握手只付一次。
 ///
 /// 同时启用 HTTP/2（Cargo 的 `http2` feature）—— 多个并行请求可复用一个连接多路复用。
-fn shared_http() -> &'static reqwest::Client {
+pub(crate) fn shared_http() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
         reqwest::Client::builder()

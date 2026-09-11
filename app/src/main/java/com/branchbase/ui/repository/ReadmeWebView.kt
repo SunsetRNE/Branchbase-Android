@@ -19,6 +19,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -26,6 +27,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.branchbase.core.RustBridge
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
@@ -87,7 +93,13 @@ fun ReadmeWebView(
         rawBaseUrl(host, owner, repo, branch, baseDir)
     }
     val imageCache = remember(context) { ReadmeImageCache(context) }
+    // 沉浸式翻译设置：**进入页面读一次**。若每次重组都读，html 字符串会随之变化，
+    // LaunchedEffect(html, …) 会重启 → 整个 WebView 重新加载，页面被反复刷新。
+    val translateConfig = remember { TranslateSettings.read(context) }
+    val translateConfigJs = remember(translateConfig) { TranslateSettings.jsConfig(translateConfig) }
     val heightBridge = remember { HeightBridge() }
+    // 沉浸式翻译：JS 发一批待译文本 → Kotlin 串行翻译 → 结果推回页面
+    val translateScope = rememberCoroutineScope()
 
     val webView = remember {
         WebView(context).apply {
@@ -99,6 +111,17 @@ fun ReadmeWebView(
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
             addJavascriptInterface(heightBridge, "BBReadme")
         }
+    }
+
+    // 桥必须在页面脚本执行前注册（脚本里会调用 window.BBTranslate.request）
+    val translateBridge = remember {
+        TranslateBridge(translateScope) { id, toLang, translations ->
+            val payload = JSONArray(translations).toString()
+            webView.evaluateJavascript(
+                "window.__bbTranslated(${JSONObject.quote(id)}, ${JSONObject.quote(toLang)}, ${JSONObject.quote(payload)})",
+                null,
+            )
+        }.also { webView.addJavascriptInterface(it, "BBTranslate") }
     }
 
     // 注入脚本在非主线程回调；统一 post 回主线程再更新 Compose 状态
@@ -113,6 +136,7 @@ fun ReadmeWebView(
     DisposableEffect(webView) {
         onDispose {
             heightBridge.onHeight = null
+            runCatching { webView.removeJavascriptInterface("BBTranslate") }
             runCatching { webView.destroy() }
         }
     }
@@ -134,7 +158,13 @@ fun ReadmeWebView(
                 if (h != webViewHeight) webViewHeight = h
             },
         )
-        webView.loadDataWithBaseURL(documentUrl, wrapHtml(html, context), "text/html", "UTF-8", null)
+        webView.loadDataWithBaseURL(
+            documentUrl,
+            wrapHtml(html, context, translateConfigJs),
+            "text/html",
+            "UTF-8",
+            null,
+        )
     }
 
     AndroidView(factory = { webView }, modifier = Modifier.fillMaxWidth().height(webViewHeight))
@@ -265,9 +295,14 @@ private val IMAGE_EXTENSIONS = listOf(
 private val AUTH_HOSTS = setOf("github.com", "raw.githubusercontent.com")
 
 /** 包裹 GitHub HTML：注入 viewport + Primer markdown CSS + 渲染增强脚本。 */
-private fun wrapHtml(body: String, context: Context): String {
+private fun wrapHtml(body: String, context: Context, translateConfigJs: String): String {
     val css = runCatching {
         context.assets.open("github-markdown-light.css").bufferedReader().use { it.readText() }
+    }.getOrDefault("")
+    // 沉浸式翻译脚本：与 CSS 一样从 assets 内联进 HTML（loadDataWithBaseURL 的基准是远端 raw
+    // 地址，相对路径的 <script src> 取不到本地资源，只能内联）
+    val immersiveJs = runCatching {
+        context.assets.open("immersive-translate.js").bufferedReader().use { it.readText() }
     }.getOrDefault("")
     return """
         <!DOCTYPE html><html><head>
@@ -281,8 +316,27 @@ private fun wrapHtml(body: String, context: Context): String {
         .markdown-heading { position: relative; }
         .markdown-heading .anchor { float: left; margin-left: -20px; opacity: 0; }
         .markdown-heading:hover .anchor { opacity: 1; }
+        /* ── 沉浸式翻译：译文样式 + 浮动开关（对齐网页版「原文在上、译文在下」的对照读法） ── */
+        .bb-tr {
+          margin: 4px 0 10px; padding: 6px 10px; border-left: 3px solid #0969da;
+          background: #f6f8fa; color: #41434e; font-size: 13.5px; line-height: 1.65;
+          border-radius: 0 6px 6px 0; white-space: pre-wrap;
+        }
+        body:not(.bb-tr-on) .bb-tr { display: none; }
+        /* 仅译文模式：隐藏原文块，只留译文（设置里可切回对照） */
+        body.bb-tr-only .bb-tr-src { display: none; }
+        #bb-tr-btn {
+          position: fixed; right: 14px; bottom: 16px; width: 38px; height: 38px; border-radius: 50%;
+          display: flex; align-items: center; justify-content: center;
+          font: 700 14px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+          border: 1px solid #d0d7de; background: #ffffff; color: #0969da;
+          box-shadow: 0 2px 8px rgba(5,5,5,.18); z-index: 2147483000; cursor: pointer;
+          user-select: none; -webkit-user-select: none;
+        }
         </style></head><body>$body
-        <script>$README_ENHANCE_JS</script></body></html>
+        <script>$README_ENHANCE_JS</script>
+        <script>$translateConfigJs</script>
+        <script>$immersiveJs</script></body></html>
     """.trimIndent()
 }
 
@@ -398,6 +452,41 @@ private val README_ENHANCE_JS = """
 """.trimIndent()
 
 /** 高度上报桥（`@JavascriptInterface`，只暴露一个整型上报方法）。 */
+/**
+ * 沉浸式翻译桥（JS ↔ Kotlin）。
+ *
+ * `request` 立即返回、翻完再回调 `window.__bbTranslated(id, json)`：
+ * 一批 3 段就是 3 次 HTTP（每段数百毫秒），同步返回会把 WebView 的 JS 线程按住好几秒，
+ * 页面卡死、浮动按钮点不动。异步化之后页面照常可滚动，译文逐批出现。
+ *
+ * 翻译本身走 [Translator]：那里负责分片、缓存与**全局串行**（服务端对并发不友好）。
+ */
+private class TranslateBridge(
+    private val scope: CoroutineScope,
+    private val onResult: (String, String, List<String>) -> Unit,
+) {
+    /**
+     * @param toLang 目标语言（`zh-CN` / `en`）。源语言由它反推 ——
+     *   只做中英两向，因此不需要页面再传一个语言选择器进来。
+     */
+    @JavascriptInterface
+    fun request(id: String, toLang: String, payload: String) {
+        val texts = runCatching {
+            val arr = JSONArray(payload)
+            (0 until arr.length()).map { arr.optString(it) }
+        }.getOrDefault(emptyList())
+        val to = toLang.ifBlank { TranslateConfig.ZH }
+        if (texts.isEmpty()) {
+            onResult(id, to, emptyList())
+            return
+        }
+        scope.launch {
+            val out = withContext(Dispatchers.IO) { Translator.translateAll(texts, to = to) }
+            onResult(id, to, out)
+        }
+    }
+}
+
 private class HeightBridge {
     @Volatile
     var onHeight: ((Int) -> Unit)? = null

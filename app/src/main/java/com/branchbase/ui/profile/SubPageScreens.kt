@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
@@ -111,6 +112,7 @@ enum class SubPage(val label: String) {
     About("关于"),
     Log("日志"),
     NotificationSettings("通知设置"),
+    Translate("沉浸式翻译"),
     Tasks("任务"),
     Accounts("账号"),
     CommitMode("提交模式"),
@@ -407,7 +409,7 @@ internal enum class CommitMode(val label: String, val desc: String) {
 internal const val KEY_COMMIT_MODE = "commit_mode"
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onOpenLocalRepo: () -> Unit, onOpenAbout: () -> Unit, onOpenLog: () -> Unit, onOpenNotificationSettings: () -> Unit, onOpenAccounts: () -> Unit, onOpenCommitMode: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onOpenLocalRepo: () -> Unit, onOpenAbout: () -> Unit, onOpenLog: () -> Unit, onOpenNotificationSettings: () -> Unit, onOpenTranslate: () -> Unit, onOpenAccounts: () -> Unit, onOpenCommitMode: () -> Unit) {
     LaunchedEffect(Unit) { Logger.ui("进入设置页", "Compose") }
     val context = LocalContext.current
     var mode by remember { mutableStateOf(commitMode(context)) } // CommitMode?，null = 未配置
@@ -444,6 +446,7 @@ fun SettingsScreen(onBack: () -> Unit, onOpenLocalRepo: () -> Unit, onOpenAbout:
 
         SettingsSectionTitle("其他")
         SettingsItem(Icons.Filled.Notifications, "通知", onClick = onOpenNotificationSettings)
+        SettingsItem(Icons.Filled.Translate, "沉浸式翻译", onClick = onOpenTranslate)
         SettingsItem(Icons.Filled.Info, "关于", onClick = onOpenAbout)
         SettingsItem(Icons.Filled.Build, "日志", onClick = onOpenLog)
 

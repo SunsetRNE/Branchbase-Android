@@ -15,6 +15,7 @@ pub mod git;
 pub mod html;
 pub mod workflow;
 pub mod models;
+pub mod translate;
 
 /// 库的版本号，供 JNI 层校验 ABI 兼容性
 pub const CORE_VERSION: &str = env!("CARGO_PKG_VERSION");

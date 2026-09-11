@@ -101,6 +101,9 @@ object RustBridge {
     /** 通用 POST：reactions 等尚未专门封装的小接口。 */
     private external fun nativePostJson(host: String, token: String, path: String, body: String): String
 
+    /** 沉浸式翻译：翻译一段文本（一次请求一段，分片在 Translator 里做）。 */
+    private external fun nativeTranslate(text: String, fromLang: String, toLang: String): String
+
     /** 通用 PATCH：编辑评论正文 / 勾选任务清单等。 */
     private external fun nativePatchJson(host: String, token: String, path: String, body: String): String
 
@@ -412,6 +415,19 @@ object RustBridge {
     suspend fun postJson(host: String, token: String, path: String, bodyJson: String): String? =
         withContext(Dispatchers.IO) {
             nativePostJson(host, token, path, bodyJson).ifBlank { null }
+        }
+
+    /**
+     * 翻译一段文本（null = 失败）。
+     *
+     * 只翻一段、不做分片：单次长度上限由服务端决定（默认后端 MyMemory 为 500 字符），
+     * 分片与缓存属于「跨页面复用」的策略，放在 `ui/repository/Translator.kt`。
+     */
+    suspend fun translate(text: String, fromLang: String = "en", toLang: String = "zh-CN"): String? =
+        withContext(Dispatchers.IO) {
+            runCatching { nativeTranslate(text, fromLang, toLang) }
+                .getOrNull()
+                ?.takeIf { it.isNotBlank() && !it.startsWith("ERROR:") }
         }
 
     /**
