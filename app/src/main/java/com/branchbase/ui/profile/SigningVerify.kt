@@ -32,6 +32,59 @@ private const val BETA_FINGERPRINT =
     "AC:AB:BC:09:9F:91:81:8B:58:C5:45:DD:7F:D6:4D:E5:E2:8D:13:31:9E:63:E6:E3:73:02:2B:BB:90:19:F3:DD"
 
 /**
+ * 构建校验的**五种终态**（关于页末尾横幅的状态来源）。
+ *
+ * 为什么要有这个类型：此前那段横幅是写死的绿底文案（「✓ 当前为标准版本号对应的最新构建」），
+ * 无论校验成功、失败、还在请求中、还是根本取不到远端文件，都显示同一句话 ——
+ * 等于把一个**结论**渲染成了装饰。结论必须由数据推导，且每种失败都要能说清原因。
+ */
+sealed interface BuildVerifyState {
+    /** 正在读取本地签名 / 拉取远端校验文件 */
+    data object Checking : BuildVerifyState
+
+    /** 本地编译版本（签名不在正式版/测试版之列）：远端校验文件只覆盖官方发布，本态不参与校验 */
+    data object LocalBuild : BuildVerifyState
+
+    /** 远端校验文件取不到（网络不可达 / 该分支尚未发布校验文件）*/
+    data object RemoteUnavailable : BuildVerifyState
+
+    /** 本地指纹与远端一致 */
+    data object Matched : BuildVerifyState
+
+    /** 本地指纹与远端不一致（可能是被重新打包的 APK）*/
+    data object Mismatched : BuildVerifyState
+}
+
+/**
+ * 由「发布类型 + 本地指纹 + 远端指纹 + 是否请求中」推导校验状态（纯函数，可 JVM 单测）。
+ *
+ * 判定顺序即优先级：请求中 > 本地编译版本 > 远端不可用 > 一致 / 不一致。
+ * 「本地编译版本」优先于「远端不可用」的原因：debug/自签包本来就不该有远端校验文件，
+ * 报「无法获取」会让人误以为网络出了问题。
+ */
+fun buildVerifyState(
+    variant: ReleaseVariant,
+    localFingerprint: String,
+    remoteFingerprint: String?,
+    checking: Boolean,
+): BuildVerifyState = when {
+    checking -> BuildVerifyState.Checking
+    variant == ReleaseVariant.UNKNOWN -> BuildVerifyState.LocalBuild
+    localFingerprint.isBlank() -> BuildVerifyState.LocalBuild
+    remoteFingerprint.isNullOrBlank() -> BuildVerifyState.RemoteUnavailable
+    remoteFingerprint.equals(localFingerprint, ignoreCase = true) -> BuildVerifyState.Matched
+    else -> BuildVerifyState.Mismatched
+}
+
+/** 指纹短显（默认前 4 组，如 `B3:72:AB:52…`）：横幅只用来给人眼做粗略比对，不必铺满 32 组 */
+fun fingerprintShort(fingerprint: String, groups: Int = 4): String {
+    if (fingerprint.isBlank()) return "（读取失败）"
+    val parts = fingerprint.split(':')
+    if (parts.size <= groups) return fingerprint
+    return parts.take(groups).joinToString(":") + "…"
+}
+
+/**
  * 读取当前 APK 的签名证书 SHA-256 指纹（大写 hex + 冒号分隔）。
  * 失败返回空串。
  */

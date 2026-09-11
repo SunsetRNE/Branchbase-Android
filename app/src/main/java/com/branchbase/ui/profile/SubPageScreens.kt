@@ -1478,27 +1478,96 @@ val sig = when (variant) {
             }
 
             Spacer(Modifier.height(16.dp))
-            // 最新构建校验提示
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Color(0xFFF0FFF4))
-                    .border(1.dp, Color(0xFFD4E9D6), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-            ) {
-                Text(
-                    "✓ 当前为标准版本号对应的最新构建\n（对比远端 release 的标准版本号一致）",
-                    fontSize = 12.sp,
-                    color = Color(0xFF176F2C),
-                    lineHeight = 20.sp,
-                )
-            }
+            // 构建校验横幅：由真实校验数据推导的**五种状态**（原先是写死的绿底文案，
+            // 校验失败/进行中/取不到远端文件都显示同一句「✓ 最新构建」）
+            BuildVerifyBanner(
+                state = buildVerifyState(
+                    variant = variant,
+                    localFingerprint = localFingerprint,
+                    remoteFingerprint = remoteFingerprint,
+                    checking = remoteChecking,
+                ),
+                variant = variant,
+                localFingerprint = localFingerprint,
+                remoteFingerprint = remoteFingerprint,
+            )
             Spacer(Modifier.height(28.dp))
         }
     }
 }
+
+/** 校验横幅的配色与文案（五态各自独立，不再共用一句写死的结论）。 */
+@Composable
+private fun BuildVerifyBanner(
+    state: BuildVerifyState,
+    variant: ReleaseVariant,
+    localFingerprint: String,
+    remoteFingerprint: String?,
+) {
+    // 文案与配色都按状态取：绿=通过、红=不一致、蓝=进行中、琥珀=取不到远端、灰=本地编译
+    val (title, detail, fg, bg, border) = when (state) {
+        BuildVerifyState.Checking -> BannerStyle(
+            "正在校验…",
+            "读取本地签名指纹，并拉取远端校验文件",
+            Primer.Blue500,
+            Color(0xFFF0F7FF),
+            Color(0xFFCFE3F7),
+        )
+        BuildVerifyState.LocalBuild -> BannerStyle(
+            "本地编译版本",
+            "签名不在正式版 / 测试版之列，不参与远端校验（远端只登记官方发布产物）",
+            Primer.TextSecondary,
+            Primer.Gray100,
+            Primer.Gray200,
+        )
+        BuildVerifyState.RemoteUnavailable -> BannerStyle(
+            "无法完成远端校验",
+            "取不到远端校验文件：网络不可达，或该分支尚未发布校验文件",
+            Color(0xFF9A6700),
+            Color(0xFFFFF8E5),
+            Color(0xFFF2D08A),
+        )
+        BuildVerifyState.Matched -> BannerStyle(
+            "✓ 签名与远端一致",
+            "本地 APK 签名 = 远端${variant.label}校验文件（${fingerprintShort(localFingerprint)}）",
+            Color(0xFF176F2C),
+            Color(0xFFF0FFF4),
+            Color(0xFFD4E9D6),
+        )
+        BuildVerifyState.Mismatched -> BannerStyle(
+            "✗ 签名与远端不一致",
+            "本地 ${fingerprintShort(localFingerprint)} / 远端 ${fingerprintShort(remoteFingerprint.orEmpty())}，" +
+                "该 APK 可能被重新打包，建议立即卸载",
+            Primer.Red500,
+            Color(0xFFFFEBE9),
+            Color(0xFFF5C2C0),
+        )
+    }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(bg)
+            .border(1.dp, border, RoundedCornerShape(6.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Column {
+            Text(title, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = fg)
+            Spacer(Modifier.height(3.dp))
+            Text(detail, fontSize = 11.5.sp, color = fg.copy(alpha = 0.85f), lineHeight = 18.sp)
+        }
+    }
+}
+
+/** 横幅的（标题 / 说明 / 前景色 / 底色 / 描边色）。 */
+private data class BannerStyle(
+    val title: String,
+    val detail: String,
+    val fg: Color,
+    val bg: Color,
+    val border: Color,
+)
 
 @Composable
 private fun AboutInfoRow(key: String, value: String) {
