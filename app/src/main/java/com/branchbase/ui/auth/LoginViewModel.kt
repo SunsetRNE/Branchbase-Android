@@ -6,8 +6,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.branchbase.BuildConfig
 import com.branchbase.core.AccountStore
+import com.branchbase.core.AuthKind
 import com.branchbase.core.AvatarCache
 import com.branchbase.core.RustBridge
+import com.branchbase.ui.navigation.PageLevel
 import com.branchbase.ui.log.LogCategory
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.task.TaskStore
@@ -33,25 +35,64 @@ import org.json.JSONObject
  * 会话持久化：sessionJson 存入 SharedPreferences，启动时自动恢复登录态。
  */
 
-/** 登录状态 */
-sealed interface LoginState {
-    /** 初始状态 */
-    data object Idle : LoginState
+/**
+ * 登录状态。
+ *
+ * 实现 [PageLevel] 是为了让登录流程内部的切换也有方向：欢迎页(0) → 模式介绍页(1) →
+ * 授权中 / 密钥填写(2) → 进入主界面(3)。前进从右滑入、返回向右滑出，
+ * 与 App 其它页面同一套动效规则（见 `ui/navigation/PageTransitions.kt`）。
+ */
+sealed interface LoginState : PageLevel {
+    /** 初始状态（欢迎页：两个入口 —— 授权登录 / 密钥登录） */
+    data object Idle : LoginState {
+        override val depth: Int get() = 0
+    }
+
+    /** 「授权登录」流程要点介绍页（含口令验证说明 + 渲染动画） */
+    data object OAuthIntro : LoginState {
+        override val depth: Int get() = 1
+    }
+
+    /** 「密钥登录」流程要点介绍页（含网页端生成密钥 / 勾选权限说明 + 渲染动画） */
+    data object KeyIntro : LoginState {
+        override val depth: Int get() = 1
+    }
+
+    /**
+     * 填写访问密钥（**纯页面身份**）。
+     *
+     * 校验中的转圈与失败原因**不放在这里**，而是 [LoginViewModel.keyBusy] / [LoginViewModel.keyError]：
+     * 这一页的「请求态」如果进了页面状态，提交时状态值一变就会被当成换页 ——
+     * 既会多播一次切换动画，又会重建内容、把用户刚粘贴的密钥丢掉。
+     */
+    data object KeyInput : LoginState {
+        override val depth: Int get() = 2
+    }
 
     /** 正在授权（跳转 GitHub 授权页） */
-    data class Authorizing(val authorizeUrl: String, val verifier: String) : LoginState
+    data class Authorizing(val authorizeUrl: String, val verifier: String) : LoginState {
+        override val depth: Int get() = 2
+    }
 
     /** 正在交换 token */
-    data object ExchangingToken : LoginState
+    data object ExchangingToken : LoginState {
+        override val depth: Int get() = 2
+    }
 
     /** 需要双因子验证 */
-    data object NeedTwoFactor : LoginState
+    data object NeedTwoFactor : LoginState {
+        override val depth: Int get() = 2
+    }
 
     /** 已登录（sessionJson 为 Rust 返回的会话 JSON） */
-    data class LoggedIn(val sessionJson: String) : LoginState
+    data class LoggedIn(val sessionJson: String) : LoginState {
+        override val depth: Int get() = 3
+    }
 
     /** 出错 */
-    data class Error(val message: String) : LoginState
+    data class Error(val message: String) : LoginState {
+        override val depth: Int get() = 2
+    }
 }
 
 /** OAuth 应用配置（clientId / redirectUri 从 local.properties 经 BuildConfig 注入） */
@@ -68,6 +109,14 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _state = MutableStateFlow<LoginState>(LoginState.Idle)
     val state: StateFlow<LoginState> = _state.asStateFlow()
+
+    /** 密钥校验中（按钮转圈 / 输入框锁定）。 */
+    private val _keyBusy = MutableStateFlow(false)
+    val keyBusy: StateFlow<Boolean> = _keyBusy.asStateFlow()
+
+    /** 密钥校验失败原因（null = 无错误）。 */
+    private val _keyError = MutableStateFlow<String?>(null)
+    val keyError: StateFlow<String?> = _keyError.asStateFlow()
 
     private val credentials = OAuthCredentials()
 
@@ -121,6 +170,78 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
             // 同步到多账号表：否则 AccountChecks 仍拿旧 token 探测，会误报「令牌已失效」
             val app = getApplication<Application>()
             AccountStore.current(app)?.let { AccountStore.updateSession(app, it.id, newSession) }
+        }
+    }
+
+    // ───────────────────────── 两种登录模式的入口 ─────────────────────────
+
+    /** 欢迎页「授权登录」→ 流程要点介绍页 */
+    fun showOAuthIntro() {
+        _state.value = LoginState.OAuthIntro
+    }
+
+    /** 欢迎页「密钥登录」→ 流程要点介绍页 */
+    fun showKeyIntro() {
+        _state.value = LoginState.KeyIntro
+    }
+
+    /** 介绍页「填写密钥」→ 密钥输入页（进入时清掉上一轮的失败提示） */
+    fun showKeyInput() {
+        _keyError.value = null
+        _keyBusy.value = false
+        _state.value = LoginState.KeyInput
+    }
+
+    /**
+     * 密钥（PAT）登录。
+     *
+     * ## 为什么用 `GET /user` 校验而不是「填了就信」
+     *
+     * 密钥可能：过期、被撤销、权限勾少了（比如没勾 `read:user`）。这三种都会让 App 登录后
+     * 一路报错，用户却以为是 App 的问题。这里用一次 `/user` 把不可用的情况**挡在登录前**，
+     * 并把原因（无效 / 权限不足）直接显示在输入页上。
+     *
+     * 成功后会组装一份与 OAuth **同构**的会话 JSON（`host` / `token.access_token` / `user`），
+     * 这样 `sessionInfo()`、`AccountStore.accessTokenOf()`、账号健康检查等既有链路全都不用改。
+     */
+    fun loginWithKey(rawToken: String) {
+        val token = rawToken.trim()
+        if (token.isBlank()) {
+            _keyError.value = "请先粘贴访问密钥"
+            return
+        }
+        _keyError.value = null
+        _keyBusy.value = true
+
+        viewModelScope.launch {
+            val host = credentials.host
+            val userJson = RustBridge.getCurrentUser(host, token)
+            val user = userJson
+                ?.takeIf { !it.startsWith("ERROR:") }
+                ?.let { runCatching { JSONObject(it) }.getOrNull() }
+            val login = user?.optString("login").orEmpty()
+            _keyBusy.value = false
+
+            // 用户在等待期间按了返回：结果直接丢弃，不要把他"拉回"这一页
+            if (_state.value !is LoginState.KeyInput) return@launch
+
+            if (user == null || login.isBlank() || login == "null") {
+                Logger.ui("密钥校验未通过（无效或权限不足）", "密钥登录")
+                _keyError.value = "密钥无效或权限不足。请确认已勾选 repo / read:user，且密钥未过期。"
+                return@launch
+            }
+
+            val session = runCatching { buildKeySession(host, token, user) }.getOrNull()
+            if (session == null) {
+                _keyError.value = "会话写入失败，请重试"
+                return@launch
+            }
+
+            prefs.edit().putString(KEY_SESSION, session).apply()
+            _state.value = LoginState.LoggedIn(session)
+            Logger.ui("密钥登录成功：$login", "密钥登录")
+            // 与 OAuth 同一条落库路径，只是认证方式标记为 PAT（账号管理页按它显示「PAT 令牌」）
+            persistAccount(session, auth = AuthKind.PAT)
         }
     }
 
@@ -197,7 +318,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
      * 幂等：会话里已有 `user` 时不发请求，直接登记。
      * 另外把 login 写入多账号表并设为当前账号，并认领登录前的孤儿任务。
      */
-    private fun persistAccount(session: String) {
+    private fun persistAccount(session: String, auth: AuthKind = AuthKind.OAUTH) {
         viewModelScope.launch {
             val app = getApplication<Application>()
             val host = runCatching { JSONObject(session).optString("host", "github.com") }.getOrDefault("github.com")
@@ -227,7 +348,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
             val avatar = runCatching {
                 JSONObject(enriched).optJSONObject("user")?.optString("avatar_url")?.takeIf { it.isNotBlank() }
             }.getOrNull()
-            AccountStore.add(app, login, enriched, host, avatar)
+            AccountStore.add(app, login, enriched, host, avatar, auth = auth)
 
             // 2.5) 头像预热：登录即落盘，之后所有页面渲染头像都命中本地文件（零闪烁）
             if (avatar != null && !AvatarCache.has(app, login)) {
@@ -258,9 +379,20 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
         _state.value = LoginState.Idle
     }
 
-    /** 取消当前操作，回到初始态（登录流程中途的返回键） */
+    /** 取消当前操作，回到初始态（欢迎页） */
     fun cancel() {
         _state.value = LoginState.Idle
+    }
+
+    /**
+     * 返回上一步（按状态层级，而不是一律回欢迎页）。
+     *
+     * - 密钥填写页 → 密钥介绍页（用户刚看过的那一页，返回应回到那里，而不是跳出整个流程）；
+     * - 介绍页 / 授权中 / 换 token / 2FA / 出错 → 欢迎页；
+     * - 欢迎页本身不拦截返回（由系统的默认行为退出 App）。
+     */
+    fun back() {
+        _state.value = loginBackTarget(_state.value)
     }
 
     /**

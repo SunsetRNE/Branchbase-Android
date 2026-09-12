@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.branchbase.ui.navigation.TabSwitcher
+import com.branchbase.ui.navigation.PageSwitcher
 import com.branchbase.MainActivity
 import com.branchbase.ui.theme.AppIcon
 import com.branchbase.ui.theme.Primer
@@ -39,6 +39,9 @@ fun LoginFlow(
     viewModel: LoginViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    // 密钥页的「请求态」独立于页面状态（见 LoginState.KeyInput 的注释）
+    val keyBusy by viewModel.keyBusy.collectAsState()
+    val keyError by viewModel.keyError.collectAsState()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -58,22 +61,46 @@ fun LoginFlow(
     }
 
     // 返回键分两段，按「谁最清楚」划分职责：
-    // - 登录流程的中间态（授权中 / 换 token / 2FA / 出错）→ 这里回欢迎页；
+    // - 登录流程的中间态（模式介绍页 / 密钥填写 / 授权中 / 换 token / 2FA / 出错）→ 这里回欢迎页；
     // - **已登录的主界面 → 由 MainScreen 按路由分派**（顶层回欢迎页、子页关自己），
     //   所以这里显式排除 LoggedIn，避免两个 BackHandler 抢同一个返回事件；
     // - 欢迎页（Idle）→ 这里不拦截，交给系统默认行为：**彻底退出 App**。
     //   这正是「主界面按返回 → 登录首页；再按一次 → 退出」的第二段。
     BackHandler(enabled = state !is LoginState.Idle && state !is LoginState.LoggedIn) {
-        viewModel.cancel()
+        viewModel.back()
     }
 
-    // 登录流程的每一步都是「同一个页面的状态变化」（欢迎 → 授权中 → 换 token → 2FA → 进入主界面），
-    // 彼此没有前后层级关系，所以用同级淡入淡出；原来是硬切，从浏览器授权回来时观感像闪屏。
-    TabSwitcher(state = state, modifier = Modifier.fillMaxSize(), label = "login-step") { s ->
+    // 登录流程内部也按层级切换（欢迎 0 → 介绍页 1 → 授权中/密钥填写 2 → 主界面 3）：
+    // 前进从右滑入、返回向右滑出，与 App 其它页面同一套动效规则。
+    PageSwitcher(state = state, modifier = Modifier.fillMaxSize(), label = "login-step") { s ->
         when (s) {
-            is LoginState.Idle -> {
-            WelcomeScreen(onSignIn = { viewModel.startOAuth() })
-        }
+            // 欢迎页：两种登录模式各一个入口（点进去各有流程要点介绍页）
+            is LoginState.Idle -> WelcomeScreen(
+                onOAuthLogin = { viewModel.showOAuthIntro() },
+                onKeyLogin = { viewModel.showKeyIntro() },
+            )
+
+            // 授权登录：流程要点介绍（含数字口令验证说明 + 渲染动画）
+            is LoginState.OAuthIntro -> OAuthIntroScreen(
+                onBack = { viewModel.back() },
+                onStart = { viewModel.startOAuth() },
+                onSwitchToKey = { viewModel.showKeyIntro() },
+            )
+
+            // 密钥登录：流程要点介绍（网页端生成密钥 / 勾选权限 + 渲染动画）
+            is LoginState.KeyIntro -> KeyIntroScreen(
+                onBack = { viewModel.back() },
+                onStart = { viewModel.showKeyInput() },
+                onSwitchToOAuth = { viewModel.showOAuthIntro() },
+            )
+
+            // 密钥填写与校验（错误留在本页）
+            is LoginState.KeyInput -> KeyInputScreen(
+                busy = keyBusy,
+                error = keyError,
+                onBack = { viewModel.back() },
+                onSubmit = { token -> viewModel.loginWithKey(token) },
+            )
 
             is LoginState.Authorizing -> {
                 // 用系统浏览器打开 GitHub 授权页

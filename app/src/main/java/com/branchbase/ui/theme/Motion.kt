@@ -6,6 +6,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -181,6 +182,28 @@ fun rememberPressFeedback(pressedScale: Float = ElementMotion.PRESS_SCALE): Pres
     )
     return PressFeedback(interaction, scale)
 }
+
+/**
+ * 「要点」呼吸高亮：透明度 0.55→1.0 + 轻微缩放来回摆动。
+ *
+ * 用在介绍页里强调**某一步的卖点**（例如密钥登录的「无需数字口令验证」）。
+ * 与 [shimmerAlpha] 的区别：那个是给骨架占位用的低对比呼吸，这个是要「被看见」的强调。
+ * 返回值只在 `graphicsLayer` 里读，不触发重组。
+ */
+@Composable
+fun rememberPulse(
+    minScale: Float = 1f,
+    maxScale: Float = 1.06f,
+    durationMs: Int = 900,
+): State<Float> = rememberInfiniteTransition(label = "pulse").animateFloat(
+    initialValue = minScale,
+    targetValue = maxScale,
+    animationSpec = infiniteRepeatable(
+        animation = tween(durationMs, easing = FastOutSlowInEasing),
+        repeatMode = RepeatMode.Reverse,
+    ),
+    label = "pulseScale",
+)
 
 /**
  * 图标形态切换（例：筛选 ↔ 关闭、全选 ↔ 取消）。
