@@ -53,7 +53,8 @@ fun CommitModeScreen(onBack: () -> Unit) {
 
         CommitMode.entries.forEach { m ->
             ModeOptionRow(
-                label = m.label,
+                // 卡片是整行，可以承载完整说明；状态位（设置页右侧值等）只用短名 m.label
+                label = m.title,
                 desc = m.desc,
                 selected = mode == m,
                 onClick = {

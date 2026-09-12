@@ -64,6 +64,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -400,11 +401,29 @@ private fun ProjectCard(project: ProjectItem) {
 
 // ───────────────────────── 设置页 ─────────────────────────
 
-/** 提交模式（三选项，对齐 commit-mode-decision-tree.md） */
-internal enum class CommitMode(val label: String, val desc: String) {
-    SINGLE_FILE("单个文件更改，单个提交", "官方客户端行为 · 编辑即提交"),
-    MULTI_FILE("多个文件更改，合并一次提交", "网页端行为 · 暂存区统一提交"),
-    LOCAL_REPO("文件拉取到本地仓库，由本地 git 管理提交推送", "Git 命令行习惯"),
+/**
+ * 提交模式（三选项，对齐 commit-mode-decision-tree.md）。
+ *
+ * ## 为什么 `label` 必须短、长描述单独放 [title]
+ *
+ * 原来只有 `label` 一个字段，于是「本地仓库」模式把整句描述
+ * （`文件拉取到本地仓库，由本地 git 管理提交推送`）当成了状态文案：设置页那一行、
+ * 决策页副标题、编辑器底栏都直接用它 —— 这些位置是**单行状态位**，
+ * 长文案挤掉同排的内容（设置页把「提交模式」这个名字压到换行、被 48dp 行高裁掉）。
+ *
+ * 现在按用途拆开：
+ * - [label]：短名，用于**状态位**（设置项右侧值 / 当前模式 / 编辑页底栏 / 日志 / toast）；
+ * - [title]：完整说明，只用于**整行卡片**（提交模式页、首次引导页、提交时选择弹窗）；
+ * - [desc]：一句话补充，与 [title] 搭配在卡片里显示。
+ */
+internal enum class CommitMode(
+    val label: String,
+    val title: String,
+    val desc: String,
+) {
+    SINGLE_FILE("单个文件", "单个文件更改，单个提交", "官方客户端行为 · 编辑即提交"),
+    MULTI_FILE("多文件合并", "多个文件更改，合并一次提交", "网页端行为 · 暂存区统一提交"),
+    LOCAL_REPO("本地仓库（Git）", "文件拉取到本地仓库，由本地 git 管理提交推送", "Git 命令行习惯"),
 }
 
 internal const val KEY_COMMIT_MODE = "commit_mode"
@@ -610,6 +629,21 @@ private fun LocalRepoEntry(enabled: Boolean, onClick: () -> Unit) {
     }
 }
 
+/**
+ * 设置项行：`图标 + 名称 …… 值 >`。
+ *
+ * ## 布局为什么这样写（曾经把名称挤没）
+ *
+ * 行高固定 48dp。原来的写法是「名称 `weight(1f)`、值**不设权重**」——
+ * Row 先量没有权重的子项（值），值有多长就占多长；名称只能分到剩下的空间，
+ * 长值一来就被压到 0 宽、换行成两行，再被 48dp 行高裁掉
+ * （现象：提交模式选「本地仓库」后，那一行只剩右边的长文案，左边的「提交模式」不见了）。
+ *
+ * 现在：
+ * - 名称放进**权重盒（`fill = false`）**：按内容取宽，最多占可用宽度的一半，超长才省略；
+ * - 值放进**权重盒（填充剩余空间、右对齐、单行省略）**：由它来负责「不够就省略」，
+ *   而不是去挤名称。
+ */
 @Composable
 internal fun SettingsItem(icon: ImageVector, name: String, value: String? = null, onClick: () -> Unit = {}) {
     Row(
@@ -618,11 +652,40 @@ internal fun SettingsItem(icon: ImageVector, name: String, value: String? = null
     ) {
         Icon(icon, contentDescription = name, tint = Primer.IconSecondary, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(12.dp))
-        Text(name, fontSize = 14.sp, color = Primer.TextPrimary, modifier = Modifier.weight(1f))
-        if (!value.isNullOrBlank()) {
-            Text(value, fontSize = 12.sp, color = Primer.TextTertiary)
-            Spacer(Modifier.width(6.dp))
+        if (value.isNullOrBlank()) {
+            // 没有值：整行剩余宽度都给名称（如很长的 Git 代理地址），超长才省略
+            Text(
+                name,
+                fontSize = 14.sp,
+                color = Primer.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            // 名称 + 值：两边各一个权重盒，**由值负责省略**而不是去挤名称
+            Box(Modifier.weight(1f, fill = false)) {
+                Text(
+                    name,
+                    fontSize = 14.sp,
+                    color = Primer.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                Text(
+                    value,
+                    fontSize = 12.sp,
+                    color = Primer.TextTertiary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.End,
+                )
+            }
         }
+        Spacer(Modifier.width(6.dp))
         Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = Primer.TextTertiary, modifier = Modifier.size(20.dp))
     }
 }

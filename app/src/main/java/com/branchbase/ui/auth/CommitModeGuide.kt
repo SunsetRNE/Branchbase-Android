@@ -135,7 +135,8 @@ private fun GuideOption(mode: CommitMode, selected: Boolean, onClick: () -> Unit
         )
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(mode.label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+            // 整行卡片：用完整说明（状态位才用 mode.label 的短名）
+            Text(mode.title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
             Spacer(Modifier.height(2.dp))
             Text(mode.desc, fontSize = 12.sp, color = Primer.TextTertiary)
         }
