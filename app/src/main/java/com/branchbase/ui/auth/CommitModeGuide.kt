@@ -1,6 +1,7 @@
 package com.branchbase.ui.auth
 
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -46,12 +47,19 @@ import com.branchbase.ui.theme.Primer
  * - 未配置 → 展示「提交模式」引导屏：确定 = 固化到本地配置；跳过 = 不固化（提交时再问）。
  */
 @Composable
-fun LoggedInGate(sessionJson: String, onLogout: () -> Unit) {
+fun LoggedInGate(
+    sessionJson: String,
+    onLogout: () -> Unit,
+    onBackToWelcome: () -> Unit,
+) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("branchbase", Context.MODE_PRIVATE) }
     var configured by remember { mutableStateOf(prefs.getString(KEY_COMMIT_MODE, null) != null) }
 
     if (!configured) {
+        // 引导页是「登录后的第一个顶层页面」，返回语义要和主界面顶层一致（回登录首页），
+        // 否则未配置提交模式的新用户按返回会直接退出 App
+        BackHandler(enabled = true) { onBackToWelcome() }
         CommitModeGuideScreen(
             onConfirm = { mode ->
                 prefs.edit().putString(KEY_COMMIT_MODE, mode.name).apply()
@@ -60,7 +68,11 @@ fun LoggedInGate(sessionJson: String, onLogout: () -> Unit) {
             onSkip = { configured = true },
         )
     } else {
-        MainScreen(sessionJson = sessionJson, onLogout = onLogout)
+        MainScreen(
+            sessionJson = sessionJson,
+            onLogout = onLogout,
+            onBackToWelcome = onBackToWelcome,
+        )
     }
 }
 

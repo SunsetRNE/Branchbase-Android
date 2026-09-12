@@ -57,8 +57,13 @@ fun LoginFlow(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // 返回键：非初始态时拦截，回到欢迎页（而非直接退出 App）
-    BackHandler(enabled = state !is LoginState.Idle) {
+    // 返回键分两段，按「谁最清楚」划分职责：
+    // - 登录流程的中间态（授权中 / 换 token / 2FA / 出错）→ 这里回欢迎页；
+    // - **已登录的主界面 → 由 MainScreen 按路由分派**（顶层回欢迎页、子页关自己），
+    //   所以这里显式排除 LoggedIn，避免两个 BackHandler 抢同一个返回事件；
+    // - 欢迎页（Idle）→ 这里不拦截，交给系统默认行为：**彻底退出 App**。
+    //   这正是「主界面按返回 → 登录首页；再按一次 → 退出」的第二段。
+    BackHandler(enabled = state !is LoginState.Idle && state !is LoginState.LoggedIn) {
         viewModel.cancel()
     }
 
@@ -112,7 +117,8 @@ fun LoginFlow(
             is LoginState.LoggedIn -> {
                 LoggedInGate(
                     sessionJson = s.sessionJson,
-                    onLogout = { viewModel.logout() }
+                    onLogout = { viewModel.logout() },
+                    onBackToWelcome = { viewModel.backToWelcome() },
                 )
             }
 

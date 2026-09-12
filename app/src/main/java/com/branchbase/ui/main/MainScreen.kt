@@ -13,6 +13,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.branchbase.ui.home.HomeScreen
 import com.branchbase.ui.navigation.BranchbaseNavigationBar
+import com.branchbase.ui.navigation.BackDisposition
+import com.branchbase.ui.navigation.backDisposition
 import com.branchbase.ui.navigation.NavDestination
 import com.branchbase.ui.navigation.PageLevel
 import com.branchbase.ui.navigation.PageSwitcher
@@ -48,6 +50,13 @@ import com.branchbase.ui.theme.Primer
 fun MainScreen(
     sessionJson: String,
     onLogout: () -> Unit,
+    /**
+     * 顶层 Tab 按返回：回登录首页（**不退出 App**）。
+     *
+     * 由调用方（`LoggedInGate` → `LoginFlow`）决定「回登录首页」是什么；本页只负责判断
+     * 「现在是顶层还是子页」—— 这是页面自己才知道的信息，所以返回键必须在这里分派。
+     */
+    onBackToWelcome: () -> Unit,
 ) {
     var selected by remember { mutableStateOf(NavDestination.Home) }
     var showProfile by remember { mutableStateOf(false) }
@@ -67,14 +76,18 @@ fun MainScreen(
         else -> MainRoute.Tabs(selected)
     }
 
-    // 返回键按路由分派
-    BackHandler(enabled = route.depth > 0) {
-        when (route) {
-            is MainRoute.Repo -> showRepo = null
-            is MainRoute.Security -> showSecurity = null
-            MainRoute.Profile -> showProfile = false
-            MainRoute.Search -> showSearch = false
-            is MainRoute.Tabs -> Unit
+    // 返回键按路由分派（**始终接管**）：
+    // 顶层 Tab → 回登录首页（不退出 App，再按一次才退出）；更深的路由 → 关掉当前页。
+    // 之前顶层写的是 `enabled = route.depth > 0`（整个 handler 关掉），等于把「顶层按返回」
+    // 让给了外层 LoginFlow 的兜底 handler —— 一旦中途多一层门（如提交模式引导页）就会漏成
+    // 「直接退出 App」。这里显式分派，行为不再依赖「谁恰好在外层」。
+    BackHandler(enabled = true) {
+        when {
+            backDisposition(route.depth) == BackDisposition.BackToWelcome -> onBackToWelcome()
+            route is MainRoute.Repo -> showRepo = null
+            route is MainRoute.Security -> showSecurity = null
+            route is MainRoute.Profile -> showProfile = false
+            route is MainRoute.Search -> showSearch = false
         }
     }
 

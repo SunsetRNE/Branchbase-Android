@@ -258,8 +258,18 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
         _state.value = LoginState.Idle
     }
 
-    /** 取消当前操作，回到初始态（返回键等场景） */
+    /** 取消当前操作，回到初始态（登录流程中途的返回键） */
     fun cancel() {
+        _state.value = LoginState.Idle
+    }
+
+    /**
+     * 主界面顶层按返回：回登录首页，**保留会话**（不清 token、不删账号）。
+     *
+     * 与 [logout] 的区别：登出是用户在气泡菜单里的明确意图（清会话），
+     * 这里只是「退出到登录页」这一层导航 —— 在登录首页再按一次返回才彻底退出 App。
+     */
+    fun backToWelcome() {
         _state.value = LoginState.Idle
     }
 

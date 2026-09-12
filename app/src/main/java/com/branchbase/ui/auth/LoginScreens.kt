@@ -88,7 +88,7 @@ fun WelcomeScreen(
 
         Spacer(Modifier.weight(1f))
 
-        PrimaryButton("登录 / Sign in", onSignIn)
+        PrimaryButton("登录", onSignIn)
         Spacer(Modifier.height(16.dp))
     }
 }

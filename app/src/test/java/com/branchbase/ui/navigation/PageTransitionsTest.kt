@@ -29,4 +29,18 @@ class PageTransitionsTest {
         assertEquals(0, pageDirection(initialDepth = 0, targetDepth = 0))
         assertEquals(0, pageDirection(initialDepth = 2, targetDepth = 2))
     }
+
+    @Test
+    fun `顶层按返回是回登录首页_而不是关页面或退出`() {
+        // 需求：主 Tab 页按返回 → 回登录首页（不退出 App）；在登录首页再按一次才退出。
+        // 登录首页（Idle）本身没有 BackHandler，交给系统默认行为 = 退出，所以这里只钉「顶层」这一档。
+        assertEquals(BackDisposition.BackToWelcome, backDisposition(0))
+    }
+
+    @Test
+    fun `子页按返回仍然是先关页面`() {
+        assertEquals(BackDisposition.ClosePage, backDisposition(1))
+        assertEquals(BackDisposition.ClosePage, backDisposition(2))
+        assertEquals(BackDisposition.ClosePage, backDisposition(3))
+    }
 }
