@@ -22,6 +22,7 @@ import com.branchbase.ui.navigation.NavDestination
 import com.branchbase.ui.navigation.PageLevel
 import com.branchbase.ui.navigation.PageSwitcher
 import com.branchbase.ui.navigation.TabSwitcher
+import com.branchbase.ui.navigation.rememberTopLevelBackAction
 import com.branchbase.ui.notification.NotificationScreen
 import com.branchbase.ui.notification.NotifSnapshot
 import com.branchbase.ui.notification.NotifTarget
@@ -54,13 +55,6 @@ import com.branchbase.ui.theme.Primer
 fun MainScreen(
     sessionJson: String,
     onLogout: () -> Unit,
-    /**
-     * 顶层 Tab 按返回：回登录首页（**不退出 App**）。
-     *
-     * 由调用方（`LoggedInGate` → `LoginFlow`）决定「回登录首页」是什么；本页只负责判断
-     * 「现在是顶层还是子页」—— 这是页面自己才知道的信息，所以返回键必须在这里分派。
-     */
-    onBackToWelcome: () -> Unit,
 ) {
     var selected by remember { mutableStateOf(NavDestination.Home) }
     var showProfile by remember { mutableStateOf(false) }
@@ -85,18 +79,19 @@ fun MainScreen(
         else -> MainRoute.Tabs(selected)
     }
 
-    // 返回键按路由分派：顶层 Tab → 回登录首页（不退出 App，再按一次才退出）；
+    // 返回键按路由分派：顶层 Tab → **再按一次退出应用**（不再回登录页，见 TopLevelBack.kt）；
     // 更深的路由 → 关掉当前页。
     //
     // 两个坑都踩过，一起焊死：
     // 1. 早先写的是 `enabled = route.depth > 0`（顶层整个关掉），把「顶层按返回」让给了外层
     //    LoginFlow 的兜底 handler —— 中间多一层门（如提交模式引导页）就漏成「直接退出 App」；
-    // 2. 改成 `enabled = true` 之后，退场动画期间（外层 PageSwitcher 已切到登录首页）这个
+    // 2. 改成 `enabled = true` 之后，退场动画期间（外层 PageSwitcher 已切走）这个
     //    handler 仍然启用，会把用户紧接着的第二次返回键吃掉 —— 「再按一次退出」失灵。
     //    现在由 PageBackHandler 叠加 LocalPageActive：**只有当前页能抢返回键**。
+    val confirmExit = rememberTopLevelBackAction()
     PageBackHandler {
         when {
-            backDisposition(route.depth) == BackDisposition.BackToWelcome -> onBackToWelcome()
+            backDisposition(route.depth) == BackDisposition.ExitApp -> confirmExit()
             route is MainRoute.Repo -> showRepo = null
             route is MainRoute.Security -> showSecurity = null
             route is MainRoute.Profile -> showProfile = false

@@ -403,6 +403,10 @@ private fun TranslatePanel(host: TranslateBubbleHost, width: Dp, maxHeight: Dp) 
                 }
                 ToggleRow("自动翻译正文", settings.enabled) { next ->
                     persist { TranslateSettings.setEnabled(context, next) }
+                    // 总开关要**立刻**作用到当前页：关掉就把本页翻译一起关掉（悬浮球随之收起），
+                    // 打开就直接开始翻。只落盘不通知页面的话，会出现「开关显示已关，
+                    // 页面还在翻、悬浮球还在」——这正是用户报的「悬浮球不受控制」。
+                    host.command(if (next) TranslatePageCommands.ON else TranslatePageCommands.OFF)
                 }
                 ToggleRow("本地缓存", settings.persist) { next ->
                     persist { TranslateSettings.setPersist(context, next) }

@@ -65,10 +65,10 @@ fun LoginFlow(
 
     // 返回键分两段，按「谁最清楚」划分职责：
     // - 登录流程的中间态（模式介绍页 / 密钥填写 / 授权中 / 换 token / 2FA / 出错）→ 这里回欢迎页；
-    // - **已登录的主界面 → 由 MainScreen 按路由分派**（顶层回欢迎页、子页关自己），
-    //   所以这里显式排除 LoggedIn，避免两个 BackHandler 抢同一个返回事件；
-    // - 欢迎页（Idle）→ 这里不拦截，交给系统默认行为：**彻底退出 App**。
-    //   这正是「主界面按返回 → 登录首页；再按一次 → 退出」的第二段。
+    // - **已登录的主界面 / 引导页 → 由它们自己处理顶层返回**（“再按一次退出应用”，
+    //   见 ui/navigation/TopLevelBack.kt —— 不再回登录页：会话还在，回登录页是与真实
+    //   登录状态不符的死状态），所以这里显式排除 LoggedIn，避免两个 BackHandler 抢同一个事件；
+    // - 欢迎页（Idle）→ 这里不拦截，交给系统默认行为：**彻底退出 App**（未登录时无需二次确认）。
     BackHandler(enabled = state !is LoginState.Idle && state !is LoginState.LoggedIn) {
         viewModel.back()
     }
@@ -164,7 +164,6 @@ fun LoginFlow(
                 LoggedInGate(
                     sessionJson = s.sessionJson,
                     onLogout = { viewModel.logout() },
-                    onBackToWelcome = { viewModel.backToWelcome() },
                 )
             }
 

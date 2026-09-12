@@ -395,16 +395,6 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
         _state.value = loginBackTarget(_state.value)
     }
 
-    /**
-     * 主界面顶层按返回：回登录首页，**保留会话**（不清 token、不删账号）。
-     *
-     * 与 [logout] 的区别：登出是用户在气泡菜单里的明确意图（清会话），
-     * 这里只是「退出到登录页」这一层导航 —— 在登录首页再按一次返回才彻底退出 App。
-     */
-    fun backToWelcome() {
-        _state.value = LoginState.Idle
-    }
-
     /** 消费错误后回到初始态 */
     fun dismissError() {
         _state.value = LoginState.Idle

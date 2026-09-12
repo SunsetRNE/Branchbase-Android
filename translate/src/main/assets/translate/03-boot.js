@@ -12,7 +12,10 @@
  *      · 超过 → **视口优先**：先把当前看得见的翻出来，其余等滚动到视口再翻
  *        （长页面/长 issue 一次几百个请求会把免费额度烧光，也会让首屏卡住）。
  *
- * 页内开关状态记在 localStorage，同一台设备再次打开沿用上次的选择。
+ * **总开关只有一处**：设置里的「自动翻译正文」。页内开关（工具面板上的「本页翻译」）
+ * 只对当前页面有效、**不写 localStorage** —— 一旦持久化，用户「在设置里关掉」之后
+ * 再次打开正文页时，上次留下的 `bb_translate_on=1` 会把翻译重新拉起来，
+ * 表现为「设置里关了，仓库页的悬浮球还在」。
  *
  * ## command()：原生工具面板的唯一入口
  *
@@ -29,7 +32,6 @@
 
   var state = IT.state;
   var RULES = IT.rules;
-  var ON_KEY = 'bb_translate_on';
   var SCROLL_THROTTLE_MS = 200;
   var STYLES = ['card', 'underline', 'plain'];
 
@@ -49,7 +51,6 @@
     state.on = true;
     state.failed = false;
     applyDisplayMode();
-    storage(function () { localStorage.setItem(ON_KEY, '1'); });
     start();
     IT.report();
   }
@@ -59,7 +60,6 @@
     document.body.classList.remove('bb-tr-on');
     document.body.classList.remove('bb-tr-only');
     IT.dom.disconnect();
-    storage(function () { localStorage.setItem(ON_KEY, '0'); });
     IT.report();
   }
 
@@ -175,8 +175,9 @@
   function boot() {
     document.body.setAttribute('data-bb-style', state.style || 'card');
     document.body.classList.toggle('bb-dark', IT.cfg.dark === true);
-    var saved = storage(function () { return localStorage.getItem(ON_KEY); });
-    if (state.auto || saved === '1') on();
+    // ⚠️ 只有总开关（设置里的「自动翻译正文」）能决定进页面时开不开。
+    // 别在这里加回「上次的页内开关」：那正是「设置里关掉后悬浮球仍出现在仓库页」的原因。
+    if (state.auto) on();
     else IT.report();
     // 原生侧的熔断状态（额度用尽 / 连续失败）在启动时同步一次，面板直接显示正确文案
     storage(function () {

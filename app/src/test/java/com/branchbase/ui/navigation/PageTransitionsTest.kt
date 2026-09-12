@@ -33,17 +33,18 @@ class PageTransitionsTest {
     }
 
     @Test
-    fun `顶层按返回是回登录首页_而不是关页面或退出`() {
-        // 需求：主 Tab 页按返回 → 回登录首页（不退出 App）；在登录首页再按一次才退出。
-        // 登录首页（Idle）本身没有 BackHandler，交给系统默认行为 = 退出，所以这里只钉「顶层」这一档。
-        assertEquals(BackDisposition.BackToWelcome, backDisposition(0))
+    fun `顶层按返回是退出应用_而不是回登录首页`() {
+        // 需求变更（用户反馈）：会话还在，回登录首页是与真实登录状态不符的死状态
+        // （重启应用又直接回主界面）。顶层改为「再按一次退出应用」，
+        // 见 TopLevelBack.kt 与 TopLevelBackTest。
+        assertEquals(BackDisposition.ExitApp, backDisposition(0))
     }
 
     @Test
     fun `退场中的旧页必须放手_否则会吃掉紧接着的第二次返回键`() {
-        // 现场：主界面顶层按返回 → 回登录首页（外层开始播退场动画），
-        // 用户在动画没播完时再按一次想退出 App —— 那一下曾被退场中的 MainScreen 吃掉，
-        // 表现成「按了没反应，得再按一次」。
+        // 现场：主界面顶层按返回触发顶层动作（外层开始播动画），
+        // 用户在动画没播完时再按一次 —— 那一下曾被退场中的 MainScreen 吃掉，
+        // 表现成「按了没反应，得再按一次」（双击退出直接失灵）。
         assertTrue(shouldHandleBack(enabled = true, pageActive = true))
         assertFalse("退场中的旧页不能抢返回键", shouldHandleBack(enabled = true, pageActive = false))
         // 自身条件不满足时，无论是否当前页都不抢

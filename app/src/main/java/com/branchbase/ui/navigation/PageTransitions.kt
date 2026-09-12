@@ -158,17 +158,18 @@ fun shouldHandleBack(enabled: Boolean, pageActive: Boolean): Boolean = enabled &
  *
  * 全 App 只有两档：
  * - [ClosePage]：更深的页面先关自己（子页 / 详情 / 多选态…）；
- * - [BackToWelcome]：**顶层（depth == 0）不退出 App**，而是回登录首页 ——
- *   在登录首页再按一次返回，才由系统默认行为彻底退出。
+ * - [ExitApp]：**顶层（depth == 0）不再是「回登录首页」**，而是交给
+ *   [rememberTopLevelBackAction] 做「再按一次退出应用」（见那个文件的注释：
+ *   会话还在却被丢回登录页，是和真实登录状态不符的死状态）。
  *
  * 抽成纯函数是为了能单测：返回键串味（该关页面却退出、该回首页却关页面）只有在
  * 真机上连按才试得出来，回归时最难发现。
  */
-enum class BackDisposition { ClosePage, BackToWelcome }
+enum class BackDisposition { ClosePage, ExitApp }
 
-/** 由路由层级判断返回语义：顶层 → 回登录首页，其余 → 关页面。 */
+/** 由路由层级判断返回语义：顶层 → 退出应用（双击确认），其余 → 关页面。 */
 fun backDisposition(depth: Int): BackDisposition =
-    if (depth <= 0) BackDisposition.BackToWelcome else BackDisposition.ClosePage
+    if (depth <= 0) BackDisposition.ExitApp else BackDisposition.ClosePage
 
 /** 同级切换（底部 Tab / 同层页）：没有方向，只做淡入淡出 + 轻微上浮。 */
 @Composable

@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.ui.navigation.PageBackHandler
+import com.branchbase.ui.navigation.rememberTopLevelBackAction
 import com.branchbase.ui.main.MainScreen
 import com.branchbase.ui.profile.CommitMode
 import com.branchbase.ui.profile.KEY_COMMIT_MODE
@@ -46,21 +47,22 @@ import com.branchbase.ui.theme.Primer
  *
  * - 若本地已配置提交模式（commit_mode）→ 直接进主界面。
  * - 未配置 → 展示「提交模式」引导屏：确定 = 固化到本地配置；跳过 = 不固化（提交时再问）。
+ *
+ * 返回键：引导屏与主界面**顶层语义一致**（都是「再按一次退出应用」，见 TopLevelBack.kt）——
+ * 会话已经建立，这里再回登录页同样是与登录状态不符的死状态。
  */
 @Composable
 fun LoggedInGate(
     sessionJson: String,
     onLogout: () -> Unit,
-    onBackToWelcome: () -> Unit,
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("branchbase", Context.MODE_PRIVATE) }
     var configured by remember { mutableStateOf(prefs.getString(KEY_COMMIT_MODE, null) != null) }
 
     if (!configured) {
-        // 引导页是「登录后的第一个顶层页面」，返回语义要和主界面顶层一致（回登录首页），
-        // 否则未配置提交模式的新用户按返回会直接退出 App
-        PageBackHandler(enabled = true) { onBackToWelcome() }
+        val confirmExit = rememberTopLevelBackAction()
+        PageBackHandler(enabled = true) { confirmExit() }
         CommitModeGuideScreen(
             onConfirm = { mode ->
                 prefs.edit().putString(KEY_COMMIT_MODE, mode.name).apply()
@@ -72,7 +74,6 @@ fun LoggedInGate(
         MainScreen(
             sessionJson = sessionJson,
             onLogout = onLogout,
-            onBackToWelcome = onBackToWelcome,
         )
     }
 }
