@@ -85,6 +85,45 @@ fun fingerprintShort(fingerprint: String, groups: Int = 4): String {
 }
 
 /**
+ * 校验态的**紧凑文案**：胶囊短标签 + 一行说明（纯函数，可 JVM 单测）。
+ *
+ * 关于页要在一屏内说清「这个包是不是官方的」，所以结论拆成两级：
+ * 胶囊给结论（一致 / 不一致 / 本地编译 / 无法校验 / 校验中），说明给依据（指针对照、失败原因）。
+ * 颜色不在这里取 —— `Primer` 是 `@Composable` 色板，配色留在 composable 里按状态取。
+ */
+data class VerifyCopy(val chip: String, val detail: String)
+
+/** 由校验状态与指纹推导文案（判定本身见 [buildVerifyState]）。 */
+fun verifyCopy(
+    state: BuildVerifyState,
+    variant: ReleaseVariant,
+    localFingerprint: String,
+    remoteFingerprint: String?,
+): VerifyCopy = when (state) {
+    BuildVerifyState.Checking -> VerifyCopy(
+        "校验中…",
+        "正在读取本地签名指纹，并拉取远端校验文件",
+    )
+    BuildVerifyState.LocalBuild -> VerifyCopy(
+        "本地编译",
+        "签名不在正式版 / 测试版之列，不参与远端校验（远端只登记官方发布产物）",
+    )
+    BuildVerifyState.RemoteUnavailable -> VerifyCopy(
+        "无法校验",
+        "取不到远端校验文件：网络不可达，或该分支尚未发布校验文件",
+    )
+    BuildVerifyState.Matched -> VerifyCopy(
+        "✓ 签名一致",
+        "本地 APK 签名 = 远端${variant.label}校验文件（${fingerprintShort(localFingerprint)}）",
+    )
+    BuildVerifyState.Mismatched -> VerifyCopy(
+        "✗ 签名不一致",
+        "本地 ${fingerprintShort(localFingerprint)} / 远端 ${fingerprintShort(remoteFingerprint.orEmpty())}，" +
+            "该 APK 可能被重新打包，建议立即卸载",
+    )
+}
+
+/**
  * 读取当前 APK 的签名证书 SHA-256 指纹（大写 hex + 冒号分隔）。
  * 失败返回空串。
  */

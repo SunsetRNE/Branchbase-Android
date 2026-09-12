@@ -8,6 +8,7 @@ import java.io.File
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -69,6 +70,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -1543,9 +1545,28 @@ private fun BranchesScreen(
 // ───────────────────────── 关于页 ─────────────────────────
 
 /**
- * 关于页：展示应用图标 + 版本号信息（工程/标准/Git 包/构建时间/七位哈希）+ 最新构建校验提示，
- * 末尾给出项目主页与开发交流 QQ 群的入口（用户找「去哪儿反馈」就落在这一页）。
- * 版本口径：工程版本（semver）+ 标准版本（版本-时间-哈希），并做本地/远端签名指纹对照。
+ * 关于页（**紧凑版**）：一屏看完「这是什么版本 / 是不是官方包 / 去哪儿反馈」。
+ *
+ * ## 旧版为什么显得空
+ *
+ * - 顶部把图标与文字**竖向堆叠**（80dp 图标 + 24/12/4/20 四段间距，约 150dp 只放了个 logo）；
+ * - 信息行上下各 12dp 留白、行间没有分隔线，9 行版本信息占掉约 380dp；
+ * - 校验结论在页面末尾又用一张独立横幅重复了一遍（横幅标题 + 说明 ≈ 70dp）；
+ * - 段落间距 24 / 20 / 16 / 28 各来一次。
+ * 加起来约 780dp —— 常见机型上要滑一屏半，而这一页真正要看的就是「版本 + 校验结论」。
+ *
+ * ## 紧凑版改了什么（内容一项没少）
+ *
+ * 1. **身份行**：图标 80 → 52dp，与名称同一行（名称 + 副标题右对齐成一列），
+ *    右侧直接挂**校验结论胶囊** —— 结论从页尾横幅提前到第一屏第一眼；
+ * 2. **信息行**：上下留白 12 → 8dp、行间补 1dp 分隔线（紧了也不会糊成一片），
+ *    拆成「版本信息」「构建校验」两张卡片；
+ * 3. **去重**：原独立横幅的「标题 + 说明」压成「胶囊短标签 + 一行说明」，说明并进校验卡片；
+ * 4. 段落间距 24 / 20 / 16 / 28 → 统一 10dp（页尾 16dp）。
+ *
+ * 高度从约 780dp 降到约 590dp：常见机型**不用滚动**即可看全，
+ * 版本 / 标准版本 / 构建时间 / 七位哈希 / Git 配置包 / 代码编辑器 /
+ * 发布版本 / 签名校验 / 远程校验 / 校验说明 / 两个入口链接全部保留。
  */
 @Composable
 fun AboutScreen(onBack: () -> Unit) {
@@ -1559,14 +1580,31 @@ fun AboutScreen(onBack: () -> Unit) {
     LaunchedEffect(Unit) {
         remoteChecking = true
         remoteFingerprint = withContext(Dispatchers.IO) {
-val sig = when (variant) {
-                    ReleaseVariant.BETA -> fetchRemoteSignature("SunsetRNE", "Branchbase-Android", "beta", "verify/signature.txt")
-                    ReleaseVariant.RELEASE -> fetchLatestReleaseSignature("SunsetRNE", "Branchbase-Android")
-                    else -> null
-                }
+            val sig = when (variant) {
+                ReleaseVariant.BETA -> fetchRemoteSignature("SunsetRNE", "Branchbase-Android", "beta", "verify/signature.txt")
+                ReleaseVariant.RELEASE -> fetchLatestReleaseSignature("SunsetRNE", "Branchbase-Android")
+                else -> null
+            }
             sig?.let { parseSignatureFingerprint(it) }
         }
         remoteChecking = false
+    }
+
+    val state = buildVerifyState(
+        variant = variant,
+        localFingerprint = localFingerprint,
+        remoteFingerprint = remoteFingerprint,
+        checking = remoteChecking,
+    )
+    val copy = verifyCopy(state, variant, localFingerprint, remoteFingerprint)
+    // 配色按状态取（绿=通过、红=不一致、蓝=进行中、琥珀=取不到远端、灰=本地编译）；
+    // 底色走 Primer 的浅色块（深浅主题各自成立），描边由前景色降透明度推得，不再写死浅色 RGB
+    val (fg, bg) = when (state) {
+        BuildVerifyState.Checking -> Primer.Blue500 to Primer.InfoSurface
+        BuildVerifyState.LocalBuild -> Primer.TextSecondary to Primer.Gray100
+        BuildVerifyState.RemoteUnavailable -> Primer.WarningText to Primer.WarningSurface
+        BuildVerifyState.Matched -> Primer.SuccessTextStrong to Primer.SuccessSurface
+        BuildVerifyState.Mismatched -> Primer.Red500 to Primer.DangerSurface
     }
 
     Column(
@@ -1576,83 +1614,127 @@ val sig = when (variant) {
         Column(
             // weight(1f)：与顶部 SubPageHeader 同级；fillMaxSize() 会超出容器，底部内容被压住
             modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
-            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Spacer(Modifier.height(24.dp))
-            // 应用图标：与桌面完全一致的那枚（PackageManager 合成自适应图标两个图层）；
-            // 曾经的手搓近似（只画 foreground + 硬编码 #0d1117）与真实图标并不一致，已移除。
-            AppIcon(size = 80.dp, shape = RoundedCornerShape(22.dp))
-            Spacer(Modifier.height(12.dp))
-            Text("Branchbase", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
-            Spacer(Modifier.height(4.dp))
-            Text("GitHub 第三方客户端", fontSize = 12.sp, color = Primer.TextTertiary)
+            // 身份行：图标 + 名称/副标题 + 校验结论胶囊（原来结论在页尾横幅，这里第一眼就能看到）
+            AboutIdentityRow(copy.chip, fg, bg)
 
-            Spacer(Modifier.height(20.dp))
-            // 版本信息卡片
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .border(1.dp, Primer.Border, RoundedCornerShape(8.dp)),
-            ) {
+            // 版本信息
+            AboutCard(topGap = 10.dp) {
                 AboutInfoRow("工程版本号", BuildConfig.ENGINEERING_VERSION)
+                AboutRowDivider()
                 AboutInfoRow("标准版本号", BuildConfig.STANDARD_VERSION)
-                AboutInfoRow("Git 配置包版本", "libgit2 1.7.2")
+                AboutRowDivider()
+                AboutInfoRow("构建时间", BuildConfig.BUILD_TIME)
+                AboutRowDivider()
+                AboutInfoRow("七位哈希", BuildConfig.GIT_HASH)
+                AboutRowDivider()
+                AboutInfoRow("Git 配置包", "libgit2 1.7.2")
+                AboutRowDivider()
                 // 第三方代码编辑器痕迹：独立模块 :editor 封装，移除时删这行 + 该模块
                 AboutInfoRow(
                     "代码编辑器",
                     "${com.branchbase.editor.EditorModuleInfo.NAME} " +
                         "${com.branchbase.editor.EditorModuleInfo.VERSION}（${com.branchbase.editor.EditorModuleInfo.MODULE}）",
                 )
-                AboutInfoRow("构建时间", BuildConfig.BUILD_TIME)
-                AboutInfoRow("七位哈希", BuildConfig.GIT_HASH)
-                AboutInfoRow("发布版本", variant.label)
-                AboutInfoRow("签名校验", if (variant != ReleaseVariant.UNKNOWN) "匹配" else "异常（未知签名）")
-                AboutInfoRow("远程校验", when {
-                    remoteChecking -> "校验中…"
-                    remoteFingerprint.isNullOrBlank() -> "无法获取校验文件"
-                    remoteFingerprint.equals(localFingerprint, ignoreCase = true) -> "匹配"
-                    else -> "不匹配"
-                })
             }
 
-            Spacer(Modifier.height(16.dp))
-            // 构建校验横幅：由真实校验数据推导的**五种状态**（原先是写死的绿底文案，
-            // 校验失败/进行中/取不到远端文件都显示同一句「✓ 最新构建」）
-            BuildVerifyBanner(
-                state = buildVerifyState(
-                    variant = variant,
-                    localFingerprint = localFingerprint,
-                    remoteFingerprint = remoteFingerprint,
-                    checking = remoteChecking,
-                ),
-                variant = variant,
-                localFingerprint = localFingerprint,
-                remoteFingerprint = remoteFingerprint,
-            )
-            Spacer(Modifier.height(20.dp))
+            // 构建校验：三行原始值 + 一行结论说明（原独立横幅的去重落点）
+            AboutCard(topGap = 10.dp) {
+                AboutInfoRow("发布版本", variant.label)
+                AboutRowDivider()
+                AboutInfoRow("签名校验", if (variant != ReleaseVariant.UNKNOWN) "匹配" else "异常（未知签名）")
+                AboutRowDivider()
+                AboutInfoRow(
+                    "远程校验",
+                    when {
+                        remoteChecking -> "校验中…"
+                        remoteFingerprint.isNullOrBlank() -> "无法获取校验文件"
+                        remoteFingerprint.equals(localFingerprint, ignoreCase = true) -> "匹配"
+                        else -> "不匹配"
+                    },
+                )
+                AboutRowDivider()
+                AboutVerifyNote(copy.detail, fg)
+            }
+
             // 项目主页 + 开发交流群：关于页是用户找「去哪儿反馈」的地方，链接统一从这里出去。
             // QQ 群链接里的 authKey 会过期，所以群号也直接写在行里（过期了按号搜索即可）。
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .border(1.dp, Primer.Border, RoundedCornerShape(8.dp)),
-            ) {
+            AboutCard(topGap = 10.dp) {
                 AboutLinkRow("项目主页（仅 Android）", "SunsetRNE/Branchbase-Android") {
                     openExternal(context, REPO_URL)
                 }
-                Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Border))
+                AboutRowDivider()
                 AboutLinkRow("开发交流（QQ 群）", "790735040") {
                     openExternal(context, QUN_URL)
                 }
             }
 
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(16.dp))
         }
     }
+}
+
+/** 身份行：52dp 图标 + 名称/副标题 + 右侧校验结论胶囊。 */
+@Composable
+private fun AboutIdentityRow(chip: String, fg: Color, bg: Color) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // 应用图标：与桌面完全一致的那枚（PackageManager 合成自适应图标两个图层；
+        // 曾经的手搓近似只画 foreground + 硬编码 #0d1117，与真实图标并不一致，已移除）。
+        // 紧凑版缩到 52dp 并与文字同行 —— 关于页的图标是识别用的，不需要占掉 1/5 屏。
+        AppIcon(size = 52.dp, shape = RoundedCornerShape(14.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Branchbase", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
+            Spacer(Modifier.height(2.dp))
+            Text("GitHub 第三方客户端", fontSize = 11.5.sp, color = Primer.TextTertiary)
+        }
+        Spacer(Modifier.width(8.dp))
+        Text(
+            chip,
+            fontSize = 10.5.sp,
+            fontWeight = FontWeight.Bold,
+            color = fg,
+            modifier = Modifier
+                .clip(RoundedCornerShape(9.dp))
+                .background(bg)
+                .border(1.dp, fg.copy(alpha = 0.30f), RoundedCornerShape(9.dp))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+    }
+}
+
+/** 关于页卡片容器（16dp 页边距 + 8dp 圆角 + 描边；与设置页列表同一套观感）。 */
+@Composable
+private fun AboutCard(topGap: Dp, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = topGap)
+            .clip(RoundedCornerShape(8.dp))
+            .border(1.dp, Primer.Border, RoundedCornerShape(8.dp)),
+        content = content,
+    )
+}
+
+/** 卡片内行间分隔线（紧凑版行距只有 8dp，没有它几行会糊成一块）。 */
+@Composable
+private fun AboutRowDivider() {
+    Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Border))
+}
+
+/** 校验说明行（原横幅的 detail）：小字 + 状态色，跟着校验卡片走。 */
+@Composable
+private fun AboutVerifyNote(text: String, fg: Color) {
+    Text(
+        text,
+        fontSize = 11.5.sp,
+        color = fg.copy(alpha = 0.9f),
+        lineHeight = 16.sp,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+    )
 }
 
 /** 项目主页（仓库地址，同时说明只做 Android）。 */
@@ -1678,7 +1760,7 @@ private fun openExternal(context: android.content.Context, url: String) {
     }
 }
 
-/** 关于页的可点击链接行（标题 + 右侧值 + `›`）。 */
+/** 关于页的可点击链接行（标题 + 右侧值 + `›`）；上下 12dp 保住 ~41dp 的点击高度。 */
 @Composable
 private fun AboutLinkRow(title: String, value: String, onClick: () -> Unit) {
     Row(
@@ -1688,101 +1770,42 @@ private fun AboutLinkRow(title: String, value: String, onClick: () -> Unit) {
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(title, fontSize = 13.sp, color = Primer.TextSecondary)
-        Spacer(Modifier.weight(1f))
-        Text(value, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500, maxLines = 1)
+        Text(title, fontSize = 13.sp, color = Primer.TextSecondary, maxLines = 1)
+        Spacer(Modifier.width(10.dp))
+        // 值占满剩余宽度并右对齐：窄屏上由它省略（而不是让标题被挤掉或整行溢出）
+        Text(
+            value,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Primer.Blue500,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f),
+        )
         Spacer(Modifier.width(4.dp))
         Text("›", fontSize = 14.sp, color = Primer.TextTertiary)
     }
 }
 
-/** 校验横幅的配色与文案（五态各自独立，不再共用一句写死的结论）。 */
-@Composable
-private fun BuildVerifyBanner(
-    state: BuildVerifyState,
-    variant: ReleaseVariant,
-    localFingerprint: String,
-    remoteFingerprint: String?,
-) {
-    // 文案与配色都按状态取：绿=通过、红=不一致、蓝=进行中、琥珀=取不到远端、灰=本地编译
-    val (title, detail, fg, bg, border) = when (state) {
-        BuildVerifyState.Checking -> BannerStyle(
-            "正在校验…",
-            "读取本地签名指纹，并拉取远端校验文件",
-            Primer.Blue500,
-            Primer.InfoSurface,
-            Color(0xFFCFE3F7),
-        )
-        BuildVerifyState.LocalBuild -> BannerStyle(
-            "本地编译版本",
-            "签名不在正式版 / 测试版之列，不参与远端校验（远端只登记官方发布产物）",
-            Primer.TextSecondary,
-            Primer.Gray100,
-            Primer.Gray200,
-        )
-        BuildVerifyState.RemoteUnavailable -> BannerStyle(
-            "无法完成远端校验",
-            "取不到远端校验文件：网络不可达，或该分支尚未发布校验文件",
-            Primer.WarningText,
-            Color(0xFFFFF8E5),
-            Color(0xFFF2D08A),
-        )
-        BuildVerifyState.Matched -> BannerStyle(
-            "✓ 签名与远端一致",
-            "本地 APK 签名 = 远端${variant.label}校验文件（${fingerprintShort(localFingerprint)}）",
-            Primer.SuccessTextStrong,
-            Primer.SuccessSurface,
-            Color(0xFFD4E9D6),
-        )
-        BuildVerifyState.Mismatched -> BannerStyle(
-            "✗ 签名与远端不一致",
-            "本地 ${fingerprintShort(localFingerprint)} / 远端 ${fingerprintShort(remoteFingerprint.orEmpty())}，" +
-                "该 APK 可能被重新打包，建议立即卸载",
-            Primer.Red500,
-            Color(0xFFFFEBE9),
-            Color(0xFFF5C2C0),
-        )
-    }
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .background(bg)
-            .border(1.dp, border, RoundedCornerShape(6.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-    ) {
-        Column {
-            Text(title, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = fg)
-            Spacer(Modifier.height(3.dp))
-            Text(detail, fontSize = 11.5.sp, color = fg.copy(alpha = 0.85f), lineHeight = 18.sp)
-        }
-    }
-}
-
-/** 横幅的（标题 / 说明 / 前景色 / 底色 / 描边色）。 */
-private data class BannerStyle(
-    val title: String,
-    val detail: String,
-    val fg: Color,
-    val bg: Color,
-    val border: Color,
-)
-
 @Composable
 private fun AboutInfoRow(key: String, value: String) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+        // 上下 8dp（原 12dp）：紧凑版行距收紧，靠行间 1dp 分隔线区分，
+        // 又不至于把可读性压没（12.5sp 正文 + 8dp 留白 ≈ 33dp 行高）
+        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        Text(key, fontSize = 13.sp, color = Primer.TextSecondary)
-        Spacer(Modifier.weight(1f))
+        Text(key, fontSize = 12.5.sp, color = Primer.TextSecondary)
+        Spacer(Modifier.width(12.dp))
         Text(
             value,
-            fontSize = 13.sp,
+            fontSize = 12.5.sp,
             fontWeight = FontWeight.SemiBold,
             color = Primer.TextPrimary,
             textAlign = TextAlign.End,
+            // 值占满剩余宽度并右对齐：标准版本号（版本-时间-哈希）较长，窄屏允许折行而不是被省略
+            modifier = Modifier.weight(1f),
         )
     }
 }
