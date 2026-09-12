@@ -6,7 +6,7 @@
 //! 约定：返回 JSON 字符串；出错时返回空字符串（Kotlin 侧判空处理）。
 
 use jni::objects::{JClass, JString};
-use jni::sys::{jboolean, jstring};
+use jni::sys::{jboolean, jint, jstring};
 use jni::JNIEnv;
 use std::future::Future;
 use std::sync::OnceLock;
@@ -266,16 +266,18 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeSearchRepositor
     token: JString<'local>,
     query: JString<'local>,
     sort: JString<'local>,
+    page: jint,
 ) -> jstring {
     let host = jstr(&mut env, &host);
     let token = jstr(&mut env, &token);
     let query = jstr(&mut env, &query);
     let sort = jstr(&mut env, &sort);
+    let page = page.max(1) as u32;
     let sort_opt = if sort.is_empty() { None } else { Some(sort.as_str()) };
 
     let result: crate::error::Result<String> = block_on(async move {
         let client = crate::api::ApiClient::new(&host, &token);
-        crate::api::GitHubApi::new(client).search_repositories(&query, sort_opt).await
+        crate::api::GitHubApi::new(client).search_repositories(&query, sort_opt, page).await
     });
 
     into_jstring(&mut env, result)
@@ -290,14 +292,16 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeSearchUsers<'lo
     host: JString<'local>,
     token: JString<'local>,
     query: JString<'local>,
+    page: jint,
 ) -> jstring {
     let host = jstr(&mut env, &host);
     let token = jstr(&mut env, &token);
     let query = jstr(&mut env, &query);
+    let page = page.max(1) as u32;
 
     let result: crate::error::Result<String> = block_on(async move {
         let client = crate::api::ApiClient::new(&host, &token);
-        crate::api::GitHubApi::new(client).search_users(&query).await
+        crate::api::GitHubApi::new(client).search_users(&query, page).await
     });
 
     into_jstring(&mut env, result)
@@ -312,14 +316,16 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeSearchIssues<'l
     host: JString<'local>,
     token: JString<'local>,
     query: JString<'local>,
+    page: jint,
 ) -> jstring {
     let host = jstr(&mut env, &host);
     let token = jstr(&mut env, &token);
     let query = jstr(&mut env, &query);
+    let page = page.max(1) as u32;
 
     let result: crate::error::Result<String> = block_on(async move {
         let client = crate::api::ApiClient::new(&host, &token);
-        crate::api::GitHubApi::new(client).search_issues(&query).await
+        crate::api::GitHubApi::new(client).search_issues(&query, page).await
     });
 
     into_jstring(&mut env, result)
@@ -334,14 +340,16 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeSearchCode<'loc
     host: JString<'local>,
     token: JString<'local>,
     query: JString<'local>,
+    page: jint,
 ) -> jstring {
     let host = jstr(&mut env, &host);
     let token = jstr(&mut env, &token);
     let query = jstr(&mut env, &query);
+    let page = page.max(1) as u32;
 
     let result: crate::error::Result<String> = block_on(async move {
         let client = crate::api::ApiClient::new(&host, &token);
-        crate::api::GitHubApi::new(client).search_code(&query).await
+        crate::api::GitHubApi::new(client).search_code(&query, page).await
     });
 
     into_jstring(&mut env, result)
@@ -356,14 +364,16 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeSearchCommits<'
     host: JString<'local>,
     token: JString<'local>,
     query: JString<'local>,
+    page: jint,
 ) -> jstring {
     let host = jstr(&mut env, &host);
     let token = jstr(&mut env, &token);
     let query = jstr(&mut env, &query);
+    let page = page.max(1) as u32;
 
     let result: crate::error::Result<String> = block_on(async move {
         let client = crate::api::ApiClient::new(&host, &token);
-        crate::api::GitHubApi::new(client).search_commits(&query).await
+        crate::api::GitHubApi::new(client).search_commits(&query, page).await
     });
 
     into_jstring(&mut env, result)
@@ -378,14 +388,16 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeSearchTopics<'l
     host: JString<'local>,
     token: JString<'local>,
     query: JString<'local>,
+    page: jint,
 ) -> jstring {
     let host = jstr(&mut env, &host);
     let token = jstr(&mut env, &token);
     let query = jstr(&mut env, &query);
+    let page = page.max(1) as u32;
 
     let result: crate::error::Result<String> = block_on(async move {
         let client = crate::api::ApiClient::new(&host, &token);
-        crate::api::GitHubApi::new(client).search_topics(&query).await
+        crate::api::GitHubApi::new(client).search_topics(&query, page).await
     });
 
     into_jstring(&mut env, result)

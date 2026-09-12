@@ -52,17 +52,17 @@ object RustBridge {
 
     private external fun nativeGetReceivedEvents(host: String, token: String, login: String): String
 
-    private external fun nativeSearchRepositories(host: String, token: String, query: String, sort: String): String
+    private external fun nativeSearchRepositories(host: String, token: String, query: String, sort: String, page: Int): String
 
-    private external fun nativeSearchUsers(host: String, token: String, query: String): String
+    private external fun nativeSearchUsers(host: String, token: String, query: String, page: Int): String
 
-    private external fun nativeSearchIssues(host: String, token: String, query: String): String
+    private external fun nativeSearchIssues(host: String, token: String, query: String, page: Int): String
 
-    private external fun nativeSearchCode(host: String, token: String, query: String): String
+    private external fun nativeSearchCode(host: String, token: String, query: String, page: Int): String
 
-    private external fun nativeSearchCommits(host: String, token: String, query: String): String
+    private external fun nativeSearchCommits(host: String, token: String, query: String, page: Int): String
 
-    private external fun nativeSearchTopics(host: String, token: String, query: String): String
+    private external fun nativeSearchTopics(host: String, token: String, query: String, page: Int): String
 
     private external fun nativeValidateTwoFactor(code: String): String
 
@@ -314,34 +314,46 @@ object RustBridge {
             nativeGetReceivedEvents(host, token, login).ifBlank { null }
         }
 
-    suspend fun searchRepositories(host: String, token: String, query: String, sort: String = ""): String? =
+    /**
+     * 搜索仓库。
+     *
+     * @param page 分页页码（从 1 开始）。**必须在 Rust 侧拼成 URL 参数**：
+     *   `page` 是 URL 参数而不是搜索关键字，拼进 `q` 会被当成搜索词（search 语法里没有 page 限定符）。
+     */
+    suspend fun searchRepositories(
+        host: String,
+        token: String,
+        query: String,
+        sort: String = "",
+        page: Int = 1,
+    ): String? =
         withContext(Dispatchers.IO) {
-            nativeSearchRepositories(host, token, query, sort).ifBlank { null }
+            nativeSearchRepositories(host, token, query, sort, page).ifBlank { null }
         }
 
-    suspend fun searchUsers(host: String, token: String, query: String): String? =
+    suspend fun searchUsers(host: String, token: String, query: String, page: Int = 1): String? =
         withContext(Dispatchers.IO) {
-            nativeSearchUsers(host, token, query).ifBlank { null }
+            nativeSearchUsers(host, token, query, page).ifBlank { null }
         }
 
-    suspend fun searchIssues(host: String, token: String, query: String): String? =
+    suspend fun searchIssues(host: String, token: String, query: String, page: Int = 1): String? =
         withContext(Dispatchers.IO) {
-            nativeSearchIssues(host, token, query).ifBlank { null }
+            nativeSearchIssues(host, token, query, page).ifBlank { null }
         }
 
-    suspend fun searchCode(host: String, token: String, query: String): String? =
+    suspend fun searchCode(host: String, token: String, query: String, page: Int = 1): String? =
         withContext(Dispatchers.IO) {
-            nativeSearchCode(host, token, query).ifBlank { null }
+            nativeSearchCode(host, token, query, page).ifBlank { null }
         }
 
-    suspend fun searchCommits(host: String, token: String, query: String): String? =
+    suspend fun searchCommits(host: String, token: String, query: String, page: Int = 1): String? =
         withContext(Dispatchers.IO) {
-            nativeSearchCommits(host, token, query).ifBlank { null }
+            nativeSearchCommits(host, token, query, page).ifBlank { null }
         }
 
-    suspend fun searchTopics(host: String, token: String, query: String): String? =
+    suspend fun searchTopics(host: String, token: String, query: String, page: Int = 1): String? =
         withContext(Dispatchers.IO) {
-            nativeSearchTopics(host, token, query).ifBlank { null }
+            nativeSearchTopics(host, token, query, page).ifBlank { null }
         }
 
     fun validateTwoFactor(code: String): Boolean = nativeValidateTwoFactor(code) == "1"

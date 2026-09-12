@@ -59,6 +59,26 @@ internal fun topicWebUrl(name: String): String =
     "https://github.com/topics/" + name.trim().removePrefix("#")
 
 /**
+ * 搜索结果行的**去重键**（分页合并用，纯函数便于单测）。
+ *
+ * ## 为什么不能只用标题
+ *
+ * 拉第 2 页时要按 key 去重（GitHub 分页会跨页重复同一项）。若拿标题当 key，
+ * 两个不同仓库里的同名 issue（「Fix typo」「Bump version」这类标题极常见）会被当成同一条而**悄悄丢掉一条** ——
+ * 这是「少显示结果」而不是「多显示重复」的缺陷，用户根本看不出来。
+ * 所以优先用 [SearchTarget] 的定位信息（owner/repo/编号/sha/路径），只有拿不到目标时才退回标题。
+ */
+internal fun searchItemKey(target: SearchTarget?, title: String): String = when (target) {
+    is SearchTarget.Repo -> "repo:${target.owner}/${target.repo}"
+    is SearchTarget.Issue -> "issue:${target.owner}/${target.repo}#${target.number}"
+    is SearchTarget.PullRequest -> "pr:${target.owner}/${target.repo}#${target.number}"
+    is SearchTarget.Commit -> "commit:${target.owner}/${target.repo}@${target.sha}"
+    is SearchTarget.File -> "file:${target.owner}/${target.repo}/${target.path}"
+    is SearchTarget.Web -> "web:${target.url}"
+    null -> "title:$title"
+}
+
+/**
  * 站内目标 → 仓库深链接；站内没有页面的返回 null（调用方改用浏览器）。
  *
  * 与通知深链接走的是**同一条路由**（`RepoDeepLink` → `MainScreen` 的仓库路由），

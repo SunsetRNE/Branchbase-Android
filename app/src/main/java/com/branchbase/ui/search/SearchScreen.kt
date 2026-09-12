@@ -5,6 +5,8 @@ import android.content.Intent
 import android.net.Uri
 import com.branchbase.ui.repository.RepoDeepLink
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -140,6 +142,9 @@ fun SearchScreen(
     var commitResults by remember { mutableStateOf<List<CommitResult>>(emptyList()) }
     var topicResults by remember { mutableStateOf<List<TopicResult>>(emptyList()) }
     var total by remember { mutableStateOf(0L) }
+    // 分页：已拿到的页码 + 是否正在加载下一页（与首屏 loading 分开，底部只转小圈）
+    var page by remember { mutableStateOf(1) }
+    var loadingMore by remember { mutableStateOf(false) }
     // 返回页面时会自动重搜，先亮加载态，避免闪一帧「未找到结果」
     var loading by remember { mutableStateOf(vm.hasPendingSession()) }
     var searchError by remember { mutableStateOf<String?>(null) }
@@ -188,6 +193,7 @@ fun SearchScreen(
 
         // ④ 请求序号：快速连点 / 改条件后再搜时，旧响应后到就丢弃（否则会覆盖新结果、提前收掉转圈）
         val token0 = vm.nextSeq()
+        page = 1
         loading = true
         searchError = null
         scope.launch {
@@ -219,6 +225,7 @@ fun SearchScreen(
             if (json != null && !json.startsWith("ERROR:")) {
                 // 先立即用拉取结果填充展示，再异步写入缓存（更新缓存与展示同源、同步发生）
                 parseAndSet(json)
+                page = 1
                 cacheManager.put(cacheKey, type0, json)
                 searched = true
                 warmRepos(results)
@@ -234,6 +241,124 @@ fun SearchScreen(
     // 从结果进详情再返回：搜索词与条件还在（ViewModel），这里按缓存直出结果
     LaunchedEffect(Unit) {
         if (vm.hasPendingSession()) doSearch()
+    }
+
+    /** 当前类型的已展示条数（分页推进与「已到底」判断共用）。 */
+    fun shownCount(): Int = when (type) {
+        "代码" -> codeResults.size
+        "拉取请求" -> pullResults.size
+        "提交" -> commitResults.size
+        "主题" -> topicResults.size
+        else -> results.size
+    }
+
+    /**
+     * 解析并把新一页**追加**到对应列表（按 key 去重）。返回本页新增条数。
+     *
+     * 去重是必须的：GitHub 分页在数据变动时会出现同一项跨页重复（按 stars/updated 排序时尤其常见）。
+     */
+    fun appendPage(json: String, type0: String): Int = when (type0) {
+        "代码" -> {
+            val p = parseCodeResults(json)
+            val before = codeResults.size
+            codeResults = mergePage(codeResults, p.first) { "${it.owner}/${it.repository}/${it.path}" }
+            total = maxOf(total, p.second)
+            codeResults.size - before
+        }
+        "拉取请求" -> {
+            val p = parsePullResults(json)
+            val before = pullResults.size
+            pullResults = mergePage(pullResults, p.first) { "${it.repository}#${it.number}" }
+            total = maxOf(total, p.second)
+            pullResults.size - before
+        }
+        "提交" -> {
+            val p = parseCommitResults(json)
+            val before = commitResults.size
+            commitResults = mergePage(commitResults, p.first) { it.sha }
+            total = maxOf(total, p.second)
+            commitResults.size - before
+        }
+        "主题" -> {
+            val p = parseTopicResults(json)
+            val before = topicResults.size
+            topicResults = mergePage(topicResults, p.first) { it.name }
+            total = maxOf(total, p.second)
+            topicResults.size - before
+        }
+        else -> {
+            val p = parseResults(json, type0, me = login)
+            val before = results.size
+            // 用定位信息当 key（标题会误伤不同仓库里的同名 issue，见 searchItemKey 说明）
+            results = mergePage(results, p.first) { searchItemKey(it.target, it.title) }
+            total = maxOf(total, p.second)
+            results.size - before
+        }
+    }
+
+    /**
+     * 加载下一页（追加到现有列表）。
+     *
+     * ## 为什么不自动触发
+     *
+     * 搜索类接口的限额很紧（代码搜索约 10 次/分钟），滚到底自动翻页会让用户
+     * 「只是滑两下」就撞上限流。这里做成**显式按钮**，并在按钮上写清「已显示 N / 共 M」，
+     * 用户自己决定要不要继续 —— 与被限流时的提示（第 ⑤ 条）配套。
+     *
+     * ## 与首屏请求的关系
+     *
+     * 共用同一份条件快照与同一个请求序号：加载途中用户改了条件并重新搜索时，
+     * 这一页的结果会因为序号过期而丢弃，不会把旧查询的第 2 页追加到新结果里。
+     */
+    fun loadMore() {
+        if (loadingMore || loading) return
+        val query0 = query
+        val type0 = type
+        val sortKey0 = sortKey
+        if (query0.isBlank()) return
+        val q = buildSearchQuery(query0, type0, selectedLanguage, advancedValues, advancedFilters)
+        val next = nextPage(page, shownCount())
+        val token0 = vm.nextSeq()
+
+        loadingMore = true
+        scope.launch {
+            val json = when (type0) {
+                "代码" -> RustBridge.searchCode(host, token, q, next)
+                "仓库" -> RustBridge.searchRepositories(host, token, q, sortKey0, next)
+                "用户" -> RustBridge.searchUsers(host, token, q, next)
+                "议题", "拉取请求" -> RustBridge.searchIssues(host, token, q, next)
+                "提交" -> RustBridge.searchCommits(host, token, q, next)
+                "主题" -> RustBridge.searchTopics(host, token, q, next)
+                else -> null
+            }
+            loadingMore = false
+            // 序号过期（期间有更新的搜索）：整份丢弃
+            if (!vm.isCurrent(token0)) return@launch
+            if (json == null || json.startsWith("ERROR:")) {
+                searchError = friendlySearchError(json)
+                // 翻到 GitHub 的 1000 条上限：把总量收敛到已展示数，底部按钮随之收掉，
+                // 不然用户会对着一个永远失败的按钮反复点。
+                if (searchResultCapReached(json)) total = shownCount().toLong()
+                return@launch
+            }
+            val received = appendPage(json, type0)
+            page = next
+            // 服务端返回的 total 比总量小 / 本页为空 → 视为到底（避免按钮一直转）
+            if (received <= 0) total = shownCount().toLong()
+            Logger.net("搜索 $type0 第 $next 页：+$received 条", "search")
+        }
+    }
+
+    /** 结果列表底部：加载更多 / 加载中 / 已到底（五种结果类型共用一份页脚）。 */
+    fun LazyListScope.pagingFooter(shown: Int) {
+        item(key = "paging-footer") {
+            SearchPagingFooter(
+                shown = shown,
+                total = total,
+                loadingMore = loadingMore,
+                onLoadMore = { loadMore() },
+            )
+        }
     }
 
     /**
@@ -356,9 +481,10 @@ fun SearchScreen(
                 }
             } else {
                 Column {
-                    Text("$total 个代码结果", fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    Text(resultCountText(total, codeResults.size, "代码结果"), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                     LazyColumn {
                         items(codeResults) { code -> CodeResultCard(code) { openTarget(code.target) } }
+                        pagingFooter(codeResults.size)
                     }
                 }
             }
@@ -369,9 +495,10 @@ fun SearchScreen(
                 }
             } else {
                 Column {
-                    Text("$total 个拉取请求结果", fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    Text(resultCountText(total, pullResults.size, "拉取请求结果"), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                     LazyColumn {
                         items(pullResults) { pull -> PullCard(pull) { openTarget(pull.target) } }
+                        pagingFooter(pullResults.size)
                     }
                 }
             }
@@ -385,6 +512,7 @@ fun SearchScreen(
                     Text(resultCountText(total, commitResults.size, "提交结果"), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                     LazyColumn {
                         items(commitResults) { commit -> CommitCard(commit) { openTarget(commit.target) } }
+                        pagingFooter(commitResults.size)
                     }
                 }
             }
@@ -395,9 +523,10 @@ fun SearchScreen(
                 }
             } else {
                 Column {
-                    Text(resultCountText(total, 1, "主题结果"), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    Text(resultCountText(total, topicResults.size, "主题结果"), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                     LazyColumn {
                         item { TopicCard(topicResults) { openTarget(it.target) } }
+                        pagingFooter(topicResults.size)
                     }
                 }
             }
@@ -410,6 +539,7 @@ fun SearchScreen(
                 Text(resultCountText(total, results.size, "结果"), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                 LazyColumn {
                     items(results) { item -> SearchItemCard(item) { openTarget(item.target) } }
+                    pagingFooter(results.size)
                 }
             }
         }
@@ -1299,3 +1429,50 @@ private val advancedFilters = listOf(
     "已归档" to "archived:",
     "可见性" to "is:public/private",
 )
+
+/**
+ * 结果列表底部的分页控件。
+ *
+ * 三态：
+ * - 还有下一页 → 「加载更多（已显示 N / 共 M）」按钮；
+ * - 正在加载 → 小转圈 + 「加载中…」；
+ * - 已到底（或本页就装下了全部）→ 一行「已到底」灰字，让用户知道不用再下拉。
+ */
+@Composable
+private fun SearchPagingFooter(
+    shown: Int,
+    total: Long,
+    loadingMore: Boolean,
+    onLoadMore: () -> Unit,
+) {
+    Box(
+        Modifier.fillMaxWidth().padding(vertical = 14.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        when {
+            loadingMore -> Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    color = Primer.Blue500,
+                    strokeWidth = 2.dp,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("加载中…", fontSize = 12.5.sp, color = Primer.TextTertiary)
+            }
+
+            PagingState(page = 1, total = total, shown = shown).hasMore -> Text(
+                loadMoreText(shown, total),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Primer.Blue500,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Primer.InfoSurface)
+                    .clickable(onClick = onLoadMore)
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+            )
+
+            else -> Text("已到底", fontSize = 12.sp, color = Primer.TextTertiary)
+        }
+    }
+}

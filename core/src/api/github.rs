@@ -63,52 +63,64 @@ impl GitHubApi {
         Ok(projects)
     }
 
+    /// 分页参数片段：`page` 是 **URL 参数**，不能拼进 `q`（那是搜索词，会被当关键字）。
+    ///
+    /// 只在 `page > 1` 时拼，保持第 1 页的 URL 与改造前完全一致（缓存/日志可对比）。
+    fn page_param(page: u32) -> String {
+        if page > 1 {
+            format!("&page={page}")
+        } else {
+            String::new()
+        }
+    }
+
     /// 搜索仓库（`GET /search/repositories`，返回原始 JSON 含 total_count + items）
-    pub async fn search_repositories(&self, query: &str, sort: Option<&str>) -> Result<String> {
+    pub async fn search_repositories(&self, query: &str, sort: Option<&str>, page: u32) -> Result<String> {
         let encoded: String = url::form_urlencoded::byte_serialize(query.as_bytes()).collect();
         let mut path = format!("/search/repositories?q={encoded}");
         if let Some(s) = sort {
             path = format!("{path}&sort={s}");
         }
+        path.push_str(&Self::page_param(page));
         self.client.get_json(&path).await
     }
 
     /// 搜索用户（`GET /search/users`）
-    pub async fn search_users(&self, query: &str) -> Result<String> {
+    pub async fn search_users(&self, query: &str, page: u32) -> Result<String> {
         let encoded: String = url::form_urlencoded::byte_serialize(query.as_bytes()).collect();
-        let path = format!("/search/users?q={encoded}");
+        let path = format!("/search/users?q={encoded}{}", Self::page_param(page));
         self.client.get_json(&path).await
     }
 
     /// 搜索 issues/PR（`GET /search/issues`）
-    pub async fn search_issues(&self, query: &str) -> Result<String> {
+    pub async fn search_issues(&self, query: &str, page: u32) -> Result<String> {
         let encoded: String = url::form_urlencoded::byte_serialize(query.as_bytes()).collect();
-        let path = format!("/search/issues?q={encoded}");
+        let path = format!("/search/issues?q={encoded}{}", Self::page_param(page));
         self.client.get_json(&path).await
     }
 
     /// 搜索代码（`GET /search/code`，用 text-match header 返回代码片段）
-    pub async fn search_code(&self, query: &str) -> Result<String> {
+    pub async fn search_code(&self, query: &str, page: u32) -> Result<String> {
         let encoded: String = url::form_urlencoded::byte_serialize(query.as_bytes()).collect();
-        let path = format!("/search/code?q={encoded}");
+        let path = format!("/search/code?q={encoded}{}", Self::page_param(page));
         self.client
             .get_json_with_accept(&path, "application/vnd.github.text-match+json")
             .await
     }
 
     /// 搜索提交（`GET /search/commits`，返回原始 JSON 含 total_count + items）
-    pub async fn search_commits(&self, query: &str) -> Result<String> {
+    pub async fn search_commits(&self, query: &str, page: u32) -> Result<String> {
         let encoded: String = url::form_urlencoded::byte_serialize(query.as_bytes()).collect();
-        let path = format!("/search/commits?q={encoded}");
+        let path = format!("/search/commits?q={encoded}{}", Self::page_param(page));
         self.client
             .get_json_with_accept(&path, "application/vnd.github.cloak-preview+json")
             .await
     }
 
     /// 搜索主题（`GET /search/topics`，返回原始 JSON 含 total_count + items）
-    pub async fn search_topics(&self, query: &str) -> Result<String> {
+    pub async fn search_topics(&self, query: &str, page: u32) -> Result<String> {
         let encoded: String = url::form_urlencoded::byte_serialize(query.as_bytes()).collect();
-        let path = format!("/search/topics?q={encoded}");
+        let path = format!("/search/topics?q={encoded}{}", Self::page_param(page));
         self.client
             .get_json_with_accept(&path, "application/vnd.github.mercy-preview+json")
             .await
@@ -718,5 +730,21 @@ impl GitHubApi {
         let body = serde_json::json!({ "ref": git_ref, "inputs": inputs });
         let path = format!("/repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches");
         self.client.post_json(&path, &body.to_string()).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GitHubApi;
+
+    /// 分页参数只在**第 2 页起**拼进 URL。
+    ///
+    /// 两个都要钉住：拼错的形态是 `q=xxxpage=2`（少了 `&`）—— 不会报错，只会永远返回第一页，
+    /// 表现为「点了加载更多什么都没变」，非常难查。
+    #[test]
+    fn page_param_only_from_second_page() {
+        assert_eq!("", GitHubApi::page_param(1));
+        assert_eq!("&page=2", GitHubApi::page_param(2));
+        assert_eq!("&page=34", GitHubApi::page_param(34));
     }
 }

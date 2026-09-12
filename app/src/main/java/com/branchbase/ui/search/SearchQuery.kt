@@ -66,6 +66,11 @@ internal fun friendlySearchError(raw: String?): String {
             msg.contains("403") ->
             "被 GitHub 限流了。搜索类接口限制很严（代码搜索约 10 次/分钟、其它约 30 次/分钟），等 1 分钟再试。"
 
+        // 422 里有一类是「翻到底了」：GitHub 只提供前 1000 条搜索结果，
+        // 再往下翻会返回这条 message。把它当成语法错误会让用户白改筛选。
+        searchResultCapReached(msg) ->
+            "已到 GitHub 的搜索上限（只提供前 1000 条结果）。用语言 / 星标数 / 组织等条件缩小范围，比继续翻页有效。"
+
         msg.contains("422") || msg.contains("Validation Failed", ignoreCase = true) ||
             msg.contains("validation failed", ignoreCase = true) ->
             "搜索条件不被接受（语法或筛选值有误）。可清掉部分高级筛选后重试。"
@@ -80,6 +85,19 @@ internal fun friendlySearchError(raw: String?): String {
 }
 
 /**
+ * 是否是「已到 GitHub 搜索结果上限」的报错。
+ *
+ * GitHub 的 search 接口**只返回前 1000 条**，`page` 超过上限时给 422 +
+ * `Only the first 1000 search results are available`。这是「翻到头了」，不是用户搜错了，
+ * 所以单独判出来：既换一句能行动的提示，也让底部「加载更多」按钮收掉（否则用户会一直点、一直报错）。
+ */
+internal fun searchResultCapReached(raw: String?): Boolean {
+    val msg = raw.orEmpty()
+    return msg.contains("first 1000 search results", ignoreCase = true) ||
+        msg.contains("1000 search results", ignoreCase = true)
+}
+
+/**
  * 结果计数文案。
  *
  * 搜索结果目前只取第一页（GitHub 默认 30 条/页），而 `total_count` 是总量 ——
@@ -88,3 +106,44 @@ internal fun friendlySearchError(raw: String?): String {
  */
 internal fun resultCountText(total: Long, shown: Int, unit: String): String =
     if (total <= shown) "$total 个$unit" else "已显示前 $shown 条 · 共 $total 条$unit"
+
+/**
+ * 分页状态。
+ *
+ * @param page 已经拿到的页码（1 = 只拿了第一页）
+ * @param total 服务端返回的总量（`total_count`）
+ * @param shown 当前列表里已展示的条数
+ */
+internal data class PagingState(val page: Int, val total: Long, val shown: Int) {
+    /** 还有没有下一页：已展示数没到总量，且这一页不是空的（服务端 total 可能虚高）。 */
+    val hasMore: Boolean get() = shown > 0 && shown < total
+}
+
+/**
+ * 合并新一页结果（**按 key 去重**）。
+ *
+ * 为什么要去重：GitHub 的分页在数据变动时会出现**同一项跨页重复**（尤其按 stars/updated 排序时），
+ * 不去重会让列表里冒出重复卡片。去重保留先出现的那份（顺序即服务端顺序）。
+ */
+internal fun <T> mergePage(existing: List<T>, incoming: List<T>, key: (T) -> String): List<T> {
+    if (incoming.isEmpty()) return existing
+    val seen = existing.mapTo(HashSet()) { key(it) }
+    val merged = existing.toMutableList()
+    incoming.forEach { item ->
+        val k = key(item)
+        if (seen.add(k)) merged += item
+    }
+    return merged
+}
+
+/**
+ * 计算下一页的页码。
+ *
+ * 用「**本页实际拿到多少条**」而不是固定 30 推断：GitHub 的 `per_page` 默认 30，
+ * 但最后一页可能不足；若按固定步长推进，遇到服务端限流返回空页就会永远卡在同一页。
+ */
+internal fun nextPage(currentPage: Int, received: Int): Int = if (received <= 0) currentPage else currentPage + 1
+
+/** 底部「加载更多」的文案（既说清进度，也避免用户以为能一直下拉）。 */
+internal fun loadMoreText(shown: Int, total: Long): String =
+    "加载更多（已显示 $shown / 共 $total）"
