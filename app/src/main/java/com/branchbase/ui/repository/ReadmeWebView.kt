@@ -10,11 +10,8 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.systemBars
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -26,11 +23,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.branchbase.core.RustBridge
@@ -38,8 +31,11 @@ import com.branchbase.imageviewer.ImageViewerDialog
 import com.branchbase.ui.theme.LocalIsDarkTheme
 import com.branchbase.translate.TranslateBridge
 import com.branchbase.translate.TranslatePage
+import com.branchbase.translate.TranslatePageCommands
+import com.branchbase.translate.TranslatePageSnapshot
 import com.branchbase.translate.TranslateRuntime
 import com.branchbase.translate.TranslateSettings
+import com.branchbase.ui.translate.LocalTranslateBubbleHost
 import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
@@ -117,17 +113,10 @@ fun ReadmeWebView(
     val imageBridge = remember { ImageClickBridge() }
     // 当前正在查看的图片（null = 没开查看器）：只放 url 与标题，查看器完全由 :imageviewer 负责
     var viewingImage by remember { mutableStateOf<Pair<String, String>?>(null) }
-    // 沉浸式翻译：JS 发一批待译文本 → 原生侧串行翻译 → 结果与状态推回页面
+    // 沉浸式翻译：JS 发一批待译文本 → 原生侧串行翻译 → 结果与状态推回页面；
+    // 页面再把状态推回原生的悬浮球/工具面板（见 ui/translate/TranslateBubble.kt）
     val translateScope = rememberCoroutineScope()
-    val localDensity = LocalDensity.current
-    val windowInfo = LocalWindowInfo.current
-    // 悬浮控件（悬浮球 / 工具面板）允许出现的区域 = 屏幕可见内容区去掉顶部栏与底部导航条。
-    // 正文 WebView 的高度等于整篇内容高度，页面里的 `position: fixed` 钉的是整篇文章、
-    // 不是屏幕（长 README 里悬浮球会跑到文末），所以这里把可见带推给页面脚本（见下面的
-    // onGloballyPositioned 与 translateBandCss）。
-    val systemBars = WindowInsets.systemBars.asPaddingValues()
-    // 上一次推送的可见带（避免每帧都往 JS 里灌同样的值）
-    val lastBand = remember { floatArrayOf(Float.NaN, Float.NaN) }
+    val translateHost = LocalTranslateBubbleHost.current
 
     val webView = remember {
         WebView(context).apply {
@@ -165,9 +154,33 @@ fun ReadmeWebView(
                     }
                 }
             },
-            // 悬浮面板上的快捷设置回写（白名单在 TranslateQuickSettings 里，凭据字段不在其中）
-            context = context.applicationContext,
+            // 页面推上来的状态快照 → 悬浮球/工具面板（原生 Compose）据此显示
+            onReport = { json ->
+                TranslatePageSnapshot.parse(json)?.let { snap ->
+                    webView.post { translateHost?.update(webView, snap) }
+                }
+            },
         ).also { webView.addJavascriptInterface(it, "BBTranslate") }
+    }
+
+    // 悬浮控件与正文页的会话：绑定时把「设置镜像 + 命令通道」交给它，离开页面即解绑。
+    // owner 用 WebView 实例：多页面切换时旧页面迟到的上报会被丢掉，不会污染新页面。
+    DisposableEffect(webView, translateHost) {
+        val host = translateHost
+        if (host != null) {
+            host.bind(
+                owner = webView,
+                settings = TranslateSettings.read(context),
+                send = { command, arg ->
+                    webView.post {
+                        runCatching {
+                            webView.evaluateJavascript(TranslatePageCommands.js(command, arg), null)
+                        }
+                    }
+                },
+            )
+        }
+        onDispose { host?.unbind(webView) }
     }
 
     // 注入脚本在非主线程回调；统一 post 回主线程再更新 Compose 状态
@@ -237,38 +250,7 @@ fun ReadmeWebView(
         factory = { webView },
         modifier = Modifier
             .fillMaxWidth()
-            .height(webViewHeight)
-            // 正文滚动（外层列表滚动）会改这里的窗口坐标，于是「可见带」跟着变 ——
-            // 悬浮球/面板因此能一直贴在屏幕上，而不是钉在整篇文章的右下角。
-            .onGloballyPositioned { coords ->
-                val container = windowInfo.containerSize
-                if (container.height <= 0 || !coords.isAttached) return@onGloballyPositioned
-                val band = translateBandCss(
-                    webViewTopPx = coords.positionInWindow().y,
-                    webViewHeightPx = coords.size.height.toFloat(),
-                    windowHeightPx = container.height,
-                    safeTopPx = with(localDensity) {
-                        systemBars.calculateTopPadding().toPx() + TRANSLATE_SAFE_TOP.toPx()
-                    },
-                    safeBottomPx = container.height - with(localDensity) {
-                        systemBars.calculateBottomPadding().toPx() + TRANSLATE_SAFE_BOTTOM.toPx()
-                    },
-                    density = localDensity.density,
-                ) ?: return@onGloballyPositioned
-                if (kotlin.math.abs(band.first - lastBand[0]) < 0.5f &&
-                    kotlin.math.abs(band.second - lastBand[1]) < 0.5f
-                ) {
-                    return@onGloballyPositioned
-                }
-                lastBand[0] = band.first
-                lastBand[1] = band.second
-                runCatching {
-                    webView.evaluateJavascript(
-                        "window.__bbIT && window.__bbIT.viewport(${band.first},${band.second})",
-                        null,
-                    )
-                }
-            },
+            .height(webViewHeight),
     )
 }
 
@@ -299,49 +281,6 @@ internal fun isImageNavigation(url: String): Boolean {
 
 /** 超长 README 的高度上限（超出部分由 WebView 内部滚动，避免 LazyColumn 出现巨型 item）。 */
 private const val MAX_README_HEIGHT = 20_000
-
-/** 悬浮控件顶部安全区：App 顶部栏高度（悬浮球/面板不许压到它上面）。 */
-private val TRANSLATE_SAFE_TOP = 56.dp
-
-/** 悬浮控件底部安全区：仓库页底栏 56dp + 8dp 间隙（底部导航条 + 系统导航栏另算）。 */
-private val TRANSLATE_SAFE_BOTTOM = 64.dp
-
-/**
- * 沉浸式翻译的「可见带」换算（纯函数，可单测）。
- *
- * ## 为什么需要它
- *
- * 正文页的 WebView 高度 = 整篇内容高度（外层原生列表负责滚动），页面里的
- * `position: fixed` 因此钉在**整篇文章**的右下角 —— 长 README 里悬浮球会落到文末，
- * 用户根本看不见。悬浮球/工具面板改用绝对定位，位置由这条可见带决定。
- *
- * 输入全是窗口坐标（px），输出是页面 CSS px：WebView 的 CSS 像素与 dp 1:1
- * （`<meta name="viewport" content="width=device-width, initial-scale=1">`），
- * 所以除以 density 就是页面里的坐标。
- *
- * @param webViewTopPx    正文 WebView 上沿在窗口里的 y（向上滚出屏幕时为负）
- * @param webViewHeightPx 正文 WebView 的高度（= 内容高度）
- * @param safeTopPx       允许摆放悬浮控件的上沿（已含状态栏与顶部栏）
- * @param safeBottomPx    允许摆放悬浮控件的下沿（已扣掉底部导航条与底栏）
- * @return 可见带 (上沿, 下沿)；带子为空（正文完全不在屏幕上）时两者相等，
- *   页面据此把悬浮控件收起来；WebView 还没有尺寸时返回 null（不推送）。
- */
-internal fun translateBandCss(
-    webViewTopPx: Float,
-    webViewHeightPx: Float,
-    windowHeightPx: Int,
-    safeTopPx: Float,
-    safeBottomPx: Float,
-    density: Float,
-): Pair<Float, Float>? {
-    if (webViewHeightPx <= 0f || density <= 0f || windowHeightPx <= 0) return null
-    if (safeBottomPx <= safeTopPx) return null
-    val heightCss = webViewHeightPx / density
-    val top = ((safeTopPx - webViewTopPx) / density).coerceIn(0f, heightCss)
-    val bottom = ((safeBottomPx - webViewTopPx) / density).coerceIn(0f, heightCss)
-    // 带子为空时不返回 null：那是「正文滚出屏幕」，页面要收到这个信号才会收起悬浮球
-    return top to maxOf(top, bottom)
-}
 
 /** 从 GitHub 返回的 HTML 里取 README 路径（`<div id="readme" data-path="docs/README.md">`）。 */
 private val README_WRAPPER_PATH_RE = Regex("<[^>]*id=\"readme\"[^>]*data-path=\"([^\"]+)\"")

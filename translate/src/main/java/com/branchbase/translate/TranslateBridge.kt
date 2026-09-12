@@ -1,6 +1,5 @@
 package com.branchbase.translate
 
-import android.content.Context
 import android.webkit.JavascriptInterface
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,18 +24,22 @@ import org.json.JSONArray
  *
  * ## 暴露面只有这四个方法
  *
- * `request` / `retry` / `state` / `pref`。**不再多暴露**：每个 `@JavascriptInterface`
- * 方法都是页面脚本（以及页面里的 XSS）能碰到的攻击面。[pref] 是悬浮面板的快捷设置
- * 回写入口，键与值都由 [TranslateQuickSettings] 白名单校验 —— 凭据类字段（API Key /
- * 模型 / 接入地址 / 服务商）**不在白名单里**，页面永远改不到。
+ * `request` / `retry` / `state` / `report`。**不再多暴露**：每个 `@JavascriptInterface`
+ * 方法都是页面脚本（以及页面里的 XSS）能碰到的攻击面。注意**没有**「写设置」的方法 ——
+ * 工具面板上的快捷设置由原生自己落盘（它本来就是原生 Compose 界面），页面既读不到
+ * 也改不到凭据，少一条信任通道。
+ *
+ * 方向也不一样：`request` / `retry` / `state` 是页面问原生，`report` 是页面**推**状态；
+ * 原生的命令（开关 / 重扫 / 清空…）走 `evaluateJavascript` 调页面脚本的
+ * `window.__bbIT.command()`（见 [TranslatePageCommands]），不经这里。
  */
 class TranslateBridge(
     private val scope: CoroutineScope,
     private val translator: Translator,
     private val onResult: (id: String, toLang: String, translations: List<String>) -> Unit,
     private val onStatus: (String) -> Unit = {},
-    /** 快捷设置落盘用（null = 不落盘，单测用）。 */
-    private val context: Context? = null,
+    /** 页面推上来的状态快照 JSON（见 [TranslatePageSnapshot]）。 */
+    private val onReport: (String) -> Unit = {},
 ) {
 
     /**
@@ -74,15 +77,12 @@ class TranslateBridge(
     fun state(): String = translator.engineState().pageStatus()
 
     /**
-     * 悬浮球面板上的快捷设置：把一项设置写回原生（设置页与正文页因此共用同一份配置）。
-     *
-     * 白名单与取值校验都在 [TranslateQuickSettings]：这里不做任何「尽力而为」的解析
-     * ——不认识的键、不合法的值直接丢掉，页面拿不到任何反馈（也不需要）。
+     * 页面把「本页翻译状态」推上来：悬浮球与工具面板（原生 Compose）据此显示开关、
+     * 进度与失败态。JSON 由 [TranslatePageSnapshot.parse] 按不可信输入解析。
      */
     @JavascriptInterface
-    fun pref(key: String, value: String) {
-        val ctx = context ?: return
-        runCatching { TranslateQuickSettings.persist(ctx, key, value) }
+    fun report(json: String) {
+        runCatching { onReport(json) }
     }
 
     private fun parseTexts(payload: String): List<String> = runCatching {

@@ -63,7 +63,7 @@ class TranslateScheduler(
         /** 是否还能继续翻译。 */
         val usable: Boolean get() = !quotaBlocked && !authFailed && !paused
 
-        /** 传给页面脚本的状态字（见 `03-fab.js` 与 `04-panel.js`）。 */
+        /** 传给页面脚本的状态字（再由 `report()` 原样推给原生的悬浮控件，见 `TranslatePageSnapshot`）。 */
         fun pageStatus(): String = when {
             authFailed -> "auth"
             quotaBlocked -> "quota"

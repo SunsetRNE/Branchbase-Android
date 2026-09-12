@@ -1,14 +1,18 @@
 /*
- * 沉浸式翻译 · 01 核心（配置 / 状态机 / 原生桥 / 批量队列）
- * ────────────────────────────────────────────────────────────
- * 这一层不碰 DOM，也不碰界面，只回答三个问题：
+ * 沉浸式翻译 · 01 核心（配置 / 状态机 / 原生桥 / 批量队列 / 状态上报）
+ * ────────────────────────────────────────────────────────────────
+ * 这一层不碰界面，只回答四个问题：
  *   1. 这段文字值不值得翻（与原生侧同一套阈值，来自注入的 rules）；
  *   2. 这一批文本怎么发给原生、结果怎么收回来；
- *   3. 现在整体处于什么状态（翻译中 / 翻完 / 额度用尽 / 失败）。
+ *   3. 现在整体处于什么状态（翻译中 / 翻完 / 额度用尽 / 失败）；
+ *   4. 怎么把状态**推给原生** —— 悬浮球与工具面板是原生 Compose 控件
+ *      （见 app 的 ui/translate/TranslateBubble.kt），页面不再自己画按钮。
  *
  * 与原生侧的分工：Kotlin 通过 `BBTranslate.request(id, to, json)` 收文本，
- * 串行翻译后回调 `window.__bbTranslated(id, to, json)`。**页面不关心用哪家翻译服务**，
- * 也不做重试与缓存 —— 那些需要跨段落视角，只有原生侧做得了。
+ * 串行翻译后回调 `window.__bbTranslated(id, to, json)`；页面把状态用
+ * `BBTranslate.report(json)` 推回去，原生用 `window.__bbIT.command(name, arg)`
+ * 下发开关与操作。**页面不关心用哪家翻译服务**，也不做重试与缓存 —— 那些需要
+ * 跨段落视角，只有原生侧做得了。
  */
 (function () {
   'use strict';
@@ -32,37 +36,25 @@
     }
   })();
 
-
   var BATCH = 3;            // 每批段数：后端对并发不友好，原生侧还会再串行化
   var MAX_EMPTY_RUNS = 3;   // 连续几批「一段都没翻出来」就认为服务不可用
   var BATCH_GAP_MS = 120;   // 批次间隔，给原生侧的串行闸门留出喘息
+  var REPORT_GAP_MS = 150;  // 状态上报节流：翻译时每批都会变，别每段都过一次桥
 
   var state = {
     on: false,
-    auto: CFG.enabled === true,   // 设置里的「自动翻译正文」
+    auto: CFG.enabled === true,   // 设置里的「自动翻译正文」（总开关）
     to: CFG.to || 'zh-CN',
     dual: CFG.dual !== false,     // true = 原文+译文对照；false = 仅译文
-    engine: 'ok',                 // 原生侧状态：ok | quota | paused
+    style: CFG.style || 'card',
+    engine: 'ok',                 // 原生侧状态：ok | quota | paused | auth
     failed: false,
     busy: false,
     count: 0,                     // 已插入的译文段数
     emptyRuns: 0,
-    // 本页候选统计（段数 + 字符数）：由 IT.dom.candidates() 在打开面板 / 重扫后刷新，
-    // 悬浮面板的进度条读的就是它。
+    // 本页候选统计（段数 + 字符数）：决定「一次翻完还是视口优先」，也是面板进度的来源
     candidates: { count: 0, chars: 0 },
-    // 快捷设置面板上的开关都以这里为准，改动即时生效并回写原生设置（见 pref()）
-    settings: {
-      enabled: CFG.enabled === true,
-      dual: CFG.dual !== false,
-      style: CFG.style || 'card',
-      target: CFG.to || 'zh-CN',
-      persist: CFG.persist !== false,
-      protect: CFG.protect !== false
-    },
-    // 正文在屏幕上的可见带（文档坐标，CSS px），由原生侧推送（见 viewport()）。
-    // ready=false 表示还没拿到几何（老原生 / 推送失败），此时悬浮球退回 fixed 定位。
-    view: { top: 0, bottom: 0, ready: false, listeners: [] },
-    longPage: false,              // 整页候选文本超过 immediateLimit（见 05-boot.js）
+    longPage: false,
     seq: 0,
     callbacks: {},
     queue: [],
@@ -136,72 +128,74 @@
     cb(list);
   };
 
-  // 原生侧每批结束后回推状态：额度用尽 / Key 无效 / 连续失败暂停 / 正常
-  // （05-boot.js 之前（脚本还在解析中）也可能被回调，所以对 IT.ui 做一次存在性保护）
+  // 原生侧每批结束后回推状态：额度用尽 / Key 无效 / 连续失败暂停 / 正常。
+  // 原生侧是**确定**知道这些的，所以立刻换状态并上报，不必等页面自己攒够三次空批次。
   window.__bbTranslateStatus = function (engineState) {
-    var prev = state.engine;
     state.engine = engineState || 'ok';
-    if (!IT.ui) return;
-    // 原生侧是**确定**知道「Key 无效 / 额度用尽」的，那就立刻提示并换按钮状态，
-    // 不必等页面自己攒够三次空批次才反应过来
-    if (state.engine !== prev && state.engine !== 'ok') {
-      IT.ui.fail(state.engine);
-      return;
-    }
-    IT.ui.refresh();
+    if (state.engine !== 'ok') state.failed = false;
+    report();
   };
 
-  /* ───────────── 快捷设置（面板改动 → 原生落盘） ───────────── */
+  /* ───────────── 状态上报（页面 → 原生） ───────────── */
 
-  /**
-   * 写入一项设置。
-   *
-   * 为什么不让页面自己记（localStorage）：设置页（设置 → 沉浸式翻译）才是权威，
-   * 页面另存一份就会出现「面板里是仅译文、设置页里是对照」的双真源。
-   * 因此这里改完立刻把**白名单里的键**回写原生（Kotlin 侧再校验一次），
-   * 下一次进正文页拿到的就是同一份配置。
-   *
-   * 原生桥缺失（老版本 App）时只更新页内状态：功能降级为「本次会话有效」。
-   */
-  function pref(key, value) {
-    if (!Object.prototype.hasOwnProperty.call(state.settings, key)) return;
-    var v = String(value);
-    state.settings[key] = (v === '1' || v === 'true') ? true
-      : (v === '0' || v === 'false') ? false : v;
+  function deriveStatus() {
+    if (state.engine === 'auth') return 'auth';
+    if (state.engine === 'quota') return 'quota';
+    if (state.engine === 'paused') return 'paused';
+    if (state.failed) return 'failed';
+    if (state.busy || state.inflight) return 'translating';
+    return state.count > 0 ? 'done' : 'idle';
+  }
+
+  /** 当前快照（字段与 Kotlin 的 TranslatePageSnapshot 一一对应）。 */
+  function snapshot() {
+    return {
+      on: state.on === true,
+      status: deriveStatus(),
+      translated: state.count || 0,
+      candidates: (state.candidates && state.candidates.count) || 0,
+      chars: (state.candidates && state.candidates.chars) || 0
+    };
+  }
+
+  var reportTimer = null;
+  var lastReportAt = 0;
+
+  function sendReport() {
     try {
-      if (window.BBTranslate && window.BBTranslate.pref) window.BBTranslate.pref(key, v);
-    } catch (e) { /* 老原生没有这个方法：页内已生效，够用 */ }
+      if (window.BBTranslate && window.BBTranslate.report) {
+        window.BBTranslate.report(JSON.stringify(snapshot()));
+      }
+    } catch (e) { /* 老原生没有这个方法：界面退化成不显示，不影响翻译本身 */ }
   }
-
-  /* ───────────── 可见视口（原生 → 页面） ───────────── */
 
   /**
-   * 原生侧把「正文在屏幕上真正可见的那一段」推过来（文档坐标，CSS px）。
+   * 把状态推给原生（节流 [REPORT_GAP_MS]，末尾补一次）。
    *
-   * 正文 WebView 的高度等于整篇内容高度（App 侧按内容撑开，外层由原生列表滚动），
-   * 所以 CSS 的 `position: fixed` 其实是钉在**整篇文章**的右下角而不是屏幕右下角
-   * —— 长文章里悬浮球会跑到文末去。悬浮球/面板因此改用绝对定位，
-   * 位置由这条通道给出的可见带决定。
-   *
-   * @param top    可见带上沿（文档 y）
-   * @param bottom 可见带下沿（文档 y，已扣掉底部导航条的安全区）。
-   *   `bottom == top` 是合法输入：表示正文整体滚出了屏幕，页面据此收起悬浮控件。
+   * 翻译时每批都会调它，不节流就是每段都过一次桥；而悬浮球上的数字晚 150ms
+   * 更新没人看得出来。
    */
-  function viewport(top, bottom) {
-    var t = Number(top), b = Number(bottom);
-    if (!isFinite(t) || !isFinite(b) || b < t) return;
-    var v = state.view;
-    if (v.ready && Math.abs(t - v.top) < 0.5 && Math.abs(b - v.bottom) < 0.5) return;
-    v.top = t;
-    v.bottom = b;
-    v.ready = true;
-    for (var i = 0; i < v.listeners.length; i++) {
-      try { v.listeners[i](t, b); } catch (e) { /* 一个监听坏了不影响其它 */ }
+  function report() {
+    var now = Date.now();
+    var wait = REPORT_GAP_MS - (now - lastReportAt);
+    if (wait <= 0) {
+      lastReportAt = now;
+      sendReport();
+      return;
     }
+    if (reportTimer) return;
+    reportTimer = setTimeout(function () {
+      reportTimer = null;
+      lastReportAt = Date.now();
+      sendReport();
+    }, wait);
   }
 
-  function onViewport(fn) {
-    if (typeof fn === 'function') state.view.listeners.push(fn);
+  /** 失败态（原生推来的「Key 无效 / 额度用尽」或页面自己攒够空批次）。 */
+  function fail(kind) {
+    state.failed = (kind === 'failed');
+    if (kind === 'auth' || kind === 'quota' || kind === 'paused') state.engine = kind;
+    report();
   }
 
   /* ───────────── 队列与批量 ───────────── */
@@ -214,12 +208,12 @@
 
   function pump() {
     if (state.inflight || !state.on) return;
-    if (!state.queue.length) { state.busy = false; IT.ui.refresh(); return; }
+    if (!state.queue.length) { state.busy = false; report(); return; }
 
     var batch = state.queue.splice(0, BATCH);
     state.inflight = true;
     state.busy = true;
-    IT.ui.refresh();
+    report();
 
     requestTranslate(batch.map(function (x) { return x.text; }), function (results) {
       state.inflight = false;
@@ -234,26 +228,27 @@
       }
       state.emptyRuns = inserted > 0 ? 0 : state.emptyRuns + 1;
       state.busy = false;
-      IT.ui.refresh();
+      report();
 
       // 整批都空：通常是断网 / 额度用尽 / Key 无效 / 服务异常，继续发只是浪费
       if (state.emptyRuns >= MAX_EMPTY_RUNS) {
         var blocked = (state.engine === 'auth' || state.engine === 'quota' || state.engine === 'paused')
           ? state.engine
           : 'failed';
-        IT.ui.fail(blocked);
+        fail(blocked);
         return;
       }
       setTimeout(pump, BATCH_GAP_MS);
     });
   }
 
-  /** 用户点「重试」：清空熔断与队列计数，重新扫描当前视口。 */
+  /** 面板上的「重试」：清空熔断与队列计数，重新扫描当前视口。 */
   function retry() {
     state.emptyRuns = 0;
     state.engine = 'ok';
+    state.failed = false;
     try { if (window.BBTranslate && window.BBTranslate.retry) window.BBTranslate.retry(); } catch (e) {}
-    IT.ui.refresh();
+    report();
     enqueue(IT.dom.scan(true));
   }
 
@@ -268,8 +263,9 @@
     requestTranslate: requestTranslate,
     enqueue: enqueue,
     retry: retry,
-    pref: pref,
-    viewport: viewport,
-    onViewport: onViewport
+    fail: fail,
+    report: report,
+    snapshot: snapshot,
+    deriveStatus: deriveStatus
   };
 })();

@@ -3,8 +3,16 @@ package com.branchbase
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import com.branchbase.ui.translate.LocalTranslateBubbleHost
+import com.branchbase.ui.translate.TranslateBubble
+import com.branchbase.ui.translate.TranslateBubbleHost
 import com.branchbase.ui.theme.ThemeRuntime
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.auth.LoginFlow
@@ -69,7 +77,16 @@ class MainActivity : ComponentActivity() {
         setContent {
             val themeMode by ThemeRuntime.mode.collectAsState()
             BranchbaseTheme(mode = themeMode) {
-                LoginFlow()
+                // 沉浸式翻译的悬浮球 / 工具面板是**原生覆盖层**（见 ui/translate/TranslateBubble.kt）：
+                // 会话在这里建一次，正文页（ReadmeWebView）通过 CompositionLocal 绑上来，
+                // 控件画在最上层 —— 位置锚定窗口，不受正文 WebView 高度影响。
+                val translateHost = remember { TranslateBubbleHost() }
+                CompositionLocalProvider(LocalTranslateBubbleHost provides translateHost) {
+                    Box(Modifier.fillMaxSize()) {
+                        LoginFlow()
+                        TranslateBubble(translateHost)
+                    }
+                }
             }
         }
     }
