@@ -519,7 +519,9 @@ mod tests {
 
     #[test]
     fn test_absolute_raw_is_raw_not_external() {
-        // 绝对 raw 链接（README 里很常见）必须走 raw 分支，而不是被当成站外
+        // 绝对 raw 链接（README 里很常见）必须**分类**成 raw 而不是 external。
+        // 分类的意义是拿到 owner / repo / branch / path（external 只有 url）；
+        // 消费端目前对两者都只是「交给浏览器外开」，所以这里不要把它当成行为差异。
         let d = resolve_link(
             "https://raw.githubusercontent.com/SunsetRNE/branchbase/main/README.md",
             &ctx(),

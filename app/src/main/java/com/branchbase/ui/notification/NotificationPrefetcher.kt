@@ -114,6 +114,9 @@ object NotificationPrefetcher {
 
     private suspend fun fetch(app: Context, host: String, token: String, force: Boolean): Int? {
         val path = notifListPath(participating = false)
+        // 请求发起时刻的快照版本：网络往返期间用户完全可能在消息页点开一条通知，
+        // 那份「按当时已读集合过滤过」的结果不能反过来覆盖本地的新状态
+        val versionBefore = NotifSnapshot.version()
         val manager = SearchCacheManager(SearchCacheDatabase.getInstance(app).searchCacheDao())
         val json = PageCache.refresh(
             manager = manager,
@@ -128,7 +131,7 @@ object NotificationPrefetcher {
         // 这里必须剔除，否则首页徽标会把已完成的会话重新算成未读。
         val doneIds = NotifArchive.entries(app).filter { it.isDone }.map { it.id }.toSet()
         val items = NotifReadStore.apply(app, parseNotifications(json)).filterNot { it.id in doneIds }
-        NotifSnapshot.update(items)
+        val accepted = NotifSnapshot.update(items, expectedVersion = versionBefore)
         Logger.net("预取 /notifications → ${items.size} 条（未读 ${items.count { it.unread }}）", "GitHubAPI")
 
         // 首屏预览：只取未读的 Issue/PR，失败静默（预览是纯增强信息）

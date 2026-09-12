@@ -77,16 +77,13 @@
 
 /* ── 图表（charts） ── */
 
-/* 宽图 / 统计卡（github-readme-stats 等）：保持原始像素宽，横向拖动看清内容。
-   容器由注入脚本按「自然宽度 > 视口」动态包裹，不影响普通徽章与截图。 */
-.bb-scroll-x {
-  display: block;
-  overflow-x: auto;
-  overflow-y: hidden;
-  -webkit-overflow-scrolling: touch;
-  margin-bottom: 16px;
-}
-.bb-scroll-x > img { max-width: none !important; }
+/* ⚠️ 图片**不做**「超宽就保持原始像素宽 + 横向滚动」的处理（曾经的 .bb-scroll-x 容器已移除）。
+   它造成过一次真实回归：GitHub 把徽章 / 头像行输出成 `<p>` 内一串 `<a><img></a>`，
+   而包裹层是**块级**的、又把宽度强制成 `naturalWidth` —— 结果是
+   「网页端一排 4 张图 → App 里一张一行、且奇大」，还会覆盖作者自己的 width 属性
+   （28px 的 logo、250×55 的徽章部件全被放大）。
+   图片一律沿用 GitHub 网页的规则（上面的 `.markdown-body img { max-width: 100% }`），
+   行内流不被打断、尺寸以作者声明为准。 */
 
 /* Mermaid：GitHub API 只返回语法高亮源码（div.highlight-source-mermaid），
    这里按「图表源码卡」呈现 —— 标题条说明 + 源码等宽，避免看起来像乱码。 */

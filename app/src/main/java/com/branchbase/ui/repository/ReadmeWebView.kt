@@ -387,8 +387,11 @@ private fun wrapHtml(body: String, context: Context, translate: TranslatePage.As
  *    （徽章 / 统计卡 / 图表晚加载导致的裁切与留白都靠它消除）。
  * ② 锚点修复：GitHub 输出 `id="user-content-x"` 而 `href="#x"`，浏览器找不到目标 → 改写 href。
  * ③ Mermaid 图表：GitHub API 只返回高亮源码（`div.highlight-source-mermaid`），加标题条说明。
- * ④ 宽图/图表卡：自然宽度超出视口时保持原始像素宽，包一层可横向拖动的容器。
- * ⑤ 暗色图源纠正：应用主题 ≠ 系统 uiMode 时，按 `BB_DARK` 手动选定 `<picture>` 的图源。
+ * ④ 暗色图源纠正：应用主题 ≠ 系统 uiMode 时，按 `BB_DARK` 手动选定 `<picture>` 的图源。
+ *
+ * **不再改图片尺寸 / 位置**：曾有一版把超宽图片包进横向滚动容器并强制原始像素宽，
+ * 结果把「一行 4 张徽章」拆成一张一行且奇大。图片尺寸一律由 CSS（`max-width: 100%`）
+ * 与作者声明决定，脚本只读不写。
  */
 private val README_ENHANCE_JS = """
 (function () {
@@ -443,35 +446,13 @@ private val README_ENHANCE_JS = """
     }
   }
 
-  function fitWide(img) {
-    if (!img || img.tagName !== 'IMG' || !img.naturalWidth) return;
-    // 已经在横向容器里就不再套一层（层级里任意一层命中都算）
-    for (var p = img.parentNode; p && p !== document.body; p = p.parentNode) {
-      if (p.classList && p.classList.contains('bb-scroll-x')) return;
-    }
-    // <picture> / <themed-picture> 必须整块搬：只把 <img> 移出去会切断 <source> 的
-    // 图源选择（暗色图源失效），图片会退回 <img src> 的那一份。
-    var parent = img.parentNode;
-    var target = (parent && (parent.tagName === 'PICTURE' || parent.tagName === 'THEMED-PICTURE'))
-      ? parent : img;
-    // 可用宽度 = 视口宽 - body 左右各 16px 的 padding。
-    // 原来直接拿 clientWidth（未扣 padding），「比内容区宽、比视口略窄」的统计卡会被漏掉。
-    var body = document.body;
-    var avail = (body ? body.clientWidth : 0) - 32;
-    if (!avail || img.naturalWidth <= avail) return;
-    var wrap = document.createElement('div');
-    wrap.className = 'bb-scroll-x';
-    target.parentNode.insertBefore(wrap, target);
-    wrap.appendChild(target);
-    img.style.maxWidth = 'none';
-    img.style.width = img.naturalWidth + 'px';
-    schedule();
-  }
-
-  function fitAllWide() {
-    var imgs = document.getElementsByTagName('img');
-    for (var i = 0; i < imgs.length; i++) fitWide(imgs[i]);
-  }
+  // ⚠️ 这里**不再**做「超宽图片 → 原始像素宽 + 横向滚动容器」的处理（.bb-scroll-x 已移除）。
+  // 那套逻辑造成过一次真实回归：GitHub 把徽章 / 头像行输出成 `<p>` 里一串 `<a><img></a>`，
+  // 而它是**块级**容器 + 强制 `naturalWidth` —— 结果是
+  // 「网页端一排 4 张图 → App 里一张一行、且奇大」，并覆盖作者自己的 width 属性
+  // （28px 的 logo、250×55 的徽章部件全被放大）。
+  // 现在图片完全交给 CSS 的 `max-width: 100%`（与 GitHub 网页一致）：
+  // 行内流不被打断，尺寸以作者声明为准。
 
   // ── 暗色图源纠正 ──
   // GitHub 把 `#gh-dark-mode-only` 图片渲染成
@@ -509,14 +490,14 @@ private val README_ENHANCE_JS = """
     }
   }
 
-  function decorate() { fixAnchors(); decorateMermaid(); fixThemedPictures(); fitAllWide(); }
+  function decorate() { fixAnchors(); decorateMermaid(); fixThemedPictures(); }
 
   if (window.ResizeObserver && document.documentElement) {
     try { new ResizeObserver(schedule).observe(document.documentElement); } catch (e) {}
   }
   document.addEventListener('load', function (e) {
     var t = e.target;
-    if (t && t.tagName === 'IMG') { fixThemedPictures(); fitWide(t); schedule(); }
+    if (t && t.tagName === 'IMG') { fixThemedPictures(); schedule(); }
   }, true);
   document.addEventListener('error', function (e) {
     var t = e.target;
@@ -762,7 +743,11 @@ private class ReadmeWebViewClient(
             }
             // 页内锚点 → 让 WebView 自己滚动
             "anchor" -> false
-            // raw（README 里的裸 raw 链接）→ 外开，交给系统/浏览器处理下载
+            // raw（README 里的裸 raw 链接）→ 与站外走同一条路（交给系统 / 浏览器处理字节流），
+            // 但**分类不同**：raw 目标带 owner / repo / branch / path，
+            // 以后要做「应用内查看 / 加入下载」时不必再解析一次 URL。
+            // 注意：目前两者的用户可见行为**完全一致** —— 这里刻意保留独立分支作为落点，
+            // 不要在注释或测试里把它说成「已经避免了被当成站外」。
             "raw" -> {
                 val target = dest.url.takeIf { it.isNotBlank() } ?: url
                 runCatching { view.context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target))) }

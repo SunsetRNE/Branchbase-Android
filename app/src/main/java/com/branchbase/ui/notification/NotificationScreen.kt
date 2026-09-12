@@ -486,10 +486,55 @@ fun NotificationScreen(
     }
 
     /**
+     * 批量操作失败 / 撤销时的**本地回滚**。
+     *
+     * 只回滚本次操作涉及的那些 id，**不整体替换 `items` / 快照**：
+     * 批量操作要串行打远端（每条之间还有 [NOTIF_BULK_GAP_MS] 间隔），这段时间里用户完全可能
+     * 下拉刷新或翻页成功 —— 整体替换会把刚落地的**新数据一起扔掉**，
+     * 回首页看到的还是被回滚过的旧未读数。
+     *
+     * 远端不可逆的部分（GitHub 没有「标记未读」接口）不在承诺范围内，见 [runBulk] 的注释。
+     */
+    fun rollbackLocal(
+        targets: List<Notification>,
+        unreadBefore: Map<String, Boolean>,
+        archiveBefore: List<ArchivedThread>,
+        readBefore: Set<String>,
+    ) {
+        if (targets.isEmpty()) return
+        val ids = targets.map { it.id }.toSet()
+
+        // ① 列表：只改这些 id 的未读标志
+        items = items.map { n -> unreadBefore[n.id]?.let { unread -> n.copy(unread = unread) } ?: n }
+
+        // ② 快照：同样只动这些 id；被 markDoneLocal 移出快照的条目补回来（否则徽标会少算）
+        NotifSnapshot.mutate { snapshot ->
+            val known = snapshot.map { n -> unreadBefore[n.id]?.let { unread -> n.copy(unread = unread) } ?: n }
+            val missing = targets.filter { t -> snapshot.none { it.id == t.id } }
+                .map { t -> t.copy(unread = unreadBefore[t.id] ?: false) }
+            known + missing
+        }
+
+        // ③ 已读集合：按 id 恢复成员关系（而不是整表替换 —— 期间的其它已读不该被抹掉）
+        val wasRead = targets.filter { it.id in readBefore }.map { it.id }
+        val wasUnread = targets.filterNot { it.id in readBefore }.map { it.id }
+        if (wasRead.isNotEmpty()) NotifReadStore.add(context, wasRead)
+        if (wasUnread.isNotEmpty()) NotifReadStore.remove(context, wasUnread)
+
+        // ④ 归档：以当前表为底，把这些 id 强制写回操作前的状态（put 的「done 不可降级」会挡住撤销）
+        val beforeById = archiveBefore.associateBy { it.id }
+        NotifArchive.replace(
+            context,
+            NotifArchive.entries(context).filterNot { it.id in ids } + targets.mapNotNull { beforeById[it.id] },
+        )
+        archiveVersion++
+    }
+
+    /**
      * 批量操作：先本地乐观更新，再**按顺序**逐条调用远端（每条之间 [NOTIF_BULK_GAP_MS] 间隔，不并发，
      * 避免触发二级速率限制）；失败逐条回滚并在结束时 Toast 汇总；全部结束退出多选模式。
      *
-     * 撤销：本地状态整体回到操作前。远端不可逆 —— GitHub 没有「标记未读」接口，
+     * 撤销：本地状态按 id 回到操作前（[rollbackLocal]）。远端不可逆 —— GitHub 没有「标记未读」接口，
      * 已读 / 已 done 的线程无法在服务端回滚，因此这里只承诺本地可见状态可撤销。
      */
     fun runBulk(op: BulkOp, targetIds: Set<String>) {
@@ -497,10 +542,9 @@ fun NotificationScreen(
         val targets = items.filter { it.id in targetIds }
         if (targets.isEmpty()) return
 
-        val itemsBefore = items
+        val unreadBefore = targets.associate { it.id to it.unread }
         val archiveBefore = NotifArchive.entries(context)
         val readBefore = NotifReadStore.ids(context)
-        val snapshotBefore = NotifSnapshot.value
 
         bulkRunning = true
         // ① 本地乐观更新
@@ -524,11 +568,7 @@ fun NotificationScreen(
             }
             // ③ 终态：失败则整批回滚，让用户看到的和远端一致
             if (failed.isNotEmpty()) {
-                items = itemsBefore
-                NotifArchive.replace(context, archiveBefore)
-                NotifReadStore.replace(context, readBefore)
-                NotifSnapshot.update(snapshotBefore)
-                archiveVersion++
+                rollbackLocal(targets, unreadBefore, archiveBefore, readBefore)
                 val what = when (op) {
                     BulkOp.READ -> "标记已读"
                     BulkOp.DONE -> "标记完成"
@@ -543,11 +583,7 @@ fun NotificationScreen(
                     BulkOp.MUTE -> "已静音"
                 }
                 undo = UndoState("${targets.size} 条$what") {
-                    items = itemsBefore
-                    NotifArchive.replace(context, archiveBefore)
-                    NotifReadStore.replace(context, readBefore)
-                    NotifSnapshot.update(snapshotBefore)
-                    archiveVersion++
+                    rollbackLocal(targets, unreadBefore, archiveBefore, readBefore)
                 }
             }
             bulkRunning = false
@@ -655,9 +691,9 @@ fun NotificationScreen(
                     onRefresh = { load(force = true) },
                     onMarkAllRead = {
                         val targets = items.filter { it.unread }
-                        val unreadBefore = targets.map { it.id }.toSet()
+                        // 操作前这些条目都是未读；回滚要按 id 精确恢复，不能整表替换
+                        val unreadBefore = targets.associate { it.id to true }
                         val readBefore = NotifReadStore.ids(context)
-                        val snapshotBefore = NotifSnapshot.value
                         val archiveBefore = NotifArchive.entries(context)
                         markReadLocal(targets)
                         scope.launch {
@@ -665,18 +701,10 @@ fun NotificationScreen(
                             if (ok) {
                                 invalidateOnRead()
                                 undo = UndoState("已将 ${targets.size} 条标记为已读") {
-                                    NotifReadStore.replace(context, readBefore)
-                                    NotifArchive.replace(context, archiveBefore)
-                                    NotifSnapshot.update(snapshotBefore)
-                                    items = items.map { if (it.id in unreadBefore) it.copy(unread = true) else it }
-                                    archiveVersion++
+                                    rollbackLocal(targets, unreadBefore, archiveBefore, readBefore)
                                 }
                             } else {
-                                NotifReadStore.replace(context, readBefore)
-                                NotifArchive.replace(context, archiveBefore)
-                                NotifSnapshot.update(snapshotBefore)
-                                items = items.map { if (it.id in unreadBefore) it.copy(unread = true) else it }
-                                archiveVersion++
+                                rollbackLocal(targets, unreadBefore, archiveBefore, readBefore)
                                 toast(context, "全部已读失败，请重试")
                             }
                         }
@@ -1024,16 +1052,24 @@ private fun NotificationList(
     // 多选态的「长按 → 区间 / 按住划过刷选」放在列表容器上统一处理，而不是每行各写一份 ——
     // 手指跨行时只有容器能看到完整位移。普通态直接 return（不挂手势检测器），
     // 行自己的 combinedClickable 负责长按菜单。
-    val orderSet = remember(renderOrder) { renderOrder.toSet() }
-    val dragSelectModifier = Modifier.pointerInput(selectionEnabled, renderOrder) {
+    //
+    // 分组布局下 LazyColumn 的每个 item 是**一整个分组容器**（key = `repo:x` / `thread:x` / `l2repo:x`），
+    // 通知行嵌在容器内部：指针只能映射到容器 key，因此必须把「容器 key → 它包含的 id」查出来，
+    // 否则刷选在三种分组布局下永远匹配不上（划过即选中失效）。
+    val keyToIds = remember(rows, layout) { renderKeyToIds(rows, layout) }
+    val dragSelectModifier = Modifier.pointerInput(selectionEnabled, renderOrder, keyToIds) {
         if (!selectionEnabled) return@pointerInput
+        // 一行可能对应多条（分组）：区间端点取这一行的**首尾 id**，
+        // 两次合并即可把整行纳入区间（同一分组在渲染序里必然是连续的一段）。
+        fun selectRowAt(y: Float) {
+            val key = idAtOffset(y, listState.layoutInfo) ?: return
+            val ids = keyToIds[key] ?: return
+            ids.firstOrNull()?.let(onRangeSelect)
+            ids.lastOrNull()?.let(onRangeSelect)
+        }
         detectDragGesturesAfterLongPress(
-            onDragStart = { offset ->
-                idAtOffset(offset.y, listState.layoutInfo)?.let { id -> if (id in orderSet) onRangeSelect(id) }
-            },
-            onDrag = { change, _ ->
-                idAtOffset(change.position.y, listState.layoutInfo)?.let { id -> if (id in orderSet) onRangeSelect(id) }
-            },
+            onDragStart = { offset -> selectRowAt(offset.y) },
+            onDrag = { change, _ -> selectRowAt(change.position.y) },
         )
     }
 
@@ -1163,7 +1199,12 @@ private fun NotificationList(
     }
 }
 
-/** 把手指位置映射到当前可见行的 id（刷选用）。落在分组头 / footer 上返回 null。 */
+/**
+ * 把手指位置映射到当前可见**渲染行**的 key（刷选用）。
+ *
+ * 分组布局下渲染行就是分组容器（`repo:x` / `thread:x` / `l2repo:x`），
+ * 需要再用 [renderKeyToIds] 换成它包含的通知 id。落在 footer / 骨架屏上返回其 key（查不到映射即忽略）。
+ */
 private fun idAtOffset(y: Float, info: LazyListLayoutInfo): String? {
     val hit = info.visibleItemsInfo.firstOrNull { y >= it.offset && y < it.offset + it.size } ?: return null
     return hit.key as? String
@@ -1693,13 +1734,33 @@ private fun sortedNotifications(list: List<Notification>, sort: NotifSort): List
  * 分组布局会改变行的先后（同一仓库的通知被拉到一起），因此区间 / 刷选必须按这个顺序算，
  * 否则「从 A 拖到 B」选出来的是另一个集合。
  */
-private fun renderOrderIds(list: List<Notification>, layout: NotifLayout): List<String> = when (layout) {
+internal fun renderOrderIds(list: List<Notification>, layout: NotifLayout): List<String> = when (layout) {
     NotifLayout.FLAT -> list.map { it.id }
     NotifLayout.GROUP_BY_REPO -> list.groupBy { it.repoFullName }.values.flatten().map { it.id }
     NotifLayout.MERGE_BY_THREAD -> list.groupBy { it.url.ifBlank { it.id } }.values.flatten().map { it.id }
     NotifLayout.TWO_LEVEL -> list.groupBy { it.repoFullName }.values
         .flatMap { repo -> repo.groupBy { it.url.ifBlank { it.id } }.values.flatten() }
         .map { it.id }
+}
+
+/**
+ * 渲染行 key → 该行包含的通知 id（刷选用，见 [NotificationList] 的手势处理）。
+ *
+ * 三种分组布局的 LazyColumn item 都是**分组容器**，多个通知共用一个 item；
+ * 平铺布局下 item key 就是通知 id。key 的拼法必须与 [NotificationList] 里 `item(key = …)` 一致，
+ * 因此这里与 [renderOrderIds] 放在一起、一起被单测钉住。
+ */
+internal fun renderKeyToIds(list: List<Notification>, layout: NotifLayout): Map<String, List<String>> = when (layout) {
+    NotifLayout.FLAT -> list.associate { it.id to listOf(it.id) }
+    NotifLayout.GROUP_BY_REPO -> list.groupBy { it.repoFullName }
+        .mapKeys { (repoName, _) -> "repo:$repoName" }
+        .mapValues { (_, group) -> group.map { it.id } }
+    NotifLayout.MERGE_BY_THREAD -> list.groupBy { it.url.ifBlank { it.id } }
+        .mapKeys { (threadKey, _) -> "thread:$threadKey" }
+        .mapValues { (_, group) -> group.map { it.id } }
+    NotifLayout.TWO_LEVEL -> list.groupBy { it.repoFullName }
+        .mapKeys { (repoName, _) -> "l2repo:$repoName" }
+        .mapValues { (_, group) -> group.map { it.id } }
 }
 
 /** 归档条目是否属于「过往 Issue」区块（issue / PR）。 */

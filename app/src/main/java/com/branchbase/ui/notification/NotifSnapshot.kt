@@ -42,6 +42,8 @@ object NotifSnapshot {
 
     private val _unread = MutableStateFlow(0)
 
+    private val versionCounter = java.util.concurrent.atomic.AtomicLong(0)
+
     /**
      * 未读数（可订阅）。
      *
@@ -62,12 +64,36 @@ object NotifSnapshot {
     private fun publish(list: List<Notification>) {
         items = list
         _unread.value = list.count { it.unread }
+        versionCounter.incrementAndGet()
     }
 
-    /** 整表替换（预取成功后调用）。 */
-    fun update(list: List<Notification>, nowMs: Long = System.currentTimeMillis()) {
+    /**
+     * 写入版本号：**每次写入都会变**（本地变更、回源、失效）。
+     *
+     * 用途见 [update] 的 `expectedVersion`：回源结果可能比本地变更「旧」，
+     * 拿请求发起时的版本号一比就知道该不该落盘。
+     */
+    fun version(): Long = versionCounter.get()
+
+    /**
+     * 整表替换（回源成功后调用）。
+     *
+     * [expectedVersion] = 请求**发起**时刻的 [version]：若期间发生过任何写入
+     * （用户点开通知、全部已读、预取回填…），这份结果就是按「旧状态」过滤过的，
+     * 直接丢弃比覆盖本地真值安全 —— 否则会出现「刚标记已读的通知又变回未读」。
+     *
+     * @return 是否真的写入了
+     */
+    @Synchronized
+    fun update(
+        list: List<Notification>,
+        nowMs: Long = System.currentTimeMillis(),
+        expectedVersion: Long? = null,
+    ): Boolean {
+        if (expectedVersion != null && versionCounter.get() != expectedVersion) return false
         publish(list)
         atMs = nowMs
+        return true
     }
 
     /**
