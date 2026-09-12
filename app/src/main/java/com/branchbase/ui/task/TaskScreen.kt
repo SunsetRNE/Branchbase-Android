@@ -45,6 +45,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.navigation.PageLevel
 import com.branchbase.ui.navigation.PageSwitcher
 import com.branchbase.ui.theme.iconTap
@@ -92,6 +93,12 @@ fun TaskScreen(onBack: () -> Unit) {
     // 原来是 `if (detail != null) { 详情(); return }` —— 状态一变直接换页、没有过渡。
     // 详情所需的数据放进路由（退场动画期间 detail 可能已被清空，靠 AnimatedContent 保留旧路由）。
     val route: TaskRoute = detail?.let { TaskRoute.Detail(it) } ?: TaskRoute.List
+
+    // 返回键按路由分派：详情页先关自己（回任务列表），列表页才交给外层
+    // （任务页是个人页的一级子页，外层会退回个人主页）。
+    // 曾经这里没有 handler —— 详情页按系统返回会直接跳出整个任务页，
+    // 与详情页左上角的返回箭头（回列表）不是同一条路径。
+    PageBackHandler(detail != null) { detail = null }
 
     PageSwitcher(state = route, modifier = Modifier.fillMaxSize(), label = "task-page") { r ->
         when (r) {

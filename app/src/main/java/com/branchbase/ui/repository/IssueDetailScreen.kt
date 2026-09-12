@@ -80,6 +80,7 @@ import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
+import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -142,6 +143,17 @@ fun IssueDetailScreen(
     val expandedComments = remember { mutableStateMapOf<Long, Boolean>() }
 
     val issueUrl = "https://github.com/$owner/$repo/issues/$number"
+
+    // 取消「编辑评论」：输入器里的「取消编辑」与系统返回键**走同一处**，
+    // 否则编辑到一半按返回会直接关掉整个 issue 详情页（草稿与编辑目标一起消失）。
+    fun cancelEdit() {
+        editing = null
+        draft = ""
+        previewTab = false
+    }
+
+    // 返回键：编辑态先退出编辑（回新评论输入态），非编辑态交给外层（关掉 issue 详情页）
+    PageBackHandler(editing != null) { cancelEdit() }
 
     suspend fun applyDetail(json: String): Boolean {
         val d = runCatching { parseIssueDetail(json) }.getOrNull() ?: return false
@@ -576,11 +588,7 @@ fun IssueDetailScreen(
                     onCommentAndClose = { reason -> submit(draft, reason) },
                     onReopen = { reopen() },
                     editingAuthor = editing?.author,
-                    onCancelEdit = {
-                        editing = null
-                        draft = ""
-                        previewTab = false
-                    },
+                    onCancelEdit = { cancelEdit() },
                 )
             }
         }

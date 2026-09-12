@@ -59,6 +59,7 @@ import com.branchbase.ui.decision.SensitiveWarningScreen
 import com.branchbase.ui.decision.StageCommitScreen
 import com.branchbase.ui.decision.StageFile
 import com.branchbase.ui.decision.parseSensitiveHits
+import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.profile.CommitMode
 import com.branchbase.ui.profile.CommitModePickerDialog
 import com.branchbase.ui.profile.commitMode
@@ -408,6 +409,21 @@ fun FileViewerScreen(
     val localGit = rememberLocalRepoGitState(repo)
     var bubbleExpanded by remember { mutableStateOf(false) }
 
+    // 返回键先消费本页自己的三层覆盖（从内到外）：
+    // 1. 决策页（敏感内容 / 暂存提交 / 身份 / 草稿恢复 / 离线冲突）—— 叠在正文之上的全屏层，
+    //    它们的返回箭头都是「回编辑态」；
+    // 2. Git 悬浮球展开态 —— 铺了全屏透明遮罩，返回键应当是收起面板；
+    // 3. 编辑态 —— 底部有「取消」，返回键同样应该是取消编辑。
+    // 以前这一页没有 handler：决策页按系统返回会把**整个文件页**一起关掉，
+    // 与页面内的返回箭头不是同一条路径（用户刚做的选择随页面一起消失）。
+    PageBackHandler(page != FilePage.None || bubbleExpanded || editing) {
+        when {
+            page != FilePage.None -> page = FilePage.None
+            bubbleExpanded -> bubbleExpanded = false
+            else -> editing = false
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
 
     Column(
@@ -519,74 +535,77 @@ fun FileViewerScreen(
         }
     }
 
-        // Git 气泡面板：编辑态下就地提交/保存草稿，非编辑态下就地进入编辑；
-        // 提交模式与分支入口都在这里，编辑完不用再回「设置」。
-        GitBubblePanel(
-            actions = buildList {
-                if (editing) {
+        // Git 悬浮球：**绑定「本地仓库（Git）」模式**（判定见 showGitBubble）——
+        // 单文件 / 多文件两种模式不显示。它管的都是本地仓库的事（工作树 / 提交 / 分支同步），
+        // 模式不对时挂着只会白挡正文（编辑态的提交 / 保存草稿 / 取消在底部本来就有一份）。
+        if (showGitBubble(effectiveMode)) {
+            GitBubblePanel(
+                actions = buildList {
+                    if (editing) {
+                        add(
+                            GitBubbleAction("commit", "提交", Icons.Filled.Check, enabled = !submitting) {
+                                onCommitClick()
+                            },
+                        )
+                        add(
+                            GitBubbleAction("draft", "保存草稿", Icons.Filled.Save) {
+                                feedback = if (saveDraft()) "草稿已保存" else "草稿保存失败"
+                            },
+                        )
+                        add(GitBubbleAction("cancel", "取消编辑", Icons.Filled.Close) { editing = false })
+                    } else if (!loading && error == null) {
+                        add(
+                            GitBubbleAction("edit", "编辑", Icons.Filled.Edit) {
+                                editing = true
+                                draft = content
+                                // 草稿恢复检测（P2-1）：存在未提交草稿且与远端不同 → 决策页
+                                val saved = loadDraft()
+                                if (saved != null && saved != content) {
+                                    page = FilePage.Draft(listOf(DraftInfo(path, "本地草稿", saved.lines().size)))
+                                }
+                            },
+                        )
+                    }
                     add(
-                        GitBubbleAction("commit", "提交", Icons.Filled.Check, enabled = !submitting) {
-                            onCommitClick()
+                        GitBubbleAction(
+                            "mode",
+                            "提交模式：${effectiveMode?.label ?: "未设置"}",
+                            Icons.Filled.Settings,
+                        ) {
+                            modePickerForCommit = false
+                            showModePicker = true
                         },
                     )
+                    add(GitBubbleAction("branch", "分支管理", Icons.Filled.AccountTree) { onOpenBranchManage() })
                     add(
-                        GitBubbleAction("draft", "保存草稿", Icons.Filled.Save) {
-                            feedback = if (saveDraft()) "草稿已保存" else "草稿保存失败"
-                        },
+                        GitBubbleAction(
+                            "sync",
+                            if (localGit.exists) "本地分支同步" else "本地仓库未拉取",
+                            Icons.Filled.Sync,
+                            badge = when {
+                                localGit.diverged -> "分叉"
+                                localGit.ahead > 0 -> "↑${localGit.ahead}"
+                                localGit.behind > 0 -> "↓${localGit.behind}"
+                                else -> null
+                            },
+                            enabled = localGit.exists,
+                        ) { onOpenLocalSync() },
                     )
-                    add(GitBubbleAction("cancel", "取消编辑", Icons.Filled.Close) { editing = false })
-                } else if (!loading && error == null) {
-                    add(
-                        GitBubbleAction("edit", "编辑", Icons.Filled.Edit) {
-                            editing = true
-                            draft = content
-                            // 草稿恢复检测（P2-1）：存在未提交草稿且与远端不同 → 决策页
-                            val saved = loadDraft()
-                            if (saved != null && saved != content) {
-                                page = FilePage.Draft(listOf(DraftInfo(path, "本地草稿", saved.lines().size)))
-                            }
-                        },
-                    )
-                }
-                add(
-                    GitBubbleAction(
-                        "mode",
-                        "提交模式：${effectiveMode?.label ?: "未设置"}",
-                        Icons.Filled.Settings,
-                    ) {
-                        modePickerForCommit = false
-                        showModePicker = true
-                    },
-                )
-                add(GitBubbleAction("branch", "分支管理", Icons.Filled.AccountTree) { onOpenBranchManage() })
-                add(
-                    GitBubbleAction(
-                        "sync",
-                        if (localGit.exists) "本地分支同步" else "本地仓库未拉取",
-                        Icons.Filled.Sync,
-                        badge = when {
-                            localGit.diverged -> "分叉"
-                            localGit.ahead > 0 -> "↑${localGit.ahead}"
-                            localGit.behind > 0 -> "↓${localGit.behind}"
-                            else -> null
-                        },
-                        enabled = localGit.exists,
-                    ) { onOpenLocalSync() },
-                )
-            },
-            expanded = bubbleExpanded,
-            onExpandedChange = { bubbleExpanded = it },
-            title = localGit.summary(),
-            // 顶部停靠：编辑态的底部是「提交信息 + 按钮」，面板停右上角避免遮挡
-            alignment = Alignment.TopEnd,
-            edgePadding = androidx.compose.foundation.layout.PaddingValues(end = 12.dp, top = 52.dp),
-            handleBadge = when {
-                localGit.diverged -> "!"
-                localGit.dirtyCount > 0 -> localGit.dirtyCount.toString()
-                localGit.ahead > 0 -> localGit.ahead.toString()
-                else -> null
-            },
-        )
+                },
+                expanded = bubbleExpanded,
+                onExpandedChange = { bubbleExpanded = it },
+                title = localGit.summary(),
+                // 顶部停靠：编辑态的底部是「提交信息 + 按钮」，面板停右上角避免遮挡
+                alignment = Alignment.TopEnd,
+                edgePadding = androidx.compose.foundation.layout.PaddingValues(end = 12.dp, top = 52.dp),
+                handleBadge = when {
+                    localGit.diverged -> "!"
+                    localGit.dirtyCount > 0 -> localGit.dirtyCount.toString()
+                    localGit.ahead > 0 -> localGit.ahead.toString()
+                    else -> null
+                },
+            )
+        }
     }
 
     // ── 决策页分发（覆盖主界面，处理完回主流程） ──

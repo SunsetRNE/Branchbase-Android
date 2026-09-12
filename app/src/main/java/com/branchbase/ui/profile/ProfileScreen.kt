@@ -1,6 +1,5 @@
 package com.branchbase.ui.profile
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -197,8 +196,12 @@ fun ProfileScreen(
     // 现在交给 PageSwitcher：进子页从右滑入、返回向右滑出，主页三个 Tab 之间淡入淡出。
     val route: ProfileRoute = subPage?.let { ProfileRoute.Sub(it) } ?: ProfileRoute.Main(tab)
 
-    // 子页面跳转时拦截系统返回，返回个人主页（按路由启用，动画期间不会重复响应）
-    PageBackHandler(subPage != null) { subPage = null }
+    // 子页面跳转时拦截系统返回，**逐层退回**（不是一律回主页）：
+    // 设置的下级页（本地仓库 / 关于 / 日志 / 通知设置 / 翻译 / 账号 / 提交模式，depth=2）
+    // 先回设置页，一级子页（星标 / 项目 / 任务 / 编辑资料 / 设置，depth=1）才回个人主页。
+    // 曾经这里写死 `subPage = null` —— 页面左上角返回是回设置、系统返回键却直接跳回个人页，
+    // 同一个返回意图给出两个结果（返回键跳层）。
+    PageBackHandler(subPage != null) { subPage = profileBackTarget(subPage) }
 
     PageSwitcher(state = route, modifier = Modifier.fillMaxSize(), label = "profile-page") { r ->
         when (r) {
@@ -275,14 +278,37 @@ private sealed interface ProfileRoute : PageLevel {
     }
 
     data class Sub(val page: SubPage) : ProfileRoute {
-        override val depth: Int get() = when (page) {
-            SubPage.LocalRepo, SubPage.About, SubPage.Log, SubPage.NotificationSettings,
-            SubPage.Translate, SubPage.Accounts, SubPage.CommitMode,
-            -> 2
-
-            else -> 1
-        }
+        override val depth: Int get() = subPageDepth(page)
     }
+}
+
+/**
+ * 子页层级（唯一的「谁在谁下面」真源）。
+ *
+ * 动效方向（[PageSwitcher] 按层级差决定推进 / 返回）与返回键目标
+ * （[profileBackTarget]）都从这里取，避免两处各写一份 `when` 而慢慢分家。
+ */
+internal fun subPageDepth(page: SubPage): Int = when (page) {
+    SubPage.LocalRepo, SubPage.About, SubPage.Log, SubPage.NotificationSettings,
+    SubPage.Translate, SubPage.Accounts, SubPage.CommitMode,
+    -> 2
+
+    else -> 1
+}
+
+/**
+ * 个人页按返回键该去哪个子页（纯函数，便于单测）。
+ *
+ * - 一级子页（`depth == 1`）→ `null`（回个人主页）；
+ * - 设置的下级页（`depth == 2`）→ [SubPage.Settings]（先回设置，**不是**直接跳回主页）。
+ *
+ * 「按返回跳层」这类问题只有在真机上连按才试得出来，回归时最难发现，所以钉成纯函数：
+ * 页面左上角的返回箭头与系统返回键**必须走同一个目标**。
+ */
+internal fun profileBackTarget(page: SubPage?): SubPage? = when {
+    page == null -> null
+    subPageDepth(page) >= 2 -> SubPage.Settings
+    else -> null
 }
 
 private enum class ProfileTab(val label: String, val icon: ImageVector) {

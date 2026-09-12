@@ -72,6 +72,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.repository.RepoRelation
 import com.branchbase.ui.theme.selectionColor
 import com.branchbase.BuildConfig
@@ -791,6 +792,13 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
 
     // 决策页状态机
     var page by remember { mutableStateOf<LocalPage>(LocalPage.List) }
+
+    // 返回键先消费「本页自己的决策页」：这一页内部有十来个子页（分叉 / 撤销 / 上游 / 回退 /
+    // 删除警告 / 暂存提交 / 身份 / 分支 / 同步），它们的左上角返回都是「回本地仓库列表」，
+    // 系统返回键必须走同一个目标。否则按返回会直接跳出整个「本地仓库」页，
+    // 用户精心进入的决策页连同已填内容一起消失（与外层 ProfileScreen 的返回键相比，
+    // 这里后注册、优先级更高，所以能抢到）。
+    PageBackHandler(page != LocalPage.List) { page = LocalPage.List }
 
     // 提示统一走 Snackbar：浮在内容之上，不占用列表布局、不挤动页面
     val snackbarHostState = remember { SnackbarHostState() }

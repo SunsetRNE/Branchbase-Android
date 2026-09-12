@@ -1,5 +1,6 @@
 package com.branchbase.ui.navigation
 
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -57,5 +58,28 @@ class PageTransitionsTest {
         assertEquals(BackDisposition.ClosePage, backDisposition(1))
         assertEquals(BackDisposition.ClosePage, backDisposition(2))
         assertEquals(BackDisposition.ClosePage, backDisposition(3))
+    }
+
+    @Test
+    fun `只有当前状态那一格算当前页`() {
+        // 目标页 true、退场中的旧页 false —— 这是「退场旧页放手」的唯一判据
+        assertTrue(pageIsCurrent("A", "A"))
+        assertFalse("退场中的旧页不能算当前页", pageIsCurrent("A", "B"))
+        assertFalse(pageIsCurrent(null, "A"))
+        assertTrue(pageIsCurrent(null, null))
+    }
+
+    @Test
+    fun `两个切换器都必须下发 LocalPageActive`() {
+        // 回归钉子：PageSwitcher 曾经漏了下发（只有 TabSwitcher 有），于是文档 / 提交信息 /
+        // shouldHandleBack 单测都写着「退场中的旧页放手」，但走 PageSwitcher 的页面
+        // （主界面路由 / 仓库页十几个子页 / 个人页子页 / 登录流程步骤）拿到的恒为 true ——
+        // 机制在最常用的那条路径上没生效。谁再把其中一个改回 `content = content`，这里立刻红。
+        val file = File("src/main/java/com/branchbase/ui/navigation/PageTransitions.kt")
+        assertTrue("找不到 PageTransitions.kt：${file.absolutePath}", file.exists())
+        val source = file.readText()
+        val dispatched = Regex("LocalPageActive provides pageIsCurrent\\(target, state\\)")
+            .findAll(source).count()
+        assertEquals("PageSwitcher 与 TabSwitcher 都要下发「是不是当前页」", 2, dispatched)
     }
 }

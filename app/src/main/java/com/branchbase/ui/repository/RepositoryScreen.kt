@@ -3,7 +3,6 @@ package com.branchbase.ui.repository
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -78,6 +77,7 @@ import com.branchbase.ui.log.Logger
 import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.navigation.PageLevel
 import com.branchbase.ui.navigation.PageSwitcher
+import com.branchbase.ui.profile.CommitMode
 import com.branchbase.ui.profile.CommitModePickerDialog
 import com.branchbase.ui.profile.commitMode
 import com.branchbase.ui.profile.saveCommitMode
@@ -164,15 +164,17 @@ fun RepositoryScreen(
     var showLocalSync by remember { mutableStateOf(false) }
     // 提交模式（代码页气泡面板直接切换，不必再进「设置」）
     var showCommitMode by remember { mutableStateOf(false) }
-    var modeLabel by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // 本地 git 相关动作（分支同步页）需要 token
     val sessionToken = remember(sessionJson) { sessionInfo(sessionJson).second }
+    // 当前提交模式：**它同时是「Git 悬浮球是否出现」的判据**（只有本地仓库模式才显示），
+    // 所以必须是随切换更新的状态；只存 label 字符串就没法参与这个判断了。
+    var mode by remember { mutableStateOf<CommitMode?>(commitMode(context)) }
 
-    // 提交模式标签随弹窗切换实时刷新
+    // 打开弹窗时重读一次（模式也可能是在「设置 → 提交模式」里改的）
     LaunchedEffect(showCommitMode) {
-        modeLabel = commitMode(context)?.label
+        if (showCommitMode) mode = commitMode(context)
     }
 
     /**
@@ -287,6 +289,11 @@ fun RepositoryScreen(
         workflowRunsPage != null -> RepoRoute.WorkflowRuns(workflowRunsPage!!)
         else -> RepoRoute.Tab(page)
     }
+
+    // 底部 ⋮ 气泡展开时同样铺了一层全屏遮罩：返回键先收起它，而不是关掉整个仓库页。
+    // 注册顺序：在按路由分派的 handler 之后、各子页的 handler 之前 ——
+    // 子页打开时气泡是收起的，两者不会同时启用。
+    PageBackHandler(bubbleExpanded) { bubbleExpanded = false }
 
     PageSwitcher(state = route, modifier = Modifier.fillMaxSize(), label = "repo-page") { r ->
         when (r) {
@@ -579,14 +586,15 @@ fun RepositoryScreen(
                             }
                         }
 
-                        // 代码页 Git 气泡面板（覆盖层）：分支管理 / 对比 / 提交模式 / 本地同步 / 刷新
-                        if (page == RepoPage.Code) {
+                        // Git 悬浮球（代码页覆盖层）：**绑定「本地仓库（Git）」模式**，
+                        // 另外两种模式（单文件 / 多文件）不显示（判定见 showGitBubble）。
+                        if (page == RepoPage.Code && showGitBubble(mode)) {
                             CodePageGitPanel(
                                 repo = repo,
                                 branches = branches.map { it.name },
                                 defaultBranch = branch ?: branches.firstOrNull()?.name ?: "main",
                                 refreshTick = refreshTick,
-                                modeLabel = modeLabel,
+                                modeLabel = mode?.label,
                                 onPickMode = { showCommitMode = true },
                                 onOpenBranchManage = { showBranchManage = true },
                                 onOpenCompare = { b, h -> comparePair = b to h },
@@ -634,15 +642,15 @@ fun RepositoryScreen(
         )
     }
 
-    // 提交模式选择（代码页气泡面板直接切换，无需再进「设置」）
+    // 提交模式选择（代码页 Git 悬浮球里直接切换，无需再进「设置」）
     if (showCommitMode) {
         CommitModePickerDialog(
             onDismiss = { showCommitMode = false },
-            onConfirm = { mode ->
-                saveCommitMode(context, mode)
-                modeLabel = mode.label
+            onConfirm = { picked ->
+                saveCommitMode(context, picked)
+                mode = picked
                 showCommitMode = false
-                Logger.ui("提交模式改为 ${mode.label}", "Compose")
+                Logger.ui("提交模式改为 ${picked.label}", "Compose")
             },
         )
     }
@@ -735,10 +743,11 @@ private sealed interface RepoRoute : PageLevel {
 }
 
 /**
- * 代码页 Git 气泡面板。
+ * 代码页 Git 悬浮球（**仅本地仓库模式**，调用点已按提交模式门控）。
  *
  * 把原本只在「设置 → 本地仓库」里才有的入口挂到代码页：
- * 提交模式（就地切换）、分支管理、分支对比、本地分支同步、刷新。
+ * 提交模式（就地切换，可切到别的模式后球自动收起）、分支管理、分支对比、
+ * 本地分支同步、刷新。
  * 徽标显示当前本地仓库的待推送/待拉取/改动数，一眼看出是否需要同步。
  */
 @Composable
@@ -757,6 +766,10 @@ private fun CodePageGitPanel(
     var expanded by remember { mutableStateOf(false) }
     val localGit = rememberLocalRepoGitState(repo, refreshTick)
     val otherBranch = branches.firstOrNull { it != defaultBranch }
+
+    // 展开态铺了一层全屏透明遮罩（点空白收起）：返回键要消费的是「收起面板」，
+    // 而不是把整个仓库页关掉（遮罩挡着正文时，用户按返回的意图一定是不看了）。
+    PageBackHandler(expanded) { expanded = false }
 
     val actions = listOf(
         GitBubbleAction(

@@ -39,9 +39,23 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.ui.profile.CommitMode
 import com.branchbase.ui.theme.AnimatedStateIcon
 import com.branchbase.ui.theme.rememberPressFeedback
 import com.branchbase.ui.theme.Primer
+
+/**
+ * Git 悬浮球该不该出现：**只有「本地仓库（Git）」模式**。
+ *
+ * 这个球管的全是本地仓库的事 —— 工作树改动数、领先 / 落后、本地分支同步、
+ * 以及「把改动落到本地 git」的提交入口。另外两种模式（单文件 / 多文件）直接调远端
+ * API 提交，本地根本没有工作树：球挂在那里只会白挡正文，并且给出
+ * 「本地仓库未拉取」这类与当前模式无关的动作。
+ *
+ * 抽成纯函数是为了能单测三种模式的判定（真机上要看「切模式后球有没有立刻消失」，
+ * 光靠肉眼回归很容易漏），调用点只做 `if (showGitBubble(mode))`。
+ */
+internal fun showGitBubble(mode: CommitMode?): Boolean = mode == CommitMode.LOCAL_REPO
 
 /**
  * Git 气泡按钮面板中的一个操作。
