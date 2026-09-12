@@ -11,19 +11,33 @@
  * 所以那部分界面搬到了原生层。
  */
 
-/* ── 译文块（原文的兄弟节点，原文一个字都不动） ── */
+/* ── 译文块（普通块是原文的兄弟节点，列表项/表格单元格里是子节点） ──
+   排版属性全部显式声明、不靠继承：译文会落在各种宿主结构里（`<th>` 是粗体、
+   单元格可能居中、引用块有自己的颜色），继承过来就会「换个结构就变样」。 */
 .bb-tr {
+  display: block;
   margin: 4px 0 10px;
   padding: 6px 10px;
   border-left: 3px solid #0969da;
   background: #f6f8fa;
   color: #41434e;
   font-size: 13.5px;
+  font-weight: 400;
+  font-style: normal;
   line-height: 1.65;
+  text-align: start;
   border-radius: 0 6px 6px 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* 列表项 / 表格单元格里的译文贴着原文，不再额外缩进或撑开表格 */
+li > .bb-tr, td > .bb-tr, th > .bb-tr {
+  margin: 2px 0 4px;
+}
+
+/* 内部插入时的原文包裹层：保持原来的行内流，一个字都不改 */
+.bb-tr-src[data-bb-wrap] { display: inline; }
 
 /* 关闭状态：译文全部隐藏（元素还在 DOM 里，重新打开无需重翻） */
 body:not(.bb-tr-on) .bb-tr { display: none; }
@@ -39,14 +53,20 @@ body[data-bb-style="card"] .bb-tr {
   background: #f6f8fa;
 }
 
-/* underline：无底色，只用虚线下划线标出译文 */
+/* underline：无底色，只用虚线下划线标出译文。
+   用 text-decoration 而不是 border-bottom：border 只在整块下面画一条线，
+   译文换行以后看起来像「分隔线」；text-decoration 是**逐行**下划线，多行也对得上。 */
 body[data-bb-style="underline"] .bb-tr {
   margin: 2px 0 10px;
   padding: 2px 0 3px;
   border-left: none;
-  border-bottom: 1px dashed #8c959f;
+  border-bottom: none;
   background: transparent;
   border-radius: 0;
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-color: #8c959f;
+  text-underline-offset: 3px;
 }
 
 /* plain：无边框无底色，淡灰字（最不打扰阅读） */
@@ -74,7 +94,7 @@ body.bb-dark[data-bb-style="card"] .bb-tr {
 }
 
 body.bb-dark[data-bb-style="underline"] .bb-tr {
-  border-bottom-color: #484f58;
+  text-decoration-color: #484f58;
   background: transparent;
 }
 
