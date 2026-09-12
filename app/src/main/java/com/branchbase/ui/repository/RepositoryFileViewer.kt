@@ -40,7 +40,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -539,7 +538,9 @@ fun FileViewerScreen(
                                     line.ifEmpty { " " },
                                     fontSize = 12.sp,
                                     fontFamily = FontFamily.Monospace,
-                                    color = Color(0xFF24292F),
+                                    // 正文色必须跟随主题：此前是硬编码的 `#24292F`（浅色主题的取值），
+                                    // 深色下就成了「深灰字压深色底」，几乎读不出来。与搜索页代码块同一约定。
+                                    color = Primer.TextPrimary,
                                     modifier = Modifier.weight(1f),
                                 )
                             }
