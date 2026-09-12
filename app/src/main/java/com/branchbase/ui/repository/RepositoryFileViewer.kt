@@ -41,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -51,6 +52,7 @@ import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
+import com.branchbase.editor.BranchbaseCodeEditor
 import com.branchbase.ui.decision.AuthorIdentityScreen
 import com.branchbase.ui.decision.DraftInfo
 import com.branchbase.ui.decision.DraftRecoverScreen
@@ -66,6 +68,7 @@ import com.branchbase.ui.profile.commitMode
 import com.branchbase.ui.profile.saveCommitMode
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.CodeSyntax
+import com.branchbase.ui.theme.LocalIsDarkTheme
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -466,32 +469,44 @@ fun FileViewerScreen(
 
         if (editing) {
             // 编辑模式
+            // 正文区用 :editor 模块的代码编辑器（等宽 + 行号 + 无边框），底色与只读预览
+            // 同一块（CodeSyntax.CodeBg）—— 切换「查看 ↔ 编辑」时不会闪出一块异色区域。
+            // 以前这里是一个 OutlinedTextField：四周一圈方框、没有行号，比只读预览还难看。
             // weight(1f)：根 Column 里已有头部 Row 作为兄弟节点
-            Column(Modifier.weight(1f).fillMaxWidth().padding(12.dp)) {
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = { draft = it },
-                    modifier = Modifier.fillMaxWidth().weight(1f),
-                    textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
+            Column(Modifier.weight(1f).fillMaxWidth()) {
+                BranchbaseCodeEditor(
+                    text = draft,
+                    onTextChange = { draft = it },
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    // 三档主题（跟随系统 / 浅色 / 深色）的生效值在这里，不能用 isSystemInDarkTheme()
+                    darkTheme = LocalIsDarkTheme.current,
+                    backgroundColor = CodeSyntax.CodeBg.toArgb(),
                 )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = commitMsg,
-                    onValueChange = { commitMsg = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("提交信息（必填）", fontSize = 13.sp, color = Primer.TextTertiary) },
-                )
-                Spacer(Modifier.height(8.dp))
-                if (submitting) Text("提交中…", fontSize = 12.sp, color = Primer.TextTertiary)
-                feedback?.let { Text(it, fontSize = 12.sp, color = if (it == "已提交") Primer.Green500 else Primer.Red500) }
-                Spacer(Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
-                    TextButton(onClick = { editing = false }, modifier = Modifier.weight(1f)) { Text("取消") }
-                    TextButton(
-                        onClick = { if (saveDraft()) feedback = "草稿已保存" else feedback = "草稿保存失败" },
-                        modifier = Modifier.weight(1f),
-                    ) { Text("保存草稿") }
-                    Button(onClick = { onCommitClick() }, enabled = !submitting, modifier = Modifier.weight(1f)) { Text("提交") }
+                // 提交区：与页面头部同色，把编辑区上下夹住（反馈文字 / 按钮的底色也就有了着落）
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Primer.BackgroundPrimary)
+                        .padding(12.dp),
+                ) {
+                    OutlinedTextField(
+                        value = commitMsg,
+                        onValueChange = { commitMsg = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("提交信息（必填）", fontSize = 13.sp, color = Primer.TextTertiary) },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    if (submitting) Text("提交中…", fontSize = 12.sp, color = Primer.TextTertiary)
+                    feedback?.let { Text(it, fontSize = 12.sp, color = if (it == "已提交") Primer.Green500 else Primer.Red500) }
+                    Spacer(Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
+                        TextButton(onClick = { editing = false }, modifier = Modifier.weight(1f)) { Text("取消") }
+                        TextButton(
+                            onClick = { if (saveDraft()) feedback = "草稿已保存" else feedback = "草稿保存失败" },
+                            modifier = Modifier.weight(1f),
+                        ) { Text("保存草稿") }
+                        Button(onClick = { onCommitClick() }, enabled = !submitting, modifier = Modifier.weight(1f)) { Text("提交") }
+                    }
                 }
             }
         } else {

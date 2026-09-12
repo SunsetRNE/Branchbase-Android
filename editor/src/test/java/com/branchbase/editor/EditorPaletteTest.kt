@@ -103,6 +103,47 @@ class EditorPaletteTest {
     }
 
     @Test
+    fun `无语言也可见的表面类 id 一个都不能漏`() {
+        // 编辑态接上真编辑器后，这些表面不依赖语法分析器就会被画出来：
+        // 当前行、括号配对、行号面板、滚动条、选中文字的浮窗。
+        // 漏一项就退回库默认（透明 / 深灰），只有真机上肉眼能发现。
+        val ids = EditorPalette.Light.assignments().map { it.first }
+        EditorPalette.VisibleSurfaceIds.forEach { id ->
+            assertTrue("表面类 id=$id 必须显式覆盖", id in ids)
+        }
+    }
+
+    @Test
+    fun `滚动条轨道透明而滑块可见`() {
+        // 轨道铺满整条边：给成不透明色就是画布上一道竖带；滑块反过来必须看得见
+        assertEquals(0, lightMap[EditorColorScheme.SCROLL_BAR_TRACK])
+        assertEquals(0, darkMap[EditorColorScheme.SCROLL_BAR_TRACK])
+        assertNotEquals(0, lightMap[EditorColorScheme.SCROLL_BAR_THUMB])
+        assertNotEquals(0, darkMap[EditorColorScheme.SCROLL_BAR_THUMB])
+    }
+
+    @Test
+    fun `浮窗与行面板底色不透明且与正文分属明暗两端`() {
+        // 选中文字后浮出的操作窗 / 长按行号的行面板，都是「文字压在色块上」：
+        // 底色透明就会让图标与正文糊在一起；底色与正文同向则等于看不见
+        listOf(
+            EditorColorScheme.TEXT_ACTION_WINDOW_BACKGROUND,
+            EditorColorScheme.LINE_NUMBER_PANEL,
+        ).forEach { id ->
+            assertEquals("浅色 id=$id 底色必须不透明", alpha, argbAlpha(lightMap.getValue(id)))
+            assertEquals("深色 id=$id 底色必须不透明", alpha, argbAlpha(darkMap.getValue(id)))
+            assertTrue(
+                "浅色 id=$id 的底色必须比正文亮",
+                luminance(lightMap.getValue(id)) > luminance(EditorPalette.Light.textNormal),
+            )
+            assertTrue(
+                "深色 id=$id 的底色必须比正文暗",
+                luminance(darkMap.getValue(id)) < luminance(EditorPalette.Dark.textNormal),
+            )
+        }
+    }
+
+    @Test
     fun `不再出现 Sora 默认的灰色正文`() {
         EditorPalette.PureTextIds.forEach { id ->
             assertNotEquals(soraDefaultText, lightMap[id])
