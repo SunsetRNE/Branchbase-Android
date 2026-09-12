@@ -318,8 +318,9 @@ private fun ProfileOverview(
                         login = login,
                         size = 64.dp,
                         version = avatarTick,
-                        // 长按头像 → 强制重新拉取（网页端换头像后手动刷新）
-                        modifier = Modifier.combinedClickable(
+                        // 长按头像 → 强制重新拉取（网页端换头像后手动刷新）。
+                        // 用 iconTap（而非 combinedClickable）：clip 必须在点击节点之前，否则反馈是方的
+                        modifier = Modifier.iconTap(
                             onClick = {},
                             onLongClick = {
                                 scope.launch {

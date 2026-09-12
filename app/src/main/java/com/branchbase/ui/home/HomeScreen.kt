@@ -356,7 +356,9 @@ private fun SearchBarRow(login: String, avatarUrl: String?, onProfileClick: () -
             url = avatarUrl,
             login = login,
             size = 40.dp,
-            modifier = Modifier.clickable { onProfileClick() },
+            // 反馈必须是圆形：Avatar 内部的 clip 在调用方 modifier **之后**，
+            // 直接传 clickable 会让水波纹溢成正方形（iconTap 把 clip 提到点击之前）
+            modifier = Modifier.iconTap { onProfileClick() },
         )
     }
 }

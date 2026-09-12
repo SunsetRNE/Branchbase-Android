@@ -30,6 +30,12 @@ import com.branchbase.core.AvatarCache
  *
  * 缓存按 login 隔离，切换账号不会串头像；网页端换头像后用
  * [AvatarCache.refresh] 手动刷新（个人主页长按头像触发）。
+ *
+ * ## 需要点击反馈时，用 [iconTap] 而不是直接传 clickable
+ *
+ * 本组件是 `modifier.size(size).clip(CircleShape)` —— 调用方传进来的 modifier 排在 clip
+ * **之前**，所以 `Modifier.clickable {}` 的点击节点落在圆形裁剪**外面**，水波纹会是正方形。
+ * `Modifier.iconTap { }`（或带 `onLongClick` 的长按形态）会把 clip 提到点击之前，反馈即圆形。
  */
 @Composable
 fun Avatar(
