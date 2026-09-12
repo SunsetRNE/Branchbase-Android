@@ -263,7 +263,13 @@
 
   function toggleSwitch(key) {
     if (key === 'on') {
-      if (state.on) IT.off(); else IT.on();
+      if (state.on) {
+        IT.off();   // 球与面板一起收起
+        // 关掉之后页面上就没有入口了，明确告诉用户去哪儿重新打开（提示落在球消失的位置）
+        IT.ui.showTip('已关闭本页翻译，悬浮球已收起；重新开启：设置 → 沉浸式翻译 → 自动翻译正文', 6000);
+      } else {
+        IT.on();
+      }
       return;
     }
     var next = !state.settings[key];

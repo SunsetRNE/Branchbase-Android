@@ -129,17 +129,12 @@
     }
   }
 
-  /** 整页候选文本的总字符数（决定「一次翻完」还是「视口优先」，见 05-boot.js）。 */
-  function totalCandidateLength() {
-    return candidates().chars;
-  }
-
   /**
    * 整页候选统计（段数 + 字符数）。
    *
-   * 悬浮面板要用它算进度（已译 / 候选），启动时也用它判断「这页有没有东西可翻」
-   * —— 没有就不显示悬浮球。刻意与 [totalCandidateLength] 共用一个实现：
-   * 同一件事（扫描 + 判定）只写一遍，两边不会算出不同的数。
+   * 两处要用它：启动时判断「一次翻完还是视口优先」（字符数 vs `immediateLimit`），
+   * 以及悬浮面板的进度（已译 / 候选段数）。同一件事（扫描 + 判定）只写一遍，
+   * 两边不会算出不同的数。
    */
   function candidates() {
     var nodes = document.querySelectorAll(SELECTOR);
@@ -183,7 +178,6 @@
     observeAll: observeAll,
     disconnect: disconnect,
     insert: insert,
-    totalCandidateLength: totalCandidateLength,
     candidates: candidates,
     clear: clear,
     selector: SELECTOR,

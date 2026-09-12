@@ -58,7 +58,7 @@ body[data-bb-style="plain"] .bb-tr {
   border-radius: 0;
 }
 
-/* ── 悬浮球（页面里唯一的常驻控件，可拖动） ── */
+/* ── 悬浮球（翻译模式下页面里唯一的控件，可拖动；关掉翻译即隐藏） ── */
 #bb-tr-fab {
   position: fixed;               /* 兜底：几何未知时钉在右下角（脚本会切 absolute） */
   right: 14px;

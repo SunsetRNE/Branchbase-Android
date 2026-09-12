@@ -33,12 +33,10 @@
     try { return fn(); } catch (e) { return null; }
   }
 
-  /** 重数候选段数：悬浮球只在「这页有东西可翻」时出现（见 03-fab.js 的 wanted()）。 */
+  /** 重数候选段数：悬浮面板的进度（已译 / 候选）读它，打开面板与重扫后各刷一次。 */
   function refreshCandidates() {
     try {
-      var c = IT.dom.candidates();
-      state.candidates = c;
-      state.hasContent = c.count > 0;
+      state.candidates = IT.dom.candidates();
     } catch (e) { /* 统计失败不影响翻译本身 */ }
   }
 
@@ -114,9 +112,10 @@
   }
 
   function start() {
-    // 先估算整页体量（纯查询，不占用段落），再决定策略
-    var total = IT.dom.totalCandidateLength();
-    state.longPage = total > RULES.immediateLimit;
+    // 先估算整页体量（纯查询，不占用段落），顺带把统计留给面板的进度条
+    var c = IT.dom.candidates();
+    state.candidates = c;
+    state.longPage = c.chars > RULES.immediateLimit;
 
     // 视口内的先翻：点一下立刻能看到结果
     IT.enqueue(IT.dom.scan(true));
@@ -146,8 +145,6 @@
   function boot() {
     document.body.setAttribute('data-bb-style', state.settings.style || 'card');
     document.body.classList.toggle('bb-dark', IT.cfg.dark === true);
-    // 候选统计要在建悬浮球之前算出来：没有可翻段落的页面不该出现悬浮球
-    refreshCandidates();
     var saved = storage(function () { return localStorage.getItem(ON_KEY); });
     if (state.auto || saved === '1') on();
     else IT.ui.refresh();

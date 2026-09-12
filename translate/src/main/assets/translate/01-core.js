@@ -47,9 +47,8 @@
     busy: false,
     count: 0,                     // 已插入的译文段数
     emptyRuns: 0,
-    // 本页是否「有东西可翻」：由 IT.dom.candidates() 在启动/重扫后刷新。
-    // 悬浮球只在需要它的页面出现（没有候选段落就不占屏幕）。
-    hasContent: false,
+    // 本页候选统计（段数 + 字符数）：由 IT.dom.candidates() 在打开面板 / 重扫后刷新，
+    // 悬浮面板的进度条读的就是它。
     candidates: { count: 0, chars: 0 },
     // 快捷设置面板上的开关都以这里为准，改动即时生效并回写原生设置（见 pref()）
     settings: {
