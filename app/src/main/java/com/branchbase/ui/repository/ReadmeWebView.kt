@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.branchbase.core.RustBridge
+import com.branchbase.imageviewer.ImageViewerDialog
 import com.branchbase.ui.theme.LocalIsDarkTheme
 import com.branchbase.translate.TranslateBridge
 import com.branchbase.translate.TranslatePage
@@ -105,6 +106,10 @@ fun ReadmeWebView(
         TranslatePage.load(context, translateConfig, darkTheme)
     }
     val heightBridge = remember { HeightBridge() }
+    // 正文里的图片点击（未包在链接里的那些）→ 弹应用内查看器，而不是什么都不做
+    val imageBridge = remember { ImageClickBridge() }
+    // 当前正在查看的图片（null = 没开查看器）：只放 url 与标题，查看器完全由 :imageviewer 负责
+    var viewingImage by remember { mutableStateOf<Pair<String, String>?>(null) }
     // 沉浸式翻译：JS 发一批待译文本 → 原生侧串行翻译 → 结果与状态推回页面
     val translateScope = rememberCoroutineScope()
 
@@ -117,6 +122,7 @@ fun ReadmeWebView(
             settings.cacheMode = WebSettings.LOAD_DEFAULT
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
             addJavascriptInterface(heightBridge, "BBReadme")
+            addJavascriptInterface(imageBridge, "BBImage")
         }
     }
 
@@ -154,11 +160,20 @@ fun ReadmeWebView(
                 if (h != webViewHeight) webViewHeight = h
             }
         }
+        imageBridge.onOpenImage = { url, alt ->
+            // @JavascriptInterface 的回调线程不是主线程，必须 post 回来再改 Compose 状态。
+            // 归一成 raw 字节地址再交查看器：`github.com/…/blob|raw/…` 会 302 到
+            // raw.githubusercontent.com，而 OkHttp 跟随跨域重定向时会**丢掉 Authorization**
+            // —— 私有仓库的图就 404 了（页面内那条链路靠 shouldInterceptRequest 自己取，没这问题）。
+            webView.post { viewingImage = (rawImageUrl(url, host, owner, repo, branch) ?: url) to alt }
+        }
     }
     DisposableEffect(webView) {
         onDispose {
             heightBridge.onHeight = null
+            imageBridge.onOpenImage = null
             runCatching { webView.removeJavascriptInterface("BBTranslate") }
+            runCatching { webView.removeJavascriptInterface("BBImage") }
             runCatching { webView.destroy() }
         }
     }
@@ -175,7 +190,8 @@ fun ReadmeWebView(
             documentUrl = documentUrl,
             imageCache = imageCache,
             onLinkClick = { currentOnLinkClick(it) },
-            onHeightMeasured = { cssHeight ->
+            // 链接指向图片本身（README 里点截图很常见）→ 走应用内查看器，不再扔进浏览器
+            onImageClick = { url, alt -> viewingImage = url to alt },            onHeightMeasured = { cssHeight ->
                 val h = cssHeight.coerceIn(1, MAX_README_HEIGHT).dp
                 if (h != webViewHeight) webViewHeight = h
             },
@@ -189,7 +205,40 @@ fun ReadmeWebView(
         )
     }
 
+    // 图片查看器（:imageviewer 模块）：全屏 Dialog，覆盖整窗，不进导航栈
+    viewingImage?.let { (url, alt) ->
+        ImageViewerDialog(
+            url = url,
+            title = alt.takeIf { it.isNotBlank() },
+            headers = imageAuthHeaders(url, token, host),
+            onDismissRequest = { viewingImage = null },
+        )
+    }
+
     AndroidView(factory = { webView }, modifier = Modifier.fillMaxWidth().height(webViewHeight))
+}
+
+/**
+ * 查看器取图的鉴权头。
+ *
+ * 与 `shouldInterceptRequest` 同一策略：**只给 GitHub 自有域名**。
+ * camo（GitHub 的图片代理）拿到的是签名地址，不需要也不应该带 Token ——
+ * 带上只是把凭据多交给一个组件，没有任何收益。
+ */
+internal fun imageAuthHeaders(url: String, token: String, host: String): Map<String, String> {
+    if (token.isBlank()) return emptyMap()
+    val urlHost = parseUrl(url)?.host?.lowercase() ?: return emptyMap()
+    val allowed = urlHost in AUTH_HOSTS || urlHost == host.lowercase()
+    return if (allowed) mapOf("Authorization" to "token $token") else emptyMap()
+}
+
+/** 导航目标是否是一张图片（点图 → 查看器，而不是浏览器）。 */
+internal fun isImageNavigation(url: String): Boolean {
+    val parsed = parseUrl(url) ?: return false
+    val host = parsed.host?.lowercase() ?: return false
+    // camo 是 GitHub 的图片代理：路径是一串 hex、没有扩展名，只能按 host 认
+    if (host == "camo.githubusercontent.com") return true
+    return hasImageExtension(parsed.path)
 }
 
 // ── HTML 基准与 URL 归一化（纯 Kotlin，可单测） ──
@@ -492,6 +541,21 @@ private val README_ENHANCE_JS = """
 
   function decorate() { fixAnchors(); decorateMermaid(); fixThemedPictures(); }
 
+  // ── 点图放大 ──
+  // 只处理**没被链接包住**的图片：包在 <a> 里的图片点击是导航（徽章 → 仓库页、
+  // 截图 → 图片地址），后者由原生侧在 shouldOverrideUrlLoading 里按「是不是图片」决定，
+  // 这里抢过来会把「点徽章」也变成弹图。
+  // 太小的图（徽章 / 图标 / 头像）也不弹：弹出来只是一张糊的小图。
+  document.addEventListener('click', function (e) {
+    var el = e.target;
+    if (!el || el.tagName !== 'IMG') return;
+    for (var p = el.parentNode; p && p !== document.body; p = p.parentNode) {
+      if (p.tagName === 'A') return;
+    }
+    if ((el.naturalWidth || 0) < 240 || (el.naturalHeight || 0) < 120) return;
+    try { BBImage.openImage(el.currentSrc || el.src, el.alt || ''); } catch (err) {}
+  }, true);
+
   if (window.ResizeObserver && document.documentElement) {
     try { new ResizeObserver(schedule).observe(document.documentElement); } catch (e) {}
   }
@@ -532,6 +596,23 @@ private class HeightBridge {
     @JavascriptInterface
     fun reportHeight(height: Int) {
         onHeight?.invoke(height)
+    }
+}
+
+/**
+ * 图片点击桥（`@JavascriptInterface`）：页面里**没被链接包住**的图片，点一下弹查看器。
+ *
+ * 包在 `<a>` 里的图片不走这里 —— 那些点击是导航（徽章去仓库页、截图去图片地址），
+ * 由 `shouldOverrideUrlLoading` 分类处理，避免把「点徽章」也变成弹图。
+ */
+private class ImageClickBridge {
+    @Volatile
+    var onOpenImage: ((String, String) -> Unit)? = null
+
+    @JavascriptInterface
+    fun openImage(url: String, alt: String) {
+        if (url.isBlank()) return
+        onOpenImage?.invoke(url, alt)
     }
 }
 
@@ -700,6 +781,7 @@ private class ReadmeWebViewClient(
     private val documentUrl: String,
     private val imageCache: ReadmeImageCache,
     private val onLinkClick: (Destination) -> Unit,
+    private val onImageClick: (String, String) -> Unit,
     private val onHeightMeasured: (Int) -> Unit,
 ) : WebViewClient() {
 
@@ -709,6 +791,15 @@ private class ReadmeWebViewClient(
         measureHeight(view)
         view.postDelayed({ measureHeight(view) }, 800)
     }
+
+    /**
+     * 交给查看器的图片地址：统一归一到 raw 字节地址。
+     *
+     * `github.com/…/blob|raw/…` 会 302 到 raw.githubusercontent.com，而 OkHttp 跟随**跨域**
+     * 重定向时会丢掉 `Authorization` —— 私有仓库的图在查看器里就 404 了。
+     * 页面内的图片没这个问题（走 `shouldInterceptRequest` 自己取），查看器是独立请求，必须自己归一。
+     */
+    private fun viewerUrlFor(url: String): String = rawImageUrl(url, host, owner, repo, branch) ?: url
 
     private fun measureHeight(view: WebView) {
         runCatching {
@@ -735,22 +826,28 @@ private class ReadmeWebViewClient(
         val dest = runCatching { parseDestination(JSONObject(json)) }.getOrNull() ?: return true
 
         return when (dest.type) {
-            // 站外 → 外开浏览器
+            // 站外 → 先判是不是图片：README 里点截图（<a> 包着 <img>，href 指向图片本身）
+            // 在浏览器里既不能双指缩放、又要重新登录，这里直接弹应用内查看器
             "external" -> {
                 val target = dest.url.takeIf { it.isNotBlank() } ?: url
-                runCatching { view.context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target))) }
+                if (isImageNavigation(target)) {
+                    onImageClick(viewerUrlFor(target), "")
+                } else {
+                    runCatching { view.context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target))) }
+                }
                 true
             }
             // 页内锚点 → 让 WebView 自己滚动
             "anchor" -> false
             // raw（README 里的裸 raw 链接）→ 与站外走同一条路（交给系统 / 浏览器处理字节流），
-            // 但**分类不同**：raw 目标带 owner / repo / branch / path，
-            // 以后要做「应用内查看 / 加入下载」时不必再解析一次 URL。
-            // 注意：目前两者的用户可见行为**完全一致** —— 这里刻意保留独立分支作为落点，
-            // 不要在注释或测试里把它说成「已经避免了被当成站外」。
+            // 但**分类不同**：raw 目标带 owner / repo / branch / path。图片同样走查看器。
             "raw" -> {
                 val target = dest.url.takeIf { it.isNotBlank() } ?: url
-                runCatching { view.context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target))) }
+                if (isImageNavigation(target)) {
+                    onImageClick(viewerUrlFor(target), "")
+                } else {
+                    runCatching { view.context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target))) }
+                }
                 true
             }
             // 站内 → 走 App 内部导航

@@ -61,6 +61,33 @@ class ReadmeRenderUrlTest {
         assertEquals("", baseDirOf("README.md"))
     }
 
+    // ── 点图放大（:imageviewer）的取图策略 ──
+
+    @Test
+    fun `导航目标是不是图片`() {
+        // camo 路径是一串 hex、没有扩展名，只能按 host 认；漏掉它截图就会被扔进浏览器
+        assertTrue(isImageNavigation("https://camo.githubusercontent.com/1e3b149c7768e03afb9cb0d13800e62350f1c1c/687474"))
+        assertTrue(isImageNavigation("https://raw.githubusercontent.com/o/r/main/a.png"))
+        assertTrue(isImageNavigation("https://github.com/o/r/raw/main/demo.gif"))
+        // 普通文档 / 站外页面不能弹查看器
+        assertFalse(isImageNavigation("https://github.com/o/r/blob/main/a.md"))
+        assertFalse(isImageNavigation("https://example.com/page"))
+    }
+
+    @Test
+    fun `查看器取图只给 GitHub 自有域名带凭据`() {
+        fun headers(url: String, token: String = "T") = imageAuthHeaders(url, token, "github.com")
+
+        assertTrue(headers("https://raw.githubusercontent.com/o/r/main/a.png").containsKey("Authorization"))
+        assertTrue(headers("https://github.com/o/r/raw/main/a.png").containsKey("Authorization"))
+        // camo 是签名地址（不需要凭据，多带只是把 token 多交给一个组件）
+        assertTrue(headers("https://camo.githubusercontent.com/x/y").isEmpty())
+        // 第三方图床（徽章 / 统计卡）绝不能带 token
+        assertTrue(headers("https://img.shields.io/github/stars/o/r").isEmpty())
+        // 未登录
+        assertTrue(headers("https://raw.githubusercontent.com/o/r/main/a.png", token = "").isEmpty())
+    }
+
     @Test
     fun `raw 基准 URL 落在 README 所在目录`() {
         assertEquals(

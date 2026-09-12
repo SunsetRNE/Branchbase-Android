@@ -68,7 +68,7 @@ internal class HttpDownloadEngine(
                     target.delete()
                     return DownloadResult.Failed("断点信息已失效，请重试")
                 }
-                if (code !in 200..299) return DownloadResult.Failed("HTTP $code")
+                if (code !in 200..299) return DownloadResult.Failed(DownloadErrors.fromStatus(code))
 
                 val append = code == 206
                 if (!append) resumeFrom = 0L
@@ -101,7 +101,8 @@ internal class HttpDownloadEngine(
                 return DownloadResult.Ok(written)
             } catch (e: Exception) {
                 if (isCanceled()) return DownloadResult.Canceled
-                return DownloadResult.Failed(e.message ?: e.javaClass.simpleName)
+                // 网络栈的原始异常（多为英文）不进用户视野，统一翻译成中文结论
+                return DownloadResult.Failed(DownloadErrors.fromException(e))
             } finally {
                 runCatching { conn.disconnect() }
             }

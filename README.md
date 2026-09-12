@@ -39,6 +39,7 @@ Branchbase/
 ├── downloader/          # 内建下载独立模块（引擎/前台服务/通知进度/通知权限/安装与打开）
 │   ├── src/main/java/com/branchbase/downloader/  #   引擎 + 服务 + 通知 + 权限 + 系统动作
 │   └── src/main/AndroidManifest.xml              #   权限 / 前台服务 / FileProvider 都随模块合并
+├── imageviewer/         # 图片查看器独立模块（正文页点图放大：缩放/平移/下拉关闭）
 ├── tools/               # 环境与构建脚本（tools/env、tools/build）
 ├── .github/workflows/   # CI/CD（Beta / Release）
 ├── version.properties   # 工程版本号配置（手动维护）
@@ -81,6 +82,8 @@ Branchbase/
 - **沉浸式翻译**：正文页原文 + 译文对照（独立 `:translate` 模块，见下文）
 - **附件下载（内建下载器）**：发布页附件走应用内下载 —— 前台服务保活、通知栏进度条、
   断点续传，完成后可直接安装 APK / 用其他应用打开 / 分享（独立 `:downloader` 模块，见下文）
+- **图片查看器**：正文页点图放大 —— 双指缩放 / 双击 / 拖动 / 下拉关闭
+  （独立 `:imageviewer` 模块，见下文）
 - **返回键（两段式）**：主界面顶层按返回**不退出 App**，而是回登录首页（会话保留）；
   在登录首页再按一次才彻底退出。子页 / 详情优先逐层关闭自己
   —— 完整链路、两条硬规则与踩过的坑见 [`NAVIGATION-NOTES.md`](NAVIGATION-NOTES.md)
@@ -225,7 +228,30 @@ DownloaderRuntime.install(
 - 「打开所在文件夹」没有统一契约，只能尽力而为（DocumentsUI 根 URI → 常见文件管理器包名探测）；
   失败时由调用方降级成「分享」（`ACTION_SEND` 是人人都有实现的那条路）；
 - 需要用户能在系统文件管理器里直接看到文件时另走「导出」（MediaStore / SAF），
-  下载主链路不申请存储权限。
+  下载主链路不申请存储权限；
+- 失败文案**只出中文**：网络栈的原始异常（`Unable to resolve host …`）不进通知栏，
+  统一在 `DownloadErrors` 里归到「网络 / 超时 / 证书 / 权限 / 服务端」几类结论上。
+
+## 🔍 图片查看器（模块化实现）
+
+正文页（README / issue 主帖）里的图片点一下就能放大看：双指缩放 / 双击放大 / 拖动平移 /
+下拉关闭，全屏 `Dialog` 弹出，不进导航栈。实现收在 `:imageviewer`：
+
+| 文件 | 职责 |
+|------|------|
+| `ImageViewerDialog.kt` | 全屏 Dialog：手势、加载/失败态、「用浏览器打开」、顶栏 |
+| `ImageViewerMath.kt` | 纯计算：缩放钳制（1×–8×）、双击目标、平移边界、下拉关闭判定（可 JVM 单测） |
+
+两条入口，覆盖两种标记方式：
+
+- **图片没被链接包住** → 注入脚本的点击监听调用 `BBImage.openImage()` 桥（< 240×120 的小图不弹，
+  徽章/图标弹出来只是一张糊图）；
+- **图片被 `<a>` 包住**（README 里点截图最常见）→ 不动链接语义，改由 `shouldOverrideUrlLoading`
+  判断目标是不是图片：是图片（`camo.githubusercontent.com` 无扩展名 / 常见图片后缀）就弹查看器，
+  否则照旧交给浏览器 —— 所以「点徽章去仓库页」仍然正常。
+
+取图凭据沿用与 WebView 拦截同一条策略：**只给 GitHub 自有域名带 Token**；
+camo 是签名地址、第三方图床（shields.io 等）一律不带。
 
 ## 🎞 动效（两层规格：页面 / 元素）
 

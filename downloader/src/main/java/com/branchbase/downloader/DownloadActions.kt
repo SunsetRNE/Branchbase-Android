@@ -88,7 +88,8 @@ object DownloadActions {
     fun installApk(context: Context, file: File): String? {
         if (!file.exists()) return "安装包不存在，请重新下载"
         if (!canInstallPackages(context)) return "需要先允许「安装未知应用」"
-        val uri = runCatching { fileUri(context, file) }.getOrElse { return "无法读取安装包：${it.message}" }
+        val uri = runCatching { fileUri(context, file) }
+            .getOrElse { return "无法读取安装包（${it.javaClass.simpleName}），请重新下载" }
         val view = Intent(Intent.ACTION_VIEW)
             .setDataAndType(uri, APK_MIME)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)

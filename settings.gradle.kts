@@ -40,3 +40,9 @@ include(":translate")
 // 收进这一个模块；凭据、通知小图标由 :app 注入，模块内不引用任何 App 类型。
 // 移除步骤：删本目录 + 本行 include + :app 的依赖与 DownloaderRuntime.install 一行。
 include(":downloader")
+
+// 图片查看器独立模块（正文页点图放大查看）：
+// 只认「URL + 可选请求头 + 关闭回调」，不认识 GitHub / Token；
+// 正文渲染器（ReadmeWebView）用它弹一个全屏可缩放查看器。
+// 移除步骤：删本目录 + 本行 include + :app 的依赖 + ReadmeWebView 里那一处调用。
+include(":imageviewer")

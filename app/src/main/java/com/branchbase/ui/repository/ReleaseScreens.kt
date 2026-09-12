@@ -411,7 +411,8 @@ private fun AssetRow(
     onOpen: () -> Unit,
     onShare: () -> Unit,
 ) {
-    val active = task?.isActive == true
+    val activeTask = task?.takeIf { it.isActive }
+    val active = activeTask != null
     val done = task?.status == DownloadStatus.COMPLETED
     Column(
         Modifier.fillMaxWidth().padding(vertical = 4.dp)
@@ -455,9 +456,9 @@ private fun AssetRow(
                 else -> AssetAction("下载", Primer.Blue500, onDownload)
             }
         }
-        if (active) {
+        if (activeTask != null) {
             Spacer(Modifier.height(8.dp))
-            val progress = task?.progress
+            val progress = activeTask.progress
             if (progress != null) {
                 LinearProgressIndicator(
                     progress = { progress },
@@ -474,8 +475,8 @@ private fun AssetRow(
             }
             Text(
                 buildString {
-                    append(task?.percentText.orEmpty())
-                    val downloaded = task?.downloadedBytes ?: 0L
+                    append(activeTask.percentText)
+                    val downloaded = activeTask.downloadedBytes
                     if (downloaded > 0L) {
                         if (isNotEmpty()) append(" · ")
                         append(formatBytes(downloaded))

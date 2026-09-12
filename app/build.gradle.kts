@@ -179,6 +179,9 @@ dependencies {
     // :app 只注入凭据与小图标（DownloaderRuntime.install 一行）
     implementation(project(":downloader"))
 
+    // 图片查看器独立模块（正文页点图放大：双指缩放 / 双击 / 下拉关闭）
+    implementation(project(":imageviewer"))
+
     // core library desugaring：Sora Editor 的 language-textmate 要求
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 
