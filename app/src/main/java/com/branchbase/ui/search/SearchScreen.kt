@@ -1,6 +1,7 @@
 package com.branchbase.ui.search
 
 import android.content.Context
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -100,84 +101,97 @@ fun SearchScreen(
     }
 
     val scope = rememberCoroutineScope()
-    var query by remember { mutableStateOf("") }
-    var selectedLanguage by remember { mutableStateOf<String?>(null) }
-    var advancedValues by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+
+    /**
+     * 搜索词 / 类型 / 排序 / 筛选存在 ViewModel 里（不是 `remember`）：
+     * 点进某个结果再返回时，搜索页会被销毁重建，放 `remember` 会全部归零。
+     */
+    val vm: SearchViewModel = viewModel()
+    var query by vm.queryState
+    var selectedLanguage by vm.languageState
+    var advancedValues by vm.advancedState
+    var type by vm.typeState
+    var sort by vm.sortState
+    var sortKey by vm.sortKeyState
+    var searched by vm.searchedState
+
+    // 纯界面态（气泡/面板是否展开）留在这里即可
     var expandedFilter by remember { mutableStateOf<String?>(null) }
-    var type by remember { mutableStateOf("仓库") }
     var typeMenu by remember { mutableStateOf(false) }
-    var sort by remember { mutableStateOf("最佳匹配") }
-    var sortKey by remember { mutableStateOf("") }
     var sortMenu by remember { mutableStateOf(false) }
     var showFilter by remember { mutableStateOf(false) }
+
+    // 结果本身不进 ViewModel：返回时按缓存直出（命中即瞬时），避免在内存里留一份大对象
     var results by remember { mutableStateOf<List<SearchItem>>(emptyList()) }
     var codeResults by remember { mutableStateOf<List<CodeResult>>(emptyList()) }
     var pullResults by remember { mutableStateOf<List<PullResult>>(emptyList()) }
     var commitResults by remember { mutableStateOf<List<CommitResult>>(emptyList()) }
     var topicResults by remember { mutableStateOf<List<TopicResult>>(emptyList()) }
     var total by remember { mutableStateOf(0L) }
-    var searched by remember { mutableStateOf(false) }
-    var loading by remember { mutableStateOf(false) }
+    // 返回页面时会自动重搜，先亮加载态，避免闪一帧「未找到结果」
+    var loading by remember { mutableStateOf(vm.hasPendingSession()) }
     var searchError by remember { mutableStateOf<String?>(null) }
 
-    fun doSearch() {
-        if (query.isBlank()) return
-        val q = buildString {
-            append(query)
-            selectedLanguage?.let { append(" language:$it") }
-            advancedValues.forEach { (name, value) ->
-                val syntax = advancedFilters.firstOrNull { it.first == name }?.second ?: return@forEach
-                append(" $syntax$value")
-            }
-            // Issues / 拉取请求 类型限定（复用 /search/issues，type:pr 区分）
-            when (type) {
-                "议题" -> append(" type:issue")
-                "拉取请求" -> append(" type:pr")
-            }
-        }
-        // 缓存 key：仅「仓库」类型携带 sort（其余类型不支持排序，避免 sortKey 残留污染缓存 key）
-        val cacheKey = if (type == "仓库") "$type|$q|$sortKey" else "$type|$q"
+    // 缓存键要绑账号：搜索结果含私有仓库/私有代码，跨账号命中既是错误结果也是权限泄漏
+    val login = remember(sessionJson, context) {
+        runCatching { JSONObject(sessionJson).getJSONObject("user").optString("login") }
+            .getOrNull()?.takeIf { it.isNotBlank() && it != "null" }
+            ?: com.branchbase.core.AccountStore.currentLogin(context)
+    }
 
-        // 统一解析并写入对应类型状态
+    fun doSearch() {
+        // ① 请求发起时把条件**快照**下来：协程恢复时用户可能已经改了类型/排序，
+        //    那时再读 type/results 会把 A 类型的结果按 B 类型解析、写进 B 的状态桶
+        val query0 = query
+        if (query0.isBlank()) return
+        val type0 = type
+        val sortKey0 = sortKey
+        val q = buildSearchQuery(query0, type0, selectedLanguage, advancedValues, advancedFilters)
+        val cacheKey = searchCacheKey(type0, query0, sortKey0, login)
+
+        // ② 统一解析并写入对应类型状态（按快照里的类型）
         fun parseAndSet(json: String) {
-            when (type) {
+            when (type0) {
                 "代码" -> { val p = parseCodeResults(json); codeResults = p.first; total = p.second }
                 "拉取请求" -> { val p = parsePullResults(json); pullResults = p.first; total = p.second }
                 "提交" -> { val p = parseCommitResults(json); commitResults = p.first; total = p.second }
                 "主题" -> { val p = parseTopicResults(json); topicResults = p.first; total = p.second }
-                else -> { val p = parseResults(json, type); results = p.first; total = p.second }
+                else -> { val p = parseResults(json, type0); results = p.first; total = p.second }
             }
         }
 
-        // 仓库搜索：预加载前几个结果的详情（点进去直接命中缓存；计费网络自动跳过）
-        fun warmRepos() {
-            if (type != "仓库") return
+        // ③ 仓库搜索：预加载前几个结果的详情（点进去直接命中缓存；计费网络自动跳过）
+        fun warmRepos(found: List<SearchItem>) {
+            if (type0 != "仓库") return
             com.branchbase.cache.RepoPrefetcher.warmList(
                 context = context,
                 host = host,
                 token = token,
                 // 仓库结果的 title 就是 full_name（见 parseResults）
-                entries = results.map {
+                entries = found.map {
                     it.title.substringBefore('/') to it.title.substringAfter('/', "")
                 },
             )
         }
 
+        // ④ 请求序号：快速连点 / 改条件后再搜时，旧响应后到就丢弃（否则会覆盖新结果、提前收掉转圈）
+        val token0 = vm.nextSeq()
         loading = true
         searchError = null
         scope.launch {
             // 命中缓存：读本地数据库
-            val cached = cacheManager.get(cacheKey, type)
+            val cached = cacheManager.get(cacheKey, type0)
             if (cached != null) {
+                if (!vm.isCurrent(token0)) return@launch
                 parseAndSet(cached)
                 searched = true
                 loading = false
-                warmRepos()
+                warmRepos(results)
                 return@launch
             }
 
             // 未命中：拉远端并写缓存
-            val json = when (type) {
+            val json = when (type0) {
                 "代码" -> RustBridge.searchCode(host, token, q)
                 "仓库" -> RustBridge.searchRepositories(host, token, q, sortKey)
                 "用户" -> RustBridge.searchUsers(host, token, q)
@@ -186,20 +200,28 @@ fun SearchScreen(
                 "主题" -> RustBridge.searchTopics(host, token, q)
                 else -> null
             }
-            Logger.net("搜索 $type: $q → ${if (json != null && !json.startsWith("ERROR:")) "200" else "失败"}", "search")
+            // 回来时若不是最新一次搜索：整份结果丢弃（连 loading 都不要动，那是新请求的）
+            if (!vm.isCurrent(token0)) return@launch
+
+            Logger.net("搜索 $type0: $q → ${if (json != null && !json.startsWith("ERROR:")) "200" else "失败"}", "search")
             if (json != null && !json.startsWith("ERROR:")) {
                 // 先立即用拉取结果填充展示，再异步写入缓存（更新缓存与展示同源、同步发生）
                 parseAndSet(json)
-                cacheManager.put(cacheKey, type, json)
+                cacheManager.put(cacheKey, type0, json)
                 searched = true
-                warmRepos()
+                warmRepos(results)
             } else {
                 // 搜索失败（网络错误 / 速率限制 / 权限不足等），区别于「无结果」
                 searched = true
-                searchError = "搜索失败，请稍后重试（可能触发速率限制）"
+                searchError = friendlySearchError(json)
             }
             loading = false
         }
+    }
+
+    // 从结果进详情再返回：搜索词与条件还在（ViewModel），这里按缓存直出结果
+    LaunchedEffect(Unit) {
+        if (vm.hasPendingSession()) doSearch()
     }
 
     Column(
@@ -334,7 +356,7 @@ fun SearchScreen(
                 }
             } else {
                 Column {
-                    Text("$total 个提交结果", fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    Text(resultCountText(total, commitResults.size, "提交结果"), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                     LazyColumn {
                         items(commitResults) { commit -> CommitCard(commit) }
                     }
@@ -347,7 +369,7 @@ fun SearchScreen(
                 }
             } else {
                 Column {
-                    Text("$total 个主题结果", fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    Text(resultCountText(total, 1, "主题结果"), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                     LazyColumn {
                         item { TopicCard(topicResults) }
                     }
@@ -359,7 +381,7 @@ fun SearchScreen(
             }
         } else {
             Column {
-                Text("$total 个结果", fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                Text(resultCountText(total, results.size, "结果"), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                 LazyColumn {
                     items(results) { item -> SearchItemCard(item) }
                 }
