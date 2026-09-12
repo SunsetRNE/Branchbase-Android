@@ -4,6 +4,12 @@
 
 Branchbase 是一个基于 **Jetpack Compose** + **Rust** 的现代化 GitHub 客户端。业务核心（OAuth 认证、GitHub API、Git 操作、HTML 解析）由 Rust 实现，通过 JNI 桥接暴露给 Android Compose 层调用。
 
+- **仓库地址**：<https://github.com/SunsetRNE/Branchbase-Android>
+- **平台范围**：**只做 Android 手机 / 平板**（`minSdk 24`），桌面端、Web 端、iOS 均不在计划内。
+- **开发交流**：QQ 群「Branchbase开发交流」·群号 **790735040** ·
+  [点击链接加入群聊](https://qun.qq.com/universal-share/share?ac=1&authKey=pvJE5SaHMaTeBU%2BNqt2VJBfeAGY0eLg%2BGHUTz2TDjsxe0aeS3L32m6Cg0NEnMCmg&busi_data=eyJncm91cENvZGUiOiI3OTA3MzUwNDAiLCJ0b2tlbiI6ImN4bGZ6WnBiUHVRZ0JOWFlmTVloV1R6S1o3NnIyV212RExzeTdtdUs4TVdqamVaNjR0V2xDRGJvNkI1N1RvV3ciLCJ1aW4iOiIxNTM5MDA3NDYwIn0%3D&data=U0Umjl8BD3SwVhcezyilAhDNcA1MUL3HSJAq3dI4hCfZywecQmAbK4yqvgp-3FkggT-Sq4hqJivTho3p4TrhEQ&svctype=4&tempid=h5_group_info)
+  （群链接里的 `authKey` 会过期，过期后按**群号搜索**加入即可）
+
 ## ✨ 技术栈
 
 | 层 | 技术 |
@@ -503,6 +509,13 @@ cargo build --release       # 生成 libbranchbase_core.so
 - `build-beta.yml`：push 到 `main` 触发，三步骤构建 Debug APK 发布为 pre-release，`.so` 提交到 `beta` 分支
 - `build-release.yml`：`workflow_dispatch` 手动触发，三步骤构建 Release APK 发布为正式版
 - `build-core.yml`：Rust core 编译检查 + 单元测试（push/PR 触发，非发行编译）
+
+## 💬 反馈与交流
+
+- **Bug / 功能建议**：[提 Issue](https://github.com/SunsetRNE/Branchbase-Android/issues)（附上机型、系统版本、复现步骤与截图最有效）
+- **开发交流群**：QQ 群「Branchbase开发交流」· 群号 **790735040**
+  —— [点击链接加入群聊](https://qun.qq.com/universal-share/share?ac=1&authKey=pvJE5SaHMaTeBU%2BNqt2VJBfeAGY0eLg%2BGHUTz2TDjsxe0aeS3L32m6Cg0NEnMCmg&busi_data=eyJncm91cENvZGUiOiI3OTA3MzUwNDAiLCJ0b2tlbiI6ImN4bGZ6WnBiUHVRZ0JOWFlmTVloV1R6S1o3NnIyV212RExzeTdtdUs4TVdqamVaNjR0V2xDRGJvNkI1N1RvV3ciLCJ1aW4iOiIxNTM5MDA3NDYwIn0%3D&data=U0Umjl8BD3SwVhcezyilAhDNcA1MUL3HSJAq3dI4hCfZywecQmAbK4yqvgp-3FkggT-Sq4hqJivTho3p4TrhEQ&svctype=4&tempid=h5_group_info)
+- **平台范围**：只做 Android 手机 / 平板，其他端（桌面 / Web / iOS）不做。
 
 ## 📄 许可证
 

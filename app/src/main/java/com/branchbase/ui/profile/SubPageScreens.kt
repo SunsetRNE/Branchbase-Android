@@ -1535,7 +1535,8 @@ private fun BranchesScreen(
 // ───────────────────────── 关于页 ─────────────────────────
 
 /**
- * 关于页：展示应用图标 + 版本号信息（工程/标准/Git 包/构建时间/七位哈希）+ 最新构建校验提示。
+ * 关于页：展示应用图标 + 版本号信息（工程/标准/Git 包/构建时间/七位哈希）+ 最新构建校验提示，
+ * 末尾给出项目主页与开发交流 QQ 群的入口（用户找「去哪儿反馈」就落在这一页）。
  * 版本口径：工程版本（semver）+ 标准版本（版本-时间-哈希），并做本地/远端签名指纹对照。
  */
 @Composable
@@ -1622,8 +1623,68 @@ val sig = when (variant) {
                 localFingerprint = localFingerprint,
                 remoteFingerprint = remoteFingerprint,
             )
+            Spacer(Modifier.height(20.dp))
+            // 项目主页 + 开发交流群：关于页是用户找「去哪儿反馈」的地方，链接统一从这里出去。
+            // QQ 群链接里的 authKey 会过期，所以群号也直接写在行里（过期了按号搜索即可）。
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(1.dp, Primer.Border, RoundedCornerShape(8.dp)),
+            ) {
+                AboutLinkRow("项目主页（仅 Android）", "SunsetRNE/Branchbase-Android") {
+                    openExternal(context, REPO_URL)
+                }
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Border))
+                AboutLinkRow("开发交流（QQ 群）", "790735040") {
+                    openExternal(context, QUN_URL)
+                }
+            }
+
             Spacer(Modifier.height(28.dp))
         }
+    }
+}
+
+/** 项目主页（仓库地址，同时说明只做 Android）。 */
+private const val REPO_URL = "https://github.com/SunsetRNE/Branchbase-Android"
+
+/**
+ * 开发交流 QQ 群的加群链接（群「Branchbase开发交流」· 790735040）。
+ *
+ * ⚠️ 链接里的 `authKey` / `data` 是腾讯签发的**会过期**的票据：过期后这个链接会失效，
+ * 所以界面上把群号一并显示出来，过期了按群号搜索同样能进群。
+ */
+private const val QUN_URL =
+    "https://qun.qq.com/universal-share/share?ac=1&authKey=pvJE5SaHMaTeBU%2BNqt2VJBfeAGY0eLg%2BGHUTz2TDjsxe0aeS3L32m6Cg0NEnMCmg" +
+        "&busi_data=eyJncm91cENvZGUiOiI3OTA3MzUwNDAiLCJ0b2tlbiI6ImN4bGZ6WnBiUHVRZ0JOWFlmTVloV1R6S1o3NnIyV212RExzeTdtdUs4TVdqamVaNjR0V2xDRGJvNkI1N1RvV3ciLCJ1aW4iOiIxNTM5MDA3NDYwIn0%3D" +
+        "&data=U0Umjl8BD3SwVhcezyilAhDNcA1MUL3HSJAq3dI4hCfZywecQmAbK4yqvgp-3FkggT-Sq4hqJivTho3p4TrhEQ&svctype=4&tempid=h5_group_info"
+
+/** 用系统浏览器（或能处理该 scheme 的应用）打开外部链接；失败就静默忽略（不崩）。 */
+private fun openExternal(context: android.content.Context, url: String) {
+    runCatching {
+        context.startActivity(
+            android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)),
+        )
+    }
+}
+
+/** 关于页的可点击链接行（标题 + 右侧值 + `›`）。 */
+@Composable
+private fun AboutLinkRow(title: String, value: String, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(title, fontSize = 13.sp, color = Primer.TextSecondary)
+        Spacer(Modifier.weight(1f))
+        Text(value, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500, maxLines = 1)
+        Spacer(Modifier.width(4.dp))
+        Text("›", fontSize = 14.sp, color = Primer.TextTertiary)
     }
 }
 
