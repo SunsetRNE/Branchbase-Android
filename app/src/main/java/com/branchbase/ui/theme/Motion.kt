@@ -1,7 +1,10 @@
 package com.branchbase.ui.theme
 
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -20,9 +23,12 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.State
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /**
@@ -70,6 +76,18 @@ object ElementMotion {
 
     /** 骨架屏微光的单程时长。 */
     const val SHIMMER_MS = 700
+
+    /** 气泡弹层（从锚点角落缩放 + 淡入）的时长。 */
+    const val BUBBLE_MS = 180
+
+    /** 气泡内多个条目逐条入场的间隔。 */
+    const val STAGGER_MS = 28
+
+    /** 按下反馈：缩到多少。 */
+    const val PRESS_SCALE = 0.94f
+
+    /** 按下反馈时长（要跟手，所以短）。 */
+    const val PRESS_MS = 120
 }
 
 /**
@@ -117,6 +135,52 @@ fun revealEnter(): EnterTransition =
 /** 与 [revealEnter] 配对的退场。 */
 fun revealExit(): ExitTransition =
     shrinkVertically(tween(ElementMotion.REVEAL_MS)) + fadeOut(tween(ElementMotion.REVEAL_MS))
+
+/**
+ * 气泡弹层进场：**从锚点角落**缩放 + 淡入。
+ *
+ * 为什么不用 `DropdownMenu` 的默认动画：Material 的菜单是「从上边缘往下长」的，
+ * 而这个气泡是从右下角手柄**向上**弹出的 —— 缩放原点在下边缘右下角才符合空间直觉
+ * （看起来像从手柄里冒出来）。[origin] 默认右下角，锚点在其他角落时传对应的 [TransformOrigin]。
+ */
+fun bubbleEnter(origin: TransformOrigin = TransformOrigin(1f, 1f)): EnterTransition =
+    scaleIn(tween(ElementMotion.BUBBLE_MS), initialScale = 0.86f, transformOrigin = origin) +
+        fadeIn(tween(ElementMotion.BUBBLE_MS))
+
+/** 与 [bubbleEnter] 配对的气泡退场（收回到锚点角落）。 */
+fun bubbleExit(origin: TransformOrigin = TransformOrigin(1f, 1f)): ExitTransition =
+    scaleOut(tween(ElementMotion.BUBBLE_MS), targetScale = 0.92f, transformOrigin = origin) +
+        fadeOut(tween(ElementMotion.BUBBLE_MS))
+
+/**
+ * 按下反馈（按钮 / 图标 / 导航项）。
+ *
+ * 用法：把 [PressFeedback.interaction] 交给 `clickable`，缩放值**在 graphicsLayer 里读**
+ * （只在绘制阶段消费，不触发每帧重组）：
+ * ```
+ * val press = rememberPressFeedback()
+ * Modifier
+ *     .graphicsLayer { scaleX = press.scale.value; scaleY = press.scale.value }
+ *     .clickable(interactionSource = press.interaction, indication = LocalIndication.current, onClick = …)
+ * ```
+ * 注意顺序：`graphicsLayer` 要在 `clip/background` **之前**，否则只缩内容不缩底。
+ */
+class PressFeedback internal constructor(
+    val interaction: MutableInteractionSource,
+    val scale: State<Float>,
+)
+
+@Composable
+fun rememberPressFeedback(pressedScale: Float = ElementMotion.PRESS_SCALE): PressFeedback {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale = animateFloatAsState(
+        targetValue = if (pressed) pressedScale else 1f,
+        animationSpec = tween(ElementMotion.PRESS_MS),
+        label = "press-scale",
+    )
+    return PressFeedback(interaction, scale)
+}
 
 /**
  * 图标形态切换（例：筛选 ↔ 关闭、全选 ↔ 取消）。

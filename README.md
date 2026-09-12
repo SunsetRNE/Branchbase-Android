@@ -179,11 +179,20 @@ Branchbase/
 |------|------|------|--------|
 | 选中态颜色 | `selectionColor(selected, on, off)` | 180ms | 底部导航（普通 / 玻璃球 / 侧边气泡 / 仓库底栏）、个人页气泡 Tab、筛选 chip、分段控件、日志过滤按钮、设置单选行、Issue 筛选胶囊、反应 chip |
 | 出现 / 消失 | `revealEnter()` / `revealExit()` | 220ms 展开 + 淡入 | 多选工具栏、撤销条、分组展开、阶段预取横幅 |
+| 气泡弹层 | `bubbleEnter()` / `bubbleExit(origin)` | 180ms 锚点缩放 + 淡入 | 个人页 More 气泡、侧边气泡导航 |
+| 按下反馈 | `rememberPressFeedback()` | 120ms 缩到 0.94 | 个人页气泡手柄与主项、气泡条目、侧边气泡手柄、Git 气泡手柄 |
 | 图标形态切换 | `AnimatedStateIcon(icon, …)` | 200ms 交叉淡入 + 缩放 | 筛选 ↔ 关闭、全选 ↔ 取消、Git 手柄 ↔ 关闭 |
 | 数量徽标 | `CountBadge(count, …)` | 220ms 缩放淡入 | 底部导航未读数（含清零时的淡出） |
 | 骨架屏微光 | `shimmerAlpha()` | 700ms 呼吸 | 通知骨架、搜索骨架（此前通知页是死灰块） |
 | 列表增删 | `Modifier.animateItem()` | 默认 | 通知列表、任务列表、Issue 时间线、分支对比提交列表 |
 | 文本长度变化 | `Modifier.animateContentSize()` | 默认 | Issue 长评论展开 / 收起（不再让整条时间线弹跳） |
+
+气泡类弹层（个人页 More 菜单、侧边气泡导航）按同一套规格实现：
+`Popup` + 锚点定位（气泡底边贴着手柄顶边）+ `bubbleEnter/bubbleExit`（**从锚点角落缩放**，
+而不是 Material 菜单那种「从上边缘往下长」），容器用 `Primer.BackgroundPrimary` 白底 +
+`Primer.Border` 描边 + 16dp 圆角 + 阴影；条目按用途取 `Primer` 池内语义色
+（星标 `Orange500` / 项目 `Purple500` / 任务 `Blue500` / 设置 `IconPrimary` / 登出 `Red500`）
+并逐条错峰入场。
 
 取舍：元素级**都不用 spring（回弹）** —— 这类元素在列表里反复出现，
 回弹第一次看是「活泼」、第十次就是「拖沓」；tween 的稳定节奏更适合高频交互。

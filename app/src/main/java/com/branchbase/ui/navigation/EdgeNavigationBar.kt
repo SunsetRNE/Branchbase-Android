@@ -1,12 +1,12 @@
 package com.branchbase.ui.navigation
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,13 +34,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.ui.theme.selectionColor
 import com.branchbase.ui.theme.Primer
+import com.branchbase.ui.theme.bubbleEnter
+import com.branchbase.ui.theme.bubbleExit
+import com.branchbase.ui.theme.ElementMotion
+import com.branchbase.ui.theme.rememberPressFeedback
 
 /**
  * 侧边隐藏 + 弹出气泡导航栏（基础形态 ④）。
@@ -79,21 +83,42 @@ fun EdgeNavigationBar(
                     modifier = Modifier.weight(1f),
                 )
             }
-            // 圆形手柄（三点）
+            // 圆形手柄（三点）：填充用 Gray150（中性面），Border 只做描边 ——
+            // 之前把描边色当填充用，和设计里「Border 只用于 stroke」的用法冲突
+            val press = rememberPressFeedback()
+            val rotation = animateFloatAsState(
+                targetValue = if (expanded) 90f else 0f,
+                animationSpec = tween(ElementMotion.ICON_MS),
+                label = "edge-more-rotation",
+            )
             Box(
                 modifier = Modifier
                     .padding(end = 10.dp)
                     .size(40.dp)
+                    .graphicsLayer {
+                        scaleX = press.scale.value
+                        scaleY = press.scale.value
+                    }
                     .clip(CircleShape)
-                    .background(selectionColor(expanded, on = Primer.Blue500, off = Primer.Border))
-                    .clickable { expanded = !expanded },
+                    .border(
+                        1.dp,
+                        selectionColor(expanded, on = Primer.Blue500, off = Primer.Border),
+                        CircleShape,
+                    )
+                    .background(selectionColor(expanded, on = Primer.Blue500, off = Primer.Gray150))
+                    .clickable(
+                        interactionSource = press.interaction,
+                        indication = LocalIndication.current,
+                    ) { expanded = !expanded },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     Icons.Filled.MoreHoriz,
-                    contentDescription = "更多",
+                    contentDescription = if (expanded) "收起更多" else "更多",
                     tint = selectionColor(expanded, on = Color.White, off = Primer.IconPrimary),
-                    modifier = Modifier.size(22.dp),
+                    modifier = Modifier
+                        .size(22.dp)
+                        .graphicsLayer { rotationZ = rotation.value },
                 )
             }
         }
@@ -104,8 +129,9 @@ fun EdgeNavigationBar(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 12.dp, bottom = 68.dp),
-            enter = scaleIn(transformOrigin = TransformOrigin(1f, 1f)) + fadeIn(),
-            exit = scaleOut(transformOrigin = TransformOrigin(1f, 1f)) + fadeOut(),
+            // 与个人页的 More 气泡同一套原语（同一个锚点角落、同一时长）
+            enter = bubbleEnter(),
+            exit = bubbleExit(),
         ) {
             Column(
                 modifier = Modifier
