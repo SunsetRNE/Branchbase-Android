@@ -223,7 +223,7 @@ private fun AccountCard(
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp)
             .clip(RoundedCornerShape(10.dp))
-            .background(if (isCurrent) Color(0xFFF6FAFF) else Primer.BackgroundPrimary)
+            .background(if (isCurrent) Primer.SelectedRow else Primer.BackgroundPrimary)
             .border(1.dp, if (isCurrent) Primer.Blue500 else Primer.Border, RoundedCornerShape(10.dp))
             .padding(12.dp),
     ) {
@@ -240,7 +240,7 @@ private fun AccountCard(
                     Text(account.login, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
                     if (isCurrent) {
                         Spacer(Modifier.width(6.dp))
-                        Badge("当前", Color(0xFF0A4E9B), Color(0xFFE6F1FF), Color(0xFFA9CDF5))
+                        Badge("当前", Color(0xFF0A4E9B), Primer.InfoSurfaceSoft, Color(0xFFA9CDF5))
                     }
                 }
                 Spacer(Modifier.height(2.dp))
@@ -297,6 +297,7 @@ private fun Badge(text: String, fg: Color, bg: Color, border: Color) {
     }
 }
 
+@Composable
 private fun statusFg(s: AccountStatus): Color = when (s) {
     AccountStatus.OK -> Color(0xFF0B6B2E)
     AccountStatus.INVALID, AccountStatus.SUSPENDED -> Color(0xFF9E1C24)
@@ -304,6 +305,7 @@ private fun statusFg(s: AccountStatus): Color = when (s) {
     else -> Primer.TextTertiary
 }
 
+@Composable
 private fun statusBg(s: AccountStatus): Color = when (s) {
     AccountStatus.OK -> Color(0xFFE7F8ED)
     AccountStatus.INVALID, AccountStatus.SUSPENDED -> Color(0xFFFDECEC)
@@ -311,6 +313,7 @@ private fun statusBg(s: AccountStatus): Color = when (s) {
     else -> Primer.Gray150
 }
 
+@Composable
 private fun statusBorder(s: AccountStatus): Color = when (s) {
     AccountStatus.OK -> Color(0xFFA9E3BC)
     AccountStatus.INVALID, AccountStatus.SUSPENDED -> Color(0xFFF5B5B5)

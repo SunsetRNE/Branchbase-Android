@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.branchbase.core.RustBridge
+import com.branchbase.ui.theme.LocalIsDarkTheme
 import com.branchbase.translate.TranslateBridge
 import com.branchbase.translate.TranslatePage
 import com.branchbase.translate.TranslateRuntime
@@ -97,7 +98,11 @@ fun ReadmeWebView(
     val translateConfig = remember { TranslateSettings.read(context) }
     // 页面侧资产（译文 CSS + 四个脚本 + 设置注入）由 :translate 模块装载，
     // 这里只负责把它们内联进 HTML —— 正文渲染器不需要知道翻译是怎么实现的
-    val translatePage = remember(translateConfig) { TranslatePage.load(context, translateConfig) }
+    // 深色主题：正文页由 WebView 渲染，CSS 必须跟着换（这部分 Compose 管不到）
+    val darkTheme = LocalIsDarkTheme.current
+    val translatePage = remember(translateConfig, darkTheme) {
+        TranslatePage.load(context, translateConfig, darkTheme)
+    }
     val heightBridge = remember { HeightBridge() }
     // 沉浸式翻译：JS 发一批待译文本 → 原生侧串行翻译 → 结果与状态推回页面
     val translateScope = rememberCoroutineScope()
@@ -176,7 +181,7 @@ fun ReadmeWebView(
         )
         webView.loadDataWithBaseURL(
             documentUrl,
-            wrapHtml(html, context, translatePage),
+            wrapHtml(html, context, translatePage, darkTheme),
             "text/html",
             "UTF-8",
             null,
@@ -317,7 +322,7 @@ private val AUTH_HOSTS = setOf("github.com", "raw.githubusercontent.com")
  * 译文样式与页面脚本属于翻译功能，来自 `:translate` 模块的 [TranslatePage]
  * （`assets/translate/` 下的 CSS 与脚本）。这样「改译文样式」不需要动正文渲染器。
  */
-private fun wrapHtml(body: String, context: Context, translate: TranslatePage.Assets): String {
+private fun wrapHtml(body: String, context: Context, translate: TranslatePage.Assets, dark: Boolean): String {
     val css = runCatching {
         context.assets.open("github-markdown-light.css").bufferedReader().use { it.readText() }
     }.getOrDefault("")
@@ -328,6 +333,7 @@ private fun wrapHtml(body: String, context: Context, translate: TranslatePage.As
         <style>
         body { margin: 0; padding: 16px; -webkit-text-size-adjust: 100%; }
         $css
+        ${if (dark) README_DARK_CSS else ""}
         /* GitHub 新自定义元素兜底（github-markdown-css 可能缺失的规则） */
         themed-picture, picture { display: inline-block; }
         .markdown-heading { position: relative; }
@@ -669,3 +675,28 @@ private class ReadmeWebViewClient(
         return imageCache.load(target, token, "https://$host/")
     }
 }
+
+/**
+ * README 正文的深色覆盖（`github-markdown-light.css` 是浅色主题，这里整段覆盖）。
+ *
+ * 只覆盖「会刺眼或读不清」的部分：正文/标题颜色、链接、代码底、引用、表格、分隔线。
+ * 图片与徽章不动（它们自带底色，强行反色反而更糟）。
+ */
+private val README_DARK_CSS = """
+.markdown-body { color: #e6edf3; background: transparent; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3,
+.markdown-body h4, .markdown-body h5, .markdown-body h6 { color: #e6edf3; border-bottom-color: #21262d; }
+.markdown-body p, .markdown-body li, .markdown-body td, .markdown-body dd { color: #c9d1d9; }
+.markdown-body a { color: #2f81f7; }
+.markdown-body strong { color: #e6edf3; }
+.markdown-body code, .markdown-body tt { background: #161b22; color: #e6edf3; }
+.markdown-body pre, .markdown-body .highlight { background: #161b22 !important; }
+.markdown-body pre code { color: #e6edf3; }
+.markdown-body blockquote { color: #8b949e; border-left-color: #30363d; }
+.markdown-body table th, .markdown-body table td { border-color: #30363d; }
+.markdown-body table tr { background: transparent; border-top-color: #21262d; }
+.markdown-body table tr:nth-child(2n) { background: #161b22; }
+.markdown-body hr { background-color: #30363d; }
+.markdown-body img { background: transparent; }
+.markdown-body .bb-chart-head { background: #161b22; color: #8b949e; border-color: #30363d; }
+"""

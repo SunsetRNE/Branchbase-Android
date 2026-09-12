@@ -1,80 +1,185 @@
 package com.branchbase.ui.theme
 
+import android.app.Activity
+import android.content.Context
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 
 /**
- * 应用主题（GitHub Primer light）。
+ * 主题模式：跟随系统 / 强制浅色 / 强制深色。
  *
- * ## 为什么要把 M3 的「容器色角色」全部显式写出来
- *
- * 之前这里只覆盖了 `primary / background / surface / onSurface / error` 等少数角色，
- * 其余角色沿用 Material 基线调色板。问题在于 **弹层类组件的底色并不是读 `surface`**：
- *
- * | 组件 | 实际读的角色 |
- * |------|-------------|
- * | `DropdownMenu`（搜索的类型/排序、Issue 反应选择器…） | `surfaceContainer` |
- * | `AlertDialog`（各页确认框） | `surfaceContainerHigh` |
- * | `ModalBottomSheet`（筛选手板 / 通知面板 / 工作流操作） | `surfaceContainerLow` + 拖拽把手用 `surfaceVariant` |
- * | `NavigationBarItem` 选中胶囊（底部导航） | `secondaryContainer` |
- *
- * 这些角色没被覆盖 → 弹层底色是 Material 的**带紫调基线色**（≈#F3EDF7），
- * 和「标准白底」的设计不一致：白底页面里浮出一块淡紫，且各弹层深浅还各不相同。
- * 与其在每个组件调用处逐个传 `containerColor`（十几处、必然漏），不如在这里一次对齐。
- *
- * 映射规则（对齐 Primer 的国家语言）：
- * - **所有容器角色 → 标准白底**（`Gray000`）—— 弹层与页面同为白，靠描边 + 阴影区分层次；
- * - **`surfaceContainerHighest` / `surfaceVariant` → `Gray150` / `Gray200`** ——
- *   给「需要在白底上再垫一层灰」的元素（拖拽把手、分隔线、衬底）用；
- * - **`outline` / `outlineVariant` → `Border` / `Gray150`** —— 描边色的唯一来源是 `Primer.Border`；
- * - **`secondaryContainer` → 主色 12% 蓝** —— 底部导航选中胶囊与个人页气泡 Tab 的胶囊同色。
- *
- * ⚠️ 约定：**新组件不要再用 M3 的默认容器色**，需要弹层就让它读这些角色；
- * 确有特殊需求（如深色浮层）时才在调用处显式传 `containerColor`。
+ * 不做成二元的「深色开关」是有原因的：需要**强制浅色**的用户和需要深色的一样多
+ * （深色在强光下看不清、部分用户对深色的对比度更敏感），所以给三档、允许显式锁定。
  */
-private val LightColors = lightColorScheme(
-    // 品牌主色
-    primary = Primer.Blue500,
-    onPrimary = Primer.Gray000,
-    inversePrimary = Primer.Blue400,
-    // 底部导航选中胶囊：与个人页气泡 Tab 的选中胶囊同色系（主色 12%）
-    secondaryContainer = Primer.Blue500.copy(alpha = 0.12f),
-    onSecondaryContainer = Primer.Blue600,
-    secondary = Primer.Green500,
-    // 页面
-    background = Primer.BackgroundPrimary,
-    onBackground = Primer.TextPrimary,
-    surface = Primer.BackgroundPrimary,
-    onSurface = Primer.TextPrimary,
-    // 弹层容器：统一标准白底（详见类注释的映射表）
-    surfaceBright = Primer.BackgroundPrimary,
-    surfaceDim = Primer.Gray100,
-    surfaceContainerLowest = Primer.BackgroundPrimary,
-    surfaceContainerLow = Primer.BackgroundPrimary,
-    surfaceContainer = Primer.BackgroundPrimary,
-    surfaceContainerHigh = Primer.BackgroundPrimary,
-    surfaceContainerHighest = Primer.Gray150,
-    surfaceVariant = Primer.Gray200,
-    onSurfaceVariant = Primer.TextSecondary,
-    surfaceTint = Primer.Blue500,
-    // 描边
-    outline = Primer.Border,
-    outlineVariant = Primer.Gray150,
-    // 遮罩 / 反色（Snackbar 等深底浮层）
-    scrim = Color.Black,
-    inverseSurface = Primer.Gray900,
-    inverseOnSurface = Primer.Gray000,
-    // 状态色
-    error = Primer.Red500,
-    onError = Primer.Gray000,
-)
+enum class ThemeMode(val storageKey: String, val label: String) {
+    SYSTEM("system", "跟随系统"),
+    LIGHT("light", "浅色"),
+    DARK("dark", "深色"),
+    ;
 
+    /** 供「太阳图标」开关循环切换：跟随系统 → 浅色 → 深色 → 跟随系统。 */
+    fun next(): ThemeMode = when (this) {
+        SYSTEM -> LIGHT
+        LIGHT -> DARK
+        DARK -> SYSTEM
+    }
+
+    /** 该档位在 UI 上是否呈现为「深色」（SYSTEM 由系统决定，交给调用方判断）。 */
+    fun resolveDark(systemDark: Boolean): Boolean = when (this) {
+        SYSTEM -> systemDark
+        LIGHT -> false
+        DARK -> true
+    }
+
+    companion object {
+        val default: ThemeMode = SYSTEM
+
+        /** 容错解析（老配置 / 手改过的值一律回落到跟随系统）。 */
+        fun fromKey(key: String?): ThemeMode =
+            entries.firstOrNull { it.storageKey == key } ?: default
+    }
+}
+
+/** 当前生效的主题模式（设置页展示「当前档位」用）。 */
+val LocalThemeMode = staticCompositionLocalOf { ThemeMode.default }
+
+/** 当前是否深色：给 WebView 这类「Compose 之外」的渲染用（注入深色 CSS）。 */
+val LocalIsDarkTheme = staticCompositionLocalOf { false }
+
+/**
+ * 应用主题（GitHub Primer，浅色 + 深色）。
+ *
+ * ## 深色是怎么做到的（改造前后）
+ *
+ * 改造前这里只有一份 `lightColorScheme`，而 `Primer` 是写死的静态色值 ——
+ * 没有深色模式可言（`isSystemInDarkTheme()` 全项目 0 处使用）。现在：
+ *
+ * 1. [LightPrimerPalette] / [DarkPrimerPalette] 按 [mode] 选择，经 [LocalPrimerPalette] 下发；
+ *    `Primer.XXX` 全部读它，于是 **1254 处调用点一行未改**就跟着主题走；
+ * 2. M3 的 `ColorScheme` 由**同一份色板**生成：对话框 / 菜单 / 手板 / 底部导航指示器
+ *    这些组件读的是 M3 角色（`surfaceContainer*` / `secondaryContainer`），
+ *    只改 `Primer` 会在深色下漏出浅色块；
+ * 3. 系统状态栏图标明暗 + 窗口底色一并跟随，否则深色页面顶部会压一条白条。
+ */
 @Composable
-fun BranchbaseTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = LightColors,
-        content = content,
+fun BranchbaseTheme(
+    mode: ThemeMode = ThemeMode.SYSTEM,
+    content: @Composable () -> Unit,
+) {
+    val dark = mode.resolveDark(isSystemInDarkTheme())
+    val palette = if (dark) DarkPrimerPalette else LightPrimerPalette
+    val colorScheme = if (dark) DarkM3Scheme else LightM3Scheme
+
+    // 状态栏 / 导航栏图标与窗口底色（Compose 管不到的部分）
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = (view.context as? Activity)?.window ?: return@SideEffect
+            window.setBackgroundDrawable(
+                android.graphics.drawable.ColorDrawable(palette.canvas.toArgb()),
+            )
+            WindowCompat.getInsetsController(window, view).apply {
+                isAppearanceLightStatusBars = !dark
+                isAppearanceLightNavigationBars = !dark
+            }
+        }
+    }
+
+    CompositionLocalProvider(
+        LocalPrimerPalette provides palette,
+        LocalThemeMode provides mode,
+        LocalIsDarkTheme provides dark,
+    ) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            content = content,
+        )
+    }
+}
+
+// ───────────────────────── M3 角色映射 ─────────────────────────
+
+/**
+ * 把色板映射到 M3 角色。
+ *
+ * 关键点是**容器角色**（漏一个就会在深色下冒出一块浅色）：
+ * `DropdownMenu` 读 `surfaceContainer`、`AlertDialog` 读 `surfaceContainerHigh`、
+ * `ModalBottomSheet` 读 `surfaceContainerLow`、`NavigationBarItem` 指示器读 `secondaryContainer`。
+ */
+private fun primerScheme(p: PrimerPalette, dark: Boolean): ColorScheme {
+    val base = if (dark) darkColorScheme() else lightColorScheme()
+    return base.copy(
+        primary = p.accent,
+        onPrimary = Color.White,
+        primaryContainer = p.accent.copy(alpha = 0.18f),
+        onPrimaryContainer = if (dark) p.textPrimary else p.accentStrong,
+        inversePrimary = p.link,
+        secondaryContainer = p.accent.copy(alpha = 0.18f),
+        onSecondaryContainer = p.link,
+        secondary = p.success,
+        background = p.canvas,
+        onBackground = p.textPrimary,
+        surface = p.canvas,
+        onSurface = p.textPrimary,
+        surfaceBright = p.canvasSubtle,
+        surfaceDim = p.canvas,
+        surfaceContainerLowest = p.canvas,
+        surfaceContainerLow = p.canvasSubtle,
+        surfaceContainer = p.canvasSubtle,
+        surfaceContainerHigh = p.canvasSubtle,
+        surfaceContainerHighest = p.neutralFillStrong,
+        surfaceVariant = p.neutralBorder,
+        onSurfaceVariant = p.textSecondary,
+        surfaceTint = p.accent,
+        outline = p.border,
+        outlineVariant = p.neutralBorder,
+        scrim = Color.Black,
+        inverseSurface = p.inverseSurface,
+        inverseOnSurface = p.inverseOnSurface,
+        error = p.danger,
+        onError = Color.White,
+        errorContainer = p.dangerSubtle,
+        onErrorContainer = if (dark) p.textPrimary else p.danger,
     )
+}
+
+// 色板是常量：M3 映射只算一次，避免每次重组都 copy 一份 ColorScheme
+private val LightM3Scheme: ColorScheme = primerScheme(LightPrimerPalette, dark = false)
+private val DarkM3Scheme: ColorScheme = primerScheme(DarkPrimerPalette, dark = true)
+
+/**
+ * 主题模式的读写（与全局其它设置同用 `branchbase` 这份 prefs）。
+ *
+ * 放在 theme 包是因为**消费方就在这一层**（[BranchbaseTheme]）；设置页只是写的一方。
+ * 加进程内缓存的理由同翻译设置：它会被高频读取（每次重组都要判断档位）。
+ */
+object ThemeSettings {
+
+    private const val PREFS = "branchbase"
+    private const val KEY_MODE = "ui.theme.mode"
+
+    @Volatile
+    private var cached: ThemeMode? = null
+
+    fun read(context: Context): ThemeMode =
+        cached ?: ThemeMode.fromKey(
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_MODE, null),
+        ).also { cached = it }
+
+    fun write(context: Context, mode: ThemeMode) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(KEY_MODE, mode.storageKey).apply()
+        cached = mode
+    }
 }

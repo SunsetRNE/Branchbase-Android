@@ -209,7 +209,7 @@ private fun CommentCard(c: CommentItem) {
 private fun PullFileRow(f: PullFile) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(f.filename, fontSize = 13.sp, color = Primer.TextPrimary, modifier = Modifier.weight(1f), maxLines = 1)
-        if (f.additions > 0) Text("+${f.additions}", fontSize = 12.sp, color = Color(0xFF1A7F37), fontWeight = FontWeight.SemiBold)
+        if (f.additions > 0) Text("+${f.additions}", fontSize = 12.sp, color = Primer.SuccessText, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.width(8.dp))
         if (f.deletions > 0) Text("-${f.deletions}", fontSize = 12.sp, color = Color(0xFFCF222E), fontWeight = FontWeight.SemiBold)
     }
@@ -298,7 +298,7 @@ private fun CommitFileBlock(f: CommitFile) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(f.filename, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, modifier = Modifier.weight(1f), maxLines = 1)
-            if (f.additions > 0) Text("+${f.additions}", fontSize = 12.sp, color = Color(0xFF1A7F37), fontWeight = FontWeight.SemiBold)
+            if (f.additions > 0) Text("+${f.additions}", fontSize = 12.sp, color = Primer.SuccessText, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.width(8.dp))
             if (f.deletions > 0) Text("-${f.deletions}", fontSize = 12.sp, color = Color(0xFFCF222E), fontWeight = FontWeight.SemiBold)
         }
@@ -314,7 +314,7 @@ private fun DiffLines(patch: String) {
             val isDel = line.startsWith("-") && !line.startsWith("---")
             val isHunk = line.startsWith("@@")
             val color = when {
-                isAdd -> Color(0xFF1A7F37)
+                isAdd -> Primer.SuccessText
                 isDel -> Color(0xFFCF222E)
                 isHunk -> Color(0xFF0969DA)
                 line.startsWith("+++") || line.startsWith("---") -> Color(0xFF57606A)

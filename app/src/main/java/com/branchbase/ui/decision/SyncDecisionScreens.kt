@@ -108,7 +108,7 @@ fun ForkDecisionScreen(
             ) {
                 ForkNode(color = Primer.Green500, label = "本地 ${status?.branch ?: "main"}", count = "ahead ${status?.ahead ?: 0} · 未推送", modifier = Modifier.weight(1f))
                 Box(Modifier.padding(horizontal = 8.dp)) {
-                    Text("已分叉", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF9A6700))
+                    Text("已分叉", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Primer.WarningText)
                 }
                 ForkNode(color = Primer.Blue500, label = "远端 origin", count = "ahead ${status?.behind ?: 0} · 他人新提交", modifier = Modifier.weight(1f))
             }

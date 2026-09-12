@@ -310,7 +310,7 @@ fun BranchSyncScreen(
                             else -> "目标有 ${c.behindBy} 个独有提交，只能合并或覆盖"
                         },
                         fontSize = 11.sp,
-                        color = if (c.behindBy > 0) Color(0xFF9A6700) else Primer.TextTertiary,
+                        color = if (c.behindBy > 0) Primer.WarningText else Primer.TextTertiary,
                     )
                 }
             }

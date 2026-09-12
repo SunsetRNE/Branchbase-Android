@@ -184,8 +184,9 @@ object TranslateSettings {
      * `rules` 是「哪一段值得翻」的判定参数 —— 页面脚本只使用、不定义，
      * 保证与原生侧 [TranslateTextPolicy] 用的是同一套阈值。
      */
-    fun pageConfigJson(config: TranslateConfig): String = JSONObject()
+    fun pageConfigJson(config: TranslateConfig, dark: Boolean = false): String = JSONObject()
         .put("enabled", config.enabled)
+        .put("dark", dark)
         .put("from", config.source)
         .put("to", config.target)
         .put("dual", config.dual)
@@ -195,8 +196,8 @@ object TranslateSettings {
         .toString()
 
     /** 完整注入脚本（含分号，可直接塞进 `<script>`）。 */
-    fun injectScript(config: TranslateConfig): String =
-        "window.__bbTranslate = ${pageConfigJson(config)};"
+    fun injectScript(config: TranslateConfig, dark: Boolean = false): String =
+        "window.__bbTranslate = ${pageConfigJson(config, dark)};"
 
     private fun write(context: Context, key: String, value: Any) {
         val e = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()

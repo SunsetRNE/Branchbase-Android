@@ -42,10 +42,10 @@ object TranslatePage {
     /** 装载结果：CSS / 合并后的 JS / 设置注入脚本。 */
     data class Assets(val css: String, val js: String, val configScript: String)
 
-    fun load(context: Context, config: TranslateConfig): Assets = Assets(
+    fun load(context: Context, config: TranslateConfig, dark: Boolean = false): Assets = Assets(
         css = readAsset(context, CSS_ASSET),
         js = JS_ASSETS.joinToString(separator = "\n") { readAsset(context, it) },
-        configScript = TranslateSettings.injectScript(config),
+        configScript = TranslateSettings.injectScript(config, dark),
     )
 
     /**

@@ -16,8 +16,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.ui.theme.color
+import com.branchbase.ui.theme.TintRole
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.theme.AppIcon
+import androidx.compose.material.icons.filled.BrightnessAuto
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.runtime.collectAsState
+import com.branchbase.ui.theme.ThemeMode
+import com.branchbase.ui.theme.ThemeRuntime
+import com.branchbase.ui.theme.AnimatedStateIcon
+import com.branchbase.ui.theme.iconTap
+import com.branchbase.ui.theme.rememberPressFeedback
 import com.branchbase.ui.theme.Primer
 import android.content.Intent
 import android.net.Uri
@@ -113,49 +124,98 @@ fun WelcomeScreen(
     onOAuthLogin: () -> Unit,
     onKeyLogin: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Primer.BackgroundPrimary)
-            .navigationBarsPadding()
-            .padding(horizontal = HorizontalPadding),
-        horizontalAlignment = Alignment.CenterHorizontally,
+    Box(Modifier.fillMaxSize().background(Primer.BackgroundPrimary)) {
+        // 主题开关放在**登录首页**：有些用户受不了整屏白色（也有人在强光下看不了深色），
+        // 必须在进 App 之前就能改，而不是登录后再去设置里翻
+        ThemeModeSwitch(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(top = 8.dp, end = 12.dp),
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .navigationBarsPadding()
+                .padding(horizontal = HorizontalPadding),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+                Spacer(Modifier.weight(1f))
+
+            // 应用图标：直接渲染系统当前展示的那枚图标（不再用「蓝底 + 字母 B」占位）
+            AppIcon(size = 96.dp, shape = RoundedCornerShape(26.dp))
+
+            Spacer(Modifier.height(22.dp))
+            Text("Branchbase", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
+            Spacer(Modifier.height(6.dp))
+            Text("GitHub 第三方客户端", fontSize = 14.sp, color = Primer.TextTertiary)
+
+            Spacer(Modifier.weight(1f))
+
+            // ① 授权登录（OAuth）
+            PrimaryButton("授权登录", onOAuthLogin)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "推荐 · 网页点一下授权即可；账号开了双重验证时需要输入数字口令",
+                fontSize = 11.5.sp,
+                color = Primer.TextTertiary,
+                lineHeight = 16.sp,
+            )
+
+            Spacer(Modifier.height(14.dp))
+
+            // ② 密钥登录（PAT）
+            OutlineButton("密钥登录", onKeyLogin)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "网页端生成密钥并勾选权限；登录时无需数字口令验证",
+                fontSize = 11.5.sp,
+                color = Primer.TextTertiary,
+                lineHeight = 16.sp,
+            )
+
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+/**
+ * 主题开关（太阳 / 月亮 / 自动）。
+ *
+ * 三态循环而不是二元开关：**跟随系统**是大多数人的默认期望，而显式锁定浅色/深色
+ * 是给「系统设置与个人偏好不一致」的用户（户外看不清深色、或受不了白底刺激）。
+ * 图标随档位交叉淡入（[AnimatedStateIcon]），点击反馈裁成圆形（[iconTap]）。
+ */
+@Composable
+fun ThemeModeSwitch(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val mode by ThemeRuntime.mode.collectAsState()
+    val press = rememberPressFeedback()
+    val icon = when (mode) {
+        ThemeMode.SYSTEM -> Icons.Filled.BrightnessAuto
+        ThemeMode.LIGHT -> Icons.Filled.LightMode
+        ThemeMode.DARK -> Icons.Filled.DarkMode
+    }
+    Box(
+        modifier = modifier
+            .size(38.dp)
+            .graphicsLayer {
+                scaleX = press.scale.value
+                scaleY = press.scale.value
+            }
+            .clip(CircleShape)
+            .background(Primer.BackgroundSecondary)
+            .border(1.dp, Primer.Border.copy(alpha = 0.6f), CircleShape)
+            .iconTap { ThemeRuntime.cycle(context) },
+        contentAlignment = Alignment.Center,
     ) {
-        Spacer(Modifier.weight(1f))
-
-        // 应用图标：直接渲染系统当前展示的那枚图标（不再用「蓝底 + 字母 B」占位）
-        AppIcon(size = 96.dp, shape = RoundedCornerShape(26.dp))
-
-        Spacer(Modifier.height(22.dp))
-        Text("Branchbase", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
-        Spacer(Modifier.height(6.dp))
-        Text("GitHub 第三方客户端", fontSize = 14.sp, color = Primer.TextTertiary)
-
-        Spacer(Modifier.weight(1f))
-
-        // ① 授权登录（OAuth）
-        PrimaryButton("授权登录", onOAuthLogin)
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "推荐 · 网页点一下授权即可；账号开了双重验证时需要输入数字口令",
-            fontSize = 11.5.sp,
-            color = Primer.TextTertiary,
-            lineHeight = 16.sp,
+        AnimatedStateIcon(
+            icon = icon,
+            contentDescription = "主题：${mode.label}（点击切换）",
+            tint = Primer.IconPrimary,
+            modifier = Modifier.size(20.dp),
         )
-
-        Spacer(Modifier.height(14.dp))
-
-        // ② 密钥登录（PAT）
-        OutlineButton("密钥登录", onKeyLogin)
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "网页端生成密钥并勾选权限；登录时无需数字口令验证",
-            fontSize = 11.5.sp,
-            color = Primer.TextTertiary,
-            lineHeight = 16.sp,
-        )
-
-        Spacer(Modifier.height(16.dp))
     }
 }
 
@@ -170,7 +230,7 @@ private data class AuthFlowStep(
     val icon: ImageVector,
     val title: String,
     val desc: String,
-    val tint: Color,
+    val tint: TintRole,
     val highlight: Boolean = false,
 )
 
@@ -180,26 +240,26 @@ private val oauthFlowSteps = listOf(
         Icons.Filled.OpenInBrowser,
         "打开 GitHub 授权页",
         "用系统浏览器打开，在网页上确认这次授权",
-        Primer.Blue500,
+        TintRole.ACCENT,
     ),
     AuthFlowStep(
         Icons.Filled.VerifiedUser,
         "点「Authorize」授权本应用",
         "只授予列出的权限（仓库 / 用户 / 组织 / 通知），随时可在 GitHub 撤销",
-        Primer.Purple500,
+        TintRole.DONE,
     ),
     AuthFlowStep(
         Icons.Filled.Password,
         "输入数字口令（开了双重验证时）",
         "这是官方客户端登录同样绕不过的一步：网页端会要求 6 位数字口令",
-        Primer.Orange500,
+        TintRole.WARNING,
         highlight = true,
     ),
     AuthFlowStep(
         Icons.Filled.CheckCircle,
         "自动跳回 App，登录完成",
         "授权码由系统自动带回，不需要手动复制任何内容",
-        Primer.Green500,
+        TintRole.SUCCESS,
     ),
 )
 
@@ -209,26 +269,26 @@ private val keyFlowSteps = listOf(
         Icons.Filled.Settings,
         "在网页端生成密钥",
         "GitHub → Settings → Developer settings → Personal access tokens",
-        Primer.Blue500,
+        TintRole.ACCENT,
     ),
     AuthFlowStep(
         Icons.Filled.Checklist,
         "勾选权限后生成",
         "经典密钥勾 repo / read:user / read:org / notifications 四项即可（下方已列出）",
-        Primer.Purple500,
+        TintRole.DONE,
         highlight = true,
     ),
     AuthFlowStep(
         Icons.Filled.ContentPaste,
         "粘贴到 App 并确认",
         "密钥只保存在本机，不上传、不写日志；可随时在网页端撤销",
-        Primer.Orange500,
+        TintRole.WARNING,
     ),
     AuthFlowStep(
         Icons.Filled.Shield,
         "登录时无需数字口令验证",
         "密钥本身就是凭证，这是密钥登录相比授权登录最直接的好处",
-        Primer.Green500,
+        TintRole.SUCCESS,
         highlight = true,
     ),
 )
@@ -382,10 +442,10 @@ private fun FlowStepRow(index: Int, step: AuthFlowStep, last: Boolean) {
                 Modifier
                     .size(26.dp)
                     .clip(CircleShape)
-                    .background(step.tint.copy(alpha = 0.12f)),
+                    .background(step.tint.color().copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(step.icon, contentDescription = null, tint = step.tint, modifier = Modifier.size(15.dp))
+                Icon(step.icon, contentDescription = null, tint = step.tint.color(), modifier = Modifier.size(15.dp))
             }
             if (!last) {
                 Box(
@@ -414,10 +474,10 @@ private fun FlowStepRow(index: Int, step: AuthFlowStep, last: Boolean) {
                                 scaleY = pulse.value
                             }
                             .clip(RoundedCornerShape(5.dp))
-                            .background(step.tint.copy(alpha = 0.14f))
+                            .background(step.tint.color().copy(alpha = 0.14f))
                             .padding(horizontal = 6.dp, vertical = 1.dp),
                     ) {
-                        Text("要点", fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = step.tint)
+                        Text("要点", fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = step.tint.color())
                     }
                 }
             }
@@ -683,7 +743,7 @@ fun TwoFactorScreen(
                 Box(
                     modifier = Modifier
                         .size(44.dp, 54.dp)
-                        .background(Color.White, RoundedCornerShape(8.dp))
+                        .background(Primer.BackgroundPrimary, RoundedCornerShape(8.dp))
                         .border(
                             2.dp,
                             if (i < code.length) Primer.Blue500 else Primer.Border,

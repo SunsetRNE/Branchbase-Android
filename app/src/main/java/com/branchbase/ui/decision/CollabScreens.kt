@@ -614,15 +614,15 @@ fun OfflineConflictScreen(
         FactCard("$fileName · 并排对比") {
             Row(Modifier.fillMaxWidth()) {
                 Column(Modifier.weight(1f)) {
-                    Text("本地草稿（离线）", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Primer.Green500, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth().background(Color(0xFFF0FFF4)).padding(vertical = 6.dp))
+                    Text("本地草稿（离线）", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Primer.Green500, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth().background(Primer.SuccessSurface).padding(vertical = 6.dp))
                     localLines.forEach { l ->
-                        Text(l.ifEmpty { " " }, fontSize = 10.5.sp, fontFamily = FontFamily.Monospace, color = Color(0xFF1A7F37), maxLines = 1, modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp))
+                        Text(l.ifEmpty { " " }, fontSize = 10.5.sp, fontFamily = FontFamily.Monospace, color = Primer.SuccessText, maxLines = 1, modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp))
                     }
                 }
                 Column(Modifier.weight(1f)) {
-                    Text("远端新版本", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Primer.Blue500, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth().background(Color(0xFFF0F7FF)).padding(vertical = 6.dp))
+                    Text("远端新版本", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Primer.Blue500, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth().background(Primer.InfoSurface).padding(vertical = 6.dp))
                     remoteLines.forEach { l ->
-                        Text(l.ifEmpty { " " }, fontSize = 10.5.sp, fontFamily = FontFamily.Monospace, color = Color(0xFF0550AE), maxLines = 1, modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp))
+                        Text(l.ifEmpty { " " }, fontSize = 10.5.sp, fontFamily = FontFamily.Monospace, color = Primer.AccentText, maxLines = 1, modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp))
                     }
                 }
             }

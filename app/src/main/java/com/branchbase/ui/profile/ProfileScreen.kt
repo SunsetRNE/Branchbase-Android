@@ -59,6 +59,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import com.branchbase.ui.theme.color
+import com.branchbase.ui.theme.TintRole
 import com.branchbase.ui.theme.selectionColor
 import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
@@ -925,16 +927,16 @@ private fun EventRow(e: ActivityEvent) {
 private data class MoreBubbleItem(
     val label: String,
     val icon: ImageVector,
-    val tint: Color,
+    val tint: TintRole,
     val page: SubPage? = null,
     val danger: Boolean = false,
 )
 
 private val moreBubbleItems = listOf(
-    MoreBubbleItem("星标", Icons.Filled.Star, Primer.Orange500, SubPage.Stars),
-    MoreBubbleItem("项目", Icons.Filled.Dashboard, Primer.Purple500, SubPage.Projects),
-    MoreBubbleItem("任务", Icons.Filled.Timeline, Primer.Blue500, SubPage.Tasks),
-    MoreBubbleItem("设置", Icons.Filled.Settings, Primer.IconPrimary, SubPage.Settings),
+    MoreBubbleItem("星标", Icons.Filled.Star, TintRole.WARNING, SubPage.Stars),
+    MoreBubbleItem("项目", Icons.Filled.Dashboard, TintRole.DONE, SubPage.Projects),
+    MoreBubbleItem("任务", Icons.Filled.Timeline, TintRole.ACCENT, SubPage.Tasks),
+    MoreBubbleItem("设置", Icons.Filled.Settings, TintRole.NEUTRAL, SubPage.Settings),
 )
 
 /**
@@ -1068,7 +1070,7 @@ private fun ProfileBubbleNavigationBar(
                                     MoreBubbleRow(
                                         label = item.label,
                                         icon = item.icon,
-                                        tint = item.tint,
+                                        tint = item.tint.color(),
                                         onClick = {
                                             popupState.targetState = false
                                             onNavigate(item.page!!)

@@ -654,7 +654,7 @@ private fun PullCard(pull: PullResult) {
 private fun StatusBadge(pull: PullResult) {
     val (text, color) = when {
         pull.merged -> "Merged" to Color(0xFF8250DF)
-        pull.state == "open" -> "Open" to Color(0xFF1A7F37)
+        pull.state == "open" -> "Open" to Primer.SuccessText
         else -> "Closed" to Color(0xFFCF222E)
     }
     Text(
@@ -727,6 +727,7 @@ private fun fileIcon(path: String): ImageVector {
 }
 
 /** 构建带语法高亮的代码文本（匹配词 + 注释 + 字符串 + 关键字 + 函数 + 数字，对标 GitHub light theme） */
+@Composable
 private fun buildCodeText(fragment: String, matches: List<MatchRange>): AnnotatedString {
     return buildAnnotatedString {
         var i = 0

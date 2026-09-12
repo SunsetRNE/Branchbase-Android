@@ -643,6 +643,7 @@ private fun DetailEmptyText(text: String) {
 // ── 纯函数小工具 ──
 
 /** 状态点颜色：成功绿、失败红、取消/跳过灰、进行中橙。 */
+@Composable
 private fun runDotColor(status: String, conclusion: String?): Color = when (conclusion) {
     "success" -> Primer.Green500
     "failure", "timed_out", "startup_failure" -> Primer.Red500
@@ -655,6 +656,7 @@ private fun runDotColor(status: String, conclusion: String?): Color = when (conc
 }
 
 /** 注解等级色标：failure 红 / warning 橙 / 其它蓝。 */
+@Composable
 private fun annotationLevelColor(level: String): Color = when (level.lowercase()) {
     "failure" -> Primer.Red500
     "warning" -> Primer.Orange500

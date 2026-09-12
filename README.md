@@ -206,6 +206,42 @@ Branchbase/
 回弹第一次看是「活泼」、第十次就是「拖沓」；tween 的稳定节奏更适合高频交互。
 动画值尽量在 `graphicsLayer {}` 里读（只在绘制阶段消费），避免每帧重组。
 
+## 🌗 深色主题
+
+### 架构：色板 + 角色，而不是「一堆写死的颜色」
+
+| 层 | 文件 | 职责 |
+|----|------|------|
+| 色板 | `ui/theme/ThemePalette.kt` | `PrimerPalette`（语义**角色**）+ `LightPrimerPalette` / `DarkPrimerPalette` |
+| 门面 | `ui/theme/Color.kt` | `Primer.XXX` = 读当前色板的 `@Composable get()`，**调用点一行不用改** |
+| 主题 | `ui/theme/Theme.kt` | `ThemeMode`（跟随系统/浅色/深色）+ `BranchbaseTheme(mode)` + M3 角色映射 + 状态栏/窗口底色 |
+| 运行时 | `ui/theme/ThemeRuntime.kt` | 进程内 StateFlow：任何页面都能切主题，不必层层传参 |
+| 开关 | `LoginScreens.ThemeModeSwitch` / 设置 → 外观 | 太阳 / 月亮 / 自动 三态图标 |
+
+关键点：**`Primer.XXX` 的调用点完全没动**（1254 处）就跟着主题切换；
+真正需要改的只有 105 处「非 Composable 上下文」（顶层颜色表、`remember` 里取色、
+Canvas 绘制 lambda），它们改用 `TintRole` 角色表 / 在 composable 里pre-取色 / 参数传入。
+
+改造前项目里有 **282 处硬编码颜色**（`Color(0xFF…)` / `Color.White`），是「未声明的第二套色板」：
+在浅色页面上很自然，放进深色页面就是刺眼亮斑。现按三条规则收敛：
+彩色底 → `Primer.SuccessSurface` 等角色；白色面 → `Primer.BackgroundPrimary`；
+深色品牌小字 → `Primer.SuccessText` 等。
+
+### 深色下必须一起换的部分（Compose 管不到的）
+
+- **状态栏 / 导航栏图标明暗 + 窗口底色**：`BranchbaseTheme` 的 `SideEffect` 里跟着主题设置，
+  否则深色页面顶部会压一条白条；
+- **正文页的 WebView**：`github-markdown-light.css` 是浅色主题，深色时额外注入 `README_DARK_CSS`；
+- **沉浸式翻译的页面脚本**：`translate.css` 增加 `body.bb-dark` 段（译文卡片 / 浮动按钮），
+  `dark` 标记随设置注入给 `window.__bbTranslate`；
+- **代码高亮 / 贡献图**：`CodeSyntax` 与 `ProfileColors` 也是角色化的（深色用 GitHub dark 的语法色）。
+
+### 已知取舍
+
+- 启动瞬间（Compose 首帧前）窗口底色仍是系统主题，深色用户可能看到一帧浅色 —— 要彻底消除需要
+  在 `values-night` 里再放一份主题，代价是「用户手动锁浅色而系统是深色」时会反过来闪一下；
+- 少量一次性装饰色（如个别页面的临时徽标）仍是浅色硬编码，遇到时按上面的三条规则收角色。
+
 ## 🎨 配色与弹层（单一真源）
 
 所有颜色来自 `ui/theme/Color.kt` 的 `Primer` 色板（对齐 GitHub Primer），**不在调用处写死色值**。

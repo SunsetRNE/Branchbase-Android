@@ -135,7 +135,7 @@ fun EdgeNavigationBar(
         ) {
             Column(
                 modifier = Modifier
-                    .background(Color.White, RoundedCornerShape(16.dp))
+                    .background(Primer.BackgroundPrimary, RoundedCornerShape(16.dp))
                     .padding(8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {

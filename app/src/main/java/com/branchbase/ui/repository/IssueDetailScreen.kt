@@ -730,6 +730,7 @@ private fun IssueAppBar(
 
 private data class StatePill(val label: String, val color: Color)
 
+@Composable
 private fun statePillOf(d: IssueDetail): StatePill = when {
     d.isOpen -> StatePill("开启", Primer.Green500)
     d.stateReason == "not_planned" -> StatePill("已关闭（不计划实施）", Primer.Gray600)

@@ -212,6 +212,7 @@ private fun InfoRow(label: String, value: String, valueColor: Color = Primer.Tex
 }
 
 /** 严重级别 → 颜色（critical/high 红 · medium 橙 · 其余灰） */
+@Composable
 private fun severityColor(s: String): Color = when (s.lowercase()) {
     "critical", "high" -> Primer.Red500
     "medium", "moderate" -> Primer.Orange500

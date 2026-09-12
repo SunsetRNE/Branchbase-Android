@@ -11,7 +11,7 @@ import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import com.branchbase.ui.theme.Primer
+import com.branchbase.ui.theme.TintRole
 import org.json.JSONArray
 
 /**
@@ -60,9 +60,9 @@ data class Notification(
     // ── 派生字段 ──
     val kind: NotifKind,
     val icon: ImageVector,
-    val tint: Color,
+    val tint: TintRole,
     val reasonLabel: String,
-    val reasonColor: Color,
+    val reasonColor: TintRole,
     val owner: String,
     val repo: String,
     val targetNumber: Long?,        // issue/PR/run/release 编号
@@ -73,41 +73,41 @@ data class Notification(
 }
 
 /** subject.type → (kind, 图标, 语义色, 标签) */
-private data class TypeMeta(val kind: NotifKind, val icon: ImageVector, val tint: Color, val label: String)
+private data class TypeMeta(val kind: NotifKind, val icon: ImageVector, val tint: TintRole, val label: String)
 
 private val TYPE_META: Map<String, TypeMeta> = mapOf(
-    "Issue" to TypeMeta(NotifKind.MESSAGE, Icons.Filled.Adjust, Primer.Green500, "Issue"),
-    "PullRequest" to TypeMeta(NotifKind.MESSAGE, Icons.AutoMirrored.Filled.CallMerge, Primer.Purple500, "Pull Request"),
-    "Discussion" to TypeMeta(NotifKind.MESSAGE, Icons.Filled.Code, Primer.Blue500, "Discussion"),
-    "Release" to TypeMeta(NotifKind.MESSAGE, Icons.Filled.LocalOffer, Primer.Blue500, "Release"),
-    "Commit" to TypeMeta(NotifKind.MESSAGE, Icons.Filled.History, Primer.Gray600, "Commit"),
-    "CheckSuite" to TypeMeta(NotifKind.SERVICE, Icons.Filled.PlayCircle, Primer.Red500, "Workflow"),
-    "CheckRun" to TypeMeta(NotifKind.SERVICE, Icons.Filled.PlayCircle, Primer.Red500, "Workflow"),
-    "WorkflowRun" to TypeMeta(NotifKind.SERVICE, Icons.Filled.PlayCircle, Primer.Red500, "Workflow"),
-    "RepositoryVulnerabilityAlert" to TypeMeta(NotifKind.SERVICE, Icons.Filled.Warning, Primer.Red500, "Security"),
-    "RepositoryAdvisory" to TypeMeta(NotifKind.SERVICE, Icons.Filled.Warning, Primer.Red500, "Security"),
+    "Issue" to TypeMeta(NotifKind.MESSAGE, Icons.Filled.Adjust, TintRole.SUCCESS, "Issue"),
+    "PullRequest" to TypeMeta(NotifKind.MESSAGE, Icons.AutoMirrored.Filled.CallMerge, TintRole.DONE, "Pull Request"),
+    "Discussion" to TypeMeta(NotifKind.MESSAGE, Icons.Filled.Code, TintRole.ACCENT, "Discussion"),
+    "Release" to TypeMeta(NotifKind.MESSAGE, Icons.Filled.LocalOffer, TintRole.ACCENT, "Release"),
+    "Commit" to TypeMeta(NotifKind.MESSAGE, Icons.Filled.History, TintRole.NEUTRAL, "Commit"),
+    "CheckSuite" to TypeMeta(NotifKind.SERVICE, Icons.Filled.PlayCircle, TintRole.DANGER, "Workflow"),
+    "CheckRun" to TypeMeta(NotifKind.SERVICE, Icons.Filled.PlayCircle, TintRole.DANGER, "Workflow"),
+    "WorkflowRun" to TypeMeta(NotifKind.SERVICE, Icons.Filled.PlayCircle, TintRole.DANGER, "Workflow"),
+    "RepositoryVulnerabilityAlert" to TypeMeta(NotifKind.SERVICE, Icons.Filled.Warning, TintRole.DANGER, "Security"),
+    "RepositoryAdvisory" to TypeMeta(NotifKind.SERVICE, Icons.Filled.Warning, TintRole.DANGER, "Security"),
 )
 
-private val FALLBACK_TYPE = TypeMeta(NotifKind.MESSAGE, Icons.Filled.Adjust, Primer.Gray600, "Notification")
+private val FALLBACK_TYPE = TypeMeta(NotifKind.MESSAGE, Icons.Filled.Adjust, TintRole.NEUTRAL, "Notification")
 
 /** reason → (中文文案, 胶囊色) */
-private data class ReasonMeta(val label: String, val color: Color)
+private data class ReasonMeta(val label: String, val color: TintRole)
 
 private val REASON_META: Map<String, ReasonMeta> = mapOf(
-    "mention" to ReasonMeta("提到了你", Primer.Blue500),
-    "team_mention" to ReasonMeta("提到了你的团队", Primer.Blue500),
-    "review_requested" to ReasonMeta("请求你审查", Primer.Purple500),
-    "assign" to ReasonMeta("分配给了你", Primer.Orange500),
-    "security_alert" to ReasonMeta("安全警报", Primer.Red500),
-    "ci_activity" to ReasonMeta("CI 运行结果", Primer.Orange500),
-    "state_change" to ReasonMeta("状态更新", Primer.Green500),
-    "comment" to ReasonMeta("评论了", Primer.Gray500),
-    "subscribed" to ReasonMeta("你订阅的", Primer.Gray500),
-    "manual" to ReasonMeta("你订阅的", Primer.Gray500),
-    "author" to ReasonMeta("你创建的", Primer.Gray500),
+    "mention" to ReasonMeta("提到了你", TintRole.ACCENT),
+    "team_mention" to ReasonMeta("提到了你的团队", TintRole.ACCENT),
+    "review_requested" to ReasonMeta("请求你审查", TintRole.DONE),
+    "assign" to ReasonMeta("分配给了你", TintRole.WARNING),
+    "security_alert" to ReasonMeta("安全警报", TintRole.DANGER),
+    "ci_activity" to ReasonMeta("CI 运行结果", TintRole.WARNING),
+    "state_change" to ReasonMeta("状态更新", TintRole.SUCCESS),
+    "comment" to ReasonMeta("评论了", TintRole.NEUTRAL_SUBTLE),
+    "subscribed" to ReasonMeta("你订阅的", TintRole.NEUTRAL_SUBTLE),
+    "manual" to ReasonMeta("你订阅的", TintRole.NEUTRAL_SUBTLE),
+    "author" to ReasonMeta("你创建的", TintRole.NEUTRAL_SUBTLE),
 )
 
-private val FALLBACK_REASON = ReasonMeta("你订阅的", Primer.Gray500)
+private val FALLBACK_REASON = ReasonMeta("你订阅的", TintRole.NEUTRAL_SUBTLE)
 
 /** 从 subject.url 抽取编号/sha（如 `.../issues/42` → "42"，`.../commits/abc` → "abc"） */
 private fun extractNumber(url: String): Long? =

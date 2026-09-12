@@ -290,7 +290,7 @@ fun TaskScreen(onBack: () -> Unit) {
                 modifier
                     .clip(RoundedCornerShape(8.dp))
                     .border(1.dp, color, RoundedCornerShape(8.dp))
-                    .background(Color.White)
+                    .background(Primer.BackgroundPrimary)
                     .clickable { onClick() }
                     .padding(vertical = 10.dp),
                 contentAlignment = Alignment.Center,
@@ -307,7 +307,7 @@ fun TaskScreen(onBack: () -> Unit) {
                     .padding(horizontal = 16.dp, vertical = 4.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .border(1.dp, Primer.Border, RoundedCornerShape(10.dp))
-                    .background(Color.White)
+                    .background(Primer.BackgroundPrimary)
                     .clickable { onOpen() },
             ) {
                 Row(

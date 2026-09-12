@@ -93,6 +93,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.branchbase.ui.theme.color
 import com.branchbase.ui.theme.shimmerAlpha
 import com.branchbase.ui.theme.revealExit
 import com.branchbase.ui.theme.revealEnter
@@ -1240,10 +1241,10 @@ private fun NotificationRow(
                             modifier = Modifier
                                 .size(32.dp)
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(n.tint.copy(alpha = 0.12f)),
+                                .background(n.tint.color().copy(alpha = 0.12f)),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(n.icon, contentDescription = n.subjectType, tint = n.tint, modifier = Modifier.size(18.dp))
+                            Icon(n.icon, contentDescription = n.subjectType, tint = n.tint.color(), modifier = Modifier.size(18.dp))
                         }
                     }
                     Spacer(Modifier.width(10.dp))
@@ -1294,11 +1295,11 @@ private fun NotificationRow(
                                 n.reasonLabel,
                                 fontSize = 10.5.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = n.reasonColor,
+                                color = n.reasonColor.color(),
                                 maxLines = 1,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(9.dp))
-                                    .background(n.reasonColor.copy(alpha = 0.12f))
+                                    .background(n.reasonColor.color().copy(alpha = 0.12f))
                                     .padding(horizontal = 7.dp, vertical = 1.dp),
                             )
                             Spacer(Modifier.width(6.dp))
@@ -1542,10 +1543,10 @@ private fun NotifActionSheet(
         Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.Top) {
                 Box(
-                    Modifier.size(32.dp).clip(RoundedCornerShape(8.dp)).background(target.tint.copy(alpha = 0.12f)),
+                    Modifier.size(32.dp).clip(RoundedCornerShape(8.dp)).background(target.tint.color().copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(target.icon, null, tint = target.tint, modifier = Modifier.size(18.dp))
+                    Icon(target.icon, null, tint = target.tint.color(), modifier = Modifier.size(18.dp))
                 }
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {

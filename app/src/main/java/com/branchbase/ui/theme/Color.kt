@@ -1,89 +1,135 @@
 package com.branchbase.ui.theme
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.graphics.Color
 
 /**
- * GitHub Primer 设计体系色板（对齐逆向得到的官方色值）。
+ * 语义色门面（**所有 UI 颜色的唯一入口**）。
+ *
+ * ## 它是怎么支持深色模式的
+ *
+ * 每个属性都是「读当前主题色板」的 `@Composable get()`（[LocalPrimerPalette]）。
+ * 因此**调用点一行都不用改**：`Primer.TextPrimary` 在浅色下是 #050505、深色下是 #E6EDF3。
+ * 这也是为什么颜色必须集中在 `Primer` 里 —— 散落的 `Color(0xFF…)` 没有「当前主题」这个概念，
+ * 深色模式下只能逐个手改（改造时项目里有 282 处）。
+ *
+ * ## 三条使用约束
+ *
+ * 1. 只能在 `@Composable` 里读（`remember {}` 内部、普通函数、顶层属性初始化都不行）——
+ *    需要那种场景时，把颜色作为参数传进去，或在 composable 里读出来再传；
+ * 2. **只做 stroke 的别拿去当填充**：`Border` 是描边色，填充请用中性填充色；
+ * 3. 新增颜色先看 [PrimerPalette] 的角色表 —— 大部分需求是「换一个角色」，不是加一个色值。
+ *
+ * 品牌调色板（Gray* / Blue* / 状态色）保留原名字是为了不动既有调用点；
+ * 它们的取值同样来自主题色板，所以深色下会自动换成对应的深色阶。
  */
 object Primer {
-    // 品牌主色
-    val Blue500 = Color(0xFF0969DA)
-    val Blue600 = Color(0xFF005CC5)
-    val Blue400 = Color(0xFF2188FF)
 
-    // 中性灰
-    val Gray000 = Color(0xFFFFFFFF)
-    val Gray100 = Color(0xFFF7F7F9)
-    val Gray150 = Color(0xFFEFF0F5)
-    val Gray200 = Color(0xFFE3E4E8)
-    val Gray300 = Color(0xFFBFC1C9)
-    val Gray500 = Color(0xFF6A6D7C)
-    val Gray600 = Color(0xFF525560)
-    val Gray700 = Color(0xFF41434E)
-    val Gray900 = Color(0xFF17181C)
-    val Gray1000 = Color(0xFF050505)
+    // ── 品牌主色（填充 / 文字链接分开，见 PrimerPalette 的说明）──
+    /** 主色：**填充**用（按钮底、选中胶囊）。 */
+    val Blue500: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.accent
 
-    // 状态色
-    val Green500 = Color(0xFF28A745)
-    val Green100 = Color(0xFFDCFFE4)
-    val Red500 = Color(0xFFD73A49)
-    val Red100 = Color(0xFFFFDCE0)
-    val Orange500 = Color(0xFFF66A0A)
-    val Purple500 = Color(0xFF6F42C1)
+    /** 主色深一档：选中胶囊上的图标 / 文字。 */
+    val Blue600: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.accentStrong
 
-    // 语义色
-    val BackgroundPrimary = Color(0xFFFFFFFF)
-    val BackgroundSecondary = Color(0xFFFFFFFF)
-    val TextPrimary = Color(0xFF050505)
-    val TextSecondary = Color(0xFF41434E)
-    val TextTertiary = Color(0xFF6A6D7C)
-    val IconPrimary = Color(0xFF525560)
-    val IconSecondary = Color(0xFF9194A1)
-    val Border = Color(0xFFBFC1C9)
+    val Blue400: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.accentSoft
+
+    /** 链接/正文里的蓝（深色下比填充蓝更亮，才读得清）。 */
+    val Link: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.link
+
+    // ── 中性色阶 ──
+    /** 纯白（深色下仍为白：用在彩色填充上的文字）。 */
+    val Gray000: Color = Color(0xFFFFFFFF)
+
+    val Gray100: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.neutralFill
+    val Gray150: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.neutralFillStrong
+    val Gray200: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.neutralBorder
+    val Gray300: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.neutralMuted
+    val Gray500: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.neutralTextLight
+    val Gray600: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.neutralText
+    val Gray700: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.neutralTextStrong
+
+    /** 高强调填充（浅色=深底白字；深色=浅底深字，配套用 [OnEmphasis]）。 */
+    val Gray900: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.emphasisFill
+    val Gray1000: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.emphasisFill
+
+    /** 高强调填充上的文字色（**必须与 [Gray900] 成对使用**）。 */
+    val OnEmphasis: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.emphasisOnFill
+
+    // ── 状态色 ──
+    val Green500: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.success
+    val Green100: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.successSubtle
+    val Red500: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.danger
+    val Red100: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.dangerSubtle
+    val Orange500: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.warning
+    val Purple500: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.done
+
+    // ── 语义色 ──
+    /** 页面底。 */
+    val BackgroundPrimary: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.canvas
+
+    /** 导航栏 / 卡片 / 弹层底（深色下与页面底有层次差）。 */
+    val BackgroundSecondary: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.canvasSubtle
+
+    val TextPrimary: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.textPrimary
+    val TextSecondary: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.textSecondary
+    val TextTertiary: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.textTertiary
+    val IconPrimary: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.iconPrimary
+    val IconSecondary: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.iconSecondary
+
+    /** 描边色（**只用于 border/stroke**，不要当填充）。 */
+    val Border: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.border
+
+    // ── 浅底彩块（chip / 横幅底；深色下自动压暗）──
+    val SuccessSurface: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.successSurface
+    val SuccessSurfaceSoft: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.successSurfaceSoft
+    val DangerSurface: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.dangerSurface
+    val DangerSurfaceSoft: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.dangerSurfaceSoft
+    val InfoSurface: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.infoSurface
+    val InfoSurfaceStrong: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.infoSurfaceStrong
+    val InfoSurfaceSoft: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.infoSurfaceSoft
+    val SelectedRow: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.selectedRow
+    val WarningSurface: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.warningSurface
+
+    // ── 品牌文字色（小字标签用；深色下自动提亮）──
+    val SuccessText: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.successText
+    val SuccessTextStrong: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.successTextStrong
+    val AccentText: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.accentText
+    val WarningText: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.warningText
+    val WarningTextStrong: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.warningTextStrong
 }
 
 /**
- * 代码搜索本地渲染专用色板（对标 GitHub 网页 light theme 代码高亮）。
- *
- * 用于 `SearchScreen` 代码结果卡片的本地解析渲染。
- * 与 `Primer`（品牌/语义色）分离，避免污染全局色板。
+ * 代码搜索本地渲染专用色板（对标 GitHub 网页 light/dark 代码高亮）。
  */
 object CodeSyntax {
-    /** 匹配词高亮（黄底，文字保持原色） */
-    val MatchBg = Color(0xFFFFF8C5)
-    /** 关键字 keyword（红） */
-    val Keyword = Color(0xFFCF222E)
-    /** 字符串 string（蓝） */
-    val StringLit = Color(0xFF0A3069)
-    /** 注释 comment（灰） */
-    val Comment = Color(0xFF6A737D)
-    /** 函数/标识符 fn（紫） */
-    val Function = Color(0xFF8250DF)
-    /** 数字 number（蓝） */
-    val Number = Color(0xFF0550AE)
-    /** 行号（浅灰） */
-    val LineNo = Color(0xFFC0C6CC)
-    /** 代码块/卡片头背景（浅灰） */
-    val CodeBg = Color(0xFFF6F8FA)
-    /** 代码卡片边框 */
-    val CardBorder = Color(0xFFD0D7DE)
+    val MatchBg: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.code.matchBg
+    val Keyword: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.code.keyword
+    val StringLit: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.code.string
+    val Comment: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.code.comment
+    val Function: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.code.function
+    val Number: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.code.number
+    val LineNo: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.code.lineNo
+    val CodeBg: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.code.bg
+    val CardBorder: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.code.border
 }
 
 /**
  * Profile 个人主页贡献可视化专用色板（贡献图绿阶）。
- * 用于 Activity 页贡献图 / 进度条的本地渲染。
  */
 object ProfileColors {
-    /** 贡献图 5 级绿阶（无贡献 → 高贡献） */
-    val ContributionL0 = Color(0xFFEBEDF0)
-    val ContributionL1 = Color(0xFF9BE9A8)
-    val ContributionL2 = Color(0xFF40C463)
-    val ContributionL3 = Color(0xFF30A14E)
-    val ContributionL4 = Color(0xFF216E39)
+    val ContributionL0: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.contribution.l0
+    val ContributionL1: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.contribution.l1
+    val ContributionL2: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.contribution.l2
+    val ContributionL3: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.contribution.l3
+    val ContributionL4: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.contribution.l4
 }
 
 /**
  * 编程语言语义色（搜索页、Profile 页共用）。
+ *
+ * 这些是**语言品牌色**，明暗下都成立（GitHub 两种主题用的是同一套），因此不随主题切换。
  */
 object LanguageColors {
     fun of(lang: String?): Color = when (lang) {

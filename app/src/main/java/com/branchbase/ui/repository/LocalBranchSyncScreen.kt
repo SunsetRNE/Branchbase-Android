@@ -401,7 +401,7 @@ private fun LocalBranchRow(
                 color = when (state) {
                     SyncState.Synced -> Primer.Green500
                     SyncState.Ahead -> Primer.Blue500
-                    SyncState.Behind -> Color(0xFF9A6700)
+                    SyncState.Behind -> Primer.WarningText
                     SyncState.Diverged -> Primer.Red500
                     SyncState.Untracked -> Primer.TextTertiary
                 },

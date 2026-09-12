@@ -38,8 +38,14 @@ private val CELL = 10.dp
 private val GAP = 2.dp
 private val COL_STEP = 12.dp
 
-/** 5 级绿阶（复用既有 ProfileColors，与动态页热力图保持一致）。 */
-private val LEVELS = listOf(
+/**
+ * 5 级绿阶（复用既有 ProfileColors，与动态页热力图保持一致）。
+ *
+ * 必须**在 composable 里现取**：主题色只能在 @Composable 上下文读，
+ * 而 Canvas 的绘制 lambda 不是 composable 上下文，所以要在外面取成局部值再传进去。
+ */
+@Composable
+private fun contributionLevels(): List<Color> = listOf(
     ProfileColors.ContributionL0,
     ProfileColors.ContributionL1,
     ProfileColors.ContributionL2,
@@ -97,6 +103,9 @@ fun ContributionWall(
 
             else -> {
                 val monthLabels = remember(calendar) { monthLabelsOf(weeks) }
+                // Canvas 的绘制 lambda 不是 composable 上下文，主题色必须在这里先取好
+                val levels = contributionLevels()
+                val selectedColor = Primer.TextPrimary
                 Row(Modifier.padding(horizontal = 16.dp)) {
                     // 星期标签（固定列，不随网格滚动）
                     Column(Modifier.padding(top = 16.dp)) {
@@ -140,7 +149,6 @@ fun ContributionWall(
                             val c = CELL.toPx()
                             val g = GAP.toPx()
                             val radius = CornerRadius(2.dp.toPx())
-                            val levels = LEVELS
                             weeks.forEachIndexed { wi, week ->
                                 week.forEachIndexed { di, day ->
                                     val topLeft = Offset(wi * (c + g), di * (c + g))
@@ -152,7 +160,7 @@ fun ContributionWall(
                                     )
                                     if (selectedDate != null && day.date == selectedDate) {
                                         drawRoundRect(
-                                            color = Primer.TextPrimary,
+                                            color = selectedColor,
                                             topLeft = topLeft,
                                             size = Size(c, c),
                                             cornerRadius = radius,
@@ -187,7 +195,7 @@ fun ContributionWall(
                     )
                     Spacer(Modifier.weight(1f))
                     Text("少", fontSize = 9.5.sp, color = Primer.TextTertiary)
-                    LEVELS.forEach { c ->
+                    contributionLevels().forEach { c ->
                         Spacer(Modifier.width(3.dp))
                         Box(Modifier.width(10.dp).height(10.dp).clip(RoundedCornerShape(2.dp)).background(c))
                     }

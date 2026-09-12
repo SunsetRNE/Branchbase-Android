@@ -102,3 +102,37 @@ body[data-bb-style="plain"] .bb-tr {
   opacity: 1;
   transform: translateY(0);
 }
+
+/* ── 深色主题（body.bb-dark，由设置注入的 dark 标记控制）──
+   浅色那套放在深底上不是刺眼就是看不清，这里整段覆盖；选择器都带 body.bb-dark
+   以保证优先级，不必给浅色规则加 :not()。 */
+body.bb-dark {
+  color-scheme: dark;
+}
+
+body.bb-dark .bb-tr,
+body.bb-dark[data-bb-style="card"] .bb-tr {
+  border-left-color: #2f81f7;
+  background: #161b22;
+  color: #c9d1d9;
+}
+
+body.bb-dark[data-bb-style="underline"] .bb-tr {
+  border-bottom-color: #484f58;
+  background: transparent;
+}
+
+body.bb-dark[data-bb-style="plain"] .bb-tr {
+  color: #8b949e;
+}
+
+body.bb-dark #bb-tr-btn {
+  border-color: #30363d;
+  background: #21262d;
+  color: #2f81f7;
+}
+
+body.bb-dark #bb-tr-tip {
+  background: rgba(230, 237, 243, .92);
+  color: #0d1117;
+}

@@ -255,8 +255,8 @@ private val INLINE_TOKEN = Regex(
  */
 fun inlineMarkdown(
     text: String,
-    linkColor: Color = Primer.Blue500,
-    codeBg: Color = Primer.Gray150,
+    linkColor: Color = Color.Unspecified,
+    codeBg: Color = Color.Unspecified,
 ): AnnotatedString = buildAnnotatedString {
     var i = 0
     while (i <= text.length) {
@@ -333,14 +333,14 @@ fun MarkdownBody(
         blocks.forEachIndexed { index, block ->
             when (block) {
                 is MdBlock.Paragraph -> Text(
-                    inlineMarkdown(block.text),
+                    inlineMarkdown(block.text, linkColor = Primer.Link, codeBg = Primer.Gray150),
                     fontSize = 13.5.sp,
                     lineHeight = 21.sp,
                     color = Primer.TextPrimary,
                 )
 
                 is MdBlock.Heading -> Text(
-                    inlineMarkdown(block.text),
+                    inlineMarkdown(block.text, linkColor = Primer.Link, codeBg = Primer.Gray150),
                     fontSize = when (block.level) {
                         1, 2 -> 16.sp
                         3 -> 15.sp
@@ -376,7 +376,7 @@ fun MarkdownBody(
                     }
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        inlineMarkdown(block.text),
+                        inlineMarkdown(block.text, linkColor = Primer.Link, codeBg = Primer.Gray150),
                         fontSize = 13.5.sp,
                         lineHeight = 21.sp,
                         color = if (block.checked) Primer.TextTertiary else Primer.TextPrimary,
@@ -388,7 +388,7 @@ fun MarkdownBody(
                     Box(Modifier.width(3.dp).height(IntrinsicHeightMin).background(Primer.Gray200))
                     Spacer(Modifier.width(10.dp))
                     Text(
-                        inlineMarkdown(block.text),
+                        inlineMarkdown(block.text, linkColor = Primer.Link, codeBg = Primer.Gray150),
                         fontSize = 13.sp,
                         lineHeight = 20.sp,
                         color = Primer.TextSecondary,
@@ -417,7 +417,7 @@ private fun BulletRow(marker: String, content: String) {
             modifier = Modifier.width(20.dp),
         )
         Text(
-            inlineMarkdown(content),
+            inlineMarkdown(content, linkColor = Primer.Link, codeBg = Primer.Gray150),
             fontSize = 13.5.sp,
             lineHeight = 21.sp,
             color = Primer.TextPrimary,

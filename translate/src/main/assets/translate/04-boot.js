@@ -50,6 +50,8 @@
 
   function applyDisplayMode() {
     document.body.classList.add('bb-tr-on');
+    // 深色主题：译文卡片与浮动按钮换成深色配色（样式在 translate.css 的 body.bb-dark 段）
+    document.body.classList.toggle('bb-dark', IT.cfg.dark === true);
     // 仅译文模式：由 CSS 隐藏原文块（.bb-tr-src），译文容器保持可见
     document.body.classList.toggle('bb-tr-only', !state.dual);
     var style = IT.cfg.style || 'card';
@@ -93,6 +95,7 @@
 
   function boot() {
     document.body.setAttribute('data-bb-style', IT.cfg.style || 'card');
+    document.body.classList.toggle('bb-dark', IT.cfg.dark === true);
     var saved = storage(function () { return localStorage.getItem(ON_KEY); });
     if (state.auto || saved === '1') on();
     else IT.ui.refresh();

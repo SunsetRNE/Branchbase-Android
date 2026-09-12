@@ -66,7 +66,7 @@ internal fun CommitModePickerDialog(
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .background(if (selected == m) Color(0xFFF0FFF4) else Color.Transparent)
+                            .background(if (selected == m) Primer.SuccessSurface else Color.Transparent)
                             .clickable { selected = m }
                             .padding(vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,

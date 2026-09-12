@@ -128,6 +128,7 @@ internal fun stateLabelOf(state: String): String = when (state.lowercase()) {
     else -> state
 }
 
+@Composable
 internal fun stateColor(state: String): Color = when (state) {
     "open" -> Primer.Green500
     "closed" -> Primer.Red500
@@ -666,7 +667,7 @@ private fun ReleaseRow(item: ReleaseItem, onClick: () -> Unit) {
                     Text(
                         "草稿",
                         fontSize = 10.sp,
-                        color = Color(0xFF9A6700),
+                        color = Primer.WarningText,
                         modifier = Modifier.clip(RoundedCornerShape(6.dp))
                             .background(Color(0xFFFFF8E5)).padding(horizontal = 6.dp, vertical = 1.dp),
                     )
@@ -678,7 +679,7 @@ private fun ReleaseRow(item: ReleaseItem, onClick: () -> Unit) {
                         fontSize = 10.sp,
                         color = Color(0xFF0A4E9B),
                         modifier = Modifier.clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFFE6F1FF)).padding(horizontal = 6.dp, vertical = 1.dp),
+                            .background(Primer.InfoSurfaceSoft).padding(horizontal = 6.dp, vertical = 1.dp),
                     )
                 }
             }

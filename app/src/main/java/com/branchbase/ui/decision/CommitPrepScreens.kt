@@ -98,7 +98,7 @@ internal fun StageCommitScreen(
             Text(
                 "⚠ 未选择提交模式 · 提交时将询问。确定后固化到本地配置，可随时在设置中更改。",
                 fontSize = 12.sp,
-                color = Color(0xFF7D4C00),
+                color = Primer.WarningTextStrong,
                 lineHeight = 18.sp,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -183,9 +183,9 @@ internal fun StageCommitScreen(
 @Composable
 private fun StatusChip(status: String) {
     val (fg, bg) = when (status) {
-        "A" -> Color(0xFF005CC5) to Color(0xFFE3F0FF)
-        "D" -> Color(0xFFCF222E) to Color(0xFFFFEBEC)
-        else -> Color(0xFF176F2C) to Color(0xFFEAF9F0)
+        "A" -> Color(0xFF005CC5) to Primer.InfoSurfaceStrong
+        "D" -> Color(0xFFCF222E) to Primer.DangerSurface
+        else -> Primer.SuccessTextStrong to Primer.SuccessSurfaceSoft
     }
     Text(
         status,
@@ -305,7 +305,7 @@ fun SensitiveWarningScreen(
                             Text("第 ${h.line} 行", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.Red500)
                             Text(h.mask, fontSize = 11.sp, color = Primer.Red500, fontFamily = FontFamily.Monospace, maxLines = 1)
                         }
-                        Text(h.kind, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Primer.Red500, modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Color(0xFFFFEBEC)).padding(horizontal = 6.dp, vertical = 2.dp))
+                        Text(h.kind, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Primer.Red500, modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Primer.DangerSurface).padding(horizontal = 6.dp, vertical = 2.dp))
                     }
                 }
             }
@@ -387,7 +387,7 @@ fun DraftRecoverScreen(
             FactRow(
                 "sha 对比",
                 if (drafts.any { it.remoteChanged }) "远端已变化（存在多端编辑冲突）" else "远端未变化（可安全恢复编辑）",
-                rightColor = if (drafts.any { it.remoteChanged }) Color(0xFF9A6700) else Primer.TextTertiary,
+                rightColor = if (drafts.any { it.remoteChanged }) Primer.WarningText else Primer.TextTertiary,
             )
         }
 

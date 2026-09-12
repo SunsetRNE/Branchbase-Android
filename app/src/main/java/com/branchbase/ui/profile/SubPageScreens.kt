@@ -31,6 +31,9 @@ import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.BrightnessAuto
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Folder
@@ -48,6 +51,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -81,6 +85,8 @@ import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.LanguageColors
 import com.branchbase.ui.theme.AppIcon
 import com.branchbase.ui.theme.Primer
+import com.branchbase.ui.theme.ThemeMode
+import com.branchbase.ui.theme.ThemeRuntime
 import com.branchbase.ui.task.TaskKind
 import com.branchbase.ui.task.TaskStore
 import com.branchbase.ui.decision.AuthorIdentityScreen
@@ -319,7 +325,7 @@ private fun StarredRepoCard(repo: RepoItem, onClick: () -> Unit) {
             Modifier.clip(RoundedCornerShape(6.dp)).background(Color(0xFFFFF8C5)).border(1.dp, Color(0xFFD4A72C), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 3.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text("已星标", fontSize = 12.sp, color = Color(0xFF9A6700))
+            Text("已星标", fontSize = 12.sp, color = Primer.WarningText)
         }
     }
 }
@@ -464,6 +470,18 @@ fun SettingsScreen(onBack: () -> Unit, onOpenLocalRepo: () -> Unit, onOpenAbout:
         SettingsSectionTitle("账号")
         SettingsItem(Icons.Filled.AccountCircle, "账号管理", onClick = onOpenAccounts)
 
+        SettingsSectionTitle("外观")
+        SettingsItem(
+            icon = when (ThemeRuntime.mode.collectAsState().value) {
+                ThemeMode.SYSTEM -> Icons.Filled.BrightnessAuto
+                ThemeMode.LIGHT -> Icons.Filled.LightMode
+                ThemeMode.DARK -> Icons.Filled.DarkMode
+            },
+            name = "主题",
+            value = ThemeRuntime.mode.collectAsState().value.label,
+            onClick = { ThemeRuntime.cycle(context) },
+        )
+
         SettingsSectionTitle("其他")
         SettingsItem(Icons.Filled.Notifications, "通知", onClick = onOpenNotificationSettings)
         SettingsItem(Icons.Filled.Translate, "沉浸式翻译", onClick = onOpenTranslate)
@@ -572,7 +590,7 @@ internal fun ModeOptionRow(label: String, desc: String, selected: Boolean, onCli
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(selectionColor(selected, on = Color(0xFFF0FFF4)))
+            .background(selectionColor(selected, on = Primer.SuccessSurface))
             .clickable { onClick() }
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.Top,
@@ -1583,7 +1601,7 @@ private fun BuildVerifyBanner(
             "正在校验…",
             "读取本地签名指纹，并拉取远端校验文件",
             Primer.Blue500,
-            Color(0xFFF0F7FF),
+            Primer.InfoSurface,
             Color(0xFFCFE3F7),
         )
         BuildVerifyState.LocalBuild -> BannerStyle(
@@ -1596,15 +1614,15 @@ private fun BuildVerifyBanner(
         BuildVerifyState.RemoteUnavailable -> BannerStyle(
             "无法完成远端校验",
             "取不到远端校验文件：网络不可达，或该分支尚未发布校验文件",
-            Color(0xFF9A6700),
+            Primer.WarningText,
             Color(0xFFFFF8E5),
             Color(0xFFF2D08A),
         )
         BuildVerifyState.Matched -> BannerStyle(
             "✓ 签名与远端一致",
             "本地 APK 签名 = 远端${variant.label}校验文件（${fingerprintShort(localFingerprint)}）",
-            Color(0xFF176F2C),
-            Color(0xFFF0FFF4),
+            Primer.SuccessTextStrong,
+            Primer.SuccessSurface,
             Color(0xFFD4E9D6),
         )
         BuildVerifyState.Mismatched -> BannerStyle(

@@ -3,6 +3,9 @@ package com.branchbase
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import com.branchbase.ui.theme.ThemeRuntime
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.auth.LoginFlow
 import com.branchbase.ui.log.LogManager
@@ -60,8 +63,12 @@ class MainActivity : ComponentActivity() {
         // 解析 OAuth 深链回调
         handleDeepLink(intent)
 
+        // 主题档位在启动时同步一次；之后由 ThemeRuntime 驱动（开关无需层层传参）
+        ThemeRuntime.init(applicationContext)
+
         setContent {
-            BranchbaseTheme {
+            val themeMode by ThemeRuntime.mode.collectAsState()
+            BranchbaseTheme(mode = themeMode) {
                 LoginFlow()
             }
         }

@@ -56,8 +56,8 @@ fun DecisionOptionRow(
     onSelect: () -> Unit,
 ) {
     val bg = when {
-        selected && tag == OptionTag.DANGER -> Color(0xFFFFF1F2)
-        selected -> Color(0xFFF0FFF4)
+        selected && tag == OptionTag.DANGER -> Primer.DangerSurfaceSoft
+        selected -> Primer.SuccessSurface
         else -> Color.Transparent
     }
     Row(
@@ -94,7 +94,7 @@ fun DecisionOptionRow(
                 Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
                 when (tag) {
                     OptionTag.RECOMMENDED -> OptionTagChip("推荐", Primer.Green500, Color(0xEAF9F0))
-                    OptionTag.DANGER -> OptionTagChip("危险", Primer.Red500, Color(0xFFFFEBEC))
+                    OptionTag.DANGER -> OptionTagChip("危险", Primer.Red500, Primer.DangerSurface)
                     OptionTag.NONE -> Unit
                 }
             }
@@ -136,7 +136,7 @@ fun DangerConfirmCard(
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xFFFFF1F2))
+            .background(Primer.DangerSurfaceSoft)
             .border(1.dp, Primer.Red500, RoundedCornerShape(8.dp))
             .padding(12.dp),
     ) {

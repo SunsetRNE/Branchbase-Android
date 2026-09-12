@@ -121,7 +121,7 @@ private fun GuideOption(mode: CommitMode, selected: Boolean, onClick: () -> Unit
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(if (selected) Color(0xFFF0FFF4) else Color.Transparent)
+            .background(if (selected) Primer.SuccessSurface else Color.Transparent)
             .clickable { onClick() }
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.Top,
