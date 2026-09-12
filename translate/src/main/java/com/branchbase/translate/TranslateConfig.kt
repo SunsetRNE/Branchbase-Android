@@ -15,7 +15,7 @@ import org.json.JSONObject
  *   不触发重翻、也不用重建 WebView；
  * - [target]：只做中英两向（源语言由目标反推，见 [TranslateLang]），不引入语言选择器的复杂度；
  * - [enabled]：**默认关**。开启意味着打开任意正文页都会自动发翻译请求（消耗额度、
- *   弱网下还拖首屏）；默认关 + 页内右下角「译」按钮手动触发，把决定权交给用户。
+ *   弱网下还拖首屏）；默认关 + 页面上的悬浮球手动触发，把决定权交给用户。
  *
  * **后端与凭据**（见 [TranslateProvider]）：
  * - [provider]：MyMemory（免费，默认）或 DeepSeek（自带 Key）；
@@ -59,7 +59,8 @@ data class TranslateConfig(
      * 传给 Rust 后端的选项 JSON（`core/src/translate/mod.rs::Options`）。
      *
      * 与 [TranslateSettings.pageConfigJson] 严格分开：那份会**注入到 WebView 页面**里，
-     * 这份含 API Key，只走 JNI。两者的字段集合刻意不重叠，避免哪天顺手合并时泄密。
+     * 这份含 API Key，只走 JNI。**凭据类字段（apiKey / model / baseUrl）绝不出现在页面注入里**。
+     * 页面注入只多一个非机密的 `provider` 代号，用于悬浮面板显示「当前用的是哪家服务」。
      */
     fun engineOptionsJson(): String = JSONObject()
         .put("provider", providerKind.code)
@@ -175,7 +176,8 @@ object TranslateSettings {
      *
      * 页面是 GitHub 的 HTML（含仓库里的第三方脚本可能影响的作用域）+
      * `addJavascriptInterface` 暴露的桥；把 Key 注入进去等于把它交给页面。
-     * 因此注入字段只有「页面真正需要的阅读体验」，凭据只走 JNI
+     * 因此注入字段只有「页面真正需要的阅读体验」+ 一个非机密的 `provider` 代号
+     * （悬浮面板要显示当前用的是哪家服务），凭据只走 JNI
      * （见 [TranslateConfig.engineOptionsJson]）。有单测钉住这条边界。
      *
      * 用 `JSONObject` 而不是字符串拼接：`to` 将来若变成用户填的语言码，
@@ -192,6 +194,8 @@ object TranslateSettings {
         .put("dual", config.dual)
         .put("style", config.style)
         .put("protect", config.protect)
+        .put("persist", config.persist)
+        .put("provider", config.providerKind.code)
         .put("rules", JSONObject(PageRules.DEFAULT.toJson()))
         .toString()
 

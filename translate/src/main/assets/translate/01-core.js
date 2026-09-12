@@ -43,9 +43,27 @@
     to: CFG.to || 'zh-CN',
     dual: CFG.dual !== false,     // true = 原文+译文对照；false = 仅译文
     engine: 'ok',                 // 原生侧状态：ok | quota | paused
+    failed: false,
     busy: false,
     count: 0,                     // 已插入的译文段数
     emptyRuns: 0,
+    // 本页是否「有东西可翻」：由 IT.dom.candidates() 在启动/重扫后刷新。
+    // 悬浮球只在需要它的页面出现（没有候选段落就不占屏幕）。
+    hasContent: false,
+    candidates: { count: 0, chars: 0 },
+    // 快捷设置面板上的开关都以这里为准，改动即时生效并回写原生设置（见 pref()）
+    settings: {
+      enabled: CFG.enabled === true,
+      dual: CFG.dual !== false,
+      style: CFG.style || 'card',
+      target: CFG.to || 'zh-CN',
+      persist: CFG.persist !== false,
+      protect: CFG.protect !== false
+    },
+    // 正文在屏幕上的可见带（文档坐标，CSS px），由原生侧推送（见 viewport()）。
+    // ready=false 表示还没拿到几何（老原生 / 推送失败），此时悬浮球退回 fixed 定位。
+    view: { top: 0, bottom: 0, ready: false, listeners: [] },
+    longPage: false,              // 整页候选文本超过 immediateLimit（见 05-boot.js）
     seq: 0,
     callbacks: {},
     queue: [],
@@ -120,7 +138,7 @@
   };
 
   // 原生侧每批结束后回推状态：额度用尽 / Key 无效 / 连续失败暂停 / 正常
-  // （04-boot.js 之前（脚本还在解析中）也可能被回调，所以对 IT.ui 做一次存在性保护）
+  // （05-boot.js 之前（脚本还在解析中）也可能被回调，所以对 IT.ui 做一次存在性保护）
   window.__bbTranslateStatus = function (engineState) {
     var prev = state.engine;
     state.engine = engineState || 'ok';
@@ -133,6 +151,59 @@
     }
     IT.ui.refresh();
   };
+
+  /* ───────────── 快捷设置（面板改动 → 原生落盘） ───────────── */
+
+  /**
+   * 写入一项设置。
+   *
+   * 为什么不让页面自己记（localStorage）：设置页（设置 → 沉浸式翻译）才是权威，
+   * 页面另存一份就会出现「面板里是仅译文、设置页里是对照」的双真源。
+   * 因此这里改完立刻把**白名单里的键**回写原生（Kotlin 侧再校验一次），
+   * 下一次进正文页拿到的就是同一份配置。
+   *
+   * 原生桥缺失（老版本 App）时只更新页内状态：功能降级为「本次会话有效」。
+   */
+  function pref(key, value) {
+    if (!Object.prototype.hasOwnProperty.call(state.settings, key)) return;
+    var v = String(value);
+    state.settings[key] = (v === '1' || v === 'true') ? true
+      : (v === '0' || v === 'false') ? false : v;
+    try {
+      if (window.BBTranslate && window.BBTranslate.pref) window.BBTranslate.pref(key, v);
+    } catch (e) { /* 老原生没有这个方法：页内已生效，够用 */ }
+  }
+
+  /* ───────────── 可见视口（原生 → 页面） ───────────── */
+
+  /**
+   * 原生侧把「正文在屏幕上真正可见的那一段」推过来（文档坐标，CSS px）。
+   *
+   * 正文 WebView 的高度等于整篇内容高度（App 侧按内容撑开，外层由原生列表滚动），
+   * 所以 CSS 的 `position: fixed` 其实是钉在**整篇文章**的右下角而不是屏幕右下角
+   * —— 长文章里悬浮球会跑到文末去。悬浮球/面板因此改用绝对定位，
+   * 位置由这条通道给出的可见带决定。
+   *
+   * @param top    可见带上沿（文档 y）
+   * @param bottom 可见带下沿（文档 y，已扣掉底部导航条的安全区）。
+   *   `bottom == top` 是合法输入：表示正文整体滚出了屏幕，页面据此收起悬浮控件。
+   */
+  function viewport(top, bottom) {
+    var t = Number(top), b = Number(bottom);
+    if (!isFinite(t) || !isFinite(b) || b < t) return;
+    var v = state.view;
+    if (v.ready && Math.abs(t - v.top) < 0.5 && Math.abs(b - v.bottom) < 0.5) return;
+    v.top = t;
+    v.bottom = b;
+    v.ready = true;
+    for (var i = 0; i < v.listeners.length; i++) {
+      try { v.listeners[i](t, b); } catch (e) { /* 一个监听坏了不影响其它 */ }
+    }
+  }
+
+  function onViewport(fn) {
+    if (typeof fn === 'function') state.view.listeners.push(fn);
+  }
 
   /* ───────────── 队列与批量 ───────────── */
 
@@ -197,6 +268,9 @@
     },
     requestTranslate: requestTranslate,
     enqueue: enqueue,
-    retry: retry
+    retry: retry,
+    pref: pref,
+    viewport: viewport,
+    onViewport: onViewport
   };
 })();

@@ -35,7 +35,7 @@ Branchbase/
 ├── editor/              # 代码编辑器独立模块（封装 Sora Editor，换库/移除只动这里）
 ├── translate/           # 沉浸式翻译独立模块（设置/分片/占位符保护/缓存/调度/页面脚本）
 │   ├── src/main/java/com/branchbase/translate/   #   纯逻辑 + Android 适配 + WebView 桥
-│   └── src/main/assets/translate/                #   页面脚本（01-core ~ 04-boot）与译文 CSS
+│   └── src/main/assets/translate/                #   页面脚本（01-core ~ 05-boot）与译文 CSS
 ├── downloader/          # 内建下载独立模块（引擎/前台服务/通知进度/通知权限/安装与打开）
 │   ├── src/main/java/com/branchbase/downloader/  #   引擎 + 服务 + 通知 + 权限 + 系统动作
 │   └── src/main/AndroidManifest.xml              #   权限 / 前台服务 / FileProvider 都随模块合并
@@ -92,12 +92,39 @@ Branchbase/
 ## 🌐 沉浸式翻译（模块化实现）
 
 在**正文页**（自述文件 README、Issue / PR 主帖、发布说明 —— 即 WebView 渲染的那些页面）把每个段落
-翻成目标语言、插在原文下方，形成「原文 + 译文」对照；页内右下角的「译」按钮可随时开关，
-长按在「对照 / 仅译文」之间切换，整页可见文本 ≤ 5000 字符时一次翻完，更长则按视口滚动逐段翻译。
+翻成目标语言、插在原文下方，形成「原文 + 译文」对照。页面右侧有一枚**可移动悬浮球**：
+单击展开**翻译工具选项菜单**（进度数据 + 快捷设置 + 操作），点面板外任意位置或右上角「×」收起为悬浮球，
+按住可以拖到屏幕任意位置（位置记在本机）。整页可见文本 ≤ 5000 字符时一次翻完，更长则按视口滚动逐段翻译。
 
 设计对齐网页版[沉浸式翻译](https://github.com/immersive-translate/immersive-translate)
 （可读源码的开源旧版：[old-immersive-translate](https://github.com/immersive-translate/old-immersive-translate)）：
 沿用「独立译文容器 + 视口优先 + 持久缓存 + 请求限流 + 占位符保护」的思路，落成 Android 侧的分层实现。
+
+### 悬浮球与翻译工具菜单
+
+| 交互 | 行为 |
+|------|------|
+| 单击悬浮球 | 悬浮球让位，展开工具菜单（球与面板**不会同时出现**，切换关系与「展开/收起」一致） |
+| 关闭按钮 / 点面板外任意位置 | 收起面板、变回悬浮球；点面板外的这一下会被吞掉，不会顺手点开正文里的链接 |
+| 拖动悬浮球 | 跟着手指走，横向按可见宽度比例、纵向按「距可见带下沿的距离」记进 `localStorage`，下次进来还在原位 |
+| 菜单 → 数据 | 已译 / 候选段数 + 进度条、候选字符数、翻译服务（MyMemory / DeepSeek）、目标语言与样式、实时状态 |
+| 菜单 → 快捷设置 | 本页翻译开关、显示方式（对照 / 仅译文）、译文样式（卡片 / 下划线 / 淡灰）、目标语言（中 / 英）、自动翻译正文、本地缓存、保护代码与链接 |
+| 菜单 → 操作 | 重试（失败时出现）、翻译当前视口、翻译全文、清空本页译文、重置悬浮球位置 |
+
+**快捷设置是「真设置」**：改动即时生效，并回写 SharedPreferences（`TranslateQuickSettings` 白名单 +
+取值校验），因此与「设置 → 沉浸式翻译」永远是同一份配置，不存在页内一套、设置页另一套。
+白名单里**没有** API Key / 模型 / 接入地址 / 服务商 —— 页面脚本永远改不到凭据（有单测钉住）。
+
+**两条布局硬约束**（`03-fab.js` / `04-panel.js`）：
+
+1. 悬浮球与面板都用绝对定位 + 原生侧推来的「可见带」摆位，**不能用 `position: fixed`**：
+   正文 WebView 的高度等于整篇内容高度（外层由原生列表滚动），fixed 钉住的是**整篇文章**的右下角，
+   长 README 里悬浮球会跑到文末，用户根本看不见。可见带由 `ReadmeWebView` 的 `onGloballyPositioned`
+   算出（`translateBandCss`：窗口坐标 → 页面 CSS px，扣掉顶部栏与底部导航条）后推给页面，
+   原生拿不到时退回 `fixed`（至少还能点到）；正文整体滚出屏幕时整层收起。
+2. 面板高度上限 = 可见带高度 − 边距，超出部分在面板**内部**滚动；定位钳制在带子内，
+   所以内容永远显示完整，也不会盖住顶部栏或底部导航。
+
 
 ### 模块划分（`:translate`）
 
@@ -116,16 +143,21 @@ Branchbase/
 | `TranslateScheduler.kt` | 全局串行闸门 + 指数退避重试 + 两级熔断 |
 | `Translator.kt` | 门面：判定 → 缓存 → 保护 → 分片 → 调度 → 还原 → 回写缓存 |
 | `TranslateConfig.kt` | 用户设置与读写（自动翻译 / 目标语言 / 显示方式 / 样式 / 本地缓存 / 保护） |
-| `TranslatePage.kt` | 页面资产装载：`assets/translate/*` 的 CSS 与四个脚本按序拼接 |
-| `TranslateBridge.kt` | WebView JS 桥（`request` / `retry` / `state`，异步回调 + 状态回推） |
+| `TranslateQuickSettings.kt` | 页面 → 原生的**快捷设置白名单**（悬浮面板的开关落盘，凭据字段不在其中） |
+| `TranslatePage.kt` | 页面资产装载：`assets/translate/*` 的 CSS 与五个脚本按序拼接 |
+| `TranslateBridge.kt` | WebView JS 桥（`request` / `retry` / `state` / `pref`，异步回调 + 状态回推） |
 | `TranslateRuntime.kt` | 装配点：`Application.onCreate` 里 `install(this, RustTranslateEngine())` |
 
 页面脚本同样按职责拆分（`translate/src/main/assets/translate/`）：
-`01-core.js`（配置 / 状态机 / 批量队列）、`02-dom.js`（段落收集 / 跳过 / 插入 / 视口）、
-`03-ui.js`（浮动按钮与状态）、`04-boot.js`（启动与策略）、`translate.css`（译文样式）。
+`01-core.js`（配置 / 状态机 / 批量队列 / 快捷设置与可见视口通道）、
+`02-dom.js`（段落收集 / 跳过 / 插入 / 视口观察 / 候选统计与清空）、
+`03-fab.js`（可移动悬浮球：拖拽 / 吸附可见带 / 状态灯）、
+`04-panel.js`（翻译工具菜单：数据 / 快捷设置 / 点外收起）、
+`05-boot.js`（启动与策略、显示方式/样式/语言的写入口）、`translate.css`（译文样式 + 悬浮球 + 面板）。
 
-界面侧：设置页（设置 → 沉浸式翻译）负责所有开关；正文页由 `ReadmeWebView` 拼装页面资产，
-不参与任何翻译逻辑。
+界面侧：设置页（设置 → 沉浸式翻译）负责完整设置；正文页由 `ReadmeWebView` 拼装页面资产、
+并把「可见带」推给页面脚本；翻译本身的判定/缓存/调度全在 Kotlin。悬浮球与面板的**可见性**由
+页面脚本按「这页有没有候选段落 + 正文在不在屏幕上」决定，所以它只出现在真正需要的页面。
 
 ### 翻译服务：可以自带 DeepSeek API Key
 
@@ -162,6 +194,13 @@ Branchbase/
 8. **JS 只做 DOM** —— 网络、缓存、串行与重试全在 Kotlin，桥上一次只传一批（≤3 段）文本，
    避免把整页内容或配置在 JS ↔ Native 之间来回搬。[#3262](https://github.com/immersive-translate/immersive-translate/issues/3262)
    的 OOM 正是「大对象过桥」造成的。
+9. **悬浮控件不用 `position: fixed`** —— 正文 WebView 的高度等于整篇内容高度（滚动在外层原生列表），
+   fixed 钉的是整篇文章的右下角：长 README 里悬浮球会落到文末。改成「原生推可见带 + 页面绝对定位」，
+   并保留 `fixed` 兜底（拿不到几何时至少还能点到）。
+10. **快捷设置只有一份真源** —— 面板上的开关直接回写 SharedPreferences（白名单 + 取值校验），
+    不做页内 localStorage 覆盖，否则「面板里仅译文、设置页里对照」这种双真源迟早会打架。
+11. **球与面板互斥** —— 展开面板时球隐藏、收起时球回来（「点球 = 变成菜单」）；
+    点面板之外的那一下会被吞掉，避免收起面板的同时误开正文里的链接。
 
 ### 已知边界
 
@@ -332,7 +371,7 @@ Canvas 绘制 lambda），它们改用 `TintRole` 角色表 / 在 composable 里
 - **状态栏 / 导航栏图标明暗 + 窗口底色**：`BranchbaseTheme` 的 `SideEffect` 里跟着主题设置，
   否则深色页面顶部会压一条白条；
 - **正文页的 WebView**：`github-markdown-light.css` 是浅色主题，深色时额外注入 `README_DARK_CSS`；
-- **沉浸式翻译的页面脚本**：`translate.css` 增加 `body.bb-dark` 段（译文卡片 / 浮动按钮），
+- **沉浸式翻译的页面脚本**：`translate.css` 增加 `body.bb-dark` 段（译文卡片 / 悬浮球 / 工具面板 / 提示），
   `dark` 标记随设置注入给 `window.__bbTranslate`；
 - **代码高亮 / 贡献图**：`CodeSyntax` 与 `ProfileColors` 也是角色化的（深色用 GitHub dark 的语法色）。
 

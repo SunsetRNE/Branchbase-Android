@@ -72,6 +72,8 @@ class TranslateSettingsTest {
         assertFalse("页面注入串里出现了 API Key：$page", page.contains("sk-super-secret-value"))
         assertFalse(page.contains("apiKey"))
         assertFalse(page.contains("relay.example.com"))
+        // 非机密的「服务商代号」要注入：悬浮面板要显示当前用的是哪家服务
+        assertEquals(TranslateProvider.DEEPSEEK.code, JSONObject(page).getString("provider"))
 
         // 凭据只走 JNI 选项 JSON
         val options = JSONObject(config.engineOptionsJson())

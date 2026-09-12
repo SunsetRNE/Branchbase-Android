@@ -1,10 +1,11 @@
 /*
  * 沉浸式翻译 · 02 DOM（段落收集 / 跳过规则 / 译文插入 / 视口观察）
  * ────────────────────────────────────────────────────────────
- * 本文件只做三件事：
+ * 本文件只做四件事：
  *   1. 找出「块级正文段落」，并跳过代码、表格代码、已有译文、被显式排除的节点；
  *   2. 把译文插入为**原文的兄弟节点**（原文一个字都不改）；
- *   3. 用 IntersectionObserver 做视口优先，滚动到哪翻到哪。
+ *   3. 用 IntersectionObserver 做视口优先，滚动到哪翻到哪；
+ *   4. 给悬浮面板提供统计（候选段数 / 字符数）与「清空本页译文」。
  *
  * 为什么译文用独立兄弟节点，而不是把译文写回原文的文本节点：
  * 把译文写回原节点之后，「切回原文」「切换对照/仅译文」都必须依赖一份额外保存的原文副本，
@@ -128,16 +129,46 @@
     }
   }
 
-  /** 整页候选文本的总字符数（决定「一次翻完」还是「视口优先」，见 04-boot.js）。 */
+  /** 整页候选文本的总字符数（决定「一次翻完」还是「视口优先」，见 05-boot.js）。 */
   function totalCandidateLength() {
+    return candidates().chars;
+  }
+
+  /**
+   * 整页候选统计（段数 + 字符数）。
+   *
+   * 悬浮面板要用它算进度（已译 / 候选），启动时也用它判断「这页有没有东西可翻」
+   * —— 没有就不显示悬浮球。刻意与 [totalCandidateLength] 共用一个实现：
+   * 同一件事（扫描 + 判定）只写一遍，两边不会算出不同的数。
+   */
+  function candidates() {
     var nodes = document.querySelectorAll(SELECTOR);
-    var total = 0;
+    var count = 0, chars = 0;
     for (var i = 0; i < nodes.length; i++) {
       if (isSkipped(nodes[i])) continue;
       var text = candidateText(nodes[i]);
-      if (text) total += text.length;
+      if (text) { count++; chars += text.length; }
     }
-    return total;
+    return { count: count, chars: chars };
+  }
+
+  /**
+   * 清空本页译文（面板上的「清空本页译文」）。
+   *
+   * 与「关闭翻译」不同：关只是用 CSS 藏起来（元素还在，重开秒出）；
+   * 这里是**真的删掉**，并把去重集合与计数一并复位，于是重扫等于重翻。
+   */
+  function clear() {
+    var nodes = document.querySelectorAll('.bb-tr');
+    for (var i = 0; i < nodes.length; i++) {
+      if (nodes[i].parentNode) nodes[i].parentNode.removeChild(nodes[i]);
+    }
+    var srcs = document.querySelectorAll('.bb-tr-src');
+    for (var j = 0; j < srcs.length; j++) srcs[j].classList.remove('bb-tr-src');
+    state.count = 0;
+    state.emptyRuns = 0;
+    state.seen = (typeof WeakSet === 'function') ? new WeakSet() : null;
+    disconnect();
   }
 
   function disconnect() {
@@ -153,6 +184,8 @@
     disconnect: disconnect,
     insert: insert,
     totalCandidateLength: totalCandidateLength,
+    candidates: candidates,
+    clear: clear,
     selector: SELECTOR,
     skipSelector: SKIP_SELECTOR
   };

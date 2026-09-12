@@ -1,9 +1,13 @@
 /*
- * 沉浸式翻译 · 页面样式（译文卡片 / 显示模式 / 浮动按钮 / 状态提示）
- * ──────────────────────────────────────────────────────────────
+ * 沉浸式翻译 · 页面样式（译文卡片 / 显示模式 / 悬浮球 / 工具面板 / 提示）
+ * ──────────────────────────────────────────────────────────────────────
  * 全部规则挂在 `.bb-tr*` 前缀与 `body` 上的几个类/属性下，与 GitHub 的 markdown CSS
  * 完全隔离（不会互相污染）。三种译文样式由 `body[data-bb-style]` 切换，
  * 只改一个属性、不重建 WebView（对齐网页版「14 种译文主题」的做法，这里先做三种）。
+ *
+ * 悬浮球与工具面板**不用 `position: fixed`**：正文 WebView 的高度等于整篇内容高度，
+ * fixed 钉的是整篇文章而不是屏幕（长文章里会跑到文末）。两者由脚本用绝对定位 +
+ * 原生侧推来的「可见带」摆位，见 03-fab.js / 04-panel.js。
  */
 
 /* ── 译文块（原文的兄弟节点，原文一个字都不动） ── */
@@ -54,37 +58,264 @@ body[data-bb-style="plain"] .bb-tr {
   border-radius: 0;
 }
 
-/* ── 浮动按钮（页面里唯一的控件） ── */
-#bb-tr-btn {
-  position: fixed;
+/* ── 悬浮球（页面里唯一的常驻控件，可拖动） ── */
+#bb-tr-fab {
+  position: fixed;               /* 兜底：几何未知时钉在右下角（脚本会切 absolute） */
   right: 14px;
   bottom: 16px;
-  width: 38px;
-  height: 38px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font: 700 14px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
   border: 1px solid #d0d7de;
   background: #ffffff;
   color: #0969da;
-  box-shadow: 0 2px 8px rgba(5, 5, 5, .18);
+  box-shadow: 0 4px 14px rgba(5, 5, 5, .22);
   z-index: 2147483000;
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
+  touch-action: none;            /* 拖动时别被浏览器当成滚动手势 */
+  transition: background .16s ease, color .16s ease, border-color .16s ease;
 }
 
-#bb-tr-btn.bb-tr-btn-on { border-color: transparent; }
+#bb-tr-fab .bb-tr-fab-glyph {
+  font: 700 15px/1 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  pointer-events: none;
+}
 
-/* ── 状态提示（额度用尽 / 失败 / 显示模式切换） ── */
-#bb-tr-tip {
-  position: fixed;
+/* 已开启：实心蓝底 —— 一眼能看出「这页正在翻译」 */
+#bb-tr-fab.bb-tr-fab-busy { background: #0969da; color: #ffffff; border-color: transparent; }
+
+/* 失败 / Key 无效：红底；额度用尽：琥珀底 */
+#bb-tr-fab.bb-tr-fab-bad { background: #cf222e; color: #ffffff; border-color: transparent; }
+#bb-tr-fab.bb-tr-fab-warn { background: #bf8700; color: #ffffff; border-color: transparent; }
+
+/* 角标：已译段数 / 失败标记 */
+#bb-tr-fab .bb-tr-fab-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 10px;
+  background: #cf222e;
+  color: #ffffff;
+  font: 700 10px/18px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+  text-align: center;
+  box-shadow: 0 0 0 2px #ffffff;
+  pointer-events: none;
+}
+
+#bb-tr-fab.bb-tr-fab-busy .bb-tr-fab-badge { background: #1f883d; }
+
+/* ── 工具面板（点悬浮球展开；内容超出时在面板内部滚动，不裁剪、不出界） ── */
+#bb-tr-panel {
+  position: fixed;               /* 兜底：几何未知时贴屏幕右下角 */
   right: 14px;
-  bottom: 62px;
-  max-width: 70vw;
+  bottom: 72px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  background: #ffffff;
+  color: #1f2328;
+  border: 1px solid #d0d7de;
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(5, 5, 5, .26);
+  font: 12.5px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  overflow: hidden;
+  z-index: 2147483002;   /* 最高层：提示气泡与球都在它下面，面板内容永远不被压住 */
+  -webkit-tap-highlight-color: transparent;
+}
+
+#bb-tr-panel .bb-tr-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px 9px 12px;
+  border-bottom: 1px solid #eaeef2;
+  background: #f6f8fa;
+}
+
+#bb-tr-panel .bb-tr-panel-title {
+  font-weight: 700;
+  font-size: 13px;
+  flex: 1;
+}
+
+#bb-tr-panel .bb-tr-panel-status {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 9px;
+  background: #eaeef2;
+  color: #57606a;
+  white-space: nowrap;
+}
+
+#bb-tr-panel .bb-tr-panel-status.bb-tr-st-busy { background: #ddf4ff; color: #0969da; }
+#bb-tr-panel .bb-tr-panel-status.bb-tr-st-ok { background: #dafbe1; color: #1a7f37; }
+#bb-tr-panel .bb-tr-panel-status.bb-tr-st-bad { background: #ffebe9; color: #cf222e; }
+#bb-tr-panel .bb-tr-panel-status.bb-tr-st-warn { background: #fff8c5; color: #9a6700; }
+
+#bb-tr-panel .bb-tr-panel-close {
+  all: unset;
+  width: 24px;
+  height: 24px;
+  line-height: 24px;
+  text-align: center;
+  border-radius: 50%;
+  font-size: 17px;
+  color: #57606a;
+  cursor: pointer;
+  flex: none;
+}
+
+#bb-tr-panel .bb-tr-panel-close:active { background: #eaeef2; }
+
+/* 内容区：这里是「内容显示完整」的落点 —— 高度上限由脚本按可见带算，超出内部滚动 */
+#bb-tr-panel .bb-tr-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 2px 12px 10px;
+}
+
+#bb-tr-panel .bb-tr-block { padding-top: 10px; }
+
+#bb-tr-panel .bb-tr-block-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #6e7781;
+  letter-spacing: .3px;
+  margin-bottom: 7px;
+}
+
+#bb-tr-panel .bb-tr-prog {
+  height: 6px;
+  border-radius: 3px;
+  background: #eaeef2;
+  overflow: hidden;
+}
+
+#bb-tr-panel .bb-tr-prog > i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+  background: #0969da;
+  transition: width .2s ease;
+}
+
+#bb-tr-panel .bb-tr-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 5px;
+  font-size: 11.5px;
+  color: #6e7781;
+}
+
+#bb-tr-panel .bb-tr-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 34px;
+}
+
+#bb-tr-panel .bb-tr-row-label { font-size: 12.5px; color: #1f2328; }
+
+/* 分段选择（显示方式 / 译文样式 / 目标语言） */
+#bb-tr-panel .bb-tr-seg {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 9px;
+  background: #f6f8fa;
+  border: 1px solid #eaeef2;
+}
+
+#bb-tr-panel .bb-tr-seg-btn {
+  all: unset;
+  padding: 4px 8px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  color: #57606a;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+#bb-tr-panel .bb-tr-seg-btn.bb-tr-seg-on {
+  background: #ffffff;
+  color: #0969da;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(5, 5, 5, .14);
+}
+
+/* 开关 */
+#bb-tr-panel .bb-tr-switch {
+  all: unset;
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: 11px;
+  background: #d0d7de;
+  cursor: pointer;
+  flex: none;
+  transition: background .16s ease;
+}
+
+#bb-tr-panel .bb-tr-switch > i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(5, 5, 5, .3);
+  transition: transform .16s ease;
+}
+
+#bb-tr-panel .bb-tr-switch.bb-tr-switch-on { background: #0969da; }
+#bb-tr-panel .bb-tr-switch.bb-tr-switch-on > i { transform: translateX(16px); }
+
+/* 操作按钮 */
+#bb-tr-panel .bb-tr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+#bb-tr-panel .bb-tr-act {
+  all: unset;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #d0d7de;
+  background: #ffffff;
+  color: #1f2328;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#bb-tr-panel .bb-tr-act:active { background: #f6f8fa; }
+#bb-tr-panel .bb-tr-act.bb-tr-act-danger { color: #cf222e; border-color: #ffcecb; }
+
+#bb-tr-panel .bb-tr-hint {
+  margin-top: 9px;
+  font-size: 11px;
+  color: #8c959f;
+}
+
+/* ── 状态提示（快捷设置结果 / 失败原因） ── */
+#bb-tr-tip {
+  position: fixed;               /* 兜底；几何已知时脚本改成 absolute 跟着球走 */
+  right: 14px;
+  bottom: 66px;
   padding: 7px 11px;
   border-radius: 8px;
   background: rgba(27, 31, 36, .92);
@@ -92,16 +323,12 @@ body[data-bb-style="plain"] .bb-tr {
   font: 12px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
   line-height: 1.5;
   opacity: 0;
-  transform: translateY(4px);
-  transition: opacity .18s ease, transform .18s ease;
+  transition: opacity .18s ease;
   pointer-events: none;
-  z-index: 2147483000;
+  z-index: 2147483003;   /* 最高层，但面板展开时脚本会把提示挪到可见带顶部，不压面板 */
 }
 
-#bb-tr-tip.bb-tr-tip-show {
-  opacity: 1;
-  transform: translateY(0);
-}
+#bb-tr-tip.bb-tr-tip-show { opacity: 1; }
 
 /* ── 深色主题（body.bb-dark，由设置注入的 dark 标记控制）──
    浅色那套放在深底上不是刺眼就是看不清，这里整段覆盖；选择器都带 body.bb-dark
@@ -126,11 +353,53 @@ body.bb-dark[data-bb-style="plain"] .bb-tr {
   color: #8b949e;
 }
 
-body.bb-dark #bb-tr-btn {
+body.bb-dark #bb-tr-fab {
   border-color: #30363d;
   background: #21262d;
   color: #2f81f7;
 }
+
+body.bb-dark #bb-tr-fab.bb-tr-fab-busy { background: #1f6feb; color: #ffffff; }
+body.bb-dark #bb-tr-fab .bb-tr-fab-badge { box-shadow: 0 0 0 2px #0d1117; }
+
+body.bb-dark #bb-tr-panel {
+  background: #161b22;
+  color: #e6edf3;
+  border-color: #30363d;
+}
+
+body.bb-dark #bb-tr-panel .bb-tr-panel-head {
+  background: #21262d;
+  border-bottom-color: #30363d;
+}
+
+body.bb-dark #bb-tr-panel .bb-tr-panel-status { background: #30363d; color: #8b949e; }
+body.bb-dark #bb-tr-panel .bb-tr-panel-status.bb-tr-st-busy { background: #0c2d6b; color: #79c0ff; }
+body.bb-dark #bb-tr-panel .bb-tr-panel-status.bb-tr-st-ok { background: #12261e; color: #3fb950; }
+body.bb-dark #bb-tr-panel .bb-tr-panel-status.bb-tr-st-bad { background: #4c1f1c; color: #ff7b72; }
+body.bb-dark #bb-tr-panel .bb-tr-panel-status.bb-tr-st-warn { background: #3a2d04; color: #d29922; }
+
+body.bb-dark #bb-tr-panel .bb-tr-panel-close { color: #8b949e; }
+body.bb-dark #bb-tr-panel .bb-tr-panel-close:active { background: #30363d; }
+body.bb-dark #bb-tr-panel .bb-tr-block-title { color: #8b949e; }
+body.bb-dark #bb-tr-panel .bb-tr-row-label { color: #e6edf3; }
+body.bb-dark #bb-tr-panel .bb-tr-kv { color: #8b949e; }
+body.bb-dark #bb-tr-panel .bb-tr-prog { background: #30363d; }
+body.bb-dark #bb-tr-panel .bb-tr-prog > i { background: #2f81f7; }
+body.bb-dark #bb-tr-panel .bb-tr-seg { background: #0d1117; border-color: #30363d; }
+body.bb-dark #bb-tr-panel .bb-tr-seg-btn { color: #8b949e; }
+body.bb-dark #bb-tr-panel .bb-tr-seg-btn.bb-tr-seg-on { background: #30363d; color: #79c0ff; }
+body.bb-dark #bb-tr-panel .bb-tr-switch { background: #30363d; }
+body.bb-dark #bb-tr-panel .bb-tr-switch.bb-tr-switch-on { background: #1f6feb; }
+body.bb-dark #bb-tr-panel .bb-tr-switch > i { background: #e6edf3; }
+body.bb-dark #bb-tr-panel .bb-tr-act {
+  background: #21262d;
+  color: #e6edf3;
+  border-color: #30363d;
+}
+body.bb-dark #bb-tr-panel .bb-tr-act:active { background: #30363d; }
+body.bb-dark #bb-tr-panel .bb-tr-act.bb-tr-act-danger { color: #ff7b72; border-color: #5c2320; }
+body.bb-dark #bb-tr-panel .bb-tr-hint { color: #6e7681; }
 
 body.bb-dark #bb-tr-tip {
   background: rgba(230, 237, 243, .92);
