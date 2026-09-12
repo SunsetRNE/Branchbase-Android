@@ -3,6 +3,10 @@
 
     <!-- 下载进度 / 完成通知：API 33+ 是运行时权限（申请与状态见 NotificationPermission） -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Android 16（API 36）的「实时更新」（Live Updates / promoted ongoing）：
+         不声明这条普通权限，系统不会把下载进度提升为状态栏芯片 / 灵动岛形态。
+         低版本系统忽略未知权限，声明无副作用。 -->
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <!-- 前台服务：应用退到后台后下载继续。
          API 34+ 必须同时声明「类型权限」与 service 的 android:foregroundServiceType，
          否则 startForeground 直接抛异常。 -->

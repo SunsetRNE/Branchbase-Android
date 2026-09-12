@@ -269,11 +269,15 @@ DownloaderRuntime.install(
 | `DownloadStore.kt` | 进程内任务表（`StateFlow<List<DownloadTask>>`）+ 取消信号表 |
 | `DownloadEngine.kt` | `AuthProvider` 接口 + `HttpURLConnection` 引擎（手动跟随重定向 / Range 续传 / 进度节流） |
 | `DownloadService.kt` | `dataSync` 前台服务：串行执行队列、刷新进度通知、收尾（含 Android 15 超时兜底） |
-| `DownloadNotifications.kt` | 通知渠道 + 一条常驻进度通知 + 每条任务的完成/失败通知 |
+| `DownloadNotifications.kt` | 通知渠道 + 一条常驻进度通知 + 每条任务的完成/失败通知（进度通知上叠三层：标准进度 / Hook 载荷 / 厂商「上岛」） |
+| `DownloadNotificationState.kt` | 一帧通知态快照（百分比 / 不确定态 / 字节文案 / 状态键，纯数据可单测）—— 通知栏与各厂商岛共用同一份语义 |
+| `DownloadNotificationHook.kt` | 给第三方 Hook 读的稳定 extras（`com.branchbase.download.*`，键名即对外契约） |
+| `DownloadIslandExtension.kt` | 「上岛」扩展点接口 + 注册表（派发全程 `runCatching`，厂商 SDK 崩了也不能影响下载） |
+| `VendorIslandExtensions.kt` | 三家内置实现：小米超级岛（extras）、谷歌实时更新（反射调 androidx.core 1.17+ API）、OPPO（基线形态 + 官方 SDK 注入点） |
 | `NotificationPermission.kt` | 系统通知权限与总开关状态、申请与跳设置（**通知板块也复用它**） |
 | `DownloadPaths.kt` | 落盘目录、文件名净化、`.part` 原子改名、sha256 校验（纯函数可单测） |
 | `DownloadActions.kt` | 安装 APK / 打开 / 分享 / 在文件管理器里显示（FileProvider + 逐级兜底） |
-| `DownloaderRuntime.kt` | 装配点与门面：`install` / `enqueue` / `cancel` / `retry` / `tasks` |
+| `DownloaderRuntime.kt` | 装配点与门面：`install` / `enqueue` / `cancel` / `retry` / `tasks` / `registerIslandExtension` |
 
 ### 关键设计决策
 
@@ -290,6 +294,25 @@ DownloaderRuntime.install(
 5. **串行下载** —— 同一条链路上并发多个大文件只会互相抢带宽，进度条也失去意义。
 6. **状态只有一个真源** —— 应用内 UI 与系统通知都读 `DownloaderRuntime.tasks`，
    不存在两套进度；退出页面再回来、应用退到后台，进度都还在。
+7. **进度通知本身是可扩展的** —— 同一条通知上按顺序叠三层：标准进度（`setProgress` + 文案）、
+   Hook 载荷（`com.branchbase.download.*` 稳定 extras，给第三方模块读）、厂商「上岛」。
+   厂商能力只作用于**这一条**通知，不另发一条（否则通知栏会出现两条重复的下载）。
+   装配见 `DownloaderConfig.islandExtensions` / `DownloaderRuntime.registerIslandExtension`。
+
+### 灵动岛 / 实时活动（`上岛`）
+
+下载进度会顺带尝试投到厂商的「灵动岛 / 实时活动」，三家都**可能因为没被加上白名单而不显示**，
+这时通知退回普通形态（不是 bug，也不影响下载）：
+
+| 厂商 | 形态 | 本项目怎么接 | 前置条件 |
+|------|------|-------------|---------|
+| 谷歌 | Android 16 Live Updates（promoted ongoing） | `NotificationCompat.ProgressStyle` + `setRequestPromotedOngoing`（**反射**调用，依赖是 1.10.1 时静默跳过） | `POST_PROMOTED_NOTIFICATIONS`（已声明）+ 系统 16 |
+| 小米 | 超级岛 / 焦点通知 | 通知 extras 里挂 `miui.focus.param`（JSON，`XiaomiIslandPayload`） | 焦点通知权限（`notification_focus_protocol ≥ 2`） |
+| OPPO | ColorOS 实况通知（流体云） | 把通知规范成常驻 + 进度 + 不重复提醒；官方 SDK 走 `OppoLiveAlertExtension(attacher = …)` 注入 | 开放平台白名单 / 官方 SDK |
+
+没白名单还想上岛，只能靠第三方模块 Hook 通知 —— 所以进度通知上固定带一份
+`com.branchbase.download.*` 的 extras（任务 id / 标题 / 状态 / 已下载 / 总量 / 百分比 / 是否常驻），
+键名一经发布不再改（见 `DownloadNotificationHook`）。
 
 ### 已知边界
 
@@ -439,6 +462,47 @@ Canvas 绘制 lambda），它们改用 `TintRole` 角色表 / 在 composable 里
 `CommitMode` 这类有多档状态的枚举要区分 `label`（短名，给状态位）与 `title`（完整说明，给整行卡片）。
 行高固定的行（如 `SettingsItem` 的 48dp）里换行会被直接裁掉，所以名称与值都必须单行省略，
 且**由值负责省略、不许挤压名称**。
+
+## 📨 消息（通知收件箱）卡片流与多选
+
+消息页的列表是「卡片流」：一条通知 = 一张卡。卡片布局与多选语义在 `ui/notification/`。
+
+### 卡片布局：固定「识别槽」
+
+```
+┌ Card ──────────────────────────────────────────────┐
+│▍ ┌──────┐  标题（最多 2 行）                          │
+│▍ │ 识别 │  评论预览（作者：正文）                      │
+│▍ │ 槽位 │  仓库 #号 · 原因 · 时间                     │
+│▍ └──────┘                                          │
+└────────────────────────────────────────────────────┘
+ ▍ = 未读竖条（overlay 绘制，不占布局宽度）
+```
+
+| 约束 | 为什么 |
+|------|--------|
+| 行首**恒为 32dp 识别槽**（普通态类型图标 / 多选态 20dp 方框） | 上一版多选态把 32dp 图标换成 24dp 的 `Checkbox`，标题左边界会跳 8dp；M3 Checkbox 按「独立控件」设计（内部 `wrapContentSize` + `requiredSize` + 最小触摸目标），在 `size(...)`/`padding(...)` 组合下会按自身约束重新落位、画出槽位压到标题上 |
+| 复选方框**自绘** 20dp（`SelectionCheckbox`） | 只需要「未选 / 已选 / 半选」三态；自绘后尺寸与落位完全可控，也不会和整行的选择语义重复播报 |
+| 未读竖条用 `matchParentSize` + `drawBehind` **overlay 绘制** | 作为 flex 子项时未读行比已读行少 3dp 正文宽度，同一标题会换行到不同位置 |
+
+### 多选交互（按官方文档实现）
+
+| 位置 | 做法 | 依据 |
+|------|------|------|
+| 整行 | 多选态用 `Modifier.selectable(selected, role = Role.Checkbox)`（普通态才是 `combinedClickable`） | 选择状态必须由语义提供，读屏才会播报「已选中 / 未选中」；只画方框等于无障碍用户看不到选择状态 —— [Compose 语义](https://developer.android.com/develop/ui/compose/accessibility/semantics) |
+| 列表容器 | 多选态 `Modifier.selectableGroup()` | 让读屏把行播报成「第 x 项，共 y 项」，否则每行都是孤立控件 —— [`androidx.compose.foundation.selection`](https://developer.android.com/reference/kotlin/androidx/compose/foundation/selection/package-summary) |
+| 分组头 | `Modifier.triStateToggleable(ToggleableState)` + `Role.Checkbox` | 三态（全选 / 未选 / 半选）有专门的 API，半选必须被播报，否则用户无法判断点下去是补齐全组还是清空 —— [triStateToggleable](https://developer.android.com/reference/kotlin/androidx/compose/foundation/selection/triStateToggleable.modifier) |
+| 长按刷选 | 拖动开始补 `HapticFeedbackType.LongPress` | 多选态行内没有长按菜单，没有触觉就无法判断长按是否生效 |
+| 触摸目标 | 行整体是目标（Material 列表选择规范），方框自身不带点击 | [Material 3 复选框](https://m3.material.io/components/checkbox/overview) · [Material 3 列表](https://m3.material.io/components/lists/overview) |
+| 「取消全选」 | 图标用 `Deselect`（不用 `Close`） | `✕` 在同一屏已是「退出多选」，两个不同动作共用一个图标会点错 |
+
+### 选中集合必须与可见集合收敛
+
+`selectedIds` 是「用户点过的 id」，而可见列表会因换分类 / 类型 / 时间范围、下拉刷新、
+「完成」归档而变。对外一律用 `effectiveSelection(selectedIds, visibleIds)`（交集），
+否则「全选」判断会失真（`size >=` 在混入不可见 id 时判反），批量已读 / 完成 / 静音 / 复制链接
+会作用到屏幕上根本看不到的条目。三个纯函数（`effectiveSelection` / `isAllVisibleSelected` /
+`toggledAllSelection`）都有单测（`NotificationSelectionTest`）。
 
 ## 🔧 构建
 

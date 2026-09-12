@@ -20,11 +20,9 @@ import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -38,12 +36,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.triStateToggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Deselect
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.ErrorOutline
@@ -55,7 +57,6 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -80,7 +81,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -88,6 +91,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -613,6 +618,19 @@ fun NotificationScreen(
         .filter { maxAge == null || now - it.updatedAtMs <= maxAge }
     val visible = sortedNotifications(dimensioned, sort)
 
+    /**
+     * 当前**可见**的 id 集合（渲染口径），以及收敛后的选中集合。
+     *
+     * 为什么要收敛：`selectedIds` 是「用户点过的 id」，而列表会因为换分类 / 类型 / 时间范围 /
+     * 下拉刷新 / 「完成」归档而换一批条目。若直接用 `selectedIds`：
+     * - 「全选」判断 `selectedIds.size >= visible.size` 会失真（集合里混着看不见的 id）；
+     * - 批量操作（已读 / 完成 / 静音 / 复制链接）会作用到**屏幕上根本看不到**的条目。
+     * 所以对外一律用 [selected]（= 选中集合 ∩ 可见集合），`selectedIds` 只作为原始记录保留。
+     */
+    val visibleIds = visible.map { it.id }.toSet()
+    val selected = remember(selectedIds, visibleIds) { effectiveSelection(selectedIds, visibleIds) }
+    val allVisibleSelected = isAllVisibleSelected(selectedIds, visibleIds)
+
     // 渲染顺序（区间 / 刷选依赖它）：与 [NotificationList] 的分组顺序保持一致
     val renderOrder = remember(visible, layout.value) { renderOrderIds(visible, layout.value) }
 
@@ -649,7 +667,8 @@ fun NotificationScreen(
         (if (range != NotifRange.ALL) 1 else 0) +
         (if (sort != NotifSort.NEWEST) 1 else 0)
 
-    val inSelection = selectedIds.isNotEmpty()
+    // 多选态只看「可见的选中项」：筛选把最后一条也滤掉时自动退出（不会留下一个空的多选条）
+    val inSelection = selected.isNotEmpty()
 
     // 多选态下返回键 = 退出多选（而不是退出页面）：多选时不看内容，返回键留给「取消选择」更符合预期。
     PageBackHandler(enabled = inSelection || panelOpen || sheetTarget != null) {
@@ -673,16 +692,15 @@ fun NotificationScreen(
             // ── 顶部：普通态 / 多选态 ──
             if (inSelection) {
                 NotifSelectionTopBar(
-                    selectedCount = selectedIds.size,
-                    visibleCount = visible.size,
-                    allSelected = selectedIds.size >= visible.size && visible.isNotEmpty(),
+                    selectedCount = selected.size,
+                    visibleCount = visibleIds.size,
+                    allSelected = allVisibleSelected,
                     onExit = { exitSelection() },
                     onToggleAll = {
-                        selectedIds = if (selectedIds.size >= visible.size && visible.isNotEmpty()) {
-                            emptySet()
-                        } else {
-                            visible.map { it.id }.toSet()
-                        }
+                        // 「全选 / 全不选」的判定与产出都在 [toggledAllSelection]（纯函数、有单测）：
+                        // 用 size 比较判断「是否已全选」在选中集合混进过看不见的 id 时会误判。
+                        selectedIds = toggledAllSelection(selectedIds, visibleIds)
+                        anchorId = if (allVisibleSelected) null else visibleIds.firstOrNull() ?: anchorId
                     },
                 )
             } else {
@@ -752,7 +770,7 @@ fun NotificationScreen(
                     selectionEnabled = inSelection,
                     forceExpandGroups = inSelection,
                     previews = previews,
-                    selectedIds = selectedIds,
+                    selectedIds = selected,
                     listState = listState,
                     onClick = { onNotifClick(it) },
                     onLongClick = { enterSelection(it) },
@@ -839,13 +857,14 @@ fun NotificationScreen(
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
             NotifSelectionBar(
-                selectedCount = selectedIds.size,
-                visibleCount = visible.size,
+                selectedCount = selected.size,
+                visibleCount = visibleIds.size,
                 running = bulkRunning,
-                onRead = { runBulk(BulkOp.READ, selectedIds) },
-                onDone = { runBulk(BulkOp.DONE, selectedIds) },
-                onMute = { runBulk(BulkOp.MUTE, selectedIds) },
-                onMore = { sheetTarget = items.firstOrNull { it.id in selectedIds } },
+                // 批量动作只作用于「可见的选中项」：不会误伤被筛选掉 / 已归档的条目
+                onRead = { runBulk(BulkOp.READ, selected) },
+                onDone = { runBulk(BulkOp.DONE, selected) },
+                onMute = { runBulk(BulkOp.MUTE, selected) },
+                onMore = { sheetTarget = items.firstOrNull { it.id in selected } },
                 onExit = { exitSelection() },
             )
         }
@@ -866,15 +885,15 @@ fun NotificationScreen(
         NotifActionSheet(
             target = target,
             bulkMode = bulkMode,
-            selectionCount = selectedIds.size,
+            selectionCount = selected.size,
             onDismiss = { sheetTarget = null },
             onMarkRead = { markReadLocal(listOf(target)); markReadRemote(target); sheetTarget = null },
             onMarkUnread = {
-                if (bulkMode) markUnreadLocal(items.filter { it.id in selectedIds }) else markUnreadLocal(listOf(target))
+                if (bulkMode) markUnreadLocal(items.filter { it.id in selected }) else markUnreadLocal(listOf(target))
                 sheetTarget = null
             },
             onMarkDone = {
-                if (bulkMode) runBulk(BulkOp.DONE, selectedIds) else markDoneLocal(listOf(target))
+                if (bulkMode) runBulk(BulkOp.DONE, selected) else markDoneLocal(listOf(target))
                 sheetTarget = null
             },
             onMute = {
@@ -885,7 +904,7 @@ fun NotificationScreen(
                 sheetTarget = null
             },
             onCopyLink = {
-                if (bulkMode) copyLinks(context, items.filter { it.id in selectedIds })
+                if (bulkMode) copyLinks(context, items.filter { it.id in selected })
                 else copyThreadLink(context, target)
                 sheetTarget = null
             },
@@ -1057,6 +1076,7 @@ private fun NotificationList(
     // 通知行嵌在容器内部：指针只能映射到容器 key，因此必须把「容器 key → 它包含的 id」查出来，
     // 否则刷选在三种分组布局下永远匹配不上（划过即选中失效）。
     val keyToIds = remember(rows, layout) { renderKeyToIds(rows, layout) }
+    val haptics = LocalHapticFeedback.current
     val dragSelectModifier = Modifier.pointerInput(selectionEnabled, renderOrder, keyToIds) {
         if (!selectionEnabled) return@pointerInput
         // 一行可能对应多条（分组）：区间端点取这一行的**首尾 id**，
@@ -1068,14 +1088,25 @@ private fun NotificationList(
             ids.lastOrNull()?.let(onRangeSelect)
         }
         detectDragGesturesAfterLongPress(
-            onDragStart = { offset -> selectRowAt(offset.y) },
+            onDragStart = { offset ->
+                // 长按进入「区间 / 刷选」时补一次触觉确认：多选态下每行不再有自己的长按菜单，
+                // 没有反馈就分不清「长按没生效」还是「这一行本来就没反应」
+                // （Compose 手势文档建议在长按 / 拖动开始时给 haptic 反馈）。
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                selectRowAt(offset.y)
+            },
             onDrag = { change, _ -> selectRowAt(change.position.y) },
         )
     }
 
     LazyColumn(
         state = listState,
-        modifier = Modifier.fillMaxSize().then(dragSelectModifier),
+        modifier = Modifier
+            .fillMaxSize()
+            .then(dragSelectModifier)
+            // 多选态把整个列表标记为「可选择集合」：读屏会把每个 selectable 行播报成
+            // 「第 x 项，共 y 项」，否则每行都是孤立控件，用户不知道自己在列表里的位置。
+            .then(if (selectionEnabled) Modifier.selectableGroup() else Modifier),
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 110.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
@@ -1210,8 +1241,29 @@ private fun idAtOffset(y: Float, info: LazyListLayoutInfo): String? {
     return hit.key as? String
 }
 
+/**
+ * 多选集合的纯函数（`internal` 是为了可单测，见 `NotificationSelectionTest`）。
+ *
+ * 抽出来的理由：选中集合与可见集合会**各自变化** —— 换分类 / 类型 / 时间范围、下拉刷新、
+ * 「完成」归档都会换掉一批可见条目。两者不收敛时，出问题的地方全在边界上：
+ * 「全选」判断用 `size >=` 会失真、批量操作会打到看不见的条目、分组头半选态算错。
+ * 这些都不该靠真机点出来。
+ */
+
+/** 有效选中集合 = 用户点过的 ∩ 当前可见（看不见的 id 一律不参与计数与批量操作）。 */
+internal fun effectiveSelection(selectedIds: Set<String>, visibleIds: Set<String>): Set<String> =
+    if (selectedIds.isEmpty() || visibleIds.isEmpty()) emptySet() else selectedIds intersect visibleIds
+
+/** 是否「已全选」：可见集合非空，且其中每一条都在选中集合里。 */
+internal fun isAllVisibleSelected(selectedIds: Set<String>, visibleIds: Set<String>): Boolean =
+    visibleIds.isNotEmpty() && visibleIds.all { it in selectedIds }
+
+/** 「全选 / 全不选」的下一状态：已全选 → 清空，否则 → 选中当前可见的全部。 */
+internal fun toggledAllSelection(selectedIds: Set<String>, visibleIds: Set<String>): Set<String> =
+    if (isAllVisibleSelected(selectedIds, visibleIds)) emptySet() else visibleIds
+
 /** 分组头的三种选中态（半选必须有独立信号，否则用户无法判断「点了会不会全取消」）。 */
-private fun groupSelectedState(ids: List<String>, selected: Set<String>): GroupSelectState {
+internal fun groupSelectedState(ids: List<String>, selected: Set<String>): GroupSelectState {
     val on = ids.count { it in selected }
     return when {
         on == 0 -> GroupSelectState.NONE
@@ -1220,13 +1272,35 @@ private fun groupSelectedState(ids: List<String>, selected: Set<String>): GroupS
     }
 }
 
-private enum class GroupSelectState { NONE, ALL, MIXED }
+internal enum class GroupSelectState { NONE, ALL, MIXED }
 
 /**
  * 单条消息行。
  *
  * 识别特征保留「类型图标块」；未读额外有左侧 3dp 蓝色竖条 + 极浅蓝底 + 加粗标题 + 尾点
  * （多重视觉冗余，不依赖单一信号，色弱 / 灰度屏也能区分）。
+ *
+ * ## 布局结构（重绘后：固定「识别槽」，多选方框不再与标题重叠）
+ *
+ * ```
+ * ┌ Card ─────────────────────────────────────────────┐
+ * │▍ ┌──────┐  标题（最多 2 行）                        │
+ * │▍ │ 识别 │  评论预览（作者：正文）                    │
+ * │▍ │ 槽位 │  仓库 #号 · 原因 · 时间                   │
+ * │▍ └──────┘                                         │
+ * └───────────────────────────────────────────────────┘
+ *  ▍ = 未读竖条（overlay 绘制，不占布局宽度）
+ * ```
+ *
+ * 三条硬约束（上一版正是这里出的问题）：
+ * 1. **行首槽位固定 32dp**：普通态是类型图标块、多选态是 20dp 复选方框，两者都锚在同一个
+ *    32dp 槽里。上一版多选态把 32dp 图标直接换成 24dp 的 M3 `Checkbox`，标题左边界会跳 8dp；
+ *    而 M3 Checkbox 按「独立控件」设计（内部 `wrapContentSize` + `requiredSize` + 最小触摸目标），
+ *    在 `size(...)`/`padding(...)` 组合下会按自身约束重新落位，方框被画到槽位之外压住标题。
+ * 2. **未读竖条 overlay 绘制**（`matchParentSize` + [drawBehind]）：作为 flex 子项时，
+ *    未读行比已读行少 3dp 正文宽度，同样的标题会换行到不同位置。
+ * 3. **方框只表达状态，点击归整行**：多选态整行是触摸目标（Material 列表选择规范），
+ *    方框自身不带点击与最小触摸目标，选择语义由整行的 `selectable` 统一提供。
  *
  * 手势分工（[selectionEnabled] = 当前是否处于多选态）：
  * - 非多选态：点击 → 打开；长按 → 快捷动作面板（页面级处理）；
@@ -1251,9 +1325,18 @@ private fun NotificationRow(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .combinedClickable(
-                    onClick = { if (selectionEnabled) onToggleSelection() else onClick() },
-                    onLongClick = onLongClick,
+                // 多选态用 selectable + Role.Checkbox：读屏会播报「已选中 / 未选中，复选框」；
+                // 只画一个方框（不带语义）时，无障碍用户完全不知道行处于什么选择状态。
+                .then(
+                    if (selectionEnabled) {
+                        Modifier.selectable(
+                            selected = selected,
+                            role = Role.Checkbox,
+                            onClick = onToggleSelection,
+                        )
+                    } else {
+                        Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                    },
                 ),
             shape = RoundedCornerShape(8.dp),
             colors = CardDefaults.cardColors(
@@ -1274,39 +1357,13 @@ private fun NotificationRow(
             ),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         ) {
-            Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-                // 未读左侧竖条（3dp）
-                if (n.unread) {
-                    Box(
-                        Modifier
-                            .width(3.dp)
-                            .fillMaxHeight()
-                            .background(Primer.Blue500),
-                    )
-                }
+            val unreadBar = Primer.Blue500
+            Box(Modifier.fillMaxWidth()) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.Top,
                 ) {
-                    // 多选态显示复选框（纯视觉：点击由整行的 combinedClickable 统一处理，
-                    // 避免 Checkbox 自身可点导致一次点击被消费两次），否则显示类型图标块
-                    if (selectionEnabled) {
-                        Checkbox(
-                            checked = selected,
-                            onCheckedChange = null,
-                            modifier = Modifier.size(24.dp).padding(top = 4.dp),
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(n.tint.color().copy(alpha = 0.12f)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(n.icon, contentDescription = n.subjectType, tint = n.tint.color(), modifier = Modifier.size(18.dp))
-                        }
-                    }
+                    NotificationLead(selectionEnabled = selectionEnabled, selected = selected, n = n)
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
@@ -1372,7 +1429,79 @@ private fun NotificationRow(
                         Box(Modifier.padding(top = 6.dp).size(8.dp).clip(CircleShape).background(Primer.Blue500))
                     }
                 }
+                // 未读竖条：overlay 画在最上层，不参与测量（正文宽度与已读行完全一致）
+                if (n.unread) {
+                    Spacer(
+                        Modifier.matchParentSize().drawBehind {
+                            drawRect(color = unreadBar, size = Size(width = 3.dp.toPx(), height = size.height))
+                        },
+                    )
+                }
             }
+        }
+    }
+}
+
+/**
+ * 行首「识别槽」——固定 32dp，**任何模式下都占位**。
+ *
+ * 固定宽度的意义有两条：
+ * 1. 普通态 ↔ 多选态切换时**标题左边界不动**（旧版 32dp 图标 → 24dp 复选框，标题会左右跳）；
+ * 2. 让「方框压到标题」在结构上不可能发生 —— 方框最大 20dp，槽位 32dp，正文从槽位右侧 10dp 才开始。
+ */
+@Composable
+private fun NotificationLead(selectionEnabled: Boolean, selected: Boolean, n: Notification) {
+    Box(Modifier.size(32.dp), contentAlignment = Alignment.TopStart) {
+        if (selectionEnabled) {
+            SelectionCheckbox(checked = selected, modifier = Modifier.padding(top = 2.dp))
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(n.tint.color().copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(n.icon, contentDescription = n.subjectType, tint = n.tint.color(), modifier = Modifier.size(18.dp))
+            }
+        }
+    }
+}
+
+/**
+ * 自绘复选方框（20dp，支持「半选」横杠）。
+ *
+ * 为什么不用 M3 `Checkbox`：
+ * 1. 它按**独立控件**设计（内部 `wrapContentSize` + `requiredSize(20dp)`，可点时还会撑出最小触摸目标），
+ *    塞进行首窄槽位时，`size(...)`/`padding(...)` 的组合顺序会让方框按内部约束重新落位并画出槽位；
+ * 2. 它的勾选语义会和整行 `selectable` 的语义重复，读屏会念两遍；
+ * 3. 这里只需要「一个能表达 未选 / 已选 / 半选 的方框」，自绘 20dp 反而完全可控。
+ */
+@Composable
+private fun SelectionCheckbox(
+    checked: Boolean,
+    modifier: Modifier = Modifier,
+    mixed: Boolean = false,
+) {
+    val active = checked || mixed
+    val shape = RoundedCornerShape(6.dp)
+    Box(
+        modifier
+            .size(20.dp)
+            .clip(shape)
+            .background(if (active) Primer.Blue500 else Color.Transparent)
+            .border(1.5.dp, if (active) Primer.Blue500 else Primer.Gray300, shape),
+        contentAlignment = Alignment.Center,
+    ) {
+        when {
+            // 半选：M3 没有三态 Checkbox，用一条横杠表达「组内部分选中」
+            mixed -> Box(Modifier.size(width = 10.dp, height = 2.dp).background(Color.White))
+            checked -> Icon(
+                Icons.Filled.Check,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(13.dp),
+            )
         }
     }
 }
@@ -1432,13 +1561,30 @@ private fun CollapsibleGroup(
     onToggleSelection: () -> Unit = {},
     content: @Composable () -> Unit,
 ) {
+    // 分组头的三态（全选 / 未选 / 半选）：交给 triStateToggleable 统一表达，
+    // 读屏才会把「半选」播报出来 —— 只画一条横杠的话，无障碍用户无法判断点下去是「全选」还是「全不选」。
+    val triState = when (selectedState) {
+        GroupSelectState.ALL -> ToggleableState.On
+        GroupSelectState.NONE -> ToggleableState.Off
+        GroupSelectState.MIXED -> ToggleableState.Indeterminate
+    }
     Column(
         Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(8.dp)).background(Primer.BackgroundSecondary),
     ) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .clickable { if (selectionMode) onToggleSelection() else onToggle() }
+                .then(
+                    if (selectionMode) {
+                        Modifier.triStateToggleable(
+                            state = triState,
+                            role = Role.Checkbox,
+                            onClick = onToggleSelection,
+                        )
+                    } else {
+                        Modifier.clickable { onToggle() }
+                    },
+                )
                 .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -1458,18 +1604,11 @@ private fun CollapsibleGroup(
                 Spacer(Modifier.width(6.dp))
             }
             if (selectionMode) {
-                // 纯视觉：点击由整个分组头统一消费，避免一次点击被 Checkbox 与 Row 各消费一次
-                Box(contentAlignment = Alignment.Center) {
-                    Checkbox(
-                        checked = selectedState == GroupSelectState.ALL,
-                        onCheckedChange = null,
-                        modifier = Modifier.size(20.dp),
-                    )
-                    // 半选：Checkbox 不支持三态，用一条横杠覆盖表达「组内部分选中」
-                    if (selectedState == GroupSelectState.MIXED) {
-                        Box(Modifier.size(width = 10.dp, height = 2.dp).background(Primer.Blue500))
-                    }
-                }
+                // 纯视觉：点击由整个分组头统一消费（triStateToggleable），避免一次点击被消费两次
+                SelectionCheckbox(
+                    checked = triState == ToggleableState.On,
+                    mixed = triState == ToggleableState.Indeterminate,
+                )
             } else {
                 val rotation by animateFloatAsState(if (expanded) 90f else 0f, label = "arrow")
                 Icon(

@@ -23,18 +23,30 @@ data class DownloaderConfig(
     val auth: AuthProvider = AuthProvider { null },
     /** User-Agent（GitHub 对无 UA 的请求会 403）。 */
     val userAgent: String = "Branchbase/0.1",
+    /**
+     * 「上岛」扩展（小米超级岛 / 谷歌实时更新 / OPPO）。
+     *
+     * 传 [VendorIslandExtensions.defaults] 即可启用三家内置实现；不传 = 只走标准通知栏，
+     * 一个厂商字段都不写（企业定制 / 排障时用得上）。第三方或厂商 SDK 也能运行时注册
+     * （[DownloaderRuntime.registerIslandExtension]）。
+     */
+    val islandExtensions: List<DownloadIslandExtension> = emptyList(),
 )
 
 /**
  * 内建下载的装配点与门面。
  *
  * 依赖方向：`:app → :downloader`。App 侧只需要三件事：
- * 1. `Application.onCreate` 里 [install] 一次（注入凭据与小图标）；
+ * 1. `Application.onCreate` 里 [install] 一次（注入凭据、小图标与「上岛」扩展）；
  * 2. 下载时 [enqueue] 一条 [DownloadRequest]；
  * 3. UI 侧 `collect` [tasks] 画进度（与系统通知同源，不会出现两个进度）。
  *
  * 失败 / 取消 / 重试都**不依赖返回值**：状态一律通过 [tasks] 回流，
  * 这样「退到后台再回来」也能看到正确状态。
+ *
+ * 通知栏进度由服务侧维护（见 [DownloadService] / [DownloadNotifications]）；
+ * 需要把进度再投到厂商的灵动岛时，走 [DownloaderConfig.islandExtensions] 或
+ * [registerIslandExtension] —— 模块本身不引任何厂商 SDK。
  */
 object DownloaderRuntime {
 
@@ -42,10 +54,36 @@ object DownloaderRuntime {
     internal var config: DownloaderConfig = DownloaderConfig()
         private set
 
+    /**
+     * 应用上下文（只有「上岛」扩展需要它：取消 / 移除时去收厂商侧的卡片）。
+     * 存 `applicationContext` 而不是传入的 Context —— 后者可能是 Activity，按住会泄漏。
+     */
+    @Volatile
+    internal var appContext: Context? = null
+        private set
+
     /** 由 `Application.onCreate` 调用一次。 */
     fun install(context: Context, config: DownloaderConfig = DownloaderConfig()) {
         this.config = config
+        appContext = context.applicationContext
+        // 装配「上岛」扩展：同一进程内 install 只应发生一次，用配置清单整体覆盖注册表
+        DownloadIslandExtensions.replaceAll(config.islandExtensions)
     }
+
+    /**
+     * 运行时注册一个「上岛」扩展（同 id 覆盖）。
+     *
+     * 场景：官方 SDK 只能在 `:app` 里初始化（模块不引厂商依赖），初始化完成后把适配器注册进来；
+     * 第三方模块也可以通过它替换内置实现。不传 [DownloaderConfig.islandExtensions] 时也能用。
+     */
+    fun registerIslandExtension(extension: DownloadIslandExtension): Boolean =
+        DownloadIslandExtensions.install(extension)
+
+    /** 注销扩展（返回 false = 本来就没注册）。 */
+    fun unregisterIslandExtension(id: String): Boolean = DownloadIslandExtensions.uninstall(id)
+
+    /** 当前已注册的扩展（排查「为什么没上岛」时先看这里）。 */
+    fun islandExtensions(): List<DownloadIslandExtension> = DownloadIslandExtensions.all()
 
     /** 全部任务（新任务在前）。 */
     val tasks: StateFlow<List<DownloadTask>> get() = DownloadStore.tasks
@@ -100,6 +138,7 @@ object DownloaderRuntime {
     fun dismiss(id: String) {
         CancelRegistry.clear(id)
         DownloadStore.remove(id)
+        appContext?.let { DownloadIslandExtensions.removed(it, id) }
     }
 
     /** 清掉所有已结束的记录。 */

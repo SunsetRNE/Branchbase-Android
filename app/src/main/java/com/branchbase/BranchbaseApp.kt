@@ -10,6 +10,7 @@ import com.branchbase.core.RustTranslateEngine
 import com.branchbase.downloader.AuthProvider
 import com.branchbase.downloader.DownloaderConfig
 import com.branchbase.downloader.DownloaderRuntime
+import com.branchbase.downloader.VendorIslandExtensions
 import com.branchbase.translate.TranslateRuntime
 import com.branchbase.translate.TranslateSettings
 
@@ -50,6 +51,10 @@ class BranchbaseApp : Application(), ImageLoaderFactory {
             DownloaderConfig(
                 smallIconRes = R.drawable.ic_stat_download,
                 auth = AuthProvider { url -> authorizationForHost(url) },
+                // 下载进度除了通知栏，再尝试投到厂商的「灵动岛 / 实时活动」：
+                // 谷歌实时更新（Android 16）/ 小米超级岛 / OPPO 实况通知。
+                // 三家都要白名单或额外依赖，扩展内部各自判断可用性；不可用时保持普通通知。
+                islandExtensions = VendorIslandExtensions.defaults(),
             ),
         )
     }

@@ -44,4 +44,7 @@ dependencies {
     // Sora Editor（可编辑 + TextMate 语法高亮 + 行号）
     implementation(libs.sora.editor)
     implementation(libs.sora.editor.textmate)
+
+    // 配色的「浅色深黑 / 深色亮白」契约靠纯数据单测钉住（EditorPaletteTest）
+    testImplementation(libs.junit)
 }

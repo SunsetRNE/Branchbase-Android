@@ -18,6 +18,14 @@ import androidx.core.app.NotificationCompat
  *
  * 通知权限被拒时不抛异常：`NotificationManager.notify` 会静默失败，
  * 下载与前台服务照常（这正是「通知」与「下载」解耦的意义）。
+ *
+ * ## 进度通知上的三个叠加层（都在 `build()` 之前挂到**同一条**通知上）
+ * 1. 标准进度：`setProgress` + 百分比 / 字节数文案（[DownloadNotificationState] 统一算的）；
+ * 2. Hook 载荷：`com.branchbase.download.*` 一组稳定 extras，给第三方模块读（[DownloadNotificationHook]）；
+ * 3. 厂商「上岛」：[DownloadIslandExtensions] 里已注册且可用的扩展（小米超级岛 / 谷歌实时更新 / OPPO）。
+ *
+ * 之所以不另发一条「岛通知」：用户会在通知栏里看到两条重复的下载。厂商能力要么作用在
+ * 同一条通知上，要么由扩展自己维护独立卡片（那就由扩展在 [DownloadIslandExtension.onFinished] 里收尾）。
  */
 internal class DownloadNotifications(
     private val context: Context,
@@ -39,18 +47,20 @@ internal class DownloadNotifications(
 
     /** 前台服务的进度通知（id 固定，整条替换）。 */
     fun progress(task: DownloadTask, downloaded: Long, total: Long): Notification {
-        val percent = if (total > 0L) ((downloaded * 100) / total).toInt().coerceIn(0, 100) else 0
-        val text = if (total > 0L) {
-            "${DownloadPaths.formatBytes(downloaded)} / ${DownloadPaths.formatBytes(total)}"
-        } else {
-            DownloadPaths.formatBytes(downloaded)
-        }
-        return builder(task.request.title, "正在下载 · $text")
-            .setProgress(100, percent, total <= 0L)
+        // 任务表里的字节数是服务侧刚写进去的权威值；总量取「已知的最大值」，避免服务端
+        // 不报 Content-Length（total=0）时进度条先冲高再回退
+        val state = DownloadNotificationState.of(task).copy(
+            downloadedBytes = maxOf(downloaded, task.downloadedBytes),
+            totalBytes = maxOf(total, task.totalBytes, downloaded),
+        )
+        val builder = builder(state.title, state.progressText)
+            .setProgress(100, state.percent ?: 0, state.indeterminate)
             .setOngoing(true)
             .setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-            .build()
+        DownloadNotificationHook.apply(builder, state, ongoing = true)
+        DownloadIslandExtensions.decorate(context, builder, state)
+        return builder.build()
     }
 
     /** 服务被拉起、但任务已经不在表里时的占位通知（只为满足 5 秒内 startForeground 的约定）。 */
@@ -59,25 +69,29 @@ internal class DownloadNotifications(
 
     /** 完成 / 失败通知。取消不发通知（用户刚刚就是自己取消的）。 */
     fun finished(task: DownloadTask, ok: Boolean) {
+        val state = DownloadNotificationState.of(task)
         val text = when {
             ok -> "下载完成"
             !task.error.isNullOrBlank() -> "下载失败：${task.error}"
             else -> "下载失败"
         }
-        val notification = builder(task.request.title, text)
+        val builder = builder(task.request.title, text)
             .setOngoing(false)
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
-            .build()
+        DownloadNotificationHook.apply(builder, state, ongoing = false)
         runCatching {
-            context.getSystemService(NotificationManager::class.java)?.notify(finishedId(task.id), notification)
+            context.getSystemService(NotificationManager::class.java)?.notify(finishedId(task.id), builder.build())
         }
+        // 进度通知到此为止；厂商侧若维护了独立卡片，趁结束信号收掉
+        DownloadIslandExtensions.finished(context, state, ok)
     }
 
     fun cancelFinished(id: String) {
         runCatching {
             context.getSystemService(NotificationManager::class.java)?.cancel(finishedId(id))
         }
+        DownloadIslandExtensions.removed(context, id)
     }
 
     private fun builder(title: String, text: String): NotificationCompat.Builder =

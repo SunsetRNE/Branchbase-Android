@@ -31,6 +31,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Deselect
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.MarkEmailRead
@@ -805,7 +806,9 @@ fun NotifSelectionTopBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             AnimatedStateIcon(
-                icon = if (allSelected) Icons.Filled.Close else Icons.Filled.SelectAll,
+                // 「取消全选」用 Deselect（虚线方框），不要用 Close（✕）：
+                // ✕ 在这一屏同时是「退出多选」，两个完全不同的动作共用一个图标会点错。
+                icon = if (allSelected) Icons.Filled.Deselect else Icons.Filled.SelectAll,
                 contentDescription = null,
                 tint = Primer.Blue500,
                 modifier = Modifier.size(16.dp),
