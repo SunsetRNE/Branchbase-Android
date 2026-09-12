@@ -17,31 +17,56 @@ import org.json.JSONObject
  * 因此远端语义变化（限流、失败、字段新增）不会让页面读不出东西。
  */
 
-/** 本地「已读」thread 集合（键：`notif_read_ids`）。 */
+/** 本地「已读」thread 集合（键：`notif_read_order`，JSON 数组保序；旧键 `notif_read_ids` 仍可读）。 */
 object NotifReadStore {
 
-    private const val KEY = "notif_read_ids"
+    private const val KEY_LEGACY = "notif_read_ids"
+
+    /**
+     * 保序键。
+     *
+     * 为什么不能继续用 `StringSet`：`getStringSet` 返回的是**无序**集合，
+     * 「超过 500 条淘汰最早写入的」在无序集合上退化成「淘汰哈希序靠后的一批」——
+     * 刚点开的那条可能当场被丢掉，下次回源又变回未读。
+     */
+    private const val KEY = "notif_read_order"
 
     /** 条数上限：读集合会随使用无限增长，超过后丢弃最早写入的一批（保留最近 500 个 thread）。 */
     private const val MAX = 500
 
-    fun ids(context: Context): Set<String> =
-        context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
-            .getStringSet(KEY, emptySet()) ?: emptySet()
+    fun ids(context: Context): Set<String> = ordered(context).toSet()
+
+    /** 按写入顺序读出（旧数据没有顺序信息，只能按集合原样读出）。 */
+    private fun ordered(context: Context): List<String> {
+        val prefs = context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
+        prefs.getString(KEY, null)?.let { raw ->
+            return runCatching {
+                val arr = JSONArray(raw)
+                (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } }
+            }.getOrDefault(emptyList())
+        }
+        return (prefs.getStringSet(KEY_LEGACY, emptySet()) ?: emptySet()).toList()
+    }
 
     fun add(context: Context, ids: Collection<String>): Set<String> {
-        val next = (ids(context) + ids).toSet()
-        write(context, if (next.size > MAX) next.toList().takeLast(MAX).toSet() else next)
-        return next
+        // LinkedHashSet：已存在的不改变位置，新加的排在最后 → takeLast(MAX) 才是「淘汰最旧的」
+        val next = LinkedHashSet(ordered(context))
+        next.addAll(ids)
+        val kept = if (next.size > MAX) next.toList().takeLast(MAX) else next.toList()
+        write(context, kept)
+        return kept.toSet()
     }
 
     fun remove(context: Context, ids: Collection<String>): Set<String> {
-        val next = ids(context) - ids.toSet()
+        val next = ordered(context).filterNot { it in ids.toSet() }
         write(context, next)
-        return next
+        return next.toSet()
     }
 
-    fun replace(context: Context, ids: Set<String>) = write(context, ids)
+    fun replace(context: Context, ids: Set<String>) {
+        // 撤销路径给的是集合（顺序已丢失），只能原样写回
+        write(context, ids.toList())
+    }
 
     /** 把远端结果按本地已读集合覆盖一遍（页面与预取器共用同一口径）。 */
     fun apply(context: Context, list: List<Notification>): List<Notification> {
@@ -50,9 +75,11 @@ object NotifReadStore {
         return list.map { if (it.unread && it.id in read) it.copy(unread = false) else it }
     }
 
-    private fun write(context: Context, ids: Set<String>) {
+    private fun write(context: Context, ids: List<String>) {
+        val arr = JSONArray()
+        ids.forEach { arr.put(it) }
         context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
-            .edit().putStringSet(KEY, ids).apply()
+            .edit().putString(KEY, arr.toString()).apply()
     }
 }
 
@@ -136,7 +163,17 @@ object NotifArchive {
             if (old != null && old.isDone && !new.isDone) return@forEach
             byId[new.id] = new
         }
-        write(context, byId.values.toList().takeLast(MAX))
+        val all = byId.values.toList()
+        if (all.size <= MAX) {
+            write(context, all)
+            return
+        }
+        // 容量淘汰**优先丢自动留存的 read**：done 是用户显式操作的终态，
+        // 被「过往 Issue」挤掉就再也找不回来了（注释里写了 done 不可降级，淘汰路径同样要守）。
+        val overflow = all.size - MAX
+        val evicted = all.filterNot { it.isDone }.take(overflow).map { it.id }.toSet()
+        val kept = all.filterNot { it.id in evicted }
+        write(context, if (kept.size > MAX) kept.takeLast(MAX) else kept)
     }
 
     /** 由通知列表生成归档条目。 */

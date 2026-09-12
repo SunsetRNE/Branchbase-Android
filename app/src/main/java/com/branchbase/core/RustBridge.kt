@@ -641,10 +641,16 @@ object RustBridge {
             }
         }
 
-    /** 将 markdown 渲染为 HTML（POST /markdown）。 */
+    /**
+     * 将 markdown 渲染为 HTML（POST /markdown）。
+     *
+     * 空串是**合法结果**（例如正文只有 HTML 注释）：这里只在 `ERROR:` 前缀时判失败。
+     * 原来用 `ifBlank { null }` 把「没有内容」与「渲染失败」混成一件事，
+     * 于是 release 的「更新内容」整块消失，用户无法区分两者。
+     */
     suspend fun renderMarkdown(host: String, token: String, text: String): String? =
         withContext(Dispatchers.IO) {
-            nativeRenderMarkdown(host, token, text).ifBlank { null }
+            nativeRenderMarkdown(host, token, text).takeIf { !it.startsWith("ERROR:") }
         }
 
     /** 浅 clone 仓库到本地目录（返回是否成功）。 */

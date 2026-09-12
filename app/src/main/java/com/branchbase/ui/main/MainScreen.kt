@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -21,6 +23,7 @@ import com.branchbase.ui.navigation.PageLevel
 import com.branchbase.ui.navigation.PageSwitcher
 import com.branchbase.ui.navigation.TabSwitcher
 import com.branchbase.ui.notification.NotificationScreen
+import com.branchbase.ui.notification.NotifSnapshot
 import com.branchbase.ui.notification.NotifTarget
 import com.branchbase.ui.notification.SecurityAlertScreen
 import com.branchbase.ui.profile.ProfileScreen
@@ -64,7 +67,12 @@ fun MainScreen(
     var showSearch by remember { mutableStateOf(false) }
     var showRepo by remember { mutableStateOf<RepoDeepLink?>(null) }
     var showSecurity by remember { mutableStateOf<NotifTarget.Security?>(null) }
-    var notifUnread by remember { mutableStateOf(0) }
+    // 未读徽标与首页「待处理」卡片同源：订阅快照的未读数。
+    // 原来只有「消息页组合时上报」这一个来源 —— 冷启动停在下 Tab 时徽标恒为 0，
+    // 而首页卡片已经有数字（首页预取已填过快照），两处自相矛盾。
+    val snapshotUnread by NotifSnapshot.unreadFlow.collectAsState()
+    var notifUnread by remember { mutableStateOf(snapshotUnread) }
+    LaunchedEffect(snapshotUnread) { notifUnread = snapshotUnread }
 
     // 唯一路由（条件顺序与原「提前 return」一致，前者优先）
     val currentRepo = showRepo

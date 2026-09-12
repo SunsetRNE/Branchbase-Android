@@ -5,7 +5,11 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import com.branchbase.core.AccountStore
 import com.branchbase.core.RustTranslateEngine
+import com.branchbase.downloader.AuthProvider
+import com.branchbase.downloader.DownloaderConfig
+import com.branchbase.downloader.DownloaderRuntime
 import com.branchbase.translate.TranslateRuntime
 import com.branchbase.translate.TranslateSettings
 
@@ -40,6 +44,32 @@ class BranchbaseApp : Application(), ImageLoaderFactory {
             this,
             RustTranslateEngine { TranslateSettings.read(this) },
         )
+        // 内建下载：注入「凭据」与「通知小图标」两样 App 侧才知道的东西。
+        DownloaderRuntime.install(
+            this,
+            DownloaderConfig(
+                smallIconRes = R.drawable.ic_stat_download,
+                auth = AuthProvider { url -> authorizationForHost(url) },
+            ),
+        )
+    }
+
+    /**
+     * 只给 GitHub 自有域名附带 token。
+     *
+     * 引擎在**每一跳重定向**都会回调这里，所以「GitHub 附件 302 到对象存储」时
+     * token 不会跟着过去 —— 这正是把策略放在 provider 而不是引擎里的原因。
+     */
+    private fun authorizationForHost(url: String): String? {
+        val host = runCatching { java.net.URI(url).host }.getOrNull()?.lowercase() ?: return null
+        val account = AccountStore.current(this) ?: return null
+        val clientHost = account.host.lowercase()
+        val allowed = host == clientHost ||
+            host == "github.com" ||
+            host.endsWith(".github.com") ||
+            host == "api.github.com" ||
+            host == "raw.githubusercontent.com"
+        return if (allowed && account.token.isNotBlank()) "token ${account.token}" else null
     }
 
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)

@@ -30,15 +30,18 @@ impl GitHubApi {
     }
 
     /// 获取当前用户仓库列表（`GET /user/repos`）
+    ///
+    /// 必须显式 `per_page=100`：GitHub 默认只给 30 条，而调用方没有翻页入口 ——
+    /// 不写就是「第 31 个仓库永远看不到」且界面毫无提示。
     pub async fn my_repos(&self) -> Result<Vec<Repository>> {
-        let json = self.client.get_json("/user/repos").await?;
+        let json = self.client.get_json("/user/repos?per_page=100").await?;
         let repos: Vec<Repository> = serde_json::from_str(&json)?;
         Ok(repos)
     }
 
     /// 获取当前用户星标的仓库（`GET /user/starred`）
     pub async fn starred_repos(&self) -> Result<Vec<Repository>> {
-        let json = self.client.get_json("/user/starred").await?;
+        let json = self.client.get_json("/user/starred?per_page=100").await?;
         let repos: Vec<Repository> = serde_json::from_str(&json)?;
         Ok(repos)
     }
@@ -128,7 +131,7 @@ impl GitHubApi {
 
     /// 获取指定用户的公开仓库（`GET /users/{login}/repos`）
     pub async fn user_repos(&self, login: &str) -> Result<Vec<Repository>> {
-        let path = format!("/users/{login}/repos");
+        let path = format!("/users/{login}/repos?per_page=100");
         let json = self.client.get_json(&path).await?;
         let repos: Vec<Repository> = serde_json::from_str(&json)?;
         Ok(repos)
@@ -155,8 +158,11 @@ impl GitHubApi {
     }
 
     /// 获取仓库分支列表（`GET /repos/{owner}/{repo}/branches`，返回分支名 + 是否保护）
+    ///
+    /// `per_page=100`：分支切换/分支管理/分支对比/同步都直接用这个列表，
+    /// 默认 30 条会让「分支多一点的仓库」第 31 个分支之后直接消失（无翻页入口）。
     pub async fn list_branches(&self, owner: &str, repo: &str) -> Result<Vec<Branch>> {
-        let path = format!("/repos/{owner}/{repo}/branches");
+        let path = format!("/repos/{owner}/{repo}/branches?per_page=100");
         let json = self.client.get_json(&path).await?;
         let branches: Vec<Branch> = serde_json::from_str(&json)?;
         Ok(branches)
@@ -176,7 +182,7 @@ impl GitHubApi {
 
     /// 获取仓库贡献者（`GET /repos/{owner}/{repo}/contributors`，返回 JSON 数组）
     pub async fn repo_contributors(&self, owner: &str, repo: &str) -> Result<String> {
-        let path = format!("/repos/{owner}/{repo}/contributors");
+        let path = format!("/repos/{owner}/{repo}/contributors?per_page=100");
         self.client.get_json(&path).await
     }
 

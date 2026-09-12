@@ -27,6 +27,7 @@ local.properties
 /app/build/
 /editor/build/
 /translate/build/
+/downloader/build/
 # .so 原生库产物（CI 交叉编译后提交到 beta 分支，main 不保留）
 /app/src/main/jniLibs/
 

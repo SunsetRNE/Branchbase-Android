@@ -81,6 +81,7 @@ import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.notification.NotifLayout
 import com.branchbase.ui.notification.readNotifLayout
+import com.branchbase.ui.notification.rememberSystemNotificationState
 import com.branchbase.ui.notification.writeNotifLayout
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.LanguageColors
@@ -446,6 +447,8 @@ fun SettingsScreen(onBack: () -> Unit, onOpenLocalRepo: () -> Unit, onOpenAbout:
     LaunchedEffect(Unit) { Logger.ui("进入设置页", "Compose") }
     val context = LocalContext.current
     var mode by remember { mutableStateOf(commitMode(context)) } // CommitMode?，null = 未配置
+    // 系统通知状态（权限 + 总开关）：设置列表里直接回显「已开启 / 未开启」
+    val notificationPermission = rememberSystemNotificationState()
     var showProxyDialog by remember { mutableStateOf(false) }
     var proxyInput by remember { mutableStateOf(gitProxy(context)) }
     var proxyFeedback by remember { mutableStateOf<String?>(null) }
@@ -490,7 +493,13 @@ fun SettingsScreen(onBack: () -> Unit, onOpenLocalRepo: () -> Unit, onOpenAbout:
         )
 
         SettingsSectionTitle("其他")
-        SettingsItem(Icons.Filled.Notifications, "通知", onClick = onOpenNotificationSettings)
+        // 通知项直接显示系统通知是否开启：这是「为什么没有提醒」最常见的原因，别让用户点两层才知道
+        SettingsItem(
+            Icons.Filled.Notifications,
+            "通知",
+            value = notificationPermission.label,
+            onClick = onOpenNotificationSettings,
+        )
         SettingsItem(Icons.Filled.Translate, "沉浸式翻译", onClick = onOpenTranslate)
         SettingsItem(Icons.Filled.Info, "关于", onClick = onOpenAbout)
         SettingsItem(Icons.Filled.Build, "日志", onClick = onOpenLog)
@@ -545,17 +554,35 @@ internal const val KEY_GIT_PROXY = "git_proxy"
 internal fun gitProxy(context: Context): String =
     context.getSharedPreferences("branchbase", Context.MODE_PRIVATE).getString(KEY_GIT_PROXY, "") ?: ""
 
-/** 通知设置子页面：选择通知列表显示模式（4 种，默认平铺），持久化到 SharedPreferences。 */
+/** 通知设置子页面：系统通知权限入口 + 通知列表显示模式。 */
 @Composable
 fun NotificationSettingsScreen(onBack: () -> Unit) {
     LaunchedEffect(Unit) { Logger.ui("进入通知设置页", "Compose") }
     val context = LocalContext.current
     var layout by remember { mutableStateOf(readNotifLayout(context)) }
+    // 系统通知（权限 + 总开关）：与下载通知、通知页横幅读同一份状态
+    val permission = rememberSystemNotificationState()
 
     Column(
         modifier = Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding(),
     ) {
         SubPageHeader("通知", onBack)
+
+        SettingsSectionTitle("系统通知")
+        SettingsItem(
+            icon = Icons.Filled.Notifications,
+            name = "允许发送通知",
+            value = permission.label,
+            // 已开启 → 进系统设置（可关掉 / 改渠道）；未开启 → 能弹授权框就弹，否则去设置页
+            onClick = { if (permission.granted) permission.openSettings() else permission.request() },
+        )
+        Text(
+            permission.hint,
+            fontSize = 12.sp,
+            color = Primer.TextTertiary,
+            lineHeight = 18.sp,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
 
         SettingsSectionTitle("通知显示模式")
         NotifLayout.entries.forEach { l ->
@@ -572,7 +599,8 @@ fun NotificationSettingsScreen(onBack: () -> Unit) {
 
         SettingsSectionTitle("说明")
         Text(
-            "选择通知列表的展示方式。\n「平铺」为默认：每条通知独立成卡；分组/合并/两级模式可将相关通知折叠，减少列表长度。",
+            "「允许发送通知」只控制系统通知栏的提醒（下载进度 / 下载完成）：关掉它，站内通知列表与未读徽标照常工作。\n" +
+                "通知列表的展示方式：「平铺」为默认：每条通知独立成卡；分组/合并/两级模式可将相关通知折叠，减少列表长度。",
             fontSize = 12.sp,
             color = Primer.TextTertiary,
             lineHeight = 18.sp,

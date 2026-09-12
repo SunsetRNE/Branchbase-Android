@@ -35,6 +35,26 @@ class ReadmeRenderUrlTest {
     }
 
     @Test
+    fun `优先认 readme 外层容器上的 data-path`() {
+        // 正文自己贴了一段含 data-path 的 HTML 时，不能拿它当 README 路径：
+        // 路径决定相对图片/链接的基准目录，取错就是整篇图片错位。
+        val html = """<div id="readme" class="md" data-path="docs/README.md">""" +
+            """<article class="markdown-body"><pre data-path="wrong/path.md"></pre></article>"""
+        assertEquals("docs/README.md", readmePathOf(html))
+    }
+
+    @Test
+    fun `未编码的空格 URL 也能解析出 host 与 path`() {
+        // java.net.URI 对未编码空格会抛异常；解析失败必须退回手工拆分，
+        // 否则鉴权 + 磁盘缓存整条链路静默失效（私有仓库图片裂图）。
+        val parsed = parseUrl("https://github.com/o/r/raw/main/my image.png")
+        assertEquals("github.com", parsed?.host)
+        assertEquals("/o/r/raw/main/my image.png", parsed?.path)
+        // 相对 URL 仍然解析得出（只是没有 host）—— 依赖方一律先判 host 才能用
+        assertNull(parseUrl("./relative/a.png")?.host)
+    }
+
+    @Test
     fun `基准目录按 README 所在目录计算`() {
         assertEquals("docs/", baseDirOf("docs/README.md"))
         assertEquals("a/b/c/", baseDirOf("a/b/c/README.md"))

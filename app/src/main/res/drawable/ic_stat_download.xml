@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 通知小图标：状态栏要求单色小图（用 launcher 图标会显示成白方块） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,3L12,13.2L8.4,9.6L7,11L13,17L19,11L17.6,9.6L14,13.2L14,3L12,3zM5,19L5,21L19,21L19,19L5,19z" />
+</vector>

@@ -7,13 +7,16 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -27,12 +30,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.LinkInteractionListener
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -76,7 +83,23 @@ sealed interface MdBlock {
     data object Divider : MdBlock
 }
 
-private val FENCE = Regex("^```\\s*([A-Za-z0-9_+-]*)\\s*$")
+// 开围栏：缩进 ≤3、3 个以上反引号、info string 取第一段非空白（`c++` / `{r}` 这类都得认）
+private val FENCE_OPEN = Regex("^ {0,3}(`{3,})\\s*(\\S*)\\s*$")
+
+/**
+ * 收尾围栏判定（CommonMark）：缩进 ≤3、只有反引号、且反引号**不少于**开围栏。
+ *
+ * 原来收尾直接复用开围栏的正则（要求顶格、不许有 info string），两头都会错：
+ * - ```` ```md ```` 里嵌一段 ```` ```js ```` 的示例 → 内层被当成收尾，示例后半段被解析成普通块；
+ * - 收尾围栏带点缩进（`  ``` `）→ 收不了尾，后面整篇内容被吞进代码块。
+ */
+private fun isFenceClose(line: String, openTicks: Int): Boolean {
+    val indent = line.takeWhile { it == ' ' }.length
+    if (indent > 3) return false
+    val rest = line.substring(indent).trimEnd()
+    val ticks = rest.takeWhile { it == '`' }.length
+    return ticks >= openTicks && rest.drop(ticks).isBlank()
+}
 private val HEADING = Regex("^(#{1,6})\\s+(.*)$")
 // 分组：1 = 前缀（缩进 + 项目符号 + 空格），2 = 勾选状态，3 = 正文。
 // 前缀必须单独成组 —— 勾选回写要按「原样替换第 2 组」重建整行，没有前缀组就会丢掉 `- `。
@@ -101,6 +124,8 @@ fun parseMarkdownBlocks(source: String): List<MdBlock> {
     val paragraph = mutableListOf<String>()
     // 列表项续行：记录「上一次 push 的块是不是列表」，是则把缩进行并回去
     var lastListIndex = -1
+    // 有序列表的当前序号：只在「上一块也是有序项」时递增（见下面 ORDERED 分支）
+    var orderedIndex = 0
 
     fun flushParagraph() {
         if (paragraph.isNotEmpty()) {
@@ -115,13 +140,14 @@ fun parseMarkdownBlocks(source: String): List<MdBlock> {
         val line = raw.trimEnd()
 
         // ① 围栏代码块
-        val fence = FENCE.find(line)
+        val fence = FENCE_OPEN.find(line)
         if (fence != null) {
             flushParagraph()
-            val lang = fence.groupValues[1]
+            val lang = fence.groupValues[2]
+            val ticks = fence.groupValues[1].length
             val body = StringBuilder()
             i++
-            while (i < lines.size && FENCE.find(lines[i].trimEnd()) == null) {
+            while (i < lines.size && !isFenceClose(lines[i].trimEnd(), ticks)) {
                 body.append(lines[i]).append('\n')
                 i++
             }
@@ -158,9 +184,18 @@ fun parseMarkdownBlocks(source: String): List<MdBlock> {
         val quote = QUOTE.find(line)
         if (quote != null) {
             flushParagraph()
-            out += MdBlock.Quote(quote.groupValues[1].trim())
-            lastListIndex = -1
+            // 连续的 `>` 行是**同一段引用**（GitHub 也合并渲染）。
+            // 逐行成块时，多行引用会被 Arrangement.spacedBy(8.dp) 撑成多根短竖条，
+            // 看起来像好几段互不相干的引用。
+            val parts = mutableListOf(quote.groupValues[1].trim())
             i++
+            while (i < lines.size) {
+                val next = QUOTE.find(lines[i].trimEnd()) ?: break
+                parts += next.groupValues[1].trim()
+                i++
+            }
+            out += MdBlock.Quote(parts.joinToString(" ").trim())
+            lastListIndex = -1
             continue
         }
 
@@ -185,7 +220,10 @@ fun parseMarkdownBlocks(source: String): List<MdBlock> {
         val ordered = ORDERED.find(line)
         if (ordered != null) {
             flushParagraph()
-            out += MdBlock.Ordered(out.count { it is MdBlock.Ordered } + 1, ordered.groupValues[1].trim())
+            // 序号只在上一个块也是有序项时递增。原来数的是**整篇文档**里 Ordered 的总数，
+            // 于是「列表 → 一段文字 → 新列表」时新列表会从 3、4 接着编号（GitHub 重新从 1 开始）。
+            orderedIndex = if (out.lastOrNull() is MdBlock.Ordered) orderedIndex + 1 else 1
+            out += MdBlock.Ordered(orderedIndex, ordered.groupValues[1].trim())
             lastListIndex = out.lastIndex
             i++
             continue
@@ -247,30 +285,56 @@ private val INLINE_TOKEN = Regex(
 )
 
 /**
+ * 评论里链接的解析基准。
+ *
+ * 评论正文是本地解析的，`[文字](/相对路径)`、`@提及`、`#编号` 这些**短写法**必须自己补全；
+ * 没有基准时它们只能有样式、点不动（这正是这一版修掉的缺陷：`onLinkClick` 参数一直存在，
+ * 但解析器从来不产生任何可点击的 link annotation）。
+ */
+data class MarkdownLinkBase(val host: String, val owner: String, val repo: String) {
+    fun mention(login: String): String = "$host/$login"
+
+    fun issue(number: String): String = "$host/$owner/$repo/issues/$number"
+
+    /** 绝对链接原样使用；相对链接按仓库根拼（去掉 `./` 前缀）；页内锚点在评论里没有对应元素，返回 null。 */
+    fun resolve(url: String): String? {
+        val cleaned = url.trim()
+        if (cleaned.startsWith("http://") || cleaned.startsWith("https://")) return cleaned
+        if (cleaned.isEmpty() || cleaned.startsWith("#")) return null
+        return "$host/$owner/$repo/${cleaned.removePrefix("./").trimStart('/')}"
+    }
+}
+
+/**
  * 行内标记 → `AnnotatedString`。
  *
  * 两级处理：
  * 1. **行内代码优先**：`` ` `` 分段，代码段原样输出（等宽 + 底色），其中的 `*`、`[` 一律不再解析；
  * 2. 非代码段走 [INLINE_TOKEN] 单次扫描，逐段 append 并套样式。
+ *
+ * 传了 [linkBase] / [onLinkClick] 时，链接 / @提及 / #编号 / 裸链接会带上
+ * `LinkAnnotation`（Compose 1.7+ 的 `Text` 直接支持点击派发）。
  */
 fun inlineMarkdown(
     text: String,
     linkColor: Color = Color.Unspecified,
     codeBg: Color = Color.Unspecified,
+    linkBase: MarkdownLinkBase? = null,
+    onLinkClick: ((String) -> Unit)? = null,
 ): AnnotatedString = buildAnnotatedString {
     var i = 0
     while (i <= text.length) {
         val open = text.indexOf('`', i)
         if (open < 0) {
-            appendInlineSegment(text.substring(i), linkColor)
+            appendInlineSegment(text.substring(i), linkColor, linkBase, onLinkClick)
             break
         }
         val close = text.indexOf('`', open + 1)
         if (close < 0) {
-            appendInlineSegment(text.substring(i), linkColor)
+            appendInlineSegment(text.substring(i), linkColor, linkBase, onLinkClick)
             break
         }
-        if (open > i) appendInlineSegment(text.substring(i, open), linkColor)
+        if (open > i) appendInlineSegment(text.substring(i, open), linkColor, linkBase, onLinkClick)
         withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeBg, fontSize = 12.sp)) {
             append(text.substring(open + 1, close))
         }
@@ -278,17 +342,52 @@ fun inlineMarkdown(
     }
 }
 
+/**
+ * 能点就点，点不了就只给样式。
+ *
+ * [target] 为空（没有链接基准 / 页内锚点）或没有回调时，退回原来的纯样式行为 ——
+ * 绝不能让「链接不可点」变成「文字不显示了」。
+ */
+private fun AnnotatedString.Builder.linkOrStyle(
+    target: String?,
+    label: String,
+    style: SpanStyle,
+    onLinkClick: ((String) -> Unit)?,
+) {
+    if (target == null || onLinkClick == null) {
+        withStyle(style) { append(label) }
+        return
+    }
+    withLink(
+        LinkAnnotation.Clickable(
+            tag = target,
+            styles = TextLinkStyles(style = style),
+            linkInteractionListener = LinkInteractionListener { onLinkClick(target) },
+        ),
+    ) {
+        append(label)
+    }
+}
+
 /** 非代码段的行内样式扫描（粗体 / 斜体 / 链接 / @提及 / #编号 / 裸链接）。 */
-private fun AnnotatedString.Builder.appendInlineSegment(segment: String, linkColor: Color) {
+private fun AnnotatedString.Builder.appendInlineSegment(
+    segment: String,
+    linkColor: Color,
+    linkBase: MarkdownLinkBase?,
+    onLinkClick: ((String) -> Unit)?,
+) {
     var cursor = 0
     INLINE_TOKEN.findAll(segment).forEach { m ->
         if (m.range.first > cursor) append(segment.substring(cursor, m.range.first))
         val g = m.groupValues
         when {
             g[1].isNotEmpty() || (g[2].isNotEmpty() && m.value.startsWith("[")) -> {
-                withStyle(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline)) {
-                    append(g[1].ifBlank { g[2] })
-                }
+                linkOrStyle(
+                    target = linkBase?.resolve(g[2]),
+                    label = g[1].ifBlank { g[2] },
+                    style = SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline),
+                    onLinkClick = onLinkClick,
+                )
             }
             g[3].isNotEmpty() -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(g[3]) }
             g[4].isNotEmpty() -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(g[4]) }
@@ -296,15 +395,28 @@ private fun AnnotatedString.Builder.appendInlineSegment(segment: String, linkCol
             g[6].isNotEmpty() -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(g[6]) }
             g[8].isNotEmpty() -> {
                 append(g[7])
-                withStyle(SpanStyle(color = linkColor, fontWeight = FontWeight.SemiBold)) { append("@${g[8]}") }
+                linkOrStyle(
+                    target = linkBase?.mention(g[8]),
+                    label = "@${g[8]}",
+                    style = SpanStyle(color = linkColor, fontWeight = FontWeight.SemiBold),
+                    onLinkClick = onLinkClick,
+                )
             }
             g[10].isNotEmpty() -> {
                 append(g[9])
-                withStyle(SpanStyle(color = linkColor, fontWeight = FontWeight.SemiBold)) { append("#${g[10]}") }
+                linkOrStyle(
+                    target = linkBase?.issue(g[10]),
+                    label = "#${g[10]}",
+                    style = SpanStyle(color = linkColor, fontWeight = FontWeight.SemiBold),
+                    onLinkClick = onLinkClick,
+                )
             }
-            g[11].isNotEmpty() -> withStyle(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline)) {
-                append(g[11])
-            }
+            g[11].isNotEmpty() -> linkOrStyle(
+                target = g[11],
+                label = g[11],
+                style = SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline),
+                onLinkClick = onLinkClick,
+            )
             else -> append(m.value)
         }
         cursor = m.range.last + 1
@@ -318,12 +430,14 @@ private fun AnnotatedString.Builder.appendInlineSegment(segment: String, linkCol
  * 评论正文渲染。
  *
  * @param onLinkClick 链接 / @提及 / #编号 的点击回调（由调用方决定跳内置页还是浏览器）
+ * @param linkBase 链接基准（`@提及` / `#编号` / 相对链接补全用）；null 时这些短写法只有样式、不可点
  * @param onToggleTask 任务清单勾选（只对**自己的**评论给回调；别人的任务项不可改）
  */
 @Composable
 fun MarkdownBody(
     source: String,
     modifier: Modifier = Modifier,
+    linkBase: MarkdownLinkBase? = null,
     onLinkClick: (String) -> Unit = {},
     onCopyCode: ((String) -> Unit)? = null,
     onToggleTask: ((MdBlock.Task) -> Unit)? = null,
@@ -333,14 +447,14 @@ fun MarkdownBody(
         blocks.forEachIndexed { index, block ->
             when (block) {
                 is MdBlock.Paragraph -> Text(
-                    inlineMarkdown(block.text, linkColor = Primer.Link, codeBg = Primer.Gray150),
+                    inlineMarkdown(block.text, linkColor = Primer.Link, codeBg = Primer.Gray150, linkBase = linkBase, onLinkClick = onLinkClick),
                     fontSize = 13.5.sp,
                     lineHeight = 21.sp,
                     color = Primer.TextPrimary,
                 )
 
                 is MdBlock.Heading -> Text(
-                    inlineMarkdown(block.text, linkColor = Primer.Link, codeBg = Primer.Gray150),
+                    inlineMarkdown(block.text, linkColor = Primer.Link, codeBg = Primer.Gray150, linkBase = linkBase, onLinkClick = onLinkClick),
                     fontSize = when (block.level) {
                         1, 2 -> 16.sp
                         3 -> 15.sp
@@ -351,8 +465,8 @@ fun MarkdownBody(
                     modifier = Modifier.padding(top = if (index == 0) 0.dp else 4.dp),
                 )
 
-                is MdBlock.Bullet -> BulletRow(marker = "•", content = block.text)
-                is MdBlock.Ordered -> BulletRow(marker = "${block.index}.", content = block.text)
+                is MdBlock.Bullet -> BulletRow(marker = "•", content = block.text, linkBase = linkBase, onLinkClick = onLinkClick)
+                is MdBlock.Ordered -> BulletRow(marker = "${block.index}.", content = block.text, linkBase = linkBase, onLinkClick = onLinkClick)
 
                 is MdBlock.Task -> Row(verticalAlignment = Alignment.Top) {
                     Box(
@@ -376,7 +490,7 @@ fun MarkdownBody(
                     }
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        inlineMarkdown(block.text, linkColor = Primer.Link, codeBg = Primer.Gray150),
+                        inlineMarkdown(block.text, linkColor = Primer.Link, codeBg = Primer.Gray150, linkBase = linkBase, onLinkClick = onLinkClick),
                         fontSize = 13.5.sp,
                         lineHeight = 21.sp,
                         color = if (block.checked) Primer.TextTertiary else Primer.TextPrimary,
@@ -384,11 +498,12 @@ fun MarkdownBody(
                     )
                 }
 
-                is MdBlock.Quote -> Row(Modifier.fillMaxWidth()) {
-                    Box(Modifier.width(3.dp).height(IntrinsicHeightMin).background(Primer.Gray200))
+                // 竖条高度要跟着引用内容走：固定 20dp 时多行引用只有第一行带竖条。
+                is MdBlock.Quote -> Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                    Box(Modifier.width(3.dp).fillMaxHeight().background(Primer.Gray200))
                     Spacer(Modifier.width(10.dp))
                     Text(
-                        inlineMarkdown(block.text, linkColor = Primer.Link, codeBg = Primer.Gray150),
+                        inlineMarkdown(block.text, linkColor = Primer.Link, codeBg = Primer.Gray150, linkBase = linkBase, onLinkClick = onLinkClick),
                         fontSize = 13.sp,
                         lineHeight = 20.sp,
                         color = Primer.TextSecondary,
@@ -403,21 +518,25 @@ fun MarkdownBody(
     }
 }
 
-/** 引用块左侧竖条需要一个最小高度（`IntrinsicSize` 在 LazyColumn 里开销大，这里给固定值）。 */
-private val IntrinsicHeightMin = 20.dp
-
 @Composable
-private fun BulletRow(marker: String, content: String) {
+private fun BulletRow(
+    marker: String,
+    content: String,
+    linkBase: MarkdownLinkBase?,
+    onLinkClick: (String) -> Unit,
+) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         Text(
             marker,
             fontSize = 13.5.sp,
             lineHeight = 21.sp,
             color = Primer.TextSecondary,
-            modifier = Modifier.width(20.dp),
+            // 用 min 宽度而不是固定 20dp：两位数序号（`10.`）在固定宽度里会换行成两行，
+            // 序号列与正文的基线随即错位。
+            modifier = Modifier.widthIn(min = 20.dp),
         )
         Text(
-            inlineMarkdown(content, linkColor = Primer.Link, codeBg = Primer.Gray150),
+            inlineMarkdown(content, linkColor = Primer.Link, codeBg = Primer.Gray150, linkBase = linkBase, onLinkClick = onLinkClick),
             fontSize = 13.5.sp,
             lineHeight = 21.sp,
             color = Primer.TextPrimary,
@@ -425,50 +544,60 @@ private fun BulletRow(marker: String, content: String) {
     }
 }
 
-/** 代码块：等宽字体 + 横向滚动 + 右上角复制（对标网页版的代码块工具条）。 */
+/** 代码块：等宽字体 + 横向滚动 + 顶部工具条（语言标签 / 复制）。 */
 @Composable
 private fun CodeBlock(lang: String, code: String, onCopy: ((String) -> Unit)?) {
-    Box(
+    Column(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(Primer.Gray100)
             .border(1.dp, Primer.Gray200, RoundedCornerShape(8.dp)),
     ) {
-        Column(Modifier.fillMaxWidth().padding(10.dp)) {
-            if (lang.isNotBlank()) {
+        // 工具条独立成行，复制按钮**不再悬浮在代码上**：
+        // 覆盖式按钮会压住第一行代码（代码没为它预留右边距），横向滚动时更是永远盖着一块。
+        if (lang.isNotBlank() || onCopy != null) {
+            Row(
+                Modifier.fillMaxWidth().padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
                     lang,
                     fontSize = 10.5.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Primer.TextTertiary,
-                    modifier = Modifier.padding(bottom = 6.dp),
+                    modifier = Modifier.weight(1f),
                 )
+                if (onCopy != null) {
+                    Text(
+                        "复制",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Primer.TextSecondary,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Primer.BackgroundPrimary)
+                            .border(1.dp, Primer.Gray200, RoundedCornerShape(6.dp))
+                            .clickable { onCopy(code) }
+                            .padding(horizontal = 7.dp, vertical = 3.dp),
+                    )
+                }
             }
-            Text(
-                code,
-                fontFamily = FontFamily.Monospace,
-                fontSize = 11.8.sp,
-                lineHeight = 18.sp,
-                color = Primer.TextPrimary,
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-            )
         }
-        if (onCopy != null) {
-            Text(
-                "复制",
-                fontSize = 10.5.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Primer.TextSecondary,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(6.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Primer.BackgroundPrimary)
-                    .border(1.dp, Primer.Gray200, RoundedCornerShape(6.dp))
-                    .clickable { onCopy(code) }
-                    .padding(horizontal = 7.dp, vertical = 3.dp),
-            )
-        }
+        Text(
+            code,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 11.8.sp,
+            lineHeight = 18.sp,
+            color = Primer.TextPrimary,
+            modifier = Modifier
+                .padding(
+                    start = 10.dp,
+                    end = 10.dp,
+                    top = if (lang.isNotBlank() || onCopy != null) 4.dp else 10.dp,
+                    bottom = 10.dp,
+                )
+                .horizontalScroll(rememberScrollState()),
+        )
     }
 }

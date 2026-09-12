@@ -109,9 +109,16 @@ private val REASON_META: Map<String, ReasonMeta> = mapOf(
 
 private val FALLBACK_REASON = ReasonMeta("你订阅的", TintRole.NEUTRAL_SUBTLE)
 
-/** 从 subject.url 抽取编号/sha（如 `.../issues/42` → "42"，`.../commits/abc` → "abc"） */
+/**
+ * 从 subject.url 抽取编号/sha（如 `.../issues/42` → "42"，`.../commits/abc` → "abc"）。
+ *
+ * 必须覆盖 `check-suites` / `check-runs`：GitHub 的 CheckSuite / CheckRun 通知
+ * subject.url 就是这两种形态（只有 WorkflowRun 才是 `/actions/runs/<id>`），
+ * 漏掉它们会让 targetNumber 为 null，下游再兜底成 0 → 跳到一个不存在的 run #0。
+ */
 private fun extractNumber(url: String): Long? =
-    Regex("/(?:issues|pulls|releases|discussions|runs)/(\\d+)").find(url)?.groupValues?.get(1)?.toLongOrNull()
+    Regex("/(?:issues|pulls|releases|discussions|runs|check-suites|check-runs)/(\\d+)")
+        .find(url)?.groupValues?.get(1)?.toLongOrNull()
 
 private fun extractSha(url: String): String? =
     Regex("/commits/([0-9a-fA-F]+)").find(url)?.groupValues?.get(1)
@@ -267,12 +274,20 @@ fun typeShortName(subjectType: String): String = when (subjectType) {
     else -> subjectType
 }
 
-/** 决策渲染：subject.type → 落地页路由目标 */
+/**
+ * 决策渲染：subject.type → 落地页路由目标。
+ *
+ * 编号缺失时**退到仓库页**，而不是 `?: 0`：`#0` 必然是打不开的页面，
+ * 仓库页至少把用户放在正确的仓库里（例如 CheckSuite 通知拿不到 run 编号时）。
+ */
 fun resolveTarget(n: Notification): NotifTarget = when (n.subjectType) {
-    "Issue" -> NotifTarget.Issue(n.owner, n.repo, n.targetNumber ?: 0)
-    "PullRequest" -> NotifTarget.Pull(n.owner, n.repo, n.targetNumber ?: 0)
+    "Issue" -> n.targetNumber?.let { NotifTarget.Issue(n.owner, n.repo, it) }
+        ?: NotifTarget.Repo(n.owner, n.repo)
+    "PullRequest" -> n.targetNumber?.let { NotifTarget.Pull(n.owner, n.repo, it) }
+        ?: NotifTarget.Repo(n.owner, n.repo)
     "Commit" -> NotifTarget.Commit(n.owner, n.repo, n.targetSha.orEmpty())
-    "CheckSuite", "CheckRun", "WorkflowRun" -> NotifTarget.Run(n.owner, n.repo, n.targetNumber ?: 0)
+    "CheckSuite", "CheckRun", "WorkflowRun" -> n.targetNumber?.let { NotifTarget.Run(n.owner, n.repo, it) }
+        ?: NotifTarget.Repo(n.owner, n.repo)
     "RepositoryVulnerabilityAlert", "RepositoryAdvisory" -> NotifTarget.Security(n.owner, n.repo, n.title, n.url)
     else -> NotifTarget.Repo(n.owner, n.repo)
 }

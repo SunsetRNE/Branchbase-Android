@@ -161,6 +161,10 @@ fun NotificationScreen(
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
+    // 系统通知状态（权限 + 总开关）：没开时在列表上方给一条可关闭的横幅。
+    // 注意：这只影响「能不能弹系统通知」，与站内通知列表无关 —— 列表永远照常工作。
+    val systemNotification = rememberSystemNotificationState()
+    var notifBannerDismissed by remember { mutableStateOf(isNotificationBannerDismissed(context)) }
     // 通知列表缓存（TTL 2 分钟，兼顾「未读」时效性）：返回上一层再进来先直出，再后台回源
     val cacheManager = remember(context) {
         SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
@@ -437,7 +441,10 @@ fun NotificationScreen(
 
     /** 归档条目回填为列表行（恢复未读用） */
     fun unsendToInbox(entry: ArchivedThread) {
-        NotifArchive.put(context, listOf(entry.copy(state = ArchivedThread.STATE_DONE)))
+        // 「恢复未读」的撤销：必须把 entry **原样**放回归档（read 就回 read）。
+        // 硬编码 done 会把只读过的条目从「过往 Issue」升级进「已完成」——
+        // 状态被永久改写，而且这不是任何用户操作的结果。
+        NotifArchive.put(context, listOf(entry))
         NotifReadStore.add(context, listOf(entry.id))
         archiveVersion++
         items = items.map { if (it.id == entry.id) it.copy(unread = false) else it }
@@ -679,6 +686,17 @@ fun NotificationScreen(
 
             // ── 预加载提示（③ 的可见证据）：仅在首帧确实吃了快照时出现，4 秒后自动收起 ──
             if (fromSnapshot) PrefetchHint()
+
+            // ── 系统通知权限横幅：只在真的收不到通知、且用户没点过「不再提示」时出现 ──
+            if (!systemNotification.granted && !notifBannerDismissed && !inSelection) {
+                NotificationPermissionBanner(
+                    state = systemNotification,
+                    onDismiss = {
+                        notifBannerDismissed = true
+                        dismissNotificationBanner(context)
+                    },
+                )
+            }
 
             // 整页下拉刷新：只包住列表。
             // ⚠️ 必须用 weight(1f)：在 Column 里用 fillMaxSize() 会让它去占满「父容器整高」，
@@ -1704,8 +1722,26 @@ private fun issueTargetOf(entry: ArchivedThread): NotifTarget = when (entry.subj
     else -> NotifTarget.Issue(entry.owner, entry.repo, entry.number ?: 0)
 }
 
-private fun threadUrlOf(n: Notification): String =
-    "https://github.com/${n.repoFullName}" + (n.targetNumber?.let { "/issues/$it" } ?: "")
+/**
+ * 通知对应的网页地址（复制链接 / 在浏览器打开 / 分享共用）。
+ *
+ * 以前一律拼 `/issues/{number}`：Release 与工作流通知会打开一个**编号巧合的 issue**。
+ * 这里按 subject 类型分派；编号缺失时退到仓库页（比一个必然 404 的地址强）。
+ */
+private fun threadUrlOf(n: Notification): String {
+    val repo = "https://github.com/${n.repoFullName}"
+    val number = n.targetNumber
+    return when (n.subjectType) {
+        "Issue" -> number?.let { "$repo/issues/$it" } ?: repo
+        "PullRequest" -> number?.let { "$repo/pull/$it" } ?: repo
+        "Commit" -> n.targetSha?.let { "$repo/commit/$it" } ?: repo
+        "CheckSuite", "CheckRun", "WorkflowRun" -> number?.let { "$repo/actions/runs/$it" } ?: repo
+        "Discussion" -> number?.let { "$repo/discussions/$it" } ?: repo
+        // Release 通知里抽到的编号是 release id（不是 tag），拼不出网页地址 → 退到发布列表
+        "Release" -> "$repo/releases"
+        else -> repo
+    }
+}
 
 private fun copyThreadLink(context: Context, n: Notification) {
     copyToClipboard(context, threadUrlOf(n), "已复制链接")

@@ -175,6 +175,10 @@ dependencies {
     // :app 只提供后端实现（RustTranslateEngine）并在 Application 里 install 一次
     implementation(project(":translate"))
 
+    // 内建下载独立模块（下载引擎 / 前台服务 / 通知进度 / 通知权限 / 安装与打开文件）
+    // :app 只注入凭据与小图标（DownloaderRuntime.install 一行）
+    implementation(project(":downloader"))
+
     // core library desugaring：Sora Editor 的 language-textmate 要求
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 

@@ -36,6 +36,9 @@ Branchbase/
 ├── translate/           # 沉浸式翻译独立模块（设置/分片/占位符保护/缓存/调度/页面脚本）
 │   ├── src/main/java/com/branchbase/translate/   #   纯逻辑 + Android 适配 + WebView 桥
 │   └── src/main/assets/translate/                #   页面脚本（01-core ~ 04-boot）与译文 CSS
+├── downloader/          # 内建下载独立模块（引擎/前台服务/通知进度/通知权限/安装与打开）
+│   ├── src/main/java/com/branchbase/downloader/  #   引擎 + 服务 + 通知 + 权限 + 系统动作
+│   └── src/main/AndroidManifest.xml              #   权限 / 前台服务 / FileProvider 都随模块合并
 ├── tools/               # 环境与构建脚本（tools/env、tools/build）
 ├── .github/workflows/   # CI/CD（Beta / Release）
 ├── version.properties   # 工程版本号配置（手动维护）
@@ -76,6 +79,8 @@ Branchbase/
 - **提交模式**：单文件 / 多文件 / 本地仓库（对齐 GitHub 官方行为）
 - **本地仓库**：libgit2 浅 clone / pull（fast-forward）/ commit / push
 - **沉浸式翻译**：正文页原文 + 译文对照（独立 `:translate` 模块，见下文）
+- **附件下载（内建下载器）**：发布页附件走应用内下载 —— 前台服务保活、通知栏进度条、
+  断点续传，完成后可直接安装 APK / 用其他应用打开 / 分享（独立 `:downloader` 模块，见下文）
 - **返回键（两段式）**：主界面顶层按返回**不退出 App**，而是回登录首页（会话保留）；
   在登录首页再按一次才彻底退出。子页 / 详情优先逐层关闭自己
   —— 完整链路、两条硬规则与踩过的坑见 [`NAVIGATION-NOTES.md`](NAVIGATION-NOTES.md)
@@ -167,6 +172,60 @@ Branchbase/
 参考：[主仓库](https://github.com/immersive-translate/immersive-translate) ·
 [开源旧版源码](https://github.com/immersive-translate/old-immersive-translate) ·
 [官网文档](https://immersivetranslate.com/docs/usage/)
+
+## 📥 内建下载（模块化实现）
+
+发布页附件（APK / 压缩包 / 任意产物）走**应用内下载器**：前台服务保活、通知栏进度条、
+断点续传、完成后直接拉起系统安装器或交给其他应用打开。实现全在 `:downloader` 模块里，
+`:app` 只注入两样只有它才知道的东西（凭据与小图标）：
+
+```kotlin
+DownloaderRuntime.install(
+    this,
+    DownloaderConfig(smallIconRes = R.drawable.ic_stat_download, auth = AuthProvider { url -> ... }),
+)
+```
+
+### 模块划分（`:downloader`）
+
+依赖方向单向：`:app → :downloader`，模块内不引用任何 App 类型。
+
+| 文件 | 职责 |
+|------|------|
+| `DownloadModels.kt` | `DownloadRequest` / `DownloadStatus` / `DownloadTask`（含进度派生，纯数据） |
+| `DownloadStore.kt` | 进程内任务表（`StateFlow<List<DownloadTask>>`）+ 取消信号表 |
+| `DownloadEngine.kt` | `AuthProvider` 接口 + `HttpURLConnection` 引擎（手动跟随重定向 / Range 续传 / 进度节流） |
+| `DownloadService.kt` | `dataSync` 前台服务：串行执行队列、刷新进度通知、收尾（含 Android 15 超时兜底） |
+| `DownloadNotifications.kt` | 通知渠道 + 一条常驻进度通知 + 每条任务的完成/失败通知 |
+| `NotificationPermission.kt` | 系统通知权限与总开关状态、申请与跳设置（**通知板块也复用它**） |
+| `DownloadPaths.kt` | 落盘目录、文件名净化、`.part` 原子改名、sha256 校验（纯函数可单测） |
+| `DownloadActions.kt` | 安装 APK / 打开 / 分享 / 在文件管理器里显示（FileProvider + 逐级兜底） |
+| `DownloaderRuntime.kt` | 装配点与门面：`install` / `enqueue` / `cancel` / `retry` / `tasks` |
+
+### 关键设计决策
+
+1. **通知与下载解耦** —— `POST_NOTIFICATIONS` 被拒时前台服务照常运行、下载照常完成
+   （只是没有通知）。因此权限申请不进下载主链路：它只在**通知板块**里提示
+   （消息页顶部横幅 + 设置 → 通知里的状态行），被拒也不会让下载失败。
+2. **凭据按「每一跳」重新决策** —— `AuthProvider` 拿到的是**当前这一跳**的 URL，
+   于是「GitHub 附件 302 到对象存储」时 token 不会跟着过去；策略放在 provider 而不是
+   引擎里，就不会漏掉任何一条重定向链路。
+3. **`Accept-Encoding: identity`** —— 默认的透明 gzip 会让 `Content-Length`（压缩后长度）
+   与实际落盘字节数对不上：进度条冲到 100% 再回退，Range 偏移也全错。
+4. **先 `.part` 再改名** —— 失败/取消留下的是可续传的临时文件，最终文件名要么完整要么不存在；
+   文件名来自网络，落盘前净化（去路径分隔符 / 控制字符 / `..`）。
+5. **串行下载** —— 同一条链路上并发多个大文件只会互相抢带宽，进度条也失去意义。
+6. **状态只有一个真源** —— 应用内 UI 与系统通知都读 `DownloaderRuntime.tasks`，
+   不存在两套进度；退出页面再回来、应用退到后台，进度都还在。
+
+### 已知边界
+
+- 任务表在**进程内存**里：进程被杀就重来（没有「重启后继续」的语义，也没有落盘恢复）；
+- 前台服务类型是 `dataSync`：Android 15 起有累计时长上限，超时回调里落成「可重试的失败态」；
+- 「打开所在文件夹」没有统一契约，只能尽力而为（DocumentsUI 根 URI → 常见文件管理器包名探测）；
+  失败时由调用方降级成「分享」（`ACTION_SEND` 是人人都有实现的那条路）；
+- 需要用户能在系统文件管理器里直接看到文件时另走「导出」（MediaStore / SAF），
+  下载主链路不申请存储权限。
 
 ## 🎞 动效（两层规格：页面 / 元素）
 

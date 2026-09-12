@@ -80,8 +80,8 @@ pub fn resolve_link(url: &str, ctx: &ResolveContext) -> Destination {
         };
     }
 
-    // 带协议
-    if let Some((scheme, rest)) = url.split_once(':') {
+    // 带协议（只认 RFC 3986 的 scheme 形态）
+    if let Some((scheme, rest)) = split_scheme(url) {
         let scheme = scheme.to_ascii_lowercase();
         match scheme.as_str() {
             "http" | "https" => {
@@ -118,18 +118,44 @@ pub fn resolve_link(url: &str, ctx: &ResolveContext) -> Destination {
 
 // ── 分类辅助 ──────────────────────────────────────────────
 
-/// 判定 host 是否属于 GitHub（github.com / raw.*.github.com / GHE 域名）
+/// 判定 host 是否属于 GitHub（github.com / *.github.com / raw.githubusercontent.com / GHE 域名）
+///
+/// 必须显式认 `raw.githubusercontent.com`：README 里的绝对 raw 链接很常见，而它既不是
+/// `github.com`、也不以 `.github.com` 结尾 —— 漏掉它时下面 `classify_github` 的 raw 分支
+/// 永远走不到（点击 raw 链接被当成站外直接外开浏览器）。
 fn is_github_host(host: &str, base_host: &str) -> bool {
     let host = host.to_ascii_lowercase();
     if host == base_host.to_ascii_lowercase() {
         return true;
     }
-    host == "github.com" || host.ends_with(".github.com")
+    host == "github.com" || host.ends_with(".github.com") || host == "raw.githubusercontent.com"
+}
+
+/// 拆出 RFC 3986 形态的 scheme（`^[A-Za-z][A-Za-z0-9+.-]*:`）。
+///
+/// 直接 `split_once(':')` 会把**相对路径里出现的冒号**也当成协议：
+/// `./docs:a.md` 的「scheme」会是 `./docs`（含 `/`），整条相对链接随即被误判成站外。
+/// 注意 `foo:bar.png` 在 RFC 里确实是带 `foo` 协议的 URI（浏览器也这么解释），这里保持一致。
+fn split_scheme(url: &str) -> Option<(&str, &str)> {
+    let (scheme, rest) = url.split_once(':')?;
+    let mut chars = scheme.chars();
+    let first = chars.next()?;
+    if !first.is_ascii_alphabetic() {
+        return None;
+    }
+    if !chars.all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.') {
+        return None;
+    }
+    Some((scheme, rest))
 }
 
 /// 对 github 域内的 path 做「网页匹配 + 项目匹配」
 fn classify_github(host: &str, path: &str, frag: Option<&str>, ctx: &ResolveContext) -> Destination {
-    let segs: Vec<&str> = path
+    // 段分类只看路径本体：`?plain=1` / `?ref=x` 这类查询串若留在最后一段，
+    // `.../blob/main/a.md?plain=1` 的文件名会被解析成 `a.md?plain=1`（下游打开必然 404）。
+    // 查询串仍保留在最终 URL 里（build_url 用的还是原始 path）。
+    let path_only = path.split('?').next().unwrap_or(path);
+    let segs: Vec<&str> = path_only
         .trim_start_matches('/')
         .split('/')
         .filter(|s| !s.is_empty())
@@ -282,6 +308,12 @@ fn repo_dest(
 
 /// 相对链接 → 基于 base_dir 归一化为 blob / tree
 fn resolve_relative(path: &str, frag: Option<&str>, ctx: &ResolveContext) -> Destination {
+    // `?query` 不能参与路径段：`./a.md?plain=1` 会被并成文件名 `a.md?plain=1`（404）。
+    // 查询串在最后拼回最终 URL 的 `#frag` 之前。
+    let (path, query) = match path.split_once('?') {
+        Some((p, q)) => (p, q),
+        None => (path, ""),
+    };
     let is_dir = path.ends_with('/');
 
     let mut segs: Vec<&str> = ctx
@@ -315,12 +347,20 @@ fn resolve_relative(path: &str, frag: Option<&str>, ctx: &ResolveContext) -> Des
         path: Some(file_path.clone()),
         lines: frag_lines(frag),
         url: format!(
-            "https://{}/{}/{}/{}/{}{}",
+            "https://{}/{}/{}/{}/{}/{}{}{}",
             ctx.host,
             ctx.owner,
             ctx.repo,
+            // 必须带 kind 段：`…/main/docs/a.md` 不是合法网页地址（会 404），
+            // 与 dest_type 声明的 blob/tree 也对不上。此前只被 path/lines 消费所以没暴露。
+            dest_type,
             ctx.branch,
             file_path,
+            if query.is_empty() {
+                String::new()
+            } else {
+                format!("?{query}")
+            },
             frag.map(|f| format!("#{f}")).unwrap_or_default()
         ),
         is_own: ctx.owner.eq_ignore_ascii_case(&ctx.current_user),
@@ -475,5 +515,50 @@ mod tests {
         // 列表级子页（单段）仍折叠为 repo
         let d = resolve_link("https://github.com/other/repo/releases", &ctx());
         assert_eq!(d.dest_type, "repo");
+    }
+
+    #[test]
+    fn test_absolute_raw_is_raw_not_external() {
+        // 绝对 raw 链接（README 里很常见）必须走 raw 分支，而不是被当成站外
+        let d = resolve_link(
+            "https://raw.githubusercontent.com/SunsetRNE/branchbase/main/README.md",
+            &ctx(),
+        );
+        assert_eq!(d.dest_type, "raw");
+        assert!(!d.is_external);
+        assert_eq!(d.path.as_deref(), Some("README.md"));
+    }
+
+    #[test]
+    fn test_blob_query_is_not_part_of_path() {
+        // `?plain=1` 是查询串，不能并进文件名
+        let d = resolve_link("https://github.com/o/r/blob/main/a.md?plain=1#L3", &ctx());
+        assert_eq!(d.dest_type, "blob");
+        assert_eq!(d.path.as_deref(), Some("a.md"));
+        assert_eq!(d.lines.as_deref(), Some("L3"));
+        assert!(d.url.ends_with("a.md?plain=1#L3"), "url={}", d.url);
+    }
+
+    #[test]
+    fn test_relative_with_query() {
+        let d = resolve_link("./a.md?plain=1", &ctx());
+        assert_eq!(d.dest_type, "blob");
+        assert_eq!(d.path.as_deref(), Some("a.md"));
+        assert!(d.url.ends_with("a.md?plain=1"), "url={}", d.url);
+    }
+
+    #[test]
+    fn test_relative_path_with_colon_is_not_external() {
+        // `./a:b.png` 的冒号不是协议（scheme 形态非法：首字符必须字母、且不含 `/`）
+        let d = resolve_link("./a:b.png", &ctx());
+        assert_eq!(d.dest_type, "blob");
+        assert!(!d.is_external);
+        assert_eq!(d.path.as_deref(), Some("a:b.png"));
+    }
+
+    #[test]
+    fn test_mailto_still_external() {
+        let d = resolve_link("mailto:someone@example.com", &ctx());
+        assert_eq!(d.dest_type, "external");
     }
 }

@@ -464,10 +464,13 @@ fun IssueDetailScreen(
                                     if (html != null) {
                                         // 含 HTML / 图片的主帖退回 WebView 渲染（保真优先），
                                         // 代价是任务清单不可点：富文本里定位到具体某个勾的代价远高于收益。
-                                        ReadmeWebView(html, host, owner, repo, "main", login, token, onLinkClick = {})
+                                        // 分支传空串 = 用 HEAD 兜底：这里拿不到仓库默认分支，
+                                        // 写死 "main" 会让默认分支是 master 的仓库图片/相对链接全 404。
+                                        ReadmeWebView(html, host, owner, repo, "", login, token, onLinkClick = {})
                                     } else {
                                         MarkdownBody(
                                             source = d.body,
+                                            linkBase = MarkdownLinkBase("https://$host", owner, repo),
                                             onLinkClick = { openLink(context, it) },
                                             onCopyCode = { copyToClipboard(context, it, "代码已复制") },
                                             onToggleTask = if (d.author == login) {
@@ -526,6 +529,9 @@ fun IssueDetailScreen(
                                 val mineComment = entry.comment.author == login
                                 CommentCard(
                                     comment = entry.comment,
+                                    // 评论里的 @提及 / #编号 / 相对链接要自己补全成 URL（本地解析，
+                                    // 没有 GitHub 服务端那层 base 解析），否则这些短写法点不动
+                                    linkBase = MarkdownLinkBase("https://$host", owner, repo),
                                     expanded = expanded,
                                     onToggleExpand = { expandedComments[entry.comment.id] = !expanded },
                                     onToggleReaction = { content -> toggleReaction(entry.comment, content) },
@@ -933,6 +939,7 @@ private fun CommentHeader(
 @Composable
 private fun CommentCard(
     comment: CommentItem,
+    linkBase: MarkdownLinkBase?,
     expanded: Boolean,
     onToggleExpand: () -> Unit,
     onToggleReaction: (String) -> Unit,
@@ -1006,6 +1013,7 @@ private fun CommentCard(
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
             MarkdownBody(
                 source = shown,
+                linkBase = linkBase,
                 onLinkClick = onLinkClick,
                 onCopyCode = onCopyCode,
                 // 只有自己的评论能改（服务端也会拒绝别人的），折叠态下不给勾选入口

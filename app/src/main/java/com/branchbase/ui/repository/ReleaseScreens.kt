@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -34,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,6 +51,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.core.RustBridge
+import com.branchbase.downloader.DownloadActions
+import com.branchbase.downloader.DownloadRequest
+import com.branchbase.downloader.DownloadStatus
+import com.branchbase.downloader.DownloadTask
+import com.branchbase.downloader.DownloaderRuntime
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Primer
@@ -57,8 +64,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 
 /**
  * 发布详情页：changelog（Markdown 渲染）+ 附件列表（下载）+ 编辑/删除入口。
@@ -87,6 +92,9 @@ fun ReleaseDetailScreen(
     var busy by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     var feedback by remember { mutableStateOf<String?>(null) }
+    // 附件下载状态：与系统通知同源（任务表在 :downloader 里），
+    // 所以退出页面再回来、甚至应用退到后台，进度都与通知栏一致
+    val downloadTasks by DownloaderRuntime.tasks.collectAsState()
 
     LaunchedEffect(release.id) {
         html = if (release.body.isBlank()) {
@@ -168,12 +176,33 @@ fun ReleaseDetailScreen(
                     Text("附件（${release.assets.size}）", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
                     Spacer(Modifier.height(8.dp))
                     release.assets.forEach { asset ->
-                        AssetRow(asset) {
-                            scope.launch {
-                                val r = withContext(Dispatchers.IO) { downloadAsset(context, host, token, asset) }
-                                feedback = r
-                            }
-                        }
+                        // 下载状态来自 :downloader 的任务表（与系统通知同源），
+                        // 因此退出页面再回来、甚至 App 退到后台，进度都还在
+                        val taskId = assetTaskId(release.id, asset.id)
+                        val task = downloadTasks.firstOrNull { it.id == taskId }
+                        AssetRow(
+                            asset = asset,
+                            task = task,
+                            onDownload = {
+                                feedback = if (asset.downloadUrl.isBlank()) {
+                                    "该附件没有下载地址"
+                                } else {
+                                    enqueueAssetDownload(context, release, asset)
+                                    "已加入下载：${asset.name}"
+                                }
+                            },
+                            onCancel = { DownloaderRuntime.cancel(taskId) },
+                            onRetry = { DownloaderRuntime.retry(context, taskId) },
+                            onInstall = { task?.file?.let { feedback = installDownloadedApk(context, it) } },
+                            onOpen = {
+                                val file = task?.file
+                                if (file != null && !DownloadActions.openFile(context, file)) feedback = "没有能打开该文件的应用"
+                            },
+                            onShare = {
+                                val file = task?.file
+                                if (file != null && !DownloadActions.shareFile(context, file)) feedback = "分享失败"
+                            },
+                        )
                     }
                 }
 
@@ -372,35 +401,141 @@ private fun ReleaseBadge(text: String, fg: Color, bg: Color) {
 }
 
 @Composable
-private fun AssetRow(asset: ReleaseAsset, onDownload: () -> Unit) {
-    Row(
+private fun AssetRow(
+    asset: ReleaseAsset,
+    task: DownloadTask?,
+    onDownload: () -> Unit,
+    onCancel: () -> Unit,
+    onRetry: () -> Unit,
+    onInstall: () -> Unit,
+    onOpen: () -> Unit,
+    onShare: () -> Unit,
+) {
+    val active = task?.isActive == true
+    val done = task?.status == DownloadStatus.COMPLETED
+    Column(
         Modifier.fillMaxWidth().padding(vertical = 4.dp)
             .clip(RoundedCornerShape(8.dp))
-            .border(1.dp, Primer.Border, RoundedCornerShape(8.dp))
-            .clickable { onDownload() }
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                asset.name,
-                fontSize = 12.5.sp,
-                fontFamily = FontFamily.Monospace,
-                color = Primer.TextPrimary,
-                maxLines = 1,
+            .border(
+                1.dp,
+                if (active || done) Primer.Blue500.copy(alpha = 0.45f) else Primer.Border,
+                RoundedCornerShape(8.dp),
             )
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    asset.name,
+                    fontSize = 12.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = Primer.TextPrimary,
+                    maxLines = 1,
+                )
+                Text(
+                    buildString {
+                        append(formatBytes(asset.size))
+                        if (asset.downloadCount > 0) append(" · ${asset.downloadCount} 次下载")
+                    },
+                    fontSize = 10.5.sp,
+                    color = Primer.TextTertiary,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            // 动作区：任何时刻只给「一个主动作 + 至多一个次要动作」，避免按钮堆叠
+            when {
+                active -> AssetAction("取消", Primer.TextSecondary, onCancel)
+                done -> {
+                    AssetAction("分享", Primer.TextSecondary, onShare)
+                    Spacer(Modifier.width(14.dp))
+                    if (isApk(asset.name)) AssetAction("安装", Primer.Blue500, onInstall) else AssetAction("打开", Primer.Blue500, onOpen)
+                }
+                task?.status == DownloadStatus.FAILED -> AssetAction("重试", Primer.Blue500, onRetry)
+                else -> AssetAction("下载", Primer.Blue500, onDownload)
+            }
+        }
+        if (active) {
+            Spacer(Modifier.height(8.dp))
+            val progress = task?.progress
+            if (progress != null) {
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth().height(3.dp),
+                    color = Primer.Blue500,
+                    trackColor = Primer.Gray150,
+                )
+            } else {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().height(3.dp),
+                    color = Primer.Blue500,
+                    trackColor = Primer.Gray150,
+                )
+            }
             Text(
                 buildString {
-                    append(formatBytes(asset.size))
-                    if (asset.downloadCount > 0) append(" · ${asset.downloadCount} 次下载")
+                    append(task?.percentText.orEmpty())
+                    val downloaded = task?.downloadedBytes ?: 0L
+                    if (downloaded > 0L) {
+                        if (isNotEmpty()) append(" · ")
+                        append(formatBytes(downloaded))
+                    }
                 },
-                fontSize = 10.5.sp,
+                fontSize = 10.sp,
                 color = Primer.TextTertiary,
-                modifier = Modifier.padding(top = 2.dp),
+                modifier = Modifier.padding(top = 4.dp),
             )
         }
-        Text("下载", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
+        val error = task?.error
+        if (task?.status == DownloadStatus.FAILED && !error.isNullOrBlank()) {
+            Text(error, fontSize = 10.5.sp, color = Primer.Red500, modifier = Modifier.padding(top = 6.dp))
+        }
     }
+}
+
+@Composable
+private fun AssetAction(text: String, color: Color, onClick: () -> Unit) {
+    Text(
+        text,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = color,
+        modifier = Modifier.clickable { onClick() },
+    )
+}
+
+private fun isApk(name: String): Boolean = name.lowercase().endsWith(".apk")
+
+/** 下载任务的稳定 id：同一条 release 的同一个附件重复点「下载」是幂等的。 */
+private fun assetTaskId(releaseId: Long, assetId: Long): String = "release-$releaseId-asset-$assetId"
+
+/** 入队下载（进度 / 通知 / 断点续传都由 :downloader 负责）。 */
+private fun enqueueAssetDownload(context: Context, release: ReleaseItem, asset: ReleaseAsset) {
+    DownloaderRuntime.enqueue(
+        context,
+        DownloadRequest(
+            id = assetTaskId(release.id, asset.id),
+            url = asset.downloadUrl,
+            fileName = asset.name,
+            title = asset.name,
+            sizeHint = asset.size,
+        ),
+    )
+}
+
+/**
+ * 安装已下载的 APK。
+ *
+ * 没拿到「安装未知应用」授权时先跳设置页 —— 直接拉起安装器只会白屏失败，
+ * 用户完全不知道要做什么。
+ */
+private fun installDownloadedApk(context: Context, file: File): String {
+    if (!DownloadActions.canInstallPackages(context)) {
+        runCatching { context.startActivity(DownloadActions.unknownSourcesSettingsIntent(context)) }
+        return "请先允许「安装未知应用」，已为你打开设置页"
+    }
+    val error = DownloadActions.installApk(context, file)
+    return error ?: "已交给系统安装器"
 }
 
 private fun formatBytes(bytes: Long): String = when {
@@ -408,33 +543,5 @@ private fun formatBytes(bytes: Long): String = when {
     bytes < 1024 -> "$bytes B"
     bytes < 1024 * 1024 -> "%.1f KB".format(bytes / 1024.0)
     else -> "%.2f MB".format(bytes / 1024.0 / 1024.0)
-}
-
-/**
- * 下载附件到应用外部目录（带 token，私有仓库也可用）。
- *
- * @return 提示文案（成功给落盘路径）
- */
-private fun downloadAsset(context: Context, host: String, token: String, asset: ReleaseAsset): String {
-    if (asset.downloadUrl.isBlank()) return "该附件没有下载地址"
-    return runCatching {
-        val dir = File(context.getExternalFilesDir(null), "downloads")
-        dir.mkdirs()
-        val target = File(dir, asset.name)
-        val conn = (URL(asset.downloadUrl).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 15_000
-            readTimeout = 60_000
-            instanceFollowRedirects = true
-            setRequestProperty("User-Agent", "Branchbase/0.1")
-            if (token.isNotBlank()) setRequestProperty("Authorization", "token $token")
-        }
-        try {
-            if (conn.responseCode !in 200..299) return "下载失败（HTTP ${conn.responseCode}）"
-            conn.inputStream.use { input -> target.outputStream().use { out -> input.copyTo(out) } }
-        } finally {
-            conn.disconnect()
-        }
-        "已保存到 downloads/${asset.name}"
-    }.getOrElse { "下载失败：${it.message ?: "未知错误"}" }
 }
 

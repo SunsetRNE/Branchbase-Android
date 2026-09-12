@@ -38,6 +38,7 @@ import java.io.FileInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.util.UUID
 
 /**
  * README 渲染器（WebView 方案）。
@@ -197,10 +198,19 @@ fun ReadmeWebView(
 private const val MAX_README_HEIGHT = 20_000
 
 /** 从 GitHub 返回的 HTML 里取 README 路径（`<div id="readme" data-path="docs/README.md">`）。 */
+private val README_WRAPPER_PATH_RE = Regex("<[^>]*id=\"readme\"[^>]*data-path=\"([^\"]+)\"")
 private val README_PATH_RE = Regex("data-path=\"([^\"]+)\"")
 
+/**
+ * 取 README 真实路径。
+ *
+ * 先认 `id="readme"` 外层容器上的 `data-path`，再退回「文档里第一个 data-path」：
+ * 后者在 README 正文自己贴了一段含 `data-path` 的 HTML 时会取错路径，
+ * 而 README 路径决定相对图片/链接的基准目录 —— 取错就是整篇图片错位。
+ */
 internal fun readmePathOf(html: String): String =
-    README_PATH_RE.find(html)?.groupValues?.get(1)?.takeIf { it.isNotBlank() } ?: "README.md"
+    (README_WRAPPER_PATH_RE.find(html) ?: README_PATH_RE.find(html))
+        ?.groupValues?.get(1)?.takeIf { it.isNotBlank() } ?: "README.md"
 
 /** README 所在目录（`docs/README.md` → `docs/`；根目录 README → 空串）。 */
 internal fun baseDirOf(path: String): String = path.substringBeforeLast('/', "").let {
@@ -210,10 +220,25 @@ internal fun baseDirOf(path: String): String = path.substringBeforeLast('/', "")
 /** 轻量 URL 解析（不依赖 Android Uri，便于 JVM 单测）。 */
 internal data class SimpleUrl(val host: String?, val path: String?)
 
-internal fun parseUrl(url: String): SimpleUrl? = runCatching {
-    val uri = java.net.URI(url)
-    SimpleUrl(uri.host, uri.path)
-}.getOrNull()
+/**
+ * 解析 URL 的 host / path。
+ *
+ * `java.net.URI` 对未编码的空格 / 非 ASCII 会抛异常（`![](我的 图.png)` 这类源文档很常见），
+ * 直接返回 null 会让「鉴权 + 磁盘缓存」整条链路静默失效（私有仓库图片裂图）。
+ * 因此解析失败时退回手工拆分，至少把 host / path 拿到。
+ */
+internal fun parseUrl(url: String): SimpleUrl? {
+    runCatching {
+        val uri = java.net.URI(url)
+        return SimpleUrl(uri.host, uri.path)
+    }
+    val rest = url.substringAfter("://", "")
+    if (rest.isEmpty()) return null // 相对 URL / 非 http(s)：保持原语义（null）
+    val host = rest.substringBefore('/').substringBefore('?').substringBefore('#')
+    if (host.isEmpty()) return null
+    val path = "/" + rest.substringAfter('/', "").substringBefore('?').substringBefore('#')
+    return SimpleUrl(host, path)
+}
 
 /**
  * raw 形态用的 ref 段（空分支回退 HEAD）。
@@ -330,7 +355,14 @@ private fun wrapHtml(body: String, context: Context, translate: TranslatePage.As
         <!DOCTYPE html><html><head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="color-scheme" content="${if (dark) "dark" else "light"}">
         <style>
+        /* color-scheme 只影响滚动条 / 表单控件的 UA 配色，
+           它**不**改变 prefers-color-scheme —— 后者是「系统偏好」，由 uiMode 决定，
+           与应用里可强制切换的主题档位可以不一致。GitHub 的暗色图源
+           （<picture><source media="(prefers-color-scheme: dark)">）因此需要脚本按
+           [BB_DARK] 手动纠正，见 README_ENHANCE_JS 的 fixThemedPictures()。 */
+        html { color-scheme: ${if (dark) "dark" else "light"}; }
         body { margin: 0; padding: 16px; -webkit-text-size-adjust: 100%; }
         $css
         ${if (dark) README_DARK_CSS else ""}
@@ -341,6 +373,7 @@ private fun wrapHtml(body: String, context: Context, translate: TranslatePage.As
         .markdown-heading:hover .anchor { opacity: 1; }
         ${translate.css}
         </style></head><body>$body
+        <script>window.BB_DARK = $dark;</script>
         <script>$README_ENHANCE_JS</script>
         <script>${translate.configScript}</script>
         <script>${translate.js}</script></body></html>
@@ -355,6 +388,7 @@ private fun wrapHtml(body: String, context: Context, translate: TranslatePage.As
  * ② 锚点修复：GitHub 输出 `id="user-content-x"` 而 `href="#x"`，浏览器找不到目标 → 改写 href。
  * ③ Mermaid 图表：GitHub API 只返回高亮源码（`div.highlight-source-mermaid`），加标题条说明。
  * ④ 宽图/图表卡：自然宽度超出视口时保持原始像素宽，包一层可横向拖动的容器。
+ * ⑤ 暗色图源纠正：应用主题 ≠ 系统 uiMode 时，按 `BB_DARK` 手动选定 `<picture>` 的图源。
  */
 private val README_ENHANCE_JS = """
 (function () {
@@ -411,14 +445,24 @@ private val README_ENHANCE_JS = """
 
   function fitWide(img) {
     if (!img || img.tagName !== 'IMG' || !img.naturalWidth) return;
+    // 已经在横向容器里就不再套一层（层级里任意一层命中都算）
+    for (var p = img.parentNode; p && p !== document.body; p = p.parentNode) {
+      if (p.classList && p.classList.contains('bb-scroll-x')) return;
+    }
+    // <picture> / <themed-picture> 必须整块搬：只把 <img> 移出去会切断 <source> 的
+    // 图源选择（暗色图源失效），图片会退回 <img src> 的那一份。
     var parent = img.parentNode;
-    if (!parent || (parent.classList && parent.classList.contains('bb-scroll-x'))) return;
-    var viewport = document.documentElement ? document.documentElement.clientWidth : 0;
-    if (!viewport || img.naturalWidth <= viewport * 1.15) return;
+    var target = (parent && (parent.tagName === 'PICTURE' || parent.tagName === 'THEMED-PICTURE'))
+      ? parent : img;
+    // 可用宽度 = 视口宽 - body 左右各 16px 的 padding。
+    // 原来直接拿 clientWidth（未扣 padding），「比内容区宽、比视口略窄」的统计卡会被漏掉。
+    var body = document.body;
+    var avail = (body ? body.clientWidth : 0) - 32;
+    if (!avail || img.naturalWidth <= avail) return;
     var wrap = document.createElement('div');
     wrap.className = 'bb-scroll-x';
-    parent.insertBefore(wrap, img);
-    wrap.appendChild(img);
+    target.parentNode.insertBefore(wrap, target);
+    wrap.appendChild(target);
     img.style.maxWidth = 'none';
     img.style.width = img.naturalWidth + 'px';
     schedule();
@@ -429,14 +473,50 @@ private val README_ENHANCE_JS = """
     for (var i = 0; i < imgs.length; i++) fitWide(imgs[i]);
   }
 
-  function decorate() { fixAnchors(); decorateMermaid(); fitAllWide(); }
+  // ── 暗色图源纠正 ──
+  // GitHub 把 `#gh-dark-mode-only` 图片渲染成
+  // <picture><source media="(prefers-color-scheme: dark)" srcset="…"><img src="…"></picture>。
+  // WebView 的 prefers-color-scheme 跟随**系统** uiMode，而 App 的主题档位可以
+  // 「系统浅色 + 强制深色」（或反过来）——不一致时暗色图源永远不生效（深色页面里冒出白底图）。
+  // 这里按 App 的真实主题选定图源，并移除 <source>，防止浏览器重新覆盖选择结果。
+  function fixThemedPictures() {
+    var nodes = document.querySelectorAll('picture, themed-picture');
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+      if (node.getAttribute('data-bb-themed')) continue;
+      var img = node.querySelector('img');
+      if (!img) continue;
+      node.setAttribute('data-bb-themed', '1');
+      var sources = node.querySelectorAll('source');
+      if (!sources.length) continue;
+      var dark = window.BB_DARK === true;
+      var want = null;
+      for (var j = 0; j < sources.length; j++) {
+        var media = sources[j].getAttribute('media') || '';
+        var value = sources[j].getAttribute('srcset') || sources[j].getAttribute('src') || '';
+        if (!value) continue;
+        var themed = media.indexOf('prefers-color-scheme') >= 0;
+        var isDark = themed && media.indexOf('dark') >= 0;
+        var isLight = themed && media.indexOf('light') >= 0;
+        if ((dark && isDark) || (!dark && isLight)) want = value.split(' ')[0];
+      }
+      if (!want) continue;
+      for (var k = sources.length - 1; k >= 0; k--) {
+        sources[k].parentNode.removeChild(sources[k]);
+      }
+      img.removeAttribute('srcset');
+      img.setAttribute('src', want);
+    }
+  }
+
+  function decorate() { fixAnchors(); decorateMermaid(); fixThemedPictures(); fitAllWide(); }
 
   if (window.ResizeObserver && document.documentElement) {
     try { new ResizeObserver(schedule).observe(document.documentElement); } catch (e) {}
   }
   document.addEventListener('load', function (e) {
     var t = e.target;
-    if (t && t.tagName === 'IMG') { fitWide(t); schedule(); }
+    if (t && t.tagName === 'IMG') { fixThemedPictures(); fitWide(t); schedule(); }
   }, true);
   document.addEventListener('error', function (e) {
     var t = e.target;
@@ -491,12 +571,12 @@ private class ReadmeImageCache(private val context: Context) {
     fun load(url: String, token: String, referer: String): WebResourceResponse? {
         val sha = sha1(url)
         // 文件名后缀即 MIME 依据（缓存命中时拿不到响应头，只能靠后缀）
-        findCached(sha)?.let {
-            it.setLastModified(System.currentTimeMillis())
-            return response(it)
-        }
-        // 临时文件名不能以 sha 开头，否则会被 findCached 误判为已缓存
-        val tmp = File(dir, "tmp-$sha")
+        findCached(sha)?.let { return response(it) }
+        // 临时文件名有两个硬约束：
+        // ① 不能以 sha 开头（否则会被 findCached 误判成已缓存）；
+        // ② **每次请求唯一** —— 同一张图并发未命中时，两条线程共写一个临时文件会互相截断，
+        //    先改名的那份会把交错内容固化成永久缓存（缓存命中路径只按 URL 直接返回，永不重校验）。
+        val tmp = File(dir, "tmp-$sha-${UUID.randomUUID()}")
         return try {
             val conn = (URL(url).openConnection() as HttpURLConnection).apply {
                 setRequestProperty("Authorization", "token $token")
@@ -532,8 +612,25 @@ private class ReadmeImageCache(private val context: Context) {
         }
     }
 
-    private fun findCached(sha: String): File? = dir.listFiles()
-        ?.firstOrNull { it.isFile && it.name.startsWith("$sha.") && it.length() > 0 }
+    /**
+     * 命中缓存。
+     *
+     * 超过 [TTL_MS] 就删掉重取：这本缓存按 URL 命中，而响应头里的 `max-age` 只管 WebView
+     * 那一层 —— README 里的同名图片在分支上被替换后，App 会一直显示旧图。
+     * 命中时刷新 mtime，作为 [pruneIfNeeded] 的「最后访问时间」。
+     */
+    private fun findCached(sha: String): File? {
+        val now = System.currentTimeMillis()
+        val hit = dir.listFiles()
+            ?.firstOrNull { it.isFile && it.name.startsWith("$sha.") && it.length() > 0 }
+            ?: return null
+        if (now - hit.lastModified() > TTL_MS) {
+            hit.delete()
+            return null
+        }
+        hit.setLastModified(now)
+        return hit
+    }
 
     private fun response(file: File): WebResourceResponse = WebResourceResponse(
         mimeTypeOf(file.extension),
@@ -560,10 +657,18 @@ private class ReadmeImageCache(private val context: Context) {
         MessageDigest.getInstance("SHA-1").digest(url.toByteArray())
             .joinToString("") { "%02x".format(it) }
 
-    /** 从 URL 路径取扩展名（GitHub 仓库内图片基本都有后缀）。 */
+    /**
+     * 从 URL 路径取扩展名（GitHub 仓库内图片基本都有后缀）。
+     *
+     * 必须校验「只含字母数字」：`path.substringAfterLast('.')` 在
+     * `/…/img.v2/logo` 这类路径上会取出 `v2/logo`，长度检查（≤5）也会放过它，
+     * 拼进文件名就得到带 `/` 的非法路径 —— `renameTo` 必然失败，
+     * 图片退化成「无鉴权匿名加载」，私有仓库直接裂图。
+     */
     private fun extOf(url: String): String? {
-        val path = parseUrl(url)?.path?.lowercase() ?: return null
-        return path.substringAfterLast('.', "").takeIf { it.isNotEmpty() && it.length <= 5 }
+        val segment = parseUrl(url)?.path?.lowercase()?.substringAfterLast('/', "") ?: return null
+        val ext = segment.substringAfterLast('.', "")
+        return ext.takeIf { it.isNotEmpty() && it.length <= 5 && it.all { c -> c.isLetterOrDigit() } }
     }
 
     private fun extOfMime(contentType: String?): String? = when (contentType?.substringBefore(';')?.trim()) {
@@ -595,6 +700,8 @@ private class ReadmeImageCache(private val context: Context) {
     private companion object {
         const val DIR = "readme_images"
         const val MAX_BYTES = 32L * 1024 * 1024
+        /** 缓存有效期：与响应头里写给 WebView 的 max-age 对齐（一天）。 */
+        const val TTL_MS = 24L * 60 * 60 * 1000
     }
 }
 
@@ -638,8 +745,13 @@ private class ReadmeWebViewClient(
 
         // 相对链接在 raw 基准下会解析成 /{o}/{r}/raw/{b}/… → 还原为 blob/tree 再分类
         val url = toNavigationUrl(requestUrl, host, owner, repo, branch) ?: requestUrl
-        val json = RustBridge.resolveLink(url, host, owner, repo, branch, baseDir, login)
-        val dest = runCatching { parseDestination(JSONObject(json)) }.getOrNull() ?: return false
+        // native 符号缺失（.so 未重编译）/ 序列化失败都不能把 URL 交回 WebView：
+        // 那会让 README 视图自己导航到 raw 地址，页面被替换且退不回来。
+        // 解析失败一律「拦截但不处理」——点了没反应，好过页面被毁。
+        val json = runCatching {
+            RustBridge.resolveLink(url, host, owner, repo, branch, baseDir, login)
+        }.getOrNull() ?: return true
+        val dest = runCatching { parseDestination(JSONObject(json)) }.getOrNull() ?: return true
 
         return when (dest.type) {
             // 站外 → 外开浏览器
@@ -679,8 +791,17 @@ private class ReadmeWebViewClient(
 /**
  * README 正文的深色覆盖（`github-markdown-light.css` 是浅色主题，这里整段覆盖）。
  *
- * 只覆盖「会刺眼或读不清」的部分：正文/标题颜色、链接、代码底、引用、表格、分隔线。
- * 图片与徽章不动（它们自带底色，强行反色反而更糟）。
+ * 覆盖范围：正文/标题颜色、链接、行内代码、代码底与**语法高亮令牌**、引用、表格（含表头底色）、
+ * 分隔线、`kbd`、GFM 告警块、Mermaid 源码卡外框。
+ *
+ * 三条踩过的坑（都是「浅色规则没被覆盖到」而不是「颜色不好看」）：
+ * 1. `table th` 的浅色底 `#f6f8fa` 必须一起换掉 —— 只改边框时，`th` 的文字是
+ *    `.markdown-body` 的 `#e6edf3`（近白）压在浅灰底上，对比度 1.11:1，表头直接看不见；
+ * 2. `.pl-*` 语法令牌是**浅色主题配色**，只换 `<pre>` 背景会让关键字/注释对比度掉到 3.2:1 ~ 3.8:1；
+ * 3. `kbd` 与 `.highlight-source-mermaid` 卡片的背景/描边同理，不覆盖会在深色页面里留浅色块。
+ *
+ * 图片与徽章不动（它们自带底色，强行反色会更糟）；暗色图源的切换由注入脚本按主题选定
+ * （见 README_ENHANCE_JS 的 `fixThemedPictures`），不用 CSS 处理。
  */
 private val README_DARK_CSS = """
 .markdown-body { color: #e6edf3; background: transparent; }
@@ -696,7 +817,36 @@ private val README_DARK_CSS = """
 .markdown-body table th, .markdown-body table td { border-color: #30363d; }
 .markdown-body table tr { background: transparent; border-top-color: #21262d; }
 .markdown-body table tr:nth-child(2n) { background: #161b22; }
+.markdown-body table th { background-color: #21262d; color: #e6edf3; }
 .markdown-body hr { background-color: #30363d; }
 .markdown-body img { background: transparent; }
-.markdown-body .bb-chart-head { background: #161b22; color: #8b949e; border-color: #30363d; }
+.markdown-body kbd {
+  color: #e6edf3;
+  background-color: #161b22;
+  border-color: #30363d;
+  box-shadow: inset 0 -1px 0 #30363d;
+}
+.markdown-body .highlight-source-mermaid { background-color: #161b22; border-color: #30363d; }
+.markdown-body .bb-chart-head { background: #21262d; color: #8b949e; border-color: #30363d; }
+/* 语法令牌：对齐 Primer 暗色，替换浅色主题的 pl-* 配色 */
+.markdown-body .pl-k { color: #ff7b72; }
+.markdown-body .pl-c1 { color: #79c0ff; }
+.markdown-body .pl-ent { color: #7ee787; }
+.markdown-body .pl-en { color: #d2a8ff; }
+.markdown-body .pl-s, .markdown-body .pl-s1, .markdown-body .pl-s2, .markdown-body .pl-sr { color: #a5d6ff; }
+.markdown-body .pl-c, .markdown-body .pl-cm { color: #8b949e; }
+.markdown-body .pl-v, .markdown-body .pl-sm, .markdown-body .pl-mi { color: #ffa657; }
+.markdown-body .pl-e, .markdown-body .pl-ii { color: #ffa657; }
+/* GFM 告警块：语义色对齐 Primer 暗色 */
+.markdown-body .markdown-alert { border-left-color: #30363d; }
+.markdown-body .markdown-alert.markdown-alert-note { border-left-color: #2f81f7; }
+.markdown-body .markdown-alert.markdown-alert-note .markdown-alert-title { color: #2f81f7; }
+.markdown-body .markdown-alert.markdown-alert-tip { border-left-color: #3fb950; }
+.markdown-body .markdown-alert.markdown-alert-tip .markdown-alert-title { color: #3fb950; }
+.markdown-body .markdown-alert.markdown-alert-important { border-left-color: #a371f7; }
+.markdown-body .markdown-alert.markdown-alert-important .markdown-alert-title { color: #a371f7; }
+.markdown-body .markdown-alert.markdown-alert-warning { border-left-color: #d29922; }
+.markdown-body .markdown-alert.markdown-alert-warning .markdown-alert-title { color: #d29922; }
+.markdown-body .markdown-alert.markdown-alert-caution { border-left-color: #f85149; }
+.markdown-body .markdown-alert.markdown-alert-caution .markdown-alert-title { color: #f85149; }
 """

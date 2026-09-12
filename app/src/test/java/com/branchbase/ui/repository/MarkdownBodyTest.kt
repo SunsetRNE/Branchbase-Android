@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import androidx.compose.ui.text.LinkAnnotation
 
 /**
  * Markdown 块级 / 行内解析单测。
@@ -53,6 +54,23 @@ class MarkdownBodyTest {
     }
 
     @Test
+    fun `有序列表被段落打断后重新从 1 编号`() {
+        // 原来序号数的是「全文档 Ordered 总数」，第二段列表会从 3 接着编
+        val blocks = parseMarkdownBlocks("1. 甲\n2. 乙\n\n中间一段\n\n1. 丙")
+        val ordered = blocks.filterIsInstance<MdBlock.Ordered>()
+        assertEquals(listOf(1, 2), ordered.take(2).map { it.index })
+        assertEquals(1, ordered.last().index)
+    }
+
+    @Test
+    fun `连续引用行合并成一段引用`() {
+        // 逐行成块时多行引用会画出多根竖条，看起来像互不相干的几段
+        val blocks = parseMarkdownBlocks("> 第一句\n> 第二句\n\ntext")
+        assertEquals(MdBlock.Quote("第一句 第二句"), blocks[0])
+        assertEquals(2, blocks.size)
+    }
+
+    @Test
     fun `引用与分隔线`() {
         val blocks = parseMarkdownBlocks("> 参考\n\n---")
         assertEquals(MdBlock.Quote("参考"), blocks[0])
@@ -91,6 +109,22 @@ class MarkdownBodyTest {
         assertEquals(src, toggleTaskLine(src, 99, true))         // 越界原样返回
         val b = toggleTaskLine(a, 3, false)
         assertTrue(b.contains("- [ ] 乙"))
+    }
+
+    @Test
+    fun `围栏收尾按 CommonMark 判定`() {
+        // 内层 ```` ```js ```` 带 info string，不能当成收尾；缩进 ≤3 的收尾围栏要能收尾
+        val indentedClose = parseMarkdownBlocks("```md\n```js\nfoo\n  ```")
+        assertEquals(1, indentedClose.size)
+        val code = indentedClose[0] as MdBlock.Code
+        assertEquals("md", code.lang)
+        assertTrue(code.code.contains("```js"))
+        assertTrue(code.code.contains("foo"))
+
+        // 收尾围栏的反引号数不能少于开围栏：4 个反引号里的 3 个反引号只是内容
+        val fourTicks = parseMarkdownBlocks("````md\n```js\n````")
+        assertEquals(1, fourTicks.size)
+        assertTrue((fourTicks[0] as MdBlock.Code).code.contains("```js"))
     }
 
     // ───────────────── 行内 ─────────────────
@@ -132,5 +166,38 @@ class MarkdownBodyTest {
     fun `源码里的 html 尖括号不会被当成标记`() {
         val a = inlineMarkdown("a < b && c > d")
         assertEquals("a < b && c > d", a.text)
+    }
+
+    // ───────────────── 可点击链接（P0：解析器以前从不产生 link annotation） ─────────────────
+
+    @Test
+    fun `链接带上可点击的 LinkAnnotation`() {
+        val base = MarkdownLinkBase("https://github.com", "o", "r")
+        val text = inlineMarkdown("[文档](./docs/a.md)", linkBase = base, onLinkClick = {})
+        assertEquals("文档", text.text)
+        val link = text.getLinkAnnotations(0, text.length).firstOrNull()?.item as? LinkAnnotation.Clickable
+        assertEquals("https://github.com/o/r/docs/a.md", link?.tag)
+    }
+
+    @Test
+    fun `提及与编号补全成完整 URL`() {
+        val base = MarkdownLinkBase("https://github.com", "o", "r")
+        val mention = inlineMarkdown("cc @octocat", linkBase = base, onLinkClick = {})
+        assertEquals(
+            "https://github.com/octocat",
+            (mention.getLinkAnnotations(0, mention.length).first().item as LinkAnnotation.Clickable).tag,
+        )
+        val issue = inlineMarkdown("看 #129", linkBase = base, onLinkClick = {})
+        assertEquals(
+            "https://github.com/o/r/issues/129",
+            (issue.getLinkAnnotations(0, issue.length).first().item as LinkAnnotation.Clickable).tag,
+        )
+    }
+
+    @Test
+    fun `没有链接基准时只给样式不产生 annotation`() {
+        val text = inlineMarkdown("cc @octocat", onLinkClick = {})
+        assertEquals("cc @octocat", text.text)
+        assertTrue(text.getLinkAnnotations(0, text.length).isEmpty())
     }
 }

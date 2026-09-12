@@ -136,7 +136,8 @@ fun PullDetailScreen(
             detail == null -> CenterText("加载失败")
             else -> LazyColumn(Modifier.fillMaxSize()) {
                 item { PullHead(detail!!) }
-                if (bodyHtml != null) item { ReadmeWebView(bodyHtml!!, host, owner, repo, "main", login, token, onLinkClick = {}) }
+                // 分支传空串 = 用 HEAD 兜底（这里拿不到默认分支；写死 "main" 在 master 仓库上会 404）
+                if (bodyHtml != null) item { ReadmeWebView(bodyHtml!!, host, owner, repo, "", login, token, onLinkClick = {}) }
                 else if (detail!!.body.isNotBlank()) item { CommentBody(detail!!.body, detail!!.author, detail!!.createdAt) }
                 item { Text("文件变更 (${files.size})", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, modifier = Modifier.padding(16.dp, 14.dp, 16.dp, 6.dp)) }
                 items(files) { f -> PullFileRow(f) }

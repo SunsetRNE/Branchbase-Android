@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider 暴露范围：只暴露下载目录（getExternalFilesDir(null)/downloads）。
+     范围越小越安全 —— 安装器 / 「用其他应用打开」只需要这一个目录的读权限。 -->
+<paths>
+    <external-files-path name="downloads" path="downloads/" />
+</paths>

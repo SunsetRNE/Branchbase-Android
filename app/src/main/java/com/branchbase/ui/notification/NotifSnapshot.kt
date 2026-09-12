@@ -1,5 +1,9 @@
 package com.branchbase.ui.notification
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
 /**
  * 消息首屏**内存快照**（③ 预渲染的落点）。
  *
@@ -36,6 +40,17 @@ object NotifSnapshot {
     /** 当前预览表（只增不减，避免「取回来的预览又消失」）。 */
     val previewMap: Map<String, NotificationPreview> get() = previews
 
+    private val _unread = MutableStateFlow(0)
+
+    /**
+     * 未读数（可订阅）。
+     *
+     * 为什么要有它：未读徽标与首页「待处理」卡片读的是同一份快照，
+     * 但徽标原来只有一个「消息页组合时上报」的局部状态 —— 冷启动不进消息页就永远是 0，
+     * 而首页卡片已经有正确数字（首页预取填过快照）。订阅这个流，两者天然同源。
+     */
+    val unreadFlow: StateFlow<Int> = _unread.asStateFlow()
+
     /** 快照能否直接用于首帧渲染。 */
     fun isFresh(nowMs: Long = System.currentTimeMillis()): Boolean =
         items.isNotEmpty() && nowMs - atMs < TTL_MS
@@ -43,9 +58,15 @@ object NotifSnapshot {
     /** 快照里的未读数：底部导航徽标与首页「待处理」卡片共用同一口径。 */
     fun unreadCount(): Int = items.count { it.unread }
 
+    /** 任何写入路径都必须同步未读数（否则徽标会与列表不一致）。 */
+    private fun publish(list: List<Notification>) {
+        items = list
+        _unread.value = list.count { it.unread }
+    }
+
     /** 整表替换（预取成功后调用）。 */
     fun update(list: List<Notification>, nowMs: Long = System.currentTimeMillis()) {
-        items = list
+        publish(list)
         atMs = nowMs
     }
 
@@ -53,8 +74,9 @@ object NotifSnapshot {
      * 页面本地改动（标记已读 / 完成 / 恢复未读）后同步快照。
      * 同步的意义：首页徽标与消息页列表读的是同一份数据，不同步就会出现「回首页还是旧数字」。
      */
+    @Synchronized
     fun mutate(transform: (List<Notification>) -> List<Notification>) {
-        items = transform(items)
+        publish(transform(items))
         atMs = System.currentTimeMillis()
     }
 
@@ -64,7 +86,7 @@ object NotifSnapshot {
 
     /** 使快照失效（下拉强制刷新、全部已读后需要重新回源时调用）。 */
     fun invalidate() {
-        items = emptyList()
+        publish(emptyList())
         atMs = 0L
     }
 

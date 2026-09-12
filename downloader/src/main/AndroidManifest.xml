@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 下载进度 / 完成通知：API 33+ 是运行时权限（申请与状态见 NotificationPermission） -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 前台服务：应用退到后台后下载继续。
+         API 34+ 必须同时声明「类型权限」与 service 的 android:foregroundServiceType，
+         否则 startForeground 直接抛异常。 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- 拉起系统安装器安装下载好的 APK（API 26+ 还需要用户在系统里为「未知来源」授权） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!-- 「打开所在文件夹」要探测常见文件管理器的启动 Intent；
+         API 30+ 的包可见性过滤下，不声明 queries 时 getLaunchIntentForPackage 一律返回 null -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
+    <application>
+        <service
+            android:name=".DownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            android:stopWithTask="false" />
+
+        <!-- 把下载好的文件交给系统安装器 / 其他应用：
+             file:// 从 API 24 起会抛 FileUriExposedException，必须走 content:// -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.downloader.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/downloader_file_paths" />
+        </provider>
+    </application>
+
+</manifest>
