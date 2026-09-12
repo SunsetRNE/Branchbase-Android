@@ -200,6 +200,29 @@ Branchbase/
 回弹第一次看是「活泼」、第十次就是「拖沓」；tween 的稳定节奏更适合高频交互。
 动画值尽量在 `graphicsLayer {}` 里读（只在绘制阶段消费），避免每帧重组。
 
+## 🎨 配色与弹层（单一真源）
+
+所有颜色来自 `ui/theme/Color.kt` 的 `Primer` 色板（对齐 GitHub Primer），**不在调用处写死色值**。
+
+早期只覆盖了 M3 的少数颜色角色，导致弹层类组件读到的仍是 **Material 基线色**（带紫调）：
+
+| 组件 | 读的角色 |
+|------|---------|
+| `DropdownMenu`（搜索的类型/排序、反应选择器…） | `surfaceContainer` |
+| `AlertDialog`（各页确认框） | `surfaceContainerHigh` |
+| `ModalBottomSheet`（筛选手板 / 通知面板 / 工作流操作） | `surfaceContainerLow`，拖拽把手用 `surfaceVariant` |
+| `NavigationBarItem` 选中胶囊 | `secondaryContainer` |
+
+现在 `Theme.kt` 把这些角色一次性对齐到设计色板：**容器一律标准白底**，
+`surfaceContainerHighest`/`surfaceVariant` 用 `Gray150`/`Gray200` 作为「白底上再垫一层」的灰，
+描边统一 `Primer.Border`，底部导航选中胶囊 = 主色 12% 蓝。约定：
+
+- 弹层统一 **白底（`Primer.BackgroundPrimary`）+ 1dp `Primer.Border` 描边 + 阴影 + 16dp 圆角**
+  （气泡弹层的做法见 `ui/navigation/PageTransitions.kt` 的 `bubbleEnter` 与个人页 More 气泡）；
+- **白底容器里不要再放白底元素** —— 需要垫一层时用 `Gray150`（如筛选手板里的输入框、+/− 圆点），
+  否则容器改白之后它们会直接「消失」；
+- 新组件不要依赖 M3 默认容器色；确实需要特殊底色时才在调用处显式传 `containerColor`。
+
 ## 🔧 构建
 
 ### 环境要求

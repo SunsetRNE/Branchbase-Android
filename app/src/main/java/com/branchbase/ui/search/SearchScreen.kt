@@ -2,6 +2,7 @@ package com.branchbase.ui.search
 
 import android.content.Context
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,6 +37,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -227,10 +229,17 @@ fun SearchScreen(
                     Text(type, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, modifier = Modifier.weight(1f))
                     Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = Primer.IconSecondary, modifier = Modifier.size(18.dp))
                 }
-                DropdownMenu(expanded = typeMenu, onDismissRequest = { typeMenu = false }) {
+                // 白底 + Primer 描边：主题已把容器角色统一成标准白底，
+                // 这里再补一道描边，与 App 其它弹层（气泡 / 手板）的「白底 + 描边 + 阴影」一致
+                DropdownMenu(
+                    expanded = typeMenu,
+                    onDismissRequest = { typeMenu = false },
+                    containerColor = Primer.BackgroundPrimary,
+                    border = BorderStroke(1.dp, Primer.Border.copy(alpha = 0.5f)),
+                ) {
                     types.forEach { t ->
                         DropdownMenuItem(
-                            text = { Text(t, fontSize = 13.sp) },
+                            text = { Text(t, fontSize = 13.sp, color = Primer.TextPrimary) },
                             onClick = { type = t; typeMenu = false },
                         )
                     }
@@ -250,10 +259,15 @@ fun SearchScreen(
                         Spacer(Modifier.width(2.dp))
                         Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = Primer.IconSecondary, modifier = Modifier.size(16.dp))
                     }
-                    DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                    DropdownMenu(
+                        expanded = sortMenu,
+                        onDismissRequest = { sortMenu = false },
+                        containerColor = Primer.BackgroundPrimary,
+                        border = BorderStroke(1.dp, Primer.Border.copy(alpha = 0.5f)),
+                    ) {
                         sortOptions.forEach { (key, label) ->
                             DropdownMenuItem(
-                                text = { Text(label, fontSize = 13.sp) },
+                                text = { Text(label, fontSize = 13.sp, color = Primer.TextPrimary) },
                                 onClick = {
                                     sort = label; sortKey = key; sortMenu = false
                                     if (searched) doSearch()
@@ -818,7 +832,13 @@ private fun FilterSheet(
     onApplyFilter: (String, String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    // 显式写白底（主题里也已统一）：手板内部的输入框/加减按钮会跟着换成灰底，
+    // 否则「白底套白底」这两个元素会直接看不见
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Primer.BackgroundPrimary,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = Primer.Gray300) },
+    ) {
         Column(
             Modifier
                 .fillMaxWidth()
@@ -861,7 +881,15 @@ private fun FilterSheet(
                         Modifier.fillMaxWidth().clickable { onToggleFilter(name) }.padding(vertical = 9.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Box(Modifier.size(20.dp).clip(CircleShape).background(Primer.BackgroundPrimary), contentAlignment = Alignment.Center) {
+                        // 手板是白底 → 这个 +/− 圆点要用中性灰垫底才看得见（原来是白色，靠 Material 的
+                        // 淡紫容器衬出来；容器改白之后就「消失」了）
+                        Box(
+                            Modifier
+                                .size(20.dp)
+                                .clip(CircleShape)
+                                .background(Primer.Gray150),
+                            contentAlignment = Alignment.Center,
+                        ) {
                             Text(if (expanded) "−" else "+", fontSize = 14.sp, color = Primer.IconSecondary)
                         }
                         Spacer(Modifier.width(8.dp))
@@ -877,8 +905,15 @@ private fun FilterSheet(
                             Modifier.fillMaxWidth().padding(start = 28.dp, bottom = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            // 同上：输入框在白底手板上要靠灰底 + 描边才成立
                             Box(
-                                Modifier.weight(1f).height(36.dp).clip(RoundedCornerShape(8.dp)).background(Primer.BackgroundPrimary).padding(horizontal = 10.dp),
+                                Modifier
+                                    .weight(1f)
+                                    .height(36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Primer.Gray150)
+                                    .border(1.dp, Primer.Border.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 10.dp),
                                 contentAlignment = Alignment.CenterStart,
                             ) {
                                 BasicTextField(
