@@ -75,6 +75,7 @@ import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.navigation.PageLevel
 import com.branchbase.ui.navigation.PageSwitcher
 import com.branchbase.ui.profile.CommitModePickerDialog
@@ -290,7 +291,7 @@ fun RepositoryScreen(
             // 发布编辑页（全屏；target == null 表示新建）
             is RepoRoute.ReleaseEdit -> {
                 val releaseTarget = r.target
-                BackHandler { showReleaseEdit = false }
+                PageBackHandler { showReleaseEdit = false }
                 ReleaseEditScreen(
                     sessionJson = sessionJson,
                     owner = owner,
@@ -309,7 +310,7 @@ fun RepositoryScreen(
             // 发布详情页（全屏）
             is RepoRoute.ReleaseDetail -> {
                 val currentRelease = r.release
-                BackHandler { releaseDetail = null }
+                PageBackHandler { releaseDetail = null }
                 ReleaseDetailScreen(
                     sessionJson = sessionJson,
                     owner = owner,
@@ -324,7 +325,7 @@ fun RepositoryScreen(
 
             // 分支同步页（全屏）
             RepoRoute.BranchSync -> {
-                BackHandler { showBranchSync = false }
+                PageBackHandler { showBranchSync = false }
                 BranchSyncScreen(
                     sessionJson = sessionJson,
                     owner = owner,
@@ -335,7 +336,7 @@ fun RepositoryScreen(
 
             // 分支管理页（全屏）
             RepoRoute.BranchManage -> {
-                BackHandler { showBranchManage = false }
+                PageBackHandler { showBranchManage = false }
                 BranchManageScreen(
                     sessionJson = sessionJson,
                     owner = owner,
@@ -353,7 +354,7 @@ fun RepositoryScreen(
             // 分支对比页（全屏）：显示两个分支的代码片段差异
             is RepoRoute.BranchCompare -> {
                 val comparing = r.pair
-                BackHandler { comparePair = null }
+                PageBackHandler { comparePair = null }
                 BranchCompareScreen(
                     sessionJson = sessionJson,
                     owner = owner,
@@ -370,7 +371,7 @@ fun RepositoryScreen(
 
             // 本地仓库分支同步页（全屏）
             RepoRoute.LocalSync -> {
-                BackHandler { showLocalSync = false }
+                PageBackHandler { showLocalSync = false }
                 LocalBranchSyncScreen(
                     dir = localRepoDir(context, repo),
                     repoName = repo,
@@ -383,7 +384,7 @@ fun RepositoryScreen(
             // 星标/复刻/关注列表页（全屏，覆盖底部导航）
             is RepoRoute.People -> {
                 val people = r.type
-                BackHandler { peoplePage = null }
+                PageBackHandler { peoplePage = null }
                 PeopleListScreen(
                     sessionJson = sessionJson,
                     owner = owner,
@@ -396,7 +397,7 @@ fun RepositoryScreen(
             // 文件查看页（全屏）
             is RepoRoute.File -> {
                 val file = r.page
-                BackHandler { filePage = null }
+                PageBackHandler { filePage = null }
                 FileViewerScreen(
                     sessionJson = sessionJson,
                     owner = owner,
@@ -414,7 +415,7 @@ fun RepositoryScreen(
             // Issue 详情页
             is RepoRoute.Issue -> {
                 val issue = r.number
-                BackHandler { issuePage = null }
+                PageBackHandler { issuePage = null }
                 IssueDetailScreen(
                     sessionJson = sessionJson,
                     owner = owner,
@@ -427,7 +428,7 @@ fun RepositoryScreen(
             // PR 详情页
             is RepoRoute.Pull -> {
                 val pull = r.number
-                BackHandler { pullPage = null }
+                PageBackHandler { pullPage = null }
                 PullDetailScreen(
                     sessionJson = sessionJson,
                     owner = owner,
@@ -440,7 +441,7 @@ fun RepositoryScreen(
             // 提交详情页
             is RepoRoute.Commit -> {
                 val commit = r.sha
-                BackHandler { commitPage = null }
+                PageBackHandler { commitPage = null }
                 CommitDetailScreen(
                     sessionJson = sessionJson,
                     owner = owner,
@@ -453,7 +454,7 @@ fun RepositoryScreen(
             // Job 详情（最深）
             is RepoRoute.JobDetail -> {
                 val job = r.id
-                BackHandler { jobDetailPage = null }
+                PageBackHandler { jobDetailPage = null }
                 JobDetailContent(
                     sessionJson = sessionJson,
                     owner = owner,
@@ -466,7 +467,7 @@ fun RepositoryScreen(
             // Run 详情（jobs）
             is RepoRoute.RunDetail -> {
                 val run = r.id
-                BackHandler { runDetailPage = null }
+                PageBackHandler { runDetailPage = null }
                 RunDetailContent(
                     sessionJson = sessionJson,
                     owner = owner,
@@ -480,7 +481,7 @@ fun RepositoryScreen(
             // 手动触发工作流（全屏）
             is RepoRoute.Dispatch -> {
                 val dispatching = r.workflow
-                BackHandler { dispatchTarget = null }
+                PageBackHandler { dispatchTarget = null }
                 WorkflowDispatchScreen(
                     sessionJson = sessionJson,
                     owner = owner,
@@ -499,7 +500,7 @@ fun RepositoryScreen(
             // 工作流运行历史
             is RepoRoute.WorkflowRuns -> {
                 val runs = r.pair
-                BackHandler { workflowRunsPage = null }
+                PageBackHandler { workflowRunsPage = null }
                 WorkflowRunsContent(
                     sessionJson = sessionJson,
                     owner = owner,

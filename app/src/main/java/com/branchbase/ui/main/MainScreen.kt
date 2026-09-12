@@ -12,6 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.branchbase.ui.home.HomeScreen
+import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.navigation.BranchbaseNavigationBar
 import com.branchbase.ui.navigation.BackDisposition
 import com.branchbase.ui.navigation.backDisposition
@@ -76,12 +77,16 @@ fun MainScreen(
         else -> MainRoute.Tabs(selected)
     }
 
-    // 返回键按路由分派（**始终接管**）：
-    // 顶层 Tab → 回登录首页（不退出 App，再按一次才退出）；更深的路由 → 关掉当前页。
-    // 之前顶层写的是 `enabled = route.depth > 0`（整个 handler 关掉），等于把「顶层按返回」
-    // 让给了外层 LoginFlow 的兜底 handler —— 一旦中途多一层门（如提交模式引导页）就会漏成
-    // 「直接退出 App」。这里显式分派，行为不再依赖「谁恰好在外层」。
-    BackHandler(enabled = true) {
+    // 返回键按路由分派：顶层 Tab → 回登录首页（不退出 App，再按一次才退出）；
+    // 更深的路由 → 关掉当前页。
+    //
+    // 两个坑都踩过，一起焊死：
+    // 1. 早先写的是 `enabled = route.depth > 0`（顶层整个关掉），把「顶层按返回」让给了外层
+    //    LoginFlow 的兜底 handler —— 中间多一层门（如提交模式引导页）就漏成「直接退出 App」；
+    // 2. 改成 `enabled = true` 之后，退场动画期间（外层 PageSwitcher 已切到登录首页）这个
+    //    handler 仍然启用，会把用户紧接着的第二次返回键吃掉 —— 「再按一次退出」失灵。
+    //    现在由 PageBackHandler 叠加 LocalPageActive：**只有当前页能抢返回键**。
+    PageBackHandler {
         when {
             backDisposition(route.depth) == BackDisposition.BackToWelcome -> onBackToWelcome()
             route is MainRoute.Repo -> showRepo = null

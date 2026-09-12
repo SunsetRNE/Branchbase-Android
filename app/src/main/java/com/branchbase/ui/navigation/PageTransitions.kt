@@ -1,6 +1,7 @@
 package com.branchbase.ui.navigation
 
 import androidx.compose.animation.AnimatedContent
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContentScope
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
@@ -14,6 +15,8 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 
 /**
@@ -114,6 +117,43 @@ internal fun pageDirection(initialDepth: Int, targetDepth: Int): Int = when {
 }
 
 /**
+ * 这一格内容**是不是当前页**（由 [PageSwitcher] / [TabSwitcher] 自动下发）。
+ *
+ * ## 为什么需要它（返回键被「退场中的旧页」吃掉的根因）
+ *
+ * `AnimatedContent` 在切换过程中会把**旧页继续留在组合树里**播完退场动画（200~260ms）。
+ * 旧页里的 `BackHandler` 也随之仍然注册且 enabled —— Compose 的返回键是「最后注册且启用者胜」，
+ * 于是用户「连按两次返回」时的**第二次会被退场中的旧页吃掉**，表现为「按了没反应，得再按一次」。
+ *
+ * 典型现场：主界面顶层按返回 → 回到登录首页（外层 `PageSwitcher` 开始退场），
+ * 用户在动画还没播完时再按一次想退出 App —— 这一下被退场中的 `MainScreen` 吃掉，
+ * 于是「再按一次才彻底退出」变成「按两次都没退出」。
+ *
+ * 修法：页面级返回键统一用 [PageBackHandler]，它会把 [LocalPageActive] 与自身条件取与 ——
+ * **只有当前页能抢返回键**，退场中的旧页一律放手，事件自然落到正确的下一层（或系统默认退出）。
+ */
+val LocalPageActive = staticCompositionLocalOf { true }
+
+/**
+ * 页面级返回键（**所有页面都该用它，而不是裸 `BackHandler`**）。
+ *
+ * `enabled` 只描述「这一页内部有没有要关的东西」（如子页是否打开、是否多选态），
+ * 「是不是当前页」由 [LocalPageActive] 统一叠加，调用方不需要关心。
+ */
+@Composable
+fun PageBackHandler(enabled: Boolean = true, onBack: () -> Unit) {
+    BackHandler(enabled = shouldHandleBack(enabled, LocalPageActive.current), onBack = onBack)
+}
+
+/**
+ * 这一页该不该抢返回键（纯函数，便于单测）。
+ *
+ * 「按几次才退出」这类行为只有真机连按才试得出来，回归时最难发现，
+ * 所以把判定从 composable 里提出来钉住：**退场中的旧页（pageActive=false）永远放手**。
+ */
+fun shouldHandleBack(enabled: Boolean, pageActive: Boolean): Boolean = enabled && pageActive
+
+/**
  * 返回键语义。
  *
  * 全 App 只有两档：
@@ -143,8 +183,11 @@ fun <S> TabSwitcher(
         modifier = modifier,
         transitionSpec = { levelTransform() },
         label = label,
-        content = content,
-    )
+    ) { target ->
+        CompositionLocalProvider(LocalPageActive provides (target == state)) {
+            content(target)
+        }
+    }
 }
 
 /** 同级切换的进出组合（Tab 与 [PageSwitcher] 的同层分支共用）。 */

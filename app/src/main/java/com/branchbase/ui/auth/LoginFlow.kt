@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -18,11 +19,13 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -121,6 +124,16 @@ fun LoginFlow(
                         "正在打开 GitHub 授权页，请稍候…",
                         color = Primer.TextTertiary
                     )
+                    // 首次在新设备登录时，网页会要求「设备验证」或口令 —— 提前说清，避免以为卡住了
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "若网页要求输入验证码 / 口令，请在网页上完成（首次在新设备登录时会出现）",
+                        fontSize = 11.5.sp,
+                        color = Primer.TextTertiary,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 17.sp,
+                        modifier = Modifier.padding(horizontal = 32.dp),
+                    )
                 }
             }
 
@@ -134,6 +147,12 @@ fun LoginFlow(
                     AppIcon(size = 72.dp, shape = RoundedCornerShape(20.dp))
                     Spacer(Modifier.height(20.dp))
                     CircularProgressIndicator(color = Primer.Blue500)
+                    Spacer(Modifier.height(14.dp))
+                    Text(
+                        "正在校验授权…口令验证已在网页端完成",
+                        fontSize = 11.5.sp,
+                        color = Primer.TextTertiary,
+                    )
                 }
             }
 

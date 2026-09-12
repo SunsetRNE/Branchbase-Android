@@ -250,8 +250,8 @@ private val oauthFlowSteps = listOf(
     ),
     AuthFlowStep(
         Icons.Filled.Password,
-        "输入数字口令（开了双重验证时）",
-        "这是官方客户端登录同样绕不过的一步：网页端会要求 6 位数字口令",
+        "首次登录要过一次口令 / 设备验证",
+        "开没开双重验证都可能有这一步，且只在新设备首次登录时出现（详见下方说明）",
         TintRole.WARNING,
         highlight = true,
     ),
@@ -320,7 +320,7 @@ private val keyScopes: List<Pair<String, String>> =
 fun OAuthIntroScreen(onBack: () -> Unit, onStart: () -> Unit, onSwitchToKey: () -> Unit) {
     AuthIntroScaffold(
         title = "授权登录",
-        subtitle = "通过 GitHub 官方 OAuth 授权，最省事的一条路；账号开启双重验证时需要输入数字口令。",
+        subtitle = "通过 GitHub 官方 OAuth 授权，最省事的一条路；首次在新设备登录时需要过一次口令 / 设备验证。",
         steps = oauthFlowSteps,
         footNote = "适合：已经在 GitHub 网页端登录、且记得住/拿得到数字口令的账号。",
         primaryText = "开始授权登录",
@@ -527,12 +527,47 @@ private fun CodeCellsRow() {
                         if (on) "•" else "",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Primer.Blue600,
+                        color = Primer.AccentText,
                     )
                 }
             }
         }
+        Spacer(Modifier.height(10.dp))
+        // 两种情况互斥，且都只影响「首次新设备登录」——这是最容易误解的一步，写清楚
+        Text(
+            "• 开了双重验证：输入 6 位口令，或在 GitHub Mobile 上确认\n" +
+                "• 没开双重验证：首次在新设备登录会走「设备验证」，验证码发到邮箱；" +
+                "装了 GitHub Mobile 则会收到一个口令（两位数），在手机上确认即可\n" +
+                "• 两种都只在新设备首次登录时出现；启用双重验证后设备验证不再触发",
+            fontSize = 11.sp,
+            color = Primer.TextTertiary,
+            lineHeight = 17.sp,
+        )
+        Spacer(Modifier.height(6.dp))
+        DocLink("GitHub 文档：登录时验证新设备", GITHUB_DEVICE_VERIFY_DOC)
     }
+}
+
+/** GitHub 官方文档：登录时验证新设备（设备验证 / 口令）。 */
+private const val GITHUB_DEVICE_VERIFY_DOC =
+    "https://docs.github.com/zh/authentication/keeping-your-account-and-data-secure/verifying-new-devices-when-signing-in"
+
+/** 一行「查看官方文档」链接（点击用系统浏览器打开）。 */
+@Composable
+private fun DocLink(text: String, url: String) {
+    val context = LocalContext.current
+    Text(
+        text,
+        fontSize = 11.5.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = Primer.Link,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .clickable {
+                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+            }
+            .padding(vertical = 4.dp),
+    )
 }
 
 /** 密钥登录的示意图：权限清单逐个打勾（经典 PAT 需要勾的四项）。 */

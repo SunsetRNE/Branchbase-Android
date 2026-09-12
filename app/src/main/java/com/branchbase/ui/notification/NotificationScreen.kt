@@ -93,6 +93,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.theme.color
 import com.branchbase.ui.theme.shimmerAlpha
 import com.branchbase.ui.theme.revealExit
@@ -608,7 +609,7 @@ fun NotificationScreen(
     val inSelection = selectedIds.isNotEmpty()
 
     // 多选态下返回键 = 退出多选（而不是退出页面）：多选时不看内容，返回键留给「取消选择」更符合预期。
-    BackHandler(enabled = inSelection || panelOpen || sheetTarget != null) {
+    PageBackHandler(enabled = inSelection || panelOpen || sheetTarget != null) {
         when {
             sheetTarget != null -> sheetTarget = null
             panelOpen -> panelOpen = false

@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.main.MainScreen
 import com.branchbase.ui.profile.CommitMode
 import com.branchbase.ui.profile.KEY_COMMIT_MODE
@@ -59,7 +60,7 @@ fun LoggedInGate(
     if (!configured) {
         // 引导页是「登录后的第一个顶层页面」，返回语义要和主界面顶层一致（回登录首页），
         // 否则未配置提交模式的新用户按返回会直接退出 App
-        BackHandler(enabled = true) { onBackToWelcome() }
+        PageBackHandler(enabled = true) { onBackToWelcome() }
         CommitModeGuideScreen(
             onConfirm = { mode ->
                 prefs.edit().putString(KEY_COMMIT_MODE, mode.name).apply()

@@ -1,6 +1,8 @@
 package com.branchbase.ui.navigation
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -35,6 +37,18 @@ class PageTransitionsTest {
         // 需求：主 Tab 页按返回 → 回登录首页（不退出 App）；在登录首页再按一次才退出。
         // 登录首页（Idle）本身没有 BackHandler，交给系统默认行为 = 退出，所以这里只钉「顶层」这一档。
         assertEquals(BackDisposition.BackToWelcome, backDisposition(0))
+    }
+
+    @Test
+    fun `退场中的旧页必须放手_否则会吃掉紧接着的第二次返回键`() {
+        // 现场：主界面顶层按返回 → 回登录首页（外层开始播退场动画），
+        // 用户在动画没播完时再按一次想退出 App —— 那一下曾被退场中的 MainScreen 吃掉，
+        // 表现成「按了没反应，得再按一次」。
+        assertTrue(shouldHandleBack(enabled = true, pageActive = true))
+        assertFalse("退场中的旧页不能抢返回键", shouldHandleBack(enabled = true, pageActive = false))
+        // 自身条件不满足时，无论是否当前页都不抢
+        assertFalse(shouldHandleBack(enabled = false, pageActive = true))
+        assertFalse(shouldHandleBack(enabled = false, pageActive = false))
     }
 
     @Test

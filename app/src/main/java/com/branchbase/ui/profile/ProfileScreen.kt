@@ -66,6 +66,7 @@ import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.AvatarCache
+import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.navigation.PageLevel
 import com.branchbase.ui.navigation.PageSwitcher
 import com.branchbase.ui.navigation.TabSwitcher
@@ -195,7 +196,7 @@ fun ProfileScreen(
     val route: ProfileRoute = subPage?.let { ProfileRoute.Sub(it) } ?: ProfileRoute.Main(tab)
 
     // 子页面跳转时拦截系统返回，返回个人主页（按路由启用，动画期间不会重复响应）
-    BackHandler(subPage != null) { subPage = null }
+    PageBackHandler(subPage != null) { subPage = null }
 
     PageSwitcher(state = route, modifier = Modifier.fillMaxSize(), label = "profile-page") { r ->
         when (r) {

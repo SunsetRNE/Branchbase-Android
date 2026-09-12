@@ -51,7 +51,10 @@ Branchbase/
 
 - **两种登录方式**：
   - **OAuth 授权登录**：授权码 + PKCE，`client_secret` 编译期注入（`local.properties` → `BuildConfig`）；
-    账号开了双重验证时按 GitHub 要求输入数字口令
+    首次在新设备登录时需要过一次「口令 / 设备验证」——开了双重验证是 6 位口令（或 GitHub Mobile 确认），
+    没开双重验证则走**设备验证**（验证码发邮箱；装了 GitHub Mobile 会收到一个两位数口令在手机上确认）。
+    两种都只在新设备首次登录时出现，启用双重验证后设备验证不再触发
+    （依据 [GitHub 文档：登录时验证新设备](https://docs.github.com/zh/authentication/keeping-your-account-and-data-secure/verifying-new-devices-when-signing-in)）
   - **访问密钥登录**（PAT）：`GET /user` 先校验再落库（无效/权限不足挡在登录前），
     支持一键跳转网页端并**预填所需权限**建密钥；登录时无需数字口令，认证方式在账号管理里标记为「PAT 令牌」
   - 两种模式在欢迎页各有一个入口，点进去各有**一页带渲染动画的流程要点介绍**
@@ -64,6 +67,7 @@ Branchbase/
 - **沉浸式翻译**：正文页原文 + 译文对照（独立 `:translate` 模块，见下文）
 - **返回键（两段式）**：主界面顶层按返回**不退出 App**，而是回登录首页（会话保留）；
   在登录首页再按一次才彻底退出。子页 / 详情优先逐层关闭自己
+  —— 完整链路、两条硬规则与踩过的坑见 [`NAVIGATION-NOTES.md`](NAVIGATION-NOTES.md)
 - **关于页**：版本号标准化展示（工程版本 / 标准版本 / 构建时间 / 七位哈希）
 
 ## 🌐 沉浸式翻译（模块化实现）
