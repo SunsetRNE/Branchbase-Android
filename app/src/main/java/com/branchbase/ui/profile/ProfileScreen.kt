@@ -59,6 +59,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import com.branchbase.ui.repository.repoRelationOf
+import com.branchbase.ui.repository.RepoRelation
 import com.branchbase.ui.theme.color
 import com.branchbase.ui.theme.TintRole
 import com.branchbase.ui.theme.selectionColor
@@ -157,7 +159,7 @@ fun ProfileScreen(
         // ① 先直出缓存（含过期数据）
         if (key != null) {
             PageCache.cachedFirst(cacheManager, key, PageCache.TYPE_PROFILE)?.let { cached ->
-                parseRepos(cached).takeIf { it.isNotEmpty() }?.let {
+                parseRepos(cached, me = login).takeIf { it.isNotEmpty() }?.let {
                     repos = it
                     reposLoading = false
                 }
@@ -172,7 +174,7 @@ fun ProfileScreen(
         } else {
             RustBridge.getMyRepos(host, token)?.takeIf { !it.startsWith("ERROR:") }
         }
-        json?.let { repos = parseRepos(it) }
+        json?.let { repos = parseRepos(it, me = login) }
         Logger.net("GET /user/repos → ${if (json == null) "失败/空" else "200（${repos.size} 个仓库）"}", "GitHubAPI")
     }
 
@@ -1283,9 +1285,18 @@ internal data class RepoItem(
     val language: String? = null,
     val stars: Long = 0,
     val forks: Long = 0,
+    /** 与当前账号的关系（账号仓库 / 协作仓库 / 非账号仓库 / 非协作仓库）。 */
+    val relation: RepoRelation? = null,
 )
 
-internal fun parseRepos(json: String): List<RepoItem> {
+/**
+ * 解析仓库列表（`/user/repos` 等）。
+ *
+ * [me] 是当前登录账号：列表接口会返回 `permissions` 与 `private`，据此把每个仓库判成
+ * 账号仓库 / 协作仓库 / 非账号仓库 / 非协作仓库（判定规则见 [repoRelationOf]）——
+ * 「我的仓库」列表里其实混着协作仓库，不区分的话用户会以为都是自己的。
+ */
+internal fun parseRepos(json: String, me: String = ""): List<RepoItem> {
     return runCatching {
         val arr = JSONArray(json)
         (0 until arr.length()).map { i ->
@@ -1297,6 +1308,13 @@ internal fun parseRepos(json: String): List<RepoItem> {
                 language = it.optString("language").takeIf { l -> l.isNotBlank() && l != "null" },
                 stars = it.optLong("stargazers_count"),
                 forks = it.optLong("forks_count"),
+                relation = repoRelationOf(
+                    ownerLogin = it.optJSONObject("owner")?.optString("login"),
+                    me = me,
+                    canPush = it.optJSONObject("permissions")?.optBoolean("push", false) ?: false,
+                    canPull = it.optJSONObject("permissions")?.optBoolean("pull", true) ?: true,
+                    isPrivate = it.optBoolean("private", false),
+                ),
             )
         }
     }.getOrDefault(emptyList())

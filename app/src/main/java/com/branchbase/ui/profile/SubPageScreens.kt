@@ -72,6 +72,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.branchbase.ui.repository.RepoRelation
 import com.branchbase.ui.theme.selectionColor
 import com.branchbase.BuildConfig
 import com.branchbase.core.AccountStore
@@ -233,6 +234,12 @@ fun StarsScreen(sessionJson: String, onBack: () -> Unit, onOpenRepo: (String) ->
     val context = LocalContext.current
     val token = runCatching { JSONObject(sessionJson).getJSONObject("token").optString("access_token") }.getOrNull() ?: ""
     val host = runCatching { JSONObject(sessionJson).optString("host", "github.com") }.getOrDefault("github.com")
+    // 关系判定要当前账号：星标里既有自己的仓库也有别人的，用于区分「我的 / 协作 / 他人」
+    val me = remember(sessionJson, context) {
+        runCatching { JSONObject(sessionJson).getJSONObject("user").optString("login") }
+            .getOrNull()?.takeIf { it.isNotBlank() && it != "null" }
+            ?: com.branchbase.core.AccountStore.currentLogin(context)
+    }
     var repos by remember { mutableStateOf<List<RepoItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var refreshKey by remember { mutableIntStateOf(0) }
@@ -243,7 +250,7 @@ fun StarsScreen(sessionJson: String, onBack: () -> Unit, onOpenRepo: (String) ->
         if (refreshKey == 0) {
             val cached = ProfileCache.get(cacheKey, ProfileTtl.STARS)
             if (cached != null) {
-                repos = parseRepos(cached)
+                repos = parseRepos(cached, me = me)
                 loading = false
                 return@LaunchedEffect
             }
@@ -252,7 +259,7 @@ fun StarsScreen(sessionJson: String, onBack: () -> Unit, onOpenRepo: (String) ->
         val json = withContext(Dispatchers.IO) { RustBridge.getStarredRepos(host, token) }
         Logger.net("GET /user/starred → ${if (json != null && !json.startsWith("ERROR:")) "200" else "失败"}", "GitHubAPI")
         if (json != null && !json.startsWith("ERROR:")) {
-            repos = parseRepos(json)
+            repos = parseRepos(json, me = me)
             ProfileCache.put(cacheKey, json)
         } else {
             repos = emptyList()
@@ -1068,7 +1075,7 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
         loadingRepos = true
         scope.launch {
             val json = withContext(Dispatchers.IO) { RustBridge.getMyRepos(host, token) }
-            myRepos = json?.takeIf { !it.startsWith("ERROR:") }?.let { parseRepos(it) } ?: emptyList()
+            myRepos = json?.takeIf { !it.startsWith("ERROR:") }?.let { parseRepos(it, me = accountLogin) } ?: emptyList()
             loadingRepos = false
         }
     }
@@ -1180,12 +1187,17 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
                 } else {
                     LazyColumn(Modifier.heightIn(max = 400.dp)) {
                         items(myRepos) { repo ->
-                            Text(
-                                repo.fullName,
-                                fontSize = 14.sp,
-                                color = Primer.TextPrimary,
-                                modifier = Modifier.fillMaxWidth().clickable { doClone(repo.fullName, repo.name) }.padding(vertical = 10.dp),
-                            )
+                            Row(
+                                Modifier.fillMaxWidth()
+                                    .clickable { doClone(repo.fullName, repo.name) }
+                                    .padding(vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(repo.fullName, fontSize = 14.sp, color = Primer.TextPrimary, modifier = Modifier.weight(1f))
+                                // 我的 / 协作 / 他人：`/user/repos` 默认就包含协作与组织仓库，
+                                // 不标出来用户会以为列表里全是自己的
+                                RepoRelationBadge(repo.relation)
+                            }
                         }
                     }
                 }
@@ -1676,4 +1688,30 @@ private fun AboutInfoRow(key: String, value: String) {
             textAlign = TextAlign.End,
         )
     }
+}
+
+/**
+ * 仓库关系徽章（账号仓库 / 协作仓库 / 非账号仓库 / 非协作仓库）。
+ *
+ * 颜色按「能不能写」分档：能写的用绿色（与提交/推送入口一致），只能读的用中性灰，
+ * 无权限的用红色 —— 一眼看出这个仓库我能做什么。
+ */
+@Composable
+internal fun RepoRelationBadge(relation: RepoRelation?, modifier: Modifier = Modifier) {
+    if (relation == null) return
+    val (fg, bg) = when (relation) {
+        RepoRelation.OWN, RepoRelation.COLLABORATOR -> Primer.SuccessText to Primer.SuccessSurface
+        RepoRelation.FOREIGN -> Primer.TextTertiary to Primer.Gray150
+        RepoRelation.NOT_COLLABORATOR -> Primer.Red500 to Primer.DangerSurface
+    }
+    Text(
+        relation.label,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Bold,
+        color = fg,
+        modifier = modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(bg)
+            .padding(horizontal = 5.dp, vertical = 1.dp),
+    )
 }

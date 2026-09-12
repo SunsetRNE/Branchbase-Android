@@ -20,6 +20,12 @@ data class RepoInfo(
     val ownerLogin: String,
     /** 当前登录用户是否有写权限（`permissions.push`）—— 决定编辑/新建入口是否显示。 */
     val canPush: Boolean = false,
+    /** 当前登录用户是否至少有读权限（`permissions.pull`）。 */
+    val canPull: Boolean = true,
+    /** 是否私有仓库（判定关系时用来兜底「能不能读到」）。 */
+    val isPrivate: Boolean = false,
+    /** owner 类型：`User` / `Organization`。 */
+    val ownerType: String? = null,
     /** 当前登录用户是否有 issue 分诊权限（`permissions.triage`）—— 决定关闭/重开按钮。 */
     val canTriage: Boolean = false,
 )
@@ -75,6 +81,9 @@ fun parseRepoInfo(json: String): RepoInfo? = runCatching {
         ownerLogin = o.optJSONObject("owner")?.optString("login").orEmpty(),
         // permissions 只在带 token 请求时返回；缺失即视为无写权限（保守）
         canPush = o.optJSONObject("permissions")?.optBoolean("push", false) ?: false,
+        canPull = o.optJSONObject("permissions")?.optBoolean("pull", true) ?: true,
+        isPrivate = o.optBoolean("private", false),
+        ownerType = o.optJSONObject("owner")?.optString("type")?.takeIf { it.isNotBlank() },
     )
 }.getOrNull()
 
@@ -790,3 +799,53 @@ fun parseJobSteps(json: String): List<JobStep> = runCatching {
         )
     }
 }.getOrDefault(emptyList())
+
+/**
+ * 当前账号与某个仓库的关系。
+ *
+ * 判定依据全部来自 GitHub 返回的字段（`owner.login` / `permissions` / `private`），
+ * 不猜、不额外发请求：
+ *
+ * | 关系 | 判定 |
+ * |------|------|
+ * | [OWN] | `owner.login` == 当前登录账号（**账号仓库**） |
+ * | [COLLABORATOR] | 不是 owner，但 `permissions.push`（**账号协作仓库**：受邀协作 / 组织成员） |
+ * | [FOREIGN] | 不是 owner 且没有写权限，但**能读到**（**非账号仓库**：别人的公开仓库） |
+ * | [NOT_COLLABORATOR] | 既不是 owner、也没有协作权限（**非自身协作仓库**：通常是无权限的私有仓库） |
+ *
+ * 用途：决定「能做什么」（提交/推送入口）、列表分组与徽章文案。
+ */
+enum class RepoRelation(val label: String) {
+    OWN("账号仓库"),
+    COLLABORATOR("协作仓库"),
+    FOREIGN("非账号仓库"),
+    NOT_COLLABORATOR("非协作仓库"),
+    ;
+
+    /** 是否有写权限（能提交 / 推送）。 */
+    val canWrite: Boolean get() = this == OWN || this == COLLABORATOR
+}
+
+/**
+ * 判定当前账号与仓库的关系（**纯函数**，便于单测）。
+ *
+ * @param ownerLogin 仓库 owner 的 login
+ * @param me 当前登录账号
+ * @param canPush `permissions.push`
+ * @param canPull `permissions.pull`；字段缺失时用 [isPrivate] 兜底判断「能不能读到」
+ * @param isPrivate 仓库是否私有（`private`）
+ */
+fun repoRelationOf(
+    ownerLogin: String?,
+    me: String,
+    canPush: Boolean = false,
+    canPull: Boolean = false,
+    isPrivate: Boolean = false,
+): RepoRelation {
+    if (ownerLogin.isNullOrBlank() || me.isBlank()) return RepoRelation.FOREIGN
+    if (ownerLogin.equals(me, ignoreCase = true)) return RepoRelation.OWN
+    if (canPush) return RepoRelation.COLLABORATOR
+    // 能读到就算「非账号仓库」；私有且读权限都没给到 → 我们其实看不到它（权限缺失/被撤销）
+    val readable = canPull || !isPrivate
+    return if (readable) RepoRelation.FOREIGN else RepoRelation.NOT_COLLABORATOR
+}

@@ -137,6 +137,9 @@ fun MainScreen(
             MainRoute.Search -> SearchScreen(
                 sessionJson = sessionJson,
                 onBack = { showSearch = false },
+                // 结果点进仓库/issue/PR/提交/文件：与通知深链接同一条路由，
+                // 返回时回到搜索页（搜索词与结果由 SearchViewModel + 缓存保留）
+                onOpenInApp = { showRepo = it },
             )
 
             // Tab 骨架（首页 / 消息：同级切换做淡入淡出）

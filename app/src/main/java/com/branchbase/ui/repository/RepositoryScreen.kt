@@ -111,6 +111,7 @@ data class RepoDeepLink(
     val pullNumber: Long? = null,     // 直达 PR 详情
     val commitSha: String? = null,    // 直达提交详情
     val runId: Long? = null,          // 直达 Run 详情
+    val path: String? = null,         // 直达文件查看页（代码搜索结果用）
 )
 
 @Composable
@@ -131,7 +132,8 @@ fun RepositoryScreen(
     }
     var page by remember { mutableStateOf(initial?.page ?: RepoPage.Overview) }
     var peoplePage by remember { mutableStateOf<String?>(null) } // "star"/"fork"/"watch"
-    var filePage by remember { mutableStateOf<Pair<String, String?>?>(null) } // (文件路径, 高亮行号)
+    // (文件路径, 高亮行号)；代码搜索结果会带 path 直达文件页
+    var filePage by remember { mutableStateOf<Pair<String, String?>?>(initial?.path?.let { it to null }) }
     var issuePage by remember { mutableStateOf(initial?.issueNumber) }
     var pullPage by remember { mutableStateOf(initial?.pullNumber) }
     var commitPage by remember { mutableStateOf(initial?.commitSha) }

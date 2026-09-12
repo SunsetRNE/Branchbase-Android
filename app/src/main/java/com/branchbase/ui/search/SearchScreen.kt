@@ -1,6 +1,9 @@
 package com.branchbase.ui.search
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import com.branchbase.ui.repository.RepoDeepLink
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -69,6 +72,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.branchbase.ui.repository.RepoRelation
+import com.branchbase.ui.repository.repoRelationOf
 import com.branchbase.ui.theme.shimmerAlpha
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
@@ -89,6 +94,13 @@ import org.json.JSONObject
 fun SearchScreen(
     sessionJson: String,
     onBack: () -> Unit,
+    /**
+     * 站内跳转（仓库 / issue / PR / 提交 / 文件）。
+     *
+     * 走的与「通知深链接」同一条路由（`RepoDeepLink` → `MainScreen` 的仓库路由），
+     * 因此落点与返回栈行为完全一致，搜索结果页不需要自己拼导航。
+     */
+    onOpenInApp: (RepoDeepLink) -> Unit,
 ) {
     LaunchedEffect(Unit) { Logger.ui("进入搜索页", "Compose") }
     val token = runCatching { JSONObject(sessionJson).getJSONObject("token").optString("access_token") }.getOrNull() ?: ""
@@ -156,7 +168,7 @@ fun SearchScreen(
                 "拉取请求" -> { val p = parsePullResults(json); pullResults = p.first; total = p.second }
                 "提交" -> { val p = parseCommitResults(json); commitResults = p.first; total = p.second }
                 "主题" -> { val p = parseTopicResults(json); topicResults = p.first; total = p.second }
-                else -> { val p = parseResults(json, type0); results = p.first; total = p.second }
+                else -> { val p = parseResults(json, type0, me = login); results = p.first; total = p.second }
             }
         }
 
@@ -222,6 +234,20 @@ fun SearchScreen(
     // 从结果进详情再返回：搜索词与条件还在（ViewModel），这里按缓存直出结果
     LaunchedEffect(Unit) {
         if (vm.hasPendingSession()) doSearch()
+    }
+
+    /**
+     * 结果点击派发：**站内有页面的走站内**（仓库 / issue / PR / 提交 / 文件），
+     * 站内没有页面的（用户主页 / 主题页）交给浏览器。
+     */
+    fun openTarget(target: SearchTarget?) {
+        when (target) {
+            null -> Unit
+            is SearchTarget.Web -> runCatching {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target.url)))
+            }
+            else -> target.toRepoDeepLink()?.let(onOpenInApp)
+        }
     }
 
     Column(
@@ -332,7 +358,7 @@ fun SearchScreen(
                 Column {
                     Text("$total 个代码结果", fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                     LazyColumn {
-                        items(codeResults) { code -> CodeResultCard(code) }
+                        items(codeResults) { code -> CodeResultCard(code) { openTarget(code.target) } }
                     }
                 }
             }
@@ -345,7 +371,7 @@ fun SearchScreen(
                 Column {
                     Text("$total 个拉取请求结果", fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                     LazyColumn {
-                        items(pullResults) { pull -> PullCard(pull) }
+                        items(pullResults) { pull -> PullCard(pull) { openTarget(pull.target) } }
                     }
                 }
             }
@@ -358,7 +384,7 @@ fun SearchScreen(
                 Column {
                     Text(resultCountText(total, commitResults.size, "提交结果"), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                     LazyColumn {
-                        items(commitResults) { commit -> CommitCard(commit) }
+                        items(commitResults) { commit -> CommitCard(commit) { openTarget(commit.target) } }
                     }
                 }
             }
@@ -371,7 +397,7 @@ fun SearchScreen(
                 Column {
                     Text(resultCountText(total, 1, "主题结果"), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                     LazyColumn {
-                        item { TopicCard(topicResults) }
+                        item { TopicCard(topicResults) { openTarget(it.target) } }
                     }
                 }
             }
@@ -383,7 +409,7 @@ fun SearchScreen(
             Column {
                 Text(resultCountText(total, results.size, "结果"), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                 LazyColumn {
-                    items(results) { item -> SearchItemCard(item) }
+                    items(results) { item -> SearchItemCard(item) { openTarget(item.target) } }
                 }
             }
         }
@@ -491,16 +517,34 @@ private fun SearchSkeleton() {
 
 /** 搜索结果卡片 */
 @Composable
-private fun SearchItemCard(item: SearchItem) {
+private fun SearchItemCard(item: SearchItem, onClick: () -> Unit) {
     Column(
         modifier = Modifier
             .padding(start = 16.dp, end = 16.dp, bottom = 10.dp)
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(Primer.BackgroundSecondary)
+            .clickable(onClick = onClick)
             .padding(14.dp),
     ) {
-        Text(item.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(item.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
+            // 「我的」徽章：搜索结果里一眼分出账号仓库与别人的仓库（搜索接口不返回 permissions，
+            // 所以只判定「是不是我自己的」，协作/只读关系在仓库详情页才准）
+            if (item.relation == RepoRelation.OWN) {
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "我的",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Primer.SuccessText,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Primer.SuccessSurface)
+                        .padding(horizontal = 5.dp, vertical = 1.dp),
+                )
+            }
+        }
         if (item.subtitle.isNotBlank()) {
             Spacer(Modifier.height(4.dp))
             Text(item.subtitle, fontSize = 13.sp, color = Primer.TextSecondary)
@@ -514,13 +558,14 @@ private fun SearchItemCard(item: SearchItem) {
 
 /** 代码搜索结果卡片（对标 GitHub 网页：仓库路径 + 文件路径胶囊 + 代码片段 + 次级路径 + 折叠提示） */
 @Composable
-private fun CodeResultCard(code: CodeResult) {
+private fun CodeResultCard(code: CodeResult, onClick: () -> Unit) {
     Column(
         modifier = Modifier
             .padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .border(1.dp, CodeSyntax.CardBorder, RoundedCornerShape(8.dp)),
+            .border(1.dp, CodeSyntax.CardBorder, RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick),
     ) {
         // ① 仓库路径行：头像（Coil 加载，无则首字母兜底）+ owner/repo + 下拉箭头
         Row(
@@ -652,13 +697,14 @@ private fun MatchCountPill(count: Int) {
 
 /** 拉取请求结果卡片（状态徽章 + 标题 + 编号 + 仓库） */
 @Composable
-private fun PullCard(pull: PullResult) {
+private fun PullCard(pull: PullResult, onClick: () -> Unit) {
     Column(
         modifier = Modifier
             .padding(start = 16.dp, end = 16.dp, bottom = 10.dp)
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(Primer.BackgroundSecondary)
+            .clickable(onClick = onClick)
             .padding(14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -690,13 +736,14 @@ private fun StatusBadge(pull: PullResult) {
 
 /** 提交结果卡片（提交信息 + sha + 作者 + 仓库） */
 @Composable
-private fun CommitCard(commit: CommitResult) {
+private fun CommitCard(commit: CommitResult, onClick: () -> Unit) {
     Column(
         modifier = Modifier
             .padding(start = 16.dp, end = 16.dp, bottom = 10.dp)
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(Primer.BackgroundSecondary)
+            .clickable(onClick = onClick)
             .padding(14.dp),
     ) {
         Text(commit.message, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
@@ -715,7 +762,7 @@ private fun CommitCard(commit: CommitResult) {
 
 /** 主题结果卡片（chip 网格） */
 @Composable
-private fun TopicCard(topics: List<TopicResult>) {
+private fun TopicCard(topics: List<TopicResult>, onTopicClick: (TopicResult) -> Unit) {
     Column(
         modifier = Modifier
             .padding(start = 16.dp, end = 16.dp, bottom = 10.dp)
@@ -731,7 +778,12 @@ private fun TopicCard(topics: List<TopicResult>) {
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Primer.Blue500,
-                    modifier = Modifier.clip(RoundedCornerShape(16.dp)).background(Primer.Gray150).padding(horizontal = 14.dp, vertical = 6.dp),
+                    // clip 在 clickable 之前：点击反馈跟随圆角；点一下去官方主题页
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Primer.Gray150)
+                        .clickable { onTopicClick(topic) }
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
                 )
             }
         }
@@ -963,7 +1015,7 @@ private fun FilterSheet(
     }
 }
 
-private fun parseResults(json: String, type: String): Pair<List<SearchItem>, Long> {
+private fun parseResults(json: String, type: String, me: String): Pair<List<SearchItem>, Long> {
     return runCatching {
         val obj = JSONObject(json)
         val total = obj.optLong("total_count")
@@ -971,21 +1023,40 @@ private fun parseResults(json: String, type: String): Pair<List<SearchItem>, Lon
         val items = (0 until (arr?.length() ?: 0)).map { i ->
             val it = arr!!.getJSONObject(i)
             when (type) {
-                "仓库" -> SearchItem(
-                    title = it.optString("full_name"),
-                    subtitle = it.optString("description").orEmpty(),
-                    meta = it.optString("language").takeIf { l -> l.isNotBlank() }
-                        ?.let { lang -> "$lang · ${formatCount(it.optLong("stargazers_count"))} 星" },
-                )
+                "仓库" -> {
+                    // full_name = owner/repo：既是展示标题，也是站内跳转目标
+                    val fullName = it.optString("full_name")
+                    val pair = ownerRepoOf(fullName)
+                    SearchItem(
+                        title = fullName,
+                        subtitle = it.optString("description").orEmpty(),
+                        meta = it.optString("language").takeIf { l -> l.isNotBlank() }
+                            ?.let { lang -> "$lang · ${formatCount(it.optLong("stargazers_count"))} 星" },
+                        target = pair?.let { (o, r) -> SearchTarget.Repo(o, r) },
+                        // 搜索接口不返回 permissions：只能判定「是不是我自己的」
+                        relation = pair?.let { (o, _): Pair<String, String> ->
+                            repoRelationOf(o, me, isPrivate = it.optBoolean("private", false))
+                        },
+                    )
+                }
                 "用户" -> SearchItem(
                     title = it.optString("login"),
                     subtitle = it.optString("html_url").orEmpty(),
+                    // 站内没有他人主页，交给浏览器
+                    target = SearchTarget.Web(it.optString("html_url")),
                 )
-                "议题" -> SearchItem(
-                    title = it.optString("title"),
-                    subtitle = it.optString("html_url").orEmpty(),
-                    meta = it.optString("state"),
-                )
+                "议题" -> {
+                    // repository_url（API 地址）+ number 才是跳转所需信息；html_url 只用于展示
+                    val pair = ownerRepoOf(it.optString("repository_url"))
+                    val number = it.optLong("number")
+                    SearchItem(
+                        title = it.optString("title"),
+                        subtitle = it.optString("html_url").orEmpty(),
+                        meta = it.optString("state"),
+                        target = pair?.takeIf { _ -> number > 0 }
+                            ?.let { (o, r) -> SearchTarget.Issue(o, r, number) },
+                    )
+                }
                 else -> SearchItem(title = "", subtitle = "")
             }
         }
@@ -1028,6 +1099,12 @@ private fun parseCodeResults(json: String): Pair<List<CodeResult>, Long> {
                 owner = owner,
                 repository = repo,
                 path = path,
+                // 代码结果点进去直接落到「文件查看页」（深链接 path）
+                target = if (owner.isNotBlank() && repo.isNotBlank() && path.isNotBlank()) {
+                    SearchTarget.File(owner, repo, path)
+                } else {
+                    null
+                },
                 fileName = path.substringAfterLast('/'),
                 avatarUrl = avatarUrl,
                 language = language,
@@ -1062,6 +1139,9 @@ private fun parsePullResults(json: String): Pair<List<PullResult>, Long> {
             val merged = it.optJSONObject("pull_request")?.optString("merged_at")?.isNotBlank() == true
             val repo = it.optString("repository_url").split('/').takeLast(2).joinToString("/")
             PullResult(
+                target = ownerRepoOf(it.optString("repository_url"))?.let { (o, r) ->
+                    SearchTarget.PullRequest(o, r, it.optLong("number"))
+                },
                 number = it.optInt("number"),
                 title = it.optString("title"),
                 state = state,
@@ -1083,6 +1163,9 @@ private fun parseCommitResults(json: String): Pair<List<CommitResult>, Long> {
             val commit = it.optJSONObject("commit")
             val repo = it.optJSONObject("repository")?.optString("full_name") ?: ""
             CommitResult(
+                target = ownerRepoOf(repo)?.let { (o, r) ->
+                    SearchTarget.Commit(o, r, it.optString("sha"))
+                },
                 sha = it.optString("sha"),
                 message = commit?.optString("message") ?: "",
                 author = commit?.optJSONObject("author")?.optString("name")
@@ -1136,12 +1219,17 @@ private data class SearchItem(
     val title: String,
     val subtitle: String,
     val meta: String? = null,
+    /** 这一行要去哪（解析阶段就定下来，卡片点击直接派发）。 */
+    val target: SearchTarget? = null,
+    /** 仓库结果专用：与当前账号的关系（我的 / 协作 / 他人）。 */
+    val relation: RepoRelation? = null,
 )
 
 private data class CodeResult(
     val owner: String,
     val repository: String,
     val path: String,
+    val target: SearchTarget? = null,
     val fileName: String,
     val avatarUrl: String? = null,
     val language: String? = null,
@@ -1160,6 +1248,7 @@ private data class PullResult(
     val state: String,
     val merged: Boolean,
     val repository: String,
+    val target: SearchTarget? = null,
 )
 
 private data class CommitResult(
@@ -1167,11 +1256,14 @@ private data class CommitResult(
     val message: String,
     val author: String,
     val repository: String,
+    val target: SearchTarget? = null,
 )
 
 private data class TopicResult(
     val name: String,
-)
+) {
+    val target: SearchTarget get() = SearchTarget.Web(topicWebUrl(name))
+}
 
 private val types = listOf("代码", "仓库", "议题", "拉取请求", "用户", "提交", "主题")
 
