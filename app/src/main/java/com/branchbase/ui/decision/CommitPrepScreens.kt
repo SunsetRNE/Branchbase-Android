@@ -183,8 +183,8 @@ internal fun StageCommitScreen(
 @Composable
 private fun StatusChip(status: String) {
     val (fg, bg) = when (status) {
-        "A" -> Primer.Blue600 to Primer.InfoSurfaceStrong
-        "D" -> Primer.Red500 to Primer.DangerSurface
+        "A" -> Primer.AccentText to Primer.InfoSurfaceStrong
+        "D" -> Primer.DangerText to Primer.DangerSurface
         else -> Primer.SuccessTextStrong to Primer.SuccessSurfaceSoft
     }
     Text(
@@ -302,10 +302,10 @@ fun SensitiveWarningScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text("第 ${h.line} 行", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.Red500)
-                            Text(h.mask, fontSize = 11.sp, color = Primer.Red500, fontFamily = FontFamily.Monospace, maxLines = 1)
+                            Text("第 ${h.line} 行", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.DangerText)
+                            Text(h.mask, fontSize = 11.sp, color = Primer.DangerText, fontFamily = FontFamily.Monospace, maxLines = 1)
                         }
-                        Text(h.kind, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Primer.Red500, modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Primer.DangerSurface).padding(horizontal = 6.dp, vertical = 2.dp))
+                        Text(h.kind, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Primer.DangerText, modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Primer.DangerSurface).padding(horizontal = 6.dp, vertical = 2.dp))
                     }
                 }
             }

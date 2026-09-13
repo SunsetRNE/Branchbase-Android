@@ -154,7 +154,7 @@ fun ReleaseDetailScreen(
                             .padding(horizontal = 7.dp, vertical = 2.dp),
                     )
                     Spacer(Modifier.width(8.dp))
-                    if (release.draft) ReleaseBadge("草稿", Primer.WarningText, Primer.WarningSurface)
+                    if (release.draft) ReleaseBadge("草稿", Primer.WarningTextStrong, Primer.WarningSurface)
                     if (release.prerelease) {
                         if (release.draft) Spacer(Modifier.width(6.dp))
                         ReleaseBadge("预发布", Primer.AccentText, Primer.InfoSurfaceSoft)

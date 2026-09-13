@@ -667,7 +667,7 @@ private fun ReleaseRow(item: ReleaseItem, onClick: () -> Unit) {
                     Text(
                         "草稿",
                         fontSize = 10.sp,
-                        color = Primer.WarningText,
+                        color = Primer.WarningTextStrong,
                         modifier = Modifier.clip(RoundedCornerShape(6.dp))
                             .background(Primer.WarningSurface).padding(horizontal = 6.dp, vertical = 1.dp),
                     )

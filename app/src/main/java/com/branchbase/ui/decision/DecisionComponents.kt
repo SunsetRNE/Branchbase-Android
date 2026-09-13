@@ -96,8 +96,8 @@ fun DecisionOptionRow(
                     // 原来写的是 **6 位**十六进制（少写了 alpha 的 FF）—— Compose 按 ARGB 解释，
                     // 于是 alpha = 0，这块底其实一直是**透明**的（与旁边的「危险」chip 不对称）。
                     // 取值正是 `successSurfaceSoft`，按角色接回来；ThemeConvergenceTest 拦住这种写法。
-                    OptionTag.RECOMMENDED -> OptionTagChip("推荐", Primer.Green500, Primer.SuccessSurfaceSoft)
-                    OptionTag.DANGER -> OptionTagChip("危险", Primer.Red500, Primer.DangerSurface)
+                    OptionTag.RECOMMENDED -> OptionTagChip("推荐", Primer.SuccessTextStrong, Primer.SuccessSurfaceSoft)
+                    OptionTag.DANGER -> OptionTagChip("危险", Primer.DangerText, Primer.DangerSurface)
                     OptionTag.NONE -> Unit
                 }
             }
@@ -143,7 +143,9 @@ fun DangerConfirmCard(
             .border(1.dp, Primer.Red500, RoundedCornerShape(8.dp))
             .padding(12.dp),
     ) {
-        Text(title, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Primer.Red500)
+        // 标题用文字角色：底色是 DangerSurfaceSoft，Red500（填充色）压上去只有 4.16；
+        // 描边保留 Red500 —— 那是 stroke，不是文字。
+        Text(title, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Primer.DangerText)
         Spacer(Modifier.height(4.dp))
         Text(description, fontSize = 12.sp, color = Primer.TextTertiary, lineHeight = 17.sp)
         Spacer(Modifier.height(8.dp))

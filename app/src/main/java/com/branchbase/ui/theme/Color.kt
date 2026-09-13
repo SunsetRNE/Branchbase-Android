@@ -101,6 +101,14 @@ object Primer {
     val AccentText: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.accentText
     val WarningText: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.warningText
     val WarningTextStrong: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.warningTextStrong
+
+    /**
+     * 危险**文字**色（不是填充色）。
+     *
+     * **别拿 [Red500] 当文字用**：它是填充色，压在 `DangerSurface` 这类浅底上只有 4.0，
+     * 低于 WCAG AA。文字一律用这个角色（浅 `#9E1C24` / 深 `#F85149`）。
+     */
+    val DangerText: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.dangerText
 }
 
 /**

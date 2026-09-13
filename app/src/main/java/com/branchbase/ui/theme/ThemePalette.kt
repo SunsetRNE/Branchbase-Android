@@ -115,6 +115,14 @@ data class PrimerPalette(
     val accentText: Color,
     val warningText: Color,
     val warningTextStrong: Color,
+    /**
+     * 危险**文字**色。
+     *
+     * 这一项此前是缺的（有 successText / accentText / warningText，独独没有 dangerText），
+     * 于是「红色的文字」只能拿 [danger]（**填充色**，天生更浅）顶上 —— 深色下还看不太出来，
+     * 浅色下会掉到 3.6~4.0，低于 WCAG AA 的 4.5。
+     */
+    val dangerText: Color,
     /** 弹层遮罩 / 深色浮层底（Snackbar 等）。 */
     val inverseSurface: Color,
     val inverseOnSurface: Color,
@@ -172,6 +180,7 @@ val LightPrimerPalette = PrimerPalette(
     accentText = Color(0xFF0550AE),
     warningText = Color(0xFF9A6700),
     warningTextStrong = Color(0xFF7D4C00),
+    dangerText = Color(0xFF9E1C24),
     inverseSurface = Color(0xFF17181C),
     inverseOnSurface = Color(0xFFFFFFFF),
     code = CodePalette(
@@ -248,6 +257,8 @@ val DarkPrimerPalette = PrimerPalette(
     accentText = Color(0xFF79C0FF),
     warningText = Color(0xFFD29922),
     warningTextStrong = Color(0xFFD29922),
+    // 与 successText / warningText 同一约定：深色下「文字色」塌回品牌填充色
+    dangerText = Color(0xFFF85149),
     inverseSurface = Color(0xFFE6EDF3),
     inverseOnSurface = Color(0xFF0D1117),
     // GitHub dark 的语法色与「空贡献格」灰：浅色那套放在深底上不是刺眼就是看不见

@@ -201,7 +201,7 @@ fun AccountsScreen(
                     reload()
                     feedback = "已删除账号 @$login"
                     deleteTarget = null
-                }) { Text("删除", color = Primer.Red500) }
+                }) { Text("删除", color = Primer.DangerText) }
             },
             dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("取消") } },
         )
@@ -265,7 +265,7 @@ private fun AccountCard(
                         )
                     }
                     DropdownMenuItem(
-                        text = { Text("删除账号", fontSize = 13.sp, color = Primer.Red500) },
+                        text = { Text("删除账号", fontSize = 13.sp, color = Primer.DangerText) },
                         onClick = { menuOpen = false; onDelete() },
                     )
                 }
@@ -300,7 +300,7 @@ private fun Badge(text: String, fg: Color, bg: Color, border: Color) {
 @Composable
 private fun statusFg(s: AccountStatus): Color = when (s) {
     AccountStatus.OK -> Primer.SuccessTextStrong
-    AccountStatus.INVALID, AccountStatus.SUSPENDED -> Primer.Red500
+    AccountStatus.INVALID, AccountStatus.SUSPENDED -> Primer.DangerText
     AccountStatus.LIMITED -> Primer.WarningTextStrong
     else -> Primer.TextTertiary
 }

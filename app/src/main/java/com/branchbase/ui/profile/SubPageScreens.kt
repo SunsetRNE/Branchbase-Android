@@ -336,7 +336,7 @@ private fun StarredRepoCard(repo: RepoItem, onClick: () -> Unit) {
             Modifier.clip(RoundedCornerShape(6.dp)).background(Primer.WarningSurface).border(1.dp, Primer.Border, RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 3.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text("已星标", fontSize = 12.sp, color = Primer.WarningText)
+            Text("已星标", fontSize = 12.sp, color = Primer.WarningTextStrong)
         }
     }
 }

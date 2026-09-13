@@ -153,7 +153,7 @@ fun SecurityAlertScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Warning, null, tint = Primer.Red500, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("检测到安全风险", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.Red500)
+                    Text("检测到安全风险", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.DangerText)
                 }
                 Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
                 detail?.summary?.let {
