@@ -1,9 +1,14 @@
 package com.branchbase.ui.main
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -18,6 +23,7 @@ import com.branchbase.ui.navigation.BranchbaseNavigationBar
 import com.branchbase.ui.navigation.BackDisposition
 import com.branchbase.ui.navigation.backDisposition
 import com.branchbase.ui.navigation.NavDestination
+import com.branchbase.ui.navigation.NavigationShell
 import com.branchbase.ui.navigation.PageLevel
 import com.branchbase.ui.navigation.PageSwitcher
 import com.branchbase.ui.navigation.TabSwitcher
@@ -31,7 +37,6 @@ import com.branchbase.ui.repository.RepoDeepLink
 import com.branchbase.ui.repository.RepoPage
 import com.branchbase.ui.repository.RepositoryScreen
 import com.branchbase.ui.search.SearchScreen
-import com.branchbase.ui.theme.Primer
 
 /**
  * 主界面骨架：底部导航（2 Tab：首页 / 消息）+ 内容区。
@@ -49,6 +54,14 @@ import com.branchbase.ui.theme.Primer
  * 路由 `when` 的顺序 = 原来的 return 顺序（前者优先），语义完全等价；
  * 返回键也从「每个页面各挂一个 BackHandler」收敛成**按当前路由分派的一个**，
  * 避免动画期间新旧两个页面的 BackHandler 同时存在、抢同一个返回事件。
+ *
+ * ## 底部导航为什么在 [NavigationShell] 里、而不在 [PageSwitcher] 里
+ *
+ * 骨架原来是 `PageSwitcher { ... Scaffold(bottomBar = 导航栏) ... }`：栏长在切换器**里面**，
+ * 于是切 Tab（`MainRoute.Tabs` 带上 selected 时）会被同级动效连栏一起播位移 + 交叉淡入 ——
+ * 用户看到的就是「切页面时导航栏上下跳」。现在栏归 [NavigationShell]（在切换器外面），
+ * Tab 也不进外层路由（Tab 是内容区自己的维度，由内层 [TabSwitcher] 渲染）：
+ * **页面切换只动页面，外壳一动不动**。
  */
 @Composable
 fun MainScreen(
@@ -75,7 +88,7 @@ fun MainScreen(
         currentSecurity != null -> MainRoute.Security(currentSecurity)
         showProfile -> MainRoute.Profile
         showSearch -> MainRoute.Search
-        else -> MainRoute.Tabs(selected)
+        else -> MainRoute.Tabs
     }
 
     // 返回键按路由分派：顶层 Tab → **再按一次退出应用**（不再回登录页，见 TopLevelBack.kt）；
@@ -98,95 +111,117 @@ fun MainScreen(
         }
     }
 
-    PageSwitcher(state = route, modifier = Modifier.fillMaxSize(), label = "main-page") { r ->
-        when (r) {
-            // 仓库详情页（点击仓库进入；通知深链接可直达详情子页）
-            is MainRoute.Repo -> RepositoryScreen(
-                sessionJson = sessionJson,
-                owner = r.link.owner,
-                repo = r.link.repo,
-                onBack = { showRepo = null },
-                onOpenRepo = { o, r2 -> showRepo = RepoDeepLink(o, r2) },
-                initial = r.link,
+    // 底部导航栏由 [NavigationShell] 持有（**不在**下面的 PageSwitcher 里）。
+    // 放进切换器里的话，切 Tab 会被同级动效（淡入淡出 + 2% 垂直位移）连着整条栏一起播 ——
+    // 旧栏上移、新栏上浮、两栏错位叠着，就是「切页面时导航栏上下跳」。
+    // 现在栏只在「该出现」时进出（进子页自己收起），页面切换只动页面。
+    NavigationShell(
+        bar = {
+            BranchbaseNavigationBar(
+                selected = selected,
+                onSelect = { selected = it },
+                badgeCounts = mapOf(NavDestination.Notifications to notifUnread),
             )
-
-            // 安全警报落地页（通知 Security 类型直达；提供「查看仓库」入口）
-            is MainRoute.Security -> SecurityAlertScreen(
-                sessionJson = sessionJson,
-                owner = r.target.owner,
-                repo = r.target.repo,
-                title = r.target.title,
-                subjectUrl = r.target.subjectUrl,
-                onBack = { showSecurity = null },
-                onOpenRepo = {
-                    showSecurity = null
-                    showRepo = RepoDeepLink(r.target.owner, r.target.repo)
-                },
-            )
-
-            // 个人页（头像进入）
-            MainRoute.Profile -> ProfileScreen(
-                sessionJson = sessionJson,
-                onBack = { showProfile = false },
-                onLogout = onLogout,
-                onOpenRepo = { fullName ->
-                    val parts = fullName.split("/")
-                    if (parts.size >= 2) showRepo = RepoDeepLink(parts[0], parts[1])
-                },
-            )
-
-            // 搜索页（搜索框进入）
-            MainRoute.Search -> SearchScreen(
-                sessionJson = sessionJson,
-                onBack = { showSearch = false },
-                // 结果点进仓库/issue/PR/提交/文件：与通知深链接同一条路由，
-                // 返回时回到搜索页（搜索词与结果由 SearchViewModel + 缓存保留）
-                onOpenInApp = { showRepo = it },
-            )
-
-            // Tab 骨架（首页 / 消息：同级切换做淡入淡出）
-            is MainRoute.Tabs -> Scaffold(
-                containerColor = Primer.BackgroundPrimary,
-                bottomBar = {
-                    BranchbaseNavigationBar(
-                        selected = r.destination,
-                        onSelect = { selected = it },
-                        badgeCounts = mapOf(NavDestination.Notifications to notifUnread),
+        },
+        // 只有 Tab 骨架有底部导航；仓库详情 / 个人页 / 搜索都是全屏页
+        barVisible = route is MainRoute.Tabs,
+        modifier = Modifier.fillMaxSize(),
+    ) { contentPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(contentPadding),
+        ) {
+            PageSwitcher(state = route, modifier = Modifier.fillMaxSize(), label = "main-page") { r ->
+                when (r) {
+                    // 仓库详情页（点击仓库进入；通知深链接可直达详情子页）
+                    is MainRoute.Repo -> RepositoryScreen(
+                        sessionJson = sessionJson,
+                        owner = r.link.owner,
+                        repo = r.link.repo,
+                        onBack = { showRepo = null },
+                        onOpenRepo = { o, r2 -> showRepo = RepoDeepLink(o, r2) },
+                        initial = r.link,
                     )
-                },
-            ) { innerPadding ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding),
-                ) {
-                    TabSwitcher(
-                        state = r.destination,
-                        modifier = Modifier.fillMaxSize(),
-                        label = "main-tab",
-                    ) { dest ->
-                        when (dest) {
-                            NavDestination.Home -> HomeScreen(
-                                sessionJson = sessionJson,
-                                onProfileClick = { showProfile = true },
-                                onSearchClick = { showSearch = true },
-                                onRepoClick = { fullName ->
-                                    val parts = fullName.split("/")
-                                    if (parts.size >= 2) showRepo = RepoDeepLink(parts[0], parts[1])
-                                },
-                                onOpenNotifications = { selected = NavDestination.Notifications },
-                            )
 
-                            NavDestination.Notifications -> NotificationScreen(
-                                sessionJson = sessionJson,
-                                onOpenTarget = { target ->
-                                    when (target) {
-                                        is NotifTarget.Security -> showSecurity = target
-                                        else -> showRepo = toDeepLink(target)
-                                    }
-                                },
-                                onUnreadCountChange = { notifUnread = it },
-                            )
+                    // 安全警报落地页（通知 Security 类型直达；提供「查看仓库」入口）
+                    is MainRoute.Security -> SecurityAlertScreen(
+                        sessionJson = sessionJson,
+                        owner = r.target.owner,
+                        repo = r.target.repo,
+                        title = r.target.title,
+                        subjectUrl = r.target.subjectUrl,
+                        onBack = { showSecurity = null },
+                        onOpenRepo = {
+                            showSecurity = null
+                            showRepo = RepoDeepLink(r.target.owner, r.target.repo)
+                        },
+                    )
+
+                    // 个人页（头像进入）
+                    MainRoute.Profile -> ProfileScreen(
+                        sessionJson = sessionJson,
+                        onBack = { showProfile = false },
+                        onLogout = onLogout,
+                        onOpenRepo = { fullName ->
+                            val parts = fullName.split("/")
+                            if (parts.size >= 2) showRepo = RepoDeepLink(parts[0], parts[1])
+                        },
+                    )
+
+                    // 搜索页（搜索框进入）
+                    MainRoute.Search -> SearchScreen(
+                        sessionJson = sessionJson,
+                        onBack = { showSearch = false },
+                        // 结果点进仓库/issue/PR/提交/文件：与通知深链接同一条路由，
+                        // 返回时回到搜索页（搜索词与结果由 SearchViewModel + 缓存保留）
+                        onOpenInApp = { showRepo = it },
+                    )
+
+                    // Tab 骨架（首页 / 消息：同级切换做淡入淡出）
+                    //
+                    // 顶部内边距原来由 Scaffold 的 innerPadding 给（HomeScreen / NotificationScreen
+                    // 自己不带状态栏内边距）；骨架换成 NavigationShell 后，壳子只管底部导航栏那一块，
+                    // 顶部在这里补 —— 只取「非底部」的系统栏内边距，底部由导航栏自己负责（M3 NavigationBar
+                    // 自带 windowInsets），两处都取会叠成两层。
+                    MainRoute.Tabs -> Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .windowInsetsPadding(
+                                WindowInsets.systemBars.only(
+                                    WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
+                                ),
+                            ),
+                    ) {
+                        // Tab 是内容区自己的维度（不进外层路由）：这里淡入淡出，导航栏一动不动
+                        TabSwitcher(
+                            state = selected,
+                            modifier = Modifier.fillMaxSize(),
+                            label = "main-tab",
+                        ) { dest ->
+                            when (dest) {
+                                NavDestination.Home -> HomeScreen(
+                                    sessionJson = sessionJson,
+                                    onProfileClick = { showProfile = true },
+                                    onSearchClick = { showSearch = true },
+                                    onRepoClick = { fullName ->
+                                        val parts = fullName.split("/")
+                                        if (parts.size >= 2) showRepo = RepoDeepLink(parts[0], parts[1])
+                                    },
+                                    onOpenNotifications = { selected = NavDestination.Notifications },
+                                )
+
+                                NavDestination.Notifications -> NotificationScreen(
+                                    sessionJson = sessionJson,
+                                    onOpenTarget = { target ->
+                                        when (target) {
+                                            is NotifTarget.Security -> showSecurity = target
+                                            else -> showRepo = toDeepLink(target)
+                                        }
+                                    },
+                                    onUnreadCountChange = { notifUnread = it },
+                                )
+                            }
                         }
                     }
                 }
@@ -204,7 +239,15 @@ fun MainScreen(
  */
 private sealed interface MainRoute : PageLevel {
 
-    data class Tabs(val destination: NavDestination) : MainRoute {
+    /**
+     * Tab 骨架（首页 / 消息）。
+     *
+     * **刻意不带「当前 Tab」**：Tab 是内容区自己的维度（由 [TabSwitcher] 渲染），不是「换页」。
+     * 把 selected 塞进路由的话，切 Tab 就等于换了路由 —— 外层 [PageSwitcher] 会当成同级换页，
+     * 把整块内容连导航栏一起播位移 + 交叉淡入（而且内层 TabSwitcher 还会再播一次），
+     * 这正是「切页面时导航栏上下跳」的来源。外层路由只描述「在哪一层」。
+     */
+    data object Tabs : MainRoute {
         override val depth: Int get() = 0
     }
 

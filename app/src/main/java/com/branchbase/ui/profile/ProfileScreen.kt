@@ -67,6 +67,7 @@ import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.AvatarCache
+import com.branchbase.ui.navigation.NavigationShell
 import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.navigation.PageLevel
 import com.branchbase.ui.navigation.PageSwitcher
@@ -194,7 +195,7 @@ fun ProfileScreen(
     // 唯一路由：子页栈（depth>0）或主页三 Tab（depth=0）。
     // 原来是 `if (currentSubPage != null) { when(...); return }` —— 状态一变整棵树换掉、无过渡；
     // 现在交给 PageSwitcher：进子页从右滑入、返回向右滑出，主页三个 Tab 之间淡入淡出。
-    val route: ProfileRoute = subPage?.let { ProfileRoute.Sub(it) } ?: ProfileRoute.Main(tab)
+    val route: ProfileRoute = subPage?.let { ProfileRoute.Sub(it) } ?: ProfileRoute.Main
 
     // 子页面跳转时拦截系统返回，**逐层退回**（不是一律回主页）：
     // 设置的下级页（本地仓库 / 关于 / 日志 / 通知设置 / 翻译 / 账号 / 提交模式，depth=2）
@@ -203,62 +204,80 @@ fun ProfileScreen(
     // 同一个返回意图给出两个结果（返回键跳层）。
     PageBackHandler(subPage != null) { subPage = profileBackTarget(subPage) }
 
-    PageSwitcher(state = route, modifier = Modifier.fillMaxSize(), label = "profile-page") { r ->
-        when (r) {
-            is ProfileRoute.Sub -> when (r.page) {
-                SubPage.Stars -> StarsScreen(sessionJson, onBack = { subPage = null }, onOpenRepo = onOpenRepo)
-                SubPage.Projects -> ProjectsScreen(sessionJson, onBack = { subPage = null })
-                SubPage.Settings -> SettingsScreen(onBack = { subPage = null }, onOpenLocalRepo = { subPage = SubPage.LocalRepo }, onOpenAbout = { subPage = SubPage.About }, onOpenLog = { subPage = SubPage.Log }, onOpenNotificationSettings = { subPage = SubPage.NotificationSettings }, onOpenTranslate = { subPage = SubPage.Translate }, onOpenAccounts = { subPage = SubPage.Accounts }, onOpenCommitMode = { subPage = SubPage.CommitMode })
-                SubPage.LocalRepo -> LocalRepoScreen(sessionJson, onBack = { subPage = SubPage.Settings })
-                SubPage.About -> AboutScreen(onBack = { subPage = SubPage.Settings })
-                SubPage.Log -> LogScreen(onBack = { subPage = SubPage.Settings })
-                SubPage.NotificationSettings -> NotificationSettingsScreen(onBack = { subPage = SubPage.Settings })
-                SubPage.Translate -> TranslateSettingsScreen(onBack = { subPage = SubPage.Settings })
-                SubPage.Tasks -> com.branchbase.ui.task.TaskScreen(onBack = { subPage = null })
-                SubPage.Accounts -> AccountsScreen(onBack = { subPage = SubPage.Settings }, onAdd = onLogout)
-                SubPage.CommitMode -> CommitModeScreen(onBack = { subPage = SubPage.Settings })
-                SubPage.EditProfile -> ProfileEditScreen(sessionJson, onBack = { subPage = null }, onSaved = { subPage = null })
-            }
+    // 底部气泡导航栏由 [NavigationShell] 持有（**不在**下面的 PageSwitcher 里）：
+    // 放进切换器里的话，切 Tab 会被同级动效（淡入淡出 + 2% 垂直位移）连着整条栏一起播 ——
+    // 旧栏上移、新栏上浮、两栏错位叠着，就是「切页面时导航栏上下跳」。
+    NavigationShell(
+        bar = {
+            // 气泡导航栏（基础形态 ④）：3 主项 + 右侧手柄弹出 More 菜单
+            ProfileBubbleNavigationBar(
+                selected = tab,
+                onSelect = { tab = it; Logger.ui("切换到「${it.label}」", "Compose") },
+                onLogout = onLogout,
+                onNavigate = { subPage = it; Logger.ui("打开「${it.label}」", "Compose") },
+            )
+        },
+        // 只有个人主页有底部导航；星标 / 设置 / 任务等子页都是全屏页
+        barVisible = route is ProfileRoute.Main,
+        modifier = Modifier.fillMaxSize(),
+    ) { contentPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(contentPadding),
+        ) {
+            PageSwitcher(state = route, modifier = Modifier.fillMaxSize(), label = "profile-page") { r ->
+                when (r) {
+                    is ProfileRoute.Sub -> when (r.page) {
+                        SubPage.Stars -> StarsScreen(sessionJson, onBack = { subPage = null }, onOpenRepo = onOpenRepo)
+                        SubPage.Projects -> ProjectsScreen(sessionJson, onBack = { subPage = null })
+                        SubPage.Settings -> SettingsScreen(onBack = { subPage = null }, onOpenLocalRepo = { subPage = SubPage.LocalRepo }, onOpenAbout = { subPage = SubPage.About }, onOpenLog = { subPage = SubPage.Log }, onOpenNotificationSettings = { subPage = SubPage.NotificationSettings }, onOpenTranslate = { subPage = SubPage.Translate }, onOpenAccounts = { subPage = SubPage.Accounts }, onOpenCommitMode = { subPage = SubPage.CommitMode })
+                        SubPage.LocalRepo -> LocalRepoScreen(sessionJson, onBack = { subPage = SubPage.Settings })
+                        SubPage.About -> AboutScreen(onBack = { subPage = SubPage.Settings })
+                        SubPage.Log -> LogScreen(onBack = { subPage = SubPage.Settings })
+                        SubPage.NotificationSettings -> NotificationSettingsScreen(onBack = { subPage = SubPage.Settings })
+                        SubPage.Translate -> TranslateSettingsScreen(onBack = { subPage = SubPage.Settings })
+                        SubPage.Tasks -> com.branchbase.ui.task.TaskScreen(onBack = { subPage = null })
+                        SubPage.Accounts -> AccountsScreen(onBack = { subPage = SubPage.Settings }, onAdd = onLogout)
+                        SubPage.CommitMode -> CommitModeScreen(onBack = { subPage = SubPage.Settings })
+                        SubPage.EditProfile -> ProfileEditScreen(sessionJson, onBack = { subPage = null }, onSaved = { subPage = null })
+                    }
 
-            is ProfileRoute.Main -> Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Primer.BackgroundPrimary)
-                    .statusBarsPadding()
-                    .navigationBarsPadding(),
-            ) {
-                // 顶部导航
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
-                    Spacer(Modifier.width(4.dp))
-                    Text(login, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
-                }
+                    ProfileRoute.Main -> Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Primer.BackgroundPrimary)
+                            // 底部「手势条」内边距由栏自己负责（见 ProfileBubbleNavigationBar），
+                            // 这里只管状态栏 —— 两处都取会叠成两层
+                            .statusBarsPadding(),
+                    ) {
+                        // 顶部导航
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
+                            Spacer(Modifier.width(4.dp))
+                            Text(login, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+                        }
 
-                // 内容（随底部气泡导航栏切换，weight 占据剩余空间）
-                Box(Modifier.fillMaxWidth().weight(1f)) {
-                    TabSwitcher(
-                        state = r.tab,
-                        modifier = Modifier.fillMaxSize(),
-                        label = "profile-tab",
-                    ) { t ->
-                        when (t) {
-                            ProfileTab.Overview -> ProfileOverview(login, name, avatarUrl, bio, followers, following, publicRepos, repos, reposLoading, onOpenRepo, onEdit = { subPage = SubPage.EditProfile })
-                            ProfileTab.Repositories -> ProfileRepositories(repos, reposLoading, onOpenRepo)
-                            ProfileTab.Activity -> ProfileActivity(host, token, login)
+                        // 内容（随底部气泡导航栏切换，weight 占据剩余空间）。
+                        // 切 Tab 的淡入淡出只作用在这里：顶部导航与底部导航栏都不参与
+                        Box(Modifier.fillMaxWidth().weight(1f)) {
+                            TabSwitcher(
+                                state = tab,
+                                modifier = Modifier.fillMaxSize(),
+                                label = "profile-tab",
+                            ) { t ->
+                                when (t) {
+                                    ProfileTab.Overview -> ProfileOverview(login, name, avatarUrl, bio, followers, following, publicRepos, repos, reposLoading, onOpenRepo, onEdit = { subPage = SubPage.EditProfile })
+                                    ProfileTab.Repositories -> ProfileRepositories(repos, reposLoading, onOpenRepo)
+                                    ProfileTab.Activity -> ProfileActivity(host, token, login)
+                                }
+                            }
                         }
                     }
                 }
-
-                // 气泡导航栏（基础形态 ④）：3 主项 + 右侧手柄弹出 More 菜单
-                ProfileBubbleNavigationBar(
-                    selected = r.tab,
-                    onSelect = { tab = it; Logger.ui("切换到「${it.label}」", "Compose") },
-                    onLogout = onLogout,
-                    onNavigate = { subPage = it; Logger.ui("打开「${it.label}」", "Compose") },
-                )
             }
         }
     }
@@ -273,7 +292,14 @@ fun ProfileScreen(
  */
 private sealed interface ProfileRoute : PageLevel {
 
-    data class Main(val tab: ProfileTab) : ProfileRoute {
+    /**
+     * 个人主页（三 Tab）。
+     *
+     * **刻意不带「当前 Tab」**：Tab 是内容区自己的维度（内容区那层 [TabSwitcher] 渲染），
+     * 不是换页。塞进路由的话切 Tab 就等于换路由，外层 [PageSwitcher] 会把整块内容连
+     * 导航栏一起播位移 + 交叉淡入（内层还会再播一次）—— 那是「导航栏上下跳」的来源。
+     */
+    data object Main : ProfileRoute {
         override val depth: Int get() = 0
     }
 
@@ -1001,8 +1027,10 @@ private fun ProfileBubbleNavigationBar(
     val popupState = remember { MutableTransitionState(false) }
     val expanded = popupState.targetState
 
-    // 外层 Box 固定 60dp 高：气泡作为悬浮层向上溢出，不参与导航栏高度计算，避免点击后抬高导航栏
-    Box(Modifier.fillMaxWidth().height(60.dp)) {
+    // 外层 Box 固定 60dp 高：气泡作为悬浮层向上溢出，不参与导航栏高度计算，避免点击后抬高导航栏。
+    // `.navigationBarsPadding()` 放在 `.height()` 之前：系统手势条那块留白算在 60dp 之外、
+    // 沿用壳子底色（原来由外层 Column 的 navigationBarsPadding 提供）—— 栏自己负责这条内边距。
+    Box(Modifier.fillMaxWidth().navigationBarsPadding().height(60.dp)) {
         // 主项 + 手柄
         Row(
             modifier = Modifier

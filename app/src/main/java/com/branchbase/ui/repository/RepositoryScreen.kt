@@ -74,9 +74,11 @@ import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.navigation.NavigationShell
 import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.navigation.PageLevel
 import com.branchbase.ui.navigation.PageSwitcher
+import com.branchbase.ui.navigation.TabSwitcher
 import com.branchbase.ui.profile.CommitMode
 import com.branchbase.ui.profile.CommitModePickerDialog
 import com.branchbase.ui.profile.commitMode
@@ -292,7 +294,7 @@ fun RepositoryScreen(
         runDetailPage != null -> RepoRoute.RunDetail(runDetailPage!!)
         dispatchTarget != null -> RepoRoute.Dispatch(dispatchTarget!!)
         workflowRunsPage != null -> RepoRoute.WorkflowRuns(workflowRunsPage!!)
-        else -> RepoRoute.Tab(page)
+        else -> RepoRoute.Tab
     }
 
     // 底部 ⋮ 气泡展开时同样铺了一层全屏遮罩：返回键先收起它，而不是关掉整个仓库页。
@@ -300,348 +302,371 @@ fun RepositoryScreen(
     // 子页打开时气泡是收起的，两者不会同时启用。
     PageBackHandler(bubbleExpanded) { bubbleExpanded = false }
 
-    PageSwitcher(state = route, modifier = Modifier.fillMaxSize(), label = "repo-page") { r ->
-        when (r) {
-            // 发布编辑页（全屏；target == null 表示新建）
-            is RepoRoute.ReleaseEdit -> {
-                val releaseTarget = r.target
-                PageBackHandler { showReleaseEdit = false }
-                ReleaseEditScreen(
-                    sessionJson = sessionJson,
-                    owner = owner,
-                    repo = repo,
-                    existing = releaseTarget,
-                    defaultBranch = branch ?: "main",
-                    onBack = { showReleaseEdit = false },
-                    onSaved = {
-                        showReleaseEdit = false
-                        releaseEditTarget = null
-                        refreshTick++
-                    },
-                )
-            }
-
-            // 发布详情页（全屏）
-            is RepoRoute.ReleaseDetail -> {
-                val currentRelease = r.release
-                PageBackHandler { releaseDetail = null }
-                ReleaseDetailScreen(
-                    sessionJson = sessionJson,
-                    owner = owner,
-                    repo = repo,
-                    release = currentRelease,
-                    canEdit = repoCanPush,
-                    onBack = { releaseDetail = null },
-                    onEdit = { releaseEditTarget = currentRelease; showReleaseEdit = true },
-                    onDeleted = { releaseDetail = null; refreshTick++ },
-                )
-            }
-
-            // 分支同步页（全屏）
-            RepoRoute.BranchSync -> {
-                PageBackHandler { showBranchSync = false }
-                BranchSyncScreen(
-                    sessionJson = sessionJson,
-                    owner = owner,
-                    repo = repo,
-                    onBack = { showBranchSync = false },
-                )
-            }
-
-            // 分支管理页（全屏）
-            RepoRoute.BranchManage -> {
-                PageBackHandler { showBranchManage = false }
-                BranchManageScreen(
-                    sessionJson = sessionJson,
-                    owner = owner,
-                    repo = repo,
-                    defaultBranch = branch ?: "main",
-                    canPush = repoCanPush,
-                    onBack = { showBranchManage = false },
-                    onOpenCompare = { b, h ->
-                        showBranchManage = false
-                        comparePair = b to h
-                    },
-                )
-            }
-
-            // 分支对比页（全屏）：显示两个分支的代码片段差异
-            is RepoRoute.BranchCompare -> {
-                val comparing = r.pair
-                PageBackHandler { comparePair = null }
-                BranchCompareScreen(
-                    sessionJson = sessionJson,
-                    owner = owner,
-                    repo = repo,
-                    initialBase = comparing.first,
-                    initialHead = comparing.second,
-                    onBack = { comparePair = null },
-                    onOpenFile = { p ->
-                        comparePair = null
-                        filePage = p to null
-                    },
-                )
-            }
-
-            // 本地仓库分支同步页（全屏）
-            RepoRoute.LocalSync -> {
-                PageBackHandler { showLocalSync = false }
-                LocalBranchSyncScreen(
-                    dir = localRepoDir(context, repo),
-                    repoName = repo,
-                    token = sessionToken,
-                    onBack = { showLocalSync = false },
-                    onChanged = { refreshTick++ },
-                )
-            }
-
-            // 星标/复刻/关注列表页（全屏，覆盖底部导航）
-            is RepoRoute.People -> {
-                val people = r.type
-                PageBackHandler { peoplePage = null }
-                PeopleListScreen(
-                    sessionJson = sessionJson,
-                    owner = owner,
-                    repo = repo,
-                    type = people,
-                    onBack = { peoplePage = null },
-                )
-            }
-
-            // 文件查看页（全屏）
-            is RepoRoute.File -> {
-                val file = r.page
-                PageBackHandler { filePage = null }
-                FileViewerScreen(
-                    sessionJson = sessionJson,
-                    owner = owner,
-                    repo = repo,
-                    path = file.first,
-                    highlightLines = file.second,
-                    defaultBranch = branch ?: "main",
-                    branches = branches.map { it.name },
-                    onOpenBranchManage = { showBranchManage = true },
-                    onOpenLocalSync = { showLocalSync = true },
-                    onBack = { filePage = null },
-                )
-            }
-
-            // Issue 详情页
-            is RepoRoute.Issue -> {
-                val issue = r.number
-                PageBackHandler { issuePage = null }
-                IssueDetailScreen(
-                    sessionJson = sessionJson,
-                    owner = owner,
-                    repo = repo,
-                    number = issue,
-                    onBack = { issuePage = null },
-                )
-            }
-
-            // PR 详情页
-            is RepoRoute.Pull -> {
-                val pull = r.number
-                PageBackHandler { pullPage = null }
-                PullDetailScreen(
-                    sessionJson = sessionJson,
-                    owner = owner,
-                    repo = repo,
-                    number = pull,
-                    onBack = { pullPage = null },
-                )
-            }
-
-            // 提交详情页
-            is RepoRoute.Commit -> {
-                val commit = r.sha
-                PageBackHandler { commitPage = null }
-                CommitDetailScreen(
-                    sessionJson = sessionJson,
-                    owner = owner,
-                    repo = repo,
-                    sha = commit,
-                    onBack = { commitPage = null },
-                )
-            }
-
-            // 日志页（最深；原「Job 详情页」演进而来）
-            is RepoRoute.JobDetail -> {
-                val job = r.id
-                PageBackHandler { jobDetailPage = null; jobDetailStep = null }
-                JobLogScreen(
-                    sessionJson = sessionJson,
-                    owner = owner,
-                    repo = repo,
-                    jobId = job,
-                    initialStepNumber = r.step,
-                    logStore = jobLogStore,
-                    onBack = { jobDetailPage = null; jobDetailStep = null },
-                )
-            }
-
-            // Run 详情（jobs）
-            is RepoRoute.RunDetail -> {
-                val run = r.id
-                PageBackHandler { runDetailPage = null }
-                RunDetailContent(
-                    sessionJson = sessionJson,
-                    owner = owner,
-                    repo = repo,
-                    runId = run,
-                    logStore = jobLogStore,
-                    onBack = { runDetailPage = null },
-                    onOpenLog = { jobId, step -> jobDetailPage = jobId; jobDetailStep = step },
-                    onReRun = { dispatchTarget = it },
-                )
-            }
-
-            // 手动触发工作流（全屏）
-            is RepoRoute.Dispatch -> {
-                val dispatching = r.workflow
-                PageBackHandler { dispatchTarget = null }
-                WorkflowDispatchScreen(
-                    sessionJson = sessionJson,
-                    owner = owner,
-                    repo = repo,
-                    workflow = dispatching,
-                    defaultRef = branch ?: "main",
-                    onBack = { dispatchTarget = null },
-                    onDispatched = {
-                        dispatchTarget = null
-                        // 回到运行历史并刷新，让新触发的记录尽快出现
-                        refreshTick++
-                    },
-                )
-            }
-
-            // 工作流运行历史
-            is RepoRoute.WorkflowRuns -> {
-                val runs = r.pair
-                PageBackHandler { workflowRunsPage = null }
-                WorkflowRunsContent(
-                    sessionJson = sessionJson,
-                    owner = owner,
-                    repo = repo,
-                    workflowId = runs.first,
-                    workflowName = runs.second,
-                    branch = branch,
-                    refreshTick = refreshTick,
-                    onBack = { workflowRunsPage = null },
-                    onOpenRun = { runDetailPage = it },
-                    onOpenActions = { runsWorkflow?.let { workflowAction = it } },
-                )
-            }
-
-            // ── 基础内容：仓库页骨架（Tab） ──
-            is RepoRoute.Tab -> {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Primer.BackgroundPrimary)
-                        .statusBarsPadding()
-                        .navigationBarsPadding(),
-                ) {
-                    RepoHeaderRow(
-                        title = "$owner/$repo",
-                        branch = branch,
-                        showBranch = page in branchPages,
-                        onBack = onBack,
-                        onOpenBranches = { showBranchDialog = true },
-                        onRefresh = {
-                            // 强制刷新（bypass cache）：清除分支缓存 + README 缓存，再触发重载
-                            scope.launch {
-                                val cacheManager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
-                                cacheManager.delete("$owner/$repo")                 // 分支缓存
-                                cacheManager.delete("$owner/$repo@${branch ?: ""}") // README 缓存
-                            }
-                            refreshTick++
-                        },
-                    )
-
-                    Box(Modifier.weight(1f).fillMaxWidth()) {
-                        Column(Modifier.fillMaxSize()) {
-                            // 分支选择器已移到顶部栏（刷新按钮左侧），不再占用一整行
-                            Box(Modifier.weight(1f).fillMaxWidth()) {
-                                when (page) {
-                                    RepoPage.Overview -> RepositoryOverviewContent(
-                                        sessionJson = sessionJson, owner = owner, repo = repo, branch = branch, refreshTick = refreshTick,
-                                        onLinkClick = { dest -> handleLink(dest, context, onOpenRepo, { path, lines -> filePage = path to lines }) { page = it } },
-                                        onActionClick = { action -> peoplePage = action },
-                                        // 分支同步入口在底部栏 ⋮ 气泡里（见 bubbleEntries）
-                                    )
-                                    RepoPage.Code -> RepositoryCodeContent(sessionJson, owner, repo, branch, refreshTick, onOpenFile = { filePage = it to null })
-                                    RepoPage.Issues -> IssueListContent(sessionJson, owner, repo, refreshTick, onItemClick = { issuePage = it.number })
-                                    RepoPage.Workflows -> WorkflowListContent(
-                                        sessionJson, owner, repo, branch, refreshTick,
-                                        onItemClick = { runsWorkflow = it; workflowRunsPage = it.id to it.name },
-                                        onLongPress = { workflowAction = it },
-                                    )
-                                    RepoPage.Releases -> ReleaseListContent(
-                                        sessionJson = sessionJson, owner = owner, repo = repo, refreshTick = refreshTick,
-                                        onOpenDetail = { releaseDetail = it },
-                                        onCreate = { releaseEditTarget = null; showReleaseEdit = true },
-                                    )
-                                    RepoPage.PullRequests -> PullListContent(sessionJson, owner, repo, branch, refreshTick, onItemClick = { pullPage = it.number })
-                                    RepoPage.Commits -> CommitListContent(sessionJson, owner, repo, branch, refreshTick, onItemClick = { commitPage = it.sha })
-                                    RepoPage.Settings -> RepositorySettingsContent(
-                                        sessionJson = sessionJson,
-                                        owner = owner,
-                                        repo = repo,
-                                        branches = branches.map { it.name },
-                                        defaultBranch = branch ?: "main",
-                                    )
-                                }
-                            }
-                        }
-
-                        // Git 悬浮球（代码页覆盖层）：**绑定「本地仓库（Git）」模式**，
-                        // 另外两种模式（单文件 / 多文件）不显示（判定见 showGitBubble）。
-                        if (page == RepoPage.Code && showGitBubble(mode)) {
-                            CodePageGitPanel(
-                                repo = repo,
-                                branches = branches.map { it.name },
-                                defaultBranch = branch ?: branches.firstOrNull()?.name ?: "main",
-                                refreshTick = refreshTick,
-                                modeLabel = mode?.label,
-                                onPickMode = { showCommitMode = true },
-                                onOpenBranchManage = { showBranchManage = true },
-                                onOpenCompare = { b, h -> comparePair = b to h },
-                                onOpenLocalSync = { showLocalSync = true },
-                                onRefresh = { refreshTick++ },
-                            )
+    // 底部导航栏由 [NavigationShell] 持有（**不在**下面的 PageSwitcher 里）。
+    // 放进切换器里的话，切 Tab 会被同级动效（淡入淡出 + 2% 垂直位移）连着整条栏一起播 ——
+    // 旧栏上移、新栏上浮、两栏错位叠着，就是「切页面时导航栏上下跳」；顶部栏也被同一个动效带着上下动。
+    // 现在栏只在该出现时进出（进子页自己收起），页面切换只动页面内容。
+    NavigationShell(
+        bar = {
+            RepoBottomBar(
+                selected = page,
+                canPush = repoCanPush,
+                onSelect = {
+                    page = it
+                    Logger.ui("切换到「${it.label}」", "Compose")
+                },
+                bubbleExpanded = bubbleExpanded,
+                onBubbleToggle = {
+                    bubbleExpanded = it
+                    Logger.ui(if (it) "展开 ⋮ 气泡菜单" else "关闭 ⋮ 气泡菜单", "Compose")
+                },
+                onBubbleItem = {
+                    bubbleExpanded = false
+                    page = it
+                    Logger.ui("打开「${it.label}」", "Compose")
+                },
+                onBubbleAction = { key ->
+                    bubbleExpanded = false
+                    when (key) {
+                        BUBBLE_ACTION_BRANCH_SYNC -> {
+                            showBranchSync = true
+                            Logger.ui("打开「分支同步」", "Compose")
                         }
                     }
+                },
+            )
+        },
+        // 只有 Tab 骨架有底部导航；详情 / 文件 / 决策页都是全屏页
+        barVisible = route is RepoRoute.Tab,
+        modifier = Modifier.fillMaxSize(),
+    ) { contentPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(contentPadding),
+        ) {
+            PageSwitcher(state = route, modifier = Modifier.fillMaxSize(), label = "repo-page") { r ->
+                when (r) {
+                    // 发布编辑页（全屏；target == null 表示新建）
+                    is RepoRoute.ReleaseEdit -> {
+                        val releaseTarget = r.target
+                        PageBackHandler { showReleaseEdit = false }
+                        ReleaseEditScreen(
+                            sessionJson = sessionJson,
+                            owner = owner,
+                            repo = repo,
+                            existing = releaseTarget,
+                            defaultBranch = branch ?: "main",
+                            onBack = { showReleaseEdit = false },
+                            onSaved = {
+                                showReleaseEdit = false
+                                releaseEditTarget = null
+                                refreshTick++
+                            },
+                        )
+                    }
 
-                    RepoBottomBar(
-                        selected = page,
-                        canPush = repoCanPush,
-                        onSelect = {
-                            page = it
-                            Logger.ui("切换到「${it.label}」", "Compose")
-                        },
-                        bubbleExpanded = bubbleExpanded,
-                        onBubbleToggle = {
-                            bubbleExpanded = it
-                            Logger.ui(if (it) "展开 ⋮ 气泡菜单" else "关闭 ⋮ 气泡菜单", "Compose")
-                        },
-                        onBubbleItem = {
-                            bubbleExpanded = false
-                            page = it
-                            Logger.ui("打开「${it.label}」", "Compose")
-                        },
-                        onBubbleAction = { key ->
-                            bubbleExpanded = false
-                            when (key) {
-                                BUBBLE_ACTION_BRANCH_SYNC -> {
-                                    showBranchSync = true
-                                    Logger.ui("打开「分支同步」", "Compose")
+                    // 发布详情页（全屏）
+                    is RepoRoute.ReleaseDetail -> {
+                        val currentRelease = r.release
+                        PageBackHandler { releaseDetail = null }
+                        ReleaseDetailScreen(
+                            sessionJson = sessionJson,
+                            owner = owner,
+                            repo = repo,
+                            release = currentRelease,
+                            canEdit = repoCanPush,
+                            onBack = { releaseDetail = null },
+                            onEdit = { releaseEditTarget = currentRelease; showReleaseEdit = true },
+                            onDeleted = { releaseDetail = null; refreshTick++ },
+                        )
+                    }
+
+                    // 分支同步页（全屏）
+                    RepoRoute.BranchSync -> {
+                        PageBackHandler { showBranchSync = false }
+                        BranchSyncScreen(
+                            sessionJson = sessionJson,
+                            owner = owner,
+                            repo = repo,
+                            onBack = { showBranchSync = false },
+                        )
+                    }
+
+                    // 分支管理页（全屏）
+                    RepoRoute.BranchManage -> {
+                        PageBackHandler { showBranchManage = false }
+                        BranchManageScreen(
+                            sessionJson = sessionJson,
+                            owner = owner,
+                            repo = repo,
+                            defaultBranch = branch ?: "main",
+                            canPush = repoCanPush,
+                            onBack = { showBranchManage = false },
+                            onOpenCompare = { b, h ->
+                                showBranchManage = false
+                                comparePair = b to h
+                            },
+                        )
+                    }
+
+                    // 分支对比页（全屏）：显示两个分支的代码片段差异
+                    is RepoRoute.BranchCompare -> {
+                        val comparing = r.pair
+                        PageBackHandler { comparePair = null }
+                        BranchCompareScreen(
+                            sessionJson = sessionJson,
+                            owner = owner,
+                            repo = repo,
+                            initialBase = comparing.first,
+                            initialHead = comparing.second,
+                            onBack = { comparePair = null },
+                            onOpenFile = { p ->
+                                comparePair = null
+                                filePage = p to null
+                            },
+                        )
+                    }
+
+                    // 本地仓库分支同步页（全屏）
+                    RepoRoute.LocalSync -> {
+                        PageBackHandler { showLocalSync = false }
+                        LocalBranchSyncScreen(
+                            dir = localRepoDir(context, repo),
+                            repoName = repo,
+                            token = sessionToken,
+                            onBack = { showLocalSync = false },
+                            onChanged = { refreshTick++ },
+                        )
+                    }
+
+                    // 星标/复刻/关注列表页（全屏，覆盖底部导航）
+                    is RepoRoute.People -> {
+                        val people = r.type
+                        PageBackHandler { peoplePage = null }
+                        PeopleListScreen(
+                            sessionJson = sessionJson,
+                            owner = owner,
+                            repo = repo,
+                            type = people,
+                            onBack = { peoplePage = null },
+                        )
+                    }
+
+                    // 文件查看页（全屏）
+                    is RepoRoute.File -> {
+                        val file = r.page
+                        PageBackHandler { filePage = null }
+                        FileViewerScreen(
+                            sessionJson = sessionJson,
+                            owner = owner,
+                            repo = repo,
+                            path = file.first,
+                            highlightLines = file.second,
+                            defaultBranch = branch ?: "main",
+                            branches = branches.map { it.name },
+                            onOpenBranchManage = { showBranchManage = true },
+                            onOpenLocalSync = { showLocalSync = true },
+                            onBack = { filePage = null },
+                        )
+                    }
+
+                    // Issue 详情页
+                    is RepoRoute.Issue -> {
+                        val issue = r.number
+                        PageBackHandler { issuePage = null }
+                        IssueDetailScreen(
+                            sessionJson = sessionJson,
+                            owner = owner,
+                            repo = repo,
+                            number = issue,
+                            onBack = { issuePage = null },
+                        )
+                    }
+
+                    // PR 详情页
+                    is RepoRoute.Pull -> {
+                        val pull = r.number
+                        PageBackHandler { pullPage = null }
+                        PullDetailScreen(
+                            sessionJson = sessionJson,
+                            owner = owner,
+                            repo = repo,
+                            number = pull,
+                            onBack = { pullPage = null },
+                        )
+                    }
+
+                    // 提交详情页
+                    is RepoRoute.Commit -> {
+                        val commit = r.sha
+                        PageBackHandler { commitPage = null }
+                        CommitDetailScreen(
+                            sessionJson = sessionJson,
+                            owner = owner,
+                            repo = repo,
+                            sha = commit,
+                            onBack = { commitPage = null },
+                        )
+                    }
+
+                    // 日志页（最深；原「Job 详情页」演进而来）
+                    is RepoRoute.JobDetail -> {
+                        val job = r.id
+                        PageBackHandler { jobDetailPage = null; jobDetailStep = null }
+                        JobLogScreen(
+                            sessionJson = sessionJson,
+                            owner = owner,
+                            repo = repo,
+                            jobId = job,
+                            initialStepNumber = r.step,
+                            logStore = jobLogStore,
+                            onBack = { jobDetailPage = null; jobDetailStep = null },
+                        )
+                    }
+
+                    // Run 详情（jobs）
+                    is RepoRoute.RunDetail -> {
+                        val run = r.id
+                        PageBackHandler { runDetailPage = null }
+                        RunDetailContent(
+                            sessionJson = sessionJson,
+                            owner = owner,
+                            repo = repo,
+                            runId = run,
+                            logStore = jobLogStore,
+                            onBack = { runDetailPage = null },
+                            onOpenLog = { jobId, step -> jobDetailPage = jobId; jobDetailStep = step },
+                            onReRun = { dispatchTarget = it },
+                        )
+                    }
+
+                    // 手动触发工作流（全屏）
+                    is RepoRoute.Dispatch -> {
+                        val dispatching = r.workflow
+                        PageBackHandler { dispatchTarget = null }
+                        WorkflowDispatchScreen(
+                            sessionJson = sessionJson,
+                            owner = owner,
+                            repo = repo,
+                            workflow = dispatching,
+                            defaultRef = branch ?: "main",
+                            onBack = { dispatchTarget = null },
+                            onDispatched = {
+                                dispatchTarget = null
+                                // 回到运行历史并刷新，让新触发的记录尽快出现
+                                refreshTick++
+                            },
+                        )
+                    }
+
+                    // 工作流运行历史
+                    is RepoRoute.WorkflowRuns -> {
+                        val runs = r.pair
+                        PageBackHandler { workflowRunsPage = null }
+                        WorkflowRunsContent(
+                            sessionJson = sessionJson,
+                            owner = owner,
+                            repo = repo,
+                            workflowId = runs.first,
+                            workflowName = runs.second,
+                            branch = branch,
+                            refreshTick = refreshTick,
+                            onBack = { workflowRunsPage = null },
+                            onOpenRun = { runDetailPage = it },
+                            onOpenActions = { runsWorkflow?.let { workflowAction = it } },
+                        )
+                    }
+
+                    // ── 基础内容：仓库页骨架（Tab） ──
+                    RepoRoute.Tab -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Primer.BackgroundPrimary)
+                                // 底部「手势条」内边距由导航栏自己负责（见 RepoBottomBar），
+                                // 这里只管状态栏 —— 两处都取会叠成两层
+                                .statusBarsPadding(),
+                        ) {
+                            RepoHeaderRow(
+                                title = "$owner/$repo",
+                                branch = branch,
+                                showBranch = page in branchPages,
+                                onBack = onBack,
+                                onOpenBranches = { showBranchDialog = true },
+                                onRefresh = {
+                                    // 强制刷新（bypass cache）：清除分支缓存 + README 缓存，再触发重载
+                                    scope.launch {
+                                        val cacheManager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+                                        cacheManager.delete("$owner/$repo")                 // 分支缓存
+                                        cacheManager.delete("$owner/$repo@${branch ?: ""}") // README 缓存
+                                    }
+                                    refreshTick++
+                                },
+                            )
+
+                            Box(Modifier.weight(1f).fillMaxWidth()) {
+                                // 切 Tab 的淡入淡出放在**内容区**自己身上：顶部栏与底部导航栏
+                                // 都不参与这个动效 —— 之前把 page 放进外层路由时，整个骨架（含栏）
+                                // 被同级动效一起播，栏就在切页面时上下跳
+                                TabSwitcher(
+                                    state = page,
+                                    modifier = Modifier.fillMaxSize(),
+                                    label = "repo-tab",
+                                ) { p ->
+                                    // 分支选择器已移到顶部栏（刷新按钮左侧），不再占用一整行
+                                    when (p) {
+                                        RepoPage.Overview -> RepositoryOverviewContent(
+                                            sessionJson = sessionJson, owner = owner, repo = repo, branch = branch, refreshTick = refreshTick,
+                                            onLinkClick = { dest -> handleLink(dest, context, onOpenRepo, { path, lines -> filePage = path to lines }) { page = it } },
+                                            onActionClick = { action -> peoplePage = action },
+                                            // 分支同步入口在底部栏 ⋮ 气泡里（见 bubbleEntries）
+                                        )
+                                        RepoPage.Code -> RepositoryCodeContent(sessionJson, owner, repo, branch, refreshTick, onOpenFile = { filePage = it to null })
+                                        RepoPage.Issues -> IssueListContent(sessionJson, owner, repo, refreshTick, onItemClick = { issuePage = it.number })
+                                        RepoPage.Workflows -> WorkflowListContent(
+                                            sessionJson, owner, repo, branch, refreshTick,
+                                            onItemClick = { runsWorkflow = it; workflowRunsPage = it.id to it.name },
+                                            onLongPress = { workflowAction = it },
+                                        )
+                                        RepoPage.Releases -> ReleaseListContent(
+                                            sessionJson = sessionJson, owner = owner, repo = repo, refreshTick = refreshTick,
+                                            onOpenDetail = { releaseDetail = it },
+                                            onCreate = { releaseEditTarget = null; showReleaseEdit = true },
+                                        )
+                                        RepoPage.PullRequests -> PullListContent(sessionJson, owner, repo, branch, refreshTick, onItemClick = { pullPage = it.number })
+                                        RepoPage.Commits -> CommitListContent(sessionJson, owner, repo, branch, refreshTick, onItemClick = { commitPage = it.sha })
+                                        RepoPage.Settings -> RepositorySettingsContent(
+                                            sessionJson = sessionJson,
+                                            owner = owner,
+                                            repo = repo,
+                                            branches = branches.map { it.name },
+                                            defaultBranch = branch ?: "main",
+                                        )
+                                    }
+                                }
+
+                                // Git 悬浮球（代码页覆盖层）：**绑定「本地仓库（Git）」模式**，
+                                // 另外两种模式（单文件 / 多文件）不显示（判定见 showGitBubble）。
+                                if (page == RepoPage.Code && showGitBubble(mode)) {
+                                    CodePageGitPanel(
+                                        repo = repo,
+                                        branches = branches.map { it.name },
+                                        defaultBranch = branch ?: branches.firstOrNull()?.name ?: "main",
+                                        refreshTick = refreshTick,
+                                        modeLabel = mode?.label,
+                                        onPickMode = { showCommitMode = true },
+                                        onOpenBranchManage = { showBranchManage = true },
+                                        onOpenCompare = { b, h -> comparePair = b to h },
+                                        onOpenLocalSync = { showLocalSync = true },
+                                        onRefresh = { refreshTick++ },
+                                    )
                                 }
                             }
-                        },
-                    )
-                }
+                        }
 
+                    }
+                }
             }
         }
     }
@@ -692,8 +717,8 @@ fun RepositoryScreen(
  */
 private sealed interface RepoRoute : PageLevel {
 
-    /** Tab 骨架（基础内容）。 */
-    data class Tab(val page: RepoPage) : RepoRoute {
+    /** Tab 骨架（基础内容）。**刻意不带「当前页」**：切 Tab 是内容区自己的维度（见 `repo-tab` 那层 [TabSwitcher]），不是换页。 */
+    data object Tab : RepoRoute {
         override val depth: Int get() = 0
     }
 
@@ -1167,9 +1192,13 @@ private fun RepoBottomBar(
     onBubbleAction: (String) -> Unit,
 ) {
     val entries = remember(canPush) { bubbleEntries(canPush) }
+    // `.navigationBarsPadding()` 放在 `.height()` **之前**：内边距算在 56dp 之外，
+    // 系统手势条那块留白沿用壳子的底色（原来由外层 Column 的 navigationBarsPadding 提供）。
+    // 栏自己负责这条内边距（NavigationShell 不会再加一层）。
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .navigationBarsPadding()
             .height(56.dp)
             .background(Primer.BackgroundSecondary),
         verticalAlignment = Alignment.CenterVertically,

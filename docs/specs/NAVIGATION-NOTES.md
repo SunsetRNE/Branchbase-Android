@@ -51,6 +51,7 @@ Compose 的返回键是「**最后注册且启用者胜**」。而 `AnimatedCont
 | 返回键写死回到最外层（如个人页子页一律 `subPage = null`） | 在「设置 → 关于」按返回直接跳回个人主页，而页面左上角是回设置 → 两条路径两个结果 | 按层级分派（`profileBackTarget` / `subPageDepth`，有单测） |
 | 每个页面各挂一个裸 `BackHandler` | 谁赢取决于注册顺序，动画期间新旧两页会抢同一个事件 | 全部换成 `PageBackHandler`；多层页面用嵌套 `PageSwitcher` 各自下发 active |
 | 把 busy/error 塞进页面状态（如密钥填写页） | 状态值一变就被当成换页：多播一次动画 + 重建内容丢输入 | 页面身份与请求态分开（页面态存 `data object`，请求态用独立 `StateFlow`） |
+| **把 Tab 目的地塞进外层路由**（`MainRoute.Tabs(selected)` / `RepoRoute.Tab(page)` / `ProfileRoute.Main(tab)`） | 切一次 Tab 就等于换一次路由 → 外层 `PageSwitcher` 把整块内容播同级动效（淡入淡出 + 2% 垂直位移），**底部导航栏跟着一起上移/上浮、两栏错位叠着**（用户反馈「切页面时导航栏上下跳」）；内层 `TabSwitcher` 还会再播一次，位移叠加成 4% | Tab 是**内容区自己的维度**，不进外层路由（三个路由都改成 `data object`）；切 Tab 由内容区自己的 `TabSwitcher` 负责；导航栏归 `NavigationShell`（在 `PageSwitcher` 外面），`barVisible` 由路由决定 |
 
 ## 四、当前行为（用户可见的契约）
 
@@ -80,4 +81,7 @@ Compose 的返回键是「**最后注册且启用者胜**」。而 `AnimatedCont
 - [ ] 改了切换器？确认 `PageSwitcher` **和** `TabSwitcher` 都下发了 `LocalPageActive`？
 - [ ] 新页面自己有下一层（决策页 / 详情 / 编辑态）时，挂 `PageBackHandler` 了吗？目标与页面内返回箭头一致吗？
 - [ ] 多一层可返回的页面时，用的是嵌套 `PageSwitcher`，而不是在同一层堆 `if`？
+- [ ] 新加/搬迁的**底部导航栏**挂在 `NavigationShell` 的 `bar` 槽位里（不是 `PageSwitcher` 里面）？
+      栏自己带系统手势条内边距（M3 `NavigationBar` 自带 / 自定义栏自己 `navigationBarsPadding()`）？
+      Tab 维度没被塞进外层路由？
 - [ ] 跑过 `PageTransitionsTest` / `TopLevelBackTest` / `BackConsumptionTest`（方向 + 返回键规则 + 双击退出窗口 + 消费覆盖）？
