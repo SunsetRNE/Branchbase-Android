@@ -497,6 +497,73 @@ GitHub Actions 的 job 日志（运行详情页按步骤看、Job 详情页整�
 `annotationCheckRuns`（带名字的 check-run）、`logLineLevel` / `logHitIndexes`（日志分级与搜索）、
 `isFailedConclusion`、`elapsedSince`（运行中耗时按起点算）。
 
+## 📦 发布（Releases）：三档性质与三个页面重绘
+
+### 先对齐官方语义：什么是「正式发布」
+
+GitHub 的 release 有三种性质，「最新发布（Latest）」只在其中一档里成立。官方原文
+（[REST `POST /repos/{owner}/{repo}/releases`](https://docs.github.com/en/rest/releases/releases#create-a-release)
+的 `make_latest` 字段）：
+
+> Specifies whether this release should be set as the latest release for the repository.
+> **Drafts and prereleases cannot be set as latest.** Defaults to `true` for newly published releases.
+> `legacy` specifies that the latest release should be determined based on the release creation date
+> and higher semantic version.
+
+| 性质 | `draft` | `prerelease` | 能否是 latest |
+|------|---------|--------------|---------------|
+| **正式发布** | false | false | **可以**（新建默认 `make_latest=true`） |
+| 预发布 | false | true | 不可以 |
+| 草稿 | true | — | 不可以 |
+
+两点容易踩的细节：`make_latest` 的取值是**字符串** `"true"` / `"false"` / `"legacy"` 而不是布尔；
+PATCH 的默认值是 `legacy`（= 不动归属），所以编辑标题/正文不应顺手改 latest。
+
+### 列表：入口从「一整行空框」收成标题行右侧的「+」
+
+「新建发布」原本是列表最上面一条**占满整行的描边按钮**——它没有任何信息，却永远压在第一条发布之上，
+进页面第一眼看到的是一个空框。现在它是 `发布 · N` 标题行右侧的 30dp 圆形「+」
+（与 `DetailSectionTitle` 同一套版式，仅 `canPush` 时出现）。
+
+条目本身也重排了：**tag 提到第一眼**（它是唯一稳定标识，`name` 可能为空或与 tag 重复），
+做成等宽胶囊；徽章紧挨着说明性质（`最新发布` / `预发布` / `草稿`）；name 与元信息依次降一级。
+改前 name 在第一行、tag 混在灰色小字里，扫过去分不出哪条是哪个版本。
+
+### 「最新发布」怎么判定
+
+列表接口 `GET /releases` 的**每条记录里不带 latest 标记**，不能拿列表自己算
+（「最新的非草稿非预发布」只是 `make_latest` 缺省时的近似规则，一旦有人显式改过归属就是错的）。
+所以走权威端点 `GET /releases/latest`（`GitHubApi::latest_release_id`），拿不到时才退回上面那条近似规则。
+
+### 编辑页：三段式性质 + 只有一条底线的输入框
+
+- **性质从两个开关改成三段式单选**。改前是「草稿」「预发布」两个可以同时勾上、含义又重叠的开关，
+  而「最新发布」这个概念在 App 里根本没有；现在一屏说清三档各自的可见性与能否占用 Latest，
+  选中档位的说明文字直接写在下面；
+- **去掉输入框的四边框**。改前四个 `OutlinedTextField` 就是四个圆角矩形叠着，框线比内容还显眼。
+  单行字段改成「标签在上 + 一条底线」，聚焦时底线转蓝；**只给多行正文保留描边**——
+  一块 200dp 高的可编辑区域没有边界，用户分不清是输入区还是说明文字；
+- **补「生成说明」**：接官方 `POST /releases/generate-notes`，按 tag 与目标分支之间的合并记录自动起草；
+  已经有内容时先弹确认，不让它静默覆盖用户写的字；
+- **主操作在顶栏且文字随状态变**：草稿写「存为草稿」、其余写「发布」/「保存」——
+  点下去之前就知道会发生什么。
+
+### 详情页：去掉「一个附件一个框」
+
+附件原本一条一个描边圆角盒，三个附件就是三个盒子叠着，把版面切得很碎。现在整组只用**分隔线**分区，
+描边留给真正需要边界的输入框。头部（tag + 性质徽章 + 名字 + 署名）与附件、更新内容之间用发丝线分段。
+
+### 落到底层
+
+`GitHubApi` 三个方法 + 对应 JNI 导出：`create_release` / `update_release` 新增 `make_latest`
+（草稿与预发布下一个字段都不发，省掉可能 422 的往返）、`latest_release_id`、`generate_release_notes`。
+
+> **JNI 签名是编译期查不出来的**：`external fun` 与 `Java_*` 只靠名字关联，参数表对不上时
+> Kotlin 编译通过、Rust 编译通过、JVM 单测也永远不会加载那个 `.so`（它是 aarch64-android 的），
+> 直到真机点下按钮才炸 `UnsatisfiedLinkError`。这次正好同时改了两侧，因此新增
+> `JniSignatureTest`：把 83 对声明与实现**逐参数、逐类型**钉在一起
+> （`JString<'local>` ↔ `String`、`jint` ↔ `Int`、`jboolean` ↔ `Boolean` …）。
+
 ## 🎞 动效（两层规格：页面 / 元素）
 
 此前全项目的动效基本是**零**：页面切换、Tab 切换、选中态、列表增删、加载骨架全是硬切。

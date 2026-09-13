@@ -346,6 +346,9 @@ impl GitHubApi {
     ///
     /// @param draft 草稿（不公开）；@param prerelease 预发布（不占用 latest）
     /// @param target_commitish 目标分支/commit（空串 = 仓库默认分支）
+    /// @param make_latest `"true"` / `"false"` / `"legacy"`；**空串 = 整个字段不发**。
+    ///   官方规定「drafts and prereleases cannot be set as latest」，那两种状态下传了也会被忽略，
+    ///   所以这里直接不发，省掉一次可能 422 的往返。
     pub async fn create_release(
         &self,
         owner: &str,
@@ -356,6 +359,7 @@ impl GitHubApi {
         draft: bool,
         prerelease: bool,
         target_commitish: &str,
+        make_latest: &str,
     ) -> Result<String> {
         let mut payload = serde_json::json!({
             "tag_name": tag,
@@ -367,12 +371,18 @@ impl GitHubApi {
         if !target_commitish.trim().is_empty() {
             payload["target_commitish"] = serde_json::json!(target_commitish.trim());
         }
+        if !draft && !prerelease && !make_latest.trim().is_empty() {
+            payload["make_latest"] = serde_json::json!(make_latest.trim());
+        }
         self.client
             .post_json(&format!("/repos/{owner}/{repo}/releases"), &payload.to_string())
             .await
     }
 
     /// 编辑 release（`PATCH /repos/{o}/{r}/releases/{id}`）。
+    ///
+    /// @param make_latest 同 [create_release]；**编辑时默认传 `"legacy"`** ——
+    ///   PATCH 的 `legacy` 语义是「不动 latest 归属」，这样改标题/正文不会顺手把别人的最新发布顶掉。
     pub async fn update_release(
         &self,
         owner: &str,
@@ -383,16 +393,67 @@ impl GitHubApi {
         body: &str,
         draft: bool,
         prerelease: bool,
+        make_latest: &str,
     ) -> Result<String> {
-        let payload = serde_json::json!({
+        let mut payload = serde_json::json!({
             "tag_name": tag,
             "name": name,
             "body": body,
             "draft": draft,
             "prerelease": prerelease,
         });
+        if !draft && !prerelease && !make_latest.trim().is_empty() {
+            payload["make_latest"] = serde_json::json!(make_latest.trim());
+        }
         self.client
             .patch_json(&format!("/repos/{owner}/{repo}/releases/{id}"), &payload.to_string())
+            .await
+    }
+
+    /// 仓库当前「最新发布」的 id（`GET /repos/{o}/{r}/releases/latest`）。
+    ///
+    /// 为什么不能拿列表自己算：`GET /releases` 的**每条记录里没有 latest 标记**，
+    /// 「最新的非草稿非预发布」只是 `make_latest` 缺省时的近似规则 —— 一旦有人显式把某个旧版本
+    /// 设成 latest、或把新版本设成 `false`，客户端猜出来的就是错的。这个端点才是权威。
+    ///
+    /// 仓库一次正式发布都没有时 GitHub 回 404：折成**空串**（不是错误），
+    /// 上层解析成 null，界面上就是「没有最新发布」。
+    pub async fn latest_release_id(&self, owner: &str, repo: &str) -> Result<String> {
+        match self
+            .client
+            .get_json(&format!("/repos/{owner}/{repo}/releases/latest"))
+            .await
+        {
+            Ok(raw) => Ok(serde_json::from_str::<serde_json::Value>(&raw)
+                .ok()
+                .and_then(|v| v.get("id").and_then(|i| i.as_u64()))
+                .map(|id| id.to_string())
+                .unwrap_or_default()),
+            Err(_) => Ok(String::new()),
+        }
+    }
+
+    /// 生成发布说明（`POST /repos/{o}/{r}/releases/generate-notes`）。
+    ///
+    /// 与 GitHub 网页上「Generate release notes」按钮同一个端点：按 tag 与目标分支之间
+    /// 已合并的提交/PR 自动起草更新内容。返回原始 JSON（`{"name":…,"body":…}`），
+    /// 由上层决定是覆盖还是仅填空。
+    pub async fn generate_release_notes(
+        &self,
+        owner: &str,
+        repo: &str,
+        tag: &str,
+        target_commitish: &str,
+    ) -> Result<String> {
+        let mut payload = serde_json::json!({ "tag_name": tag });
+        if !target_commitish.trim().is_empty() {
+            payload["target_commitish"] = serde_json::json!(target_commitish.trim());
+        }
+        self.client
+            .post_json(
+                &format!("/repos/{owner}/{repo}/releases/generate-notes"),
+                &payload.to_string(),
+            )
             .await
     }
 

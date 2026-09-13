@@ -224,11 +224,17 @@ object RustBridge {
 
     private external fun nativeDeleteBranch(host: String, token: String, owner: String, repo: String, branch: String): String
 
-    private external fun nativeCreateRelease(host: String, token: String, owner: String, repo: String, tag: String, name: String, body: String, draft: String, prerelease: String, targetCommitish: String): String
+    private external fun nativeCreateRelease(host: String, token: String, owner: String, repo: String, tag: String, name: String, body: String, draft: String, prerelease: String, targetCommitish: String, makeLatest: String): String
 
-    private external fun nativeUpdateRelease(host: String, token: String, owner: String, repo: String, id: String, tag: String, name: String, body: String, draft: String, prerelease: String): String
+    private external fun nativeUpdateRelease(host: String, token: String, owner: String, repo: String, id: String, tag: String, name: String, body: String, draft: String, prerelease: String, makeLatest: String): String
 
     private external fun nativeDeleteRelease(host: String, token: String, owner: String, repo: String, id: String): String
+
+    /** 仓库当前「最新发布」的 id（空串 = 没有正式发布）。 */
+    private external fun nativeLatestReleaseId(host: String, token: String, owner: String, repo: String): String
+
+    /** 生成发布说明，返回 `{"name":…,"body":…}`。 */
+    private external fun nativeGenerateReleaseNotes(host: String, token: String, owner: String, repo: String, tag: String, targetCommitish: String): String
 
     private external fun nativeCreateIssueComment(host: String, token: String, owner: String, repo: String, number: String, body: String): String
 
@@ -1026,16 +1032,23 @@ object RustBridge {
 
     // ── 发布（Releases）写操作 ──
 
-    /** 创建 release（返回原始 JSON；null 表示失败）。 */
+    /**
+     * 创建 release（返回原始 JSON；null 表示失败）。
+     *
+     * [makeLatest] 走 GitHub 的 `make_latest`：`"true"` / `"false"` / `"legacy"`。
+     * 草稿与预发布**不能**设为 latest（官方限制），此时传空串让底层直接不发这个字段。
+     */
     suspend fun createRelease(
         host: String, token: String, owner: String, repo: String,
         tag: String, name: String, body: String,
         draft: Boolean = false, prerelease: Boolean = false, targetCommitish: String = "",
+        makeLatest: String = "",
     ): String? = withContext(Dispatchers.IO) {
         try {
             nativeCreateRelease(
                 host, token, owner, repo, tag, name, body,
                 if (draft) "true" else "false", if (prerelease) "true" else "false", targetCommitish,
+                makeLatest,
             ).takeIf { it.isNotBlank() && !it.startsWith("ERROR:") }
         } catch (e: Throwable) {
             null
@@ -1047,12 +1060,50 @@ object RustBridge {
         host: String, token: String, owner: String, repo: String, id: Long,
         tag: String, name: String, body: String,
         draft: Boolean = false, prerelease: Boolean = false,
+        makeLatest: String = "",
     ): String? = withContext(Dispatchers.IO) {
         try {
             nativeUpdateRelease(
                 host, token, owner, repo, id.toString(), tag, name, body,
                 if (draft) "true" else "false", if (prerelease) "true" else "false",
+                makeLatest,
             ).takeIf { it.isNotBlank() && !it.startsWith("ERROR:") }
+        } catch (e: Throwable) {
+            null
+        }
+    }
+
+    /**
+     * 仓库当前「最新发布」的 id。
+     *
+     * 一次正式发布都没有、或引擎不可用时返回 null —— 两种情况下界面上都不该出现「最新发布」徽章，
+     * 所以调用方不必区分（真要有区别也只是有没有徽章）。
+     */
+    suspend fun latestReleaseId(host: String, token: String, owner: String, repo: String): Long? =
+        withContext(Dispatchers.IO) {
+            try {
+                nativeLatestReleaseId(host, token, owner, repo)
+                    .takeIf { !it.startsWith("ERROR:") }
+                    ?.trim()
+                    ?.toLongOrNull()
+            } catch (e: Throwable) {
+                null
+            }
+        }
+
+    /**
+     * 生成发布说明（`{"name":…,"body":…}`；null 表示失败）。
+     *
+     * 自动起草依赖两件事，缺一不可：已填写的 tag，以及（可选的）目标分支 ——
+     * 底层会把 `target_commitish` 一并送上去，GitHub 按「分支…tag」之间的合并记录起草。
+     */
+    suspend fun generateReleaseNotes(
+        host: String, token: String, owner: String, repo: String,
+        tag: String, targetCommitish: String = "",
+    ): String? = withContext(Dispatchers.IO) {
+        try {
+            nativeGenerateReleaseNotes(host, token, owner, repo, tag, targetCommitish)
+                .takeIf { it.isNotBlank() && !it.startsWith("ERROR:") }
         } catch (e: Throwable) {
             null
         }

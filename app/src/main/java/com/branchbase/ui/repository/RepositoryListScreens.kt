@@ -24,8 +24,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -41,7 +41,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -581,6 +583,8 @@ fun ReleaseListContent(
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var retryTick by remember { mutableStateOf(0) }
+    // 哪个是「最新发布」（正式发布里被 GitHub 标为 Latest 的那条）
+    var latestId by remember(cacheKey) { mutableStateOf<Long?>(null) }
 
     LaunchedEffect(owner, repo, refreshTick, retryTick) {
         loading = true
@@ -609,6 +613,12 @@ fun ReleaseListContent(
             items = parseReleases(json)
             ListCache.write(manager, cacheKey, json)
         }
+        // ③ 「最新发布」问权威端点：列表接口**每条记录里不带 latest 标记**，
+        //    `/releases/latest` 才是 `make_latest` 的真实体现。拿不到（网络失败 / 引擎不可用）时
+        //    退回「最新的非草稿非预发布」—— 那正是 make_latest 缺省时的规则，
+        //    所以只在「有人显式改过 latest 归属」时不准，方向上不会错，也不会因此报错。
+        latestId = RustBridge.latestReleaseId(host, token, owner, repo)
+            ?: items.firstOrNull { !it.draft && !it.prerelease }?.id?.takeIf { it != 0L }
         // 写权限决定「新建发布」入口是否出现（缺失即视为无权限，保守）；不入缓存
         canPush = RustBridge.getRepoInfo(host, token, owner, repo)
             ?.takeIf { !it.startsWith("ERROR:") }
@@ -620,81 +630,145 @@ fun ReleaseListContent(
         loading -> ListLoading()
         error != null -> ListError(error!!) { retryTick++ }
         else -> LazyColumn(Modifier.fillMaxSize()) {
-            if (canPush) {
-                item {
-                    Box(
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .border(1.dp, Primer.Border, RoundedCornerShape(8.dp))
-                            .clickable { onCreate() }
-                            .padding(vertical = 11.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text("＋ 新建发布", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
-                    }
+            // 新建入口从「占满整行的描边空框」收成标题行右侧的圆形「+」。
+            // 原来那个按钮没有任何信息，却永远压在列表最上面，进页面第一眼是个空框；
+            // 收进标题行后入口还在（有写权限时才出现），但不再吃一整行。
+            item {
+                DetailSectionTitle(if (items.isEmpty()) "发布" else "发布 · ${items.size}") {
+                    if (canPush) NewReleaseButton(onCreate)
                 }
             }
             if (items.isEmpty()) {
-                item { ListEmpty("暂无发布") }
+                item {
+                    Text(
+                        "暂无发布",
+                        fontSize = 13.sp,
+                        color = Primer.TextTertiary,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 56.dp),
+                    )
+                }
             } else {
                 // release id 全局唯一；id 缺失（0）时退回 tag（仓库内唯一）兜底，避免重复 key
-                items(items, key = { if (it.id != 0L) it.id else it.tag }) { ReleaseRow(it) { onOpenDetail(it) } }
+                items(items, key = { if (it.id != 0L) it.id else it.tag }) { item ->
+                    ReleaseRow(item, isLatest = item.id != 0L && item.id == latestId) { onOpenDetail(item) }
+                }
             }
         }
     }
 }
 
+/**
+ * 「新建发布」入口：30dp 圆形「+」。
+ *
+ * 只做图标不做文字，是因为它旁边就是「发布 · N」标题 —— 位置本身已经说明了这个加号加的是什么，
+ * 再写一遍「新建发布」是重复信息。填充用中性面 `Gray150`、图标用 `IconPrimary`，
+ * 不抢蓝色（蓝色留给页面里真正的主链接）。
+ */
 @Composable
-private fun ReleaseRow(item: ReleaseItem, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clickable { onClick() }.padding(12.dp, 14.dp),
-        verticalAlignment = Alignment.Top,
+private fun NewReleaseButton(onClick: () -> Unit) {
+    Box(
+        Modifier.size(30.dp).clip(CircleShape).background(Primer.Gray150).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
-        Icon(Icons.Filled.LocalOffer, null, tint = Primer.Blue500, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(10.dp))
+        Icon(
+            Icons.Filled.Add,
+            contentDescription = "新建发布",
+            tint = Primer.IconPrimary,
+            modifier = Modifier.size(17.dp),
+        )
+    }
+}
+
+/**
+ * 发布条目。
+ *
+ * 版式对齐 GitHub 网页的 Releases 列表：**tag 是第一眼信息**（它是唯一稳定标识，
+ * name 可能是空的或与 tag 重复），所以 tag 做成等宽胶囊放在最前；
+ * 徽章紧挨着说明这条的性质（最新发布 / 预发布 / 草稿）；name 与元信息依次降一级。
+ * 原来的版本把 name 放第一行、tag 混在灰色小字里 —— 一眼扫过去分不出哪条是哪个版本。
+ */
+@Composable
+private fun ReleaseRow(item: ReleaseItem, isLatest: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    item.name,
-                    fontSize = 13.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Primer.TextPrimary,
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                if (item.draft) {
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        "草稿",
-                        fontSize = 10.sp,
-                        color = Primer.WarningTextStrong,
-                        modifier = Modifier.clip(RoundedCornerShape(6.dp))
-                            .background(Primer.WarningSurface).padding(horizontal = 6.dp, vertical = 1.dp),
-                    )
+                ReleaseTagChip(item.tag)
+                if (isLatest) {
+                    Spacer(Modifier.width(7.dp))
+                    ReleaseChip("最新发布", Primer.SuccessTextStrong, Primer.SuccessSurface)
                 }
                 if (item.prerelease) {
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        "预发布",
-                        fontSize = 10.sp,
-                        color = Primer.AccentText,
-                        modifier = Modifier.clip(RoundedCornerShape(6.dp))
-                            .background(Primer.InfoSurfaceSoft).padding(horizontal = 6.dp, vertical = 1.dp),
-                    )
+                    Spacer(Modifier.width(7.dp))
+                    ReleaseChip("预发布", Primer.AccentText, Primer.InfoSurfaceSoft)
+                }
+                if (item.draft) {
+                    Spacer(Modifier.width(7.dp))
+                    ReleaseChip("草稿", Primer.WarningTextStrong, Primer.WarningSurface)
                 }
             }
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(6.dp))
+            Text(
+                item.name,
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Primer.TextPrimary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(3.dp))
             Text(
                 buildString {
-                    append("${item.tag} · ${shortTime(item.createdAt)}")
+                    append(shortTime(item.createdAt))
+                    if (item.author.isNotBlank()) append(" · ${item.author}")
                     if (item.assets.isNotEmpty()) append(" · ${item.assets.size} 个附件")
                 },
                 fontSize = 11.5.sp,
                 color = Primer.TextTertiary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
+        Spacer(Modifier.width(8.dp))
         Text("›", fontSize = 15.sp, color = Primer.TextTertiary)
     }
+    Box(Modifier.fillMaxWidth().padding(start = 16.dp).height(1.dp).background(Primer.Gray150))
+}
+
+/** 发布性质徽章（最新发布 / 预发布 / 草稿）。底色与文字色成对给，不写死。 */
+@Composable
+internal fun ReleaseChip(text: String, fg: Color, bg: Color) {
+    Text(
+        text,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = fg,
+        maxLines = 1,
+        modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(bg)
+            .padding(horizontal = 6.dp, vertical = 1.dp),
+    )
+}
+
+/**
+ * tag 胶囊（等宽）。
+ *
+ * 列表与详情页共用：tag 是发布唯一稳定的标识（name 可以是空的或与 tag 重复），
+ * 两处必须长得一样，否则用户在列表认出的「那个 v1.2.0」到详情页就对不上了。
+ */
+@Composable
+internal fun ReleaseTagChip(tag: String) {
+    Text(
+        tag,
+        fontSize = 11.5.sp,
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.SemiBold,
+        color = Primer.Blue500,
+        maxLines = 1,
+        modifier = Modifier.clip(RoundedCornerShape(6.dp))
+            .background(Primer.Gray150).padding(horizontal = 7.dp, vertical = 2.dp),
+    )
 }
 
 // ── 星标/复刻/关注列表（全屏） ──
