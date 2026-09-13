@@ -60,7 +60,39 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** 两个分支的比较结果（`GET /compare/{base}...{head}`）。 */
-private data class CompareInfo(val aheadBy: Int, val behindBy: Int, val status: String)
+internal data class CompareInfo(val aheadBy: Int, val behindBy: Int, val status: String)
+
+/**
+ * 某个同步模式在当前预览结论下是否可选。
+ *
+ * 抽成纯函数（不碰 Compose 状态）以便单测 —— 与 `showGitBubble` / `pageIsCurrent` 同一套做法。
+ */
+internal data class SyncModeAvailability(
+    /** 「合并」：只要源确实领先就有意义。 */
+    val merge: Boolean,
+    /** 「仅快进」：要求目标是源的祖先 —— 目标不能有独有提交。 */
+    val fastForward: Boolean,
+    /** 「覆盖」：只要源确实领先就有意义（目标有独有提交时正是它的用武之地）。 */
+    val overwrite: Boolean,
+) {
+    /** 三种模式全不可用 = 目标已是最新，没有任何可同步的内容。 */
+    val nothingToSync: Boolean get() = !merge && !fastForward && !overwrite
+}
+
+/**
+ * 预览结论 → 模式可选性。
+ *
+ * [compare] 为 `null`（比较结果还没拿到）时**不拦**：离线 / 限流下不至于整个页面点不动，
+ * 保持改造前的行为。
+ */
+internal fun syncModeAvailability(compare: CompareInfo?): SyncModeAvailability {
+    val ahead = compare?.aheadBy ?: return SyncModeAvailability(true, true, true)
+    return SyncModeAvailability(
+        merge = ahead > 0,
+        fastForward = ahead > 0 && compare.behindBy == 0,
+        overwrite = ahead > 0,
+    )
+}
 
 private fun parseCompare(json: String?): CompareInfo? {
     if (json.isNullOrBlank()) return null
@@ -92,6 +124,10 @@ private fun parseBranchNames(json: String?): List<String> {
  * - **合并**：`POST /merges`，保留历史、生成合并提交；冲突时 GitHub 回 409
  * - **仅快进**：目标必须是源的祖先（behind>0 且 ahead=0），直接移动 ref；否则拒绝
  * - **覆盖**：强制把目标指向源（`force=true`），**会丢目标分支独有提交**，需二次确认
+ *
+ * 模式的可选性由**比较预览的结论**决定（纯函数 `syncModeAvailability`，有单测）：
+ * 「目标已是最新」时三种模式全禁、主按钮置灰；「目标有独有提交」时仅快进必被服务端拒绝，禁掉。
+ * 入口在仓库页底部栏的 ⋮ 气泡里（`RepositoryScreen.bubbleEntries`，按 `canPush` 门控）。
  */
 @Composable
 fun BranchSyncScreen(
@@ -243,6 +279,28 @@ fun BranchSyncScreen(
         }
     }
 
+    // 预览结论 → 哪些模式真的可用：
+    //  - 「目标已是最新」（ahead=0）：三种模式都没有意义 → 全禁 + 主按钮置灰；
+    //  - 「目标有独有提交」（behind>0）：仅快进必被服务端拒绝（422）→ 禁掉，只剩合并/覆盖；
+    //  - 还没拿到比较结果（null）时不拦，保持改造前的可点状态（离线/限流时不至于点不动）。
+    // 判定本身是纯函数（`syncModeAvailability`，有单测）；这里先取成局部量：
+    // `compare` 是 `by remember` 的委托属性，Kotlin 不给它做智能转换。
+    val cmp = compare
+    val modes = syncModeAvailability(cmp)
+
+    // 换了分支对之后，原先选中的模式可能已被禁用 → 退回「合并」，
+    // 否则会出现「高亮的那一项是灰的、点不动」。
+    LaunchedEffect(compare) {
+        val m = syncModeAvailability(compare)
+        val stillValid = when (mode) {
+            0 -> m.merge
+            1 -> m.fastForward
+            2 -> m.overwrite
+            else -> true
+        }
+        if (!stillValid) mode = 0
+    }
+
     Column(
         Modifier.fillMaxSize().background(Primer.BackgroundPrimary)
             .statusBarsPadding().navigationBarsPadding(),
@@ -319,9 +377,9 @@ fun BranchSyncScreen(
             Spacer(Modifier.height(16.dp))
             Text("同步方式", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
             Spacer(Modifier.height(8.dp))
-            ModeRow(0, "合并", "保留历史，生成合并提交；有冲突时会被拒绝", mode) { mode = it }
-            ModeRow(1, "仅快进", "目标没有独有提交时直接移动；否则拒绝", mode) { mode = it }
-            ModeRow(2, "覆盖", "强制指向源分支，会丢弃目标分支独有提交", mode, danger = true) { mode = it }
+            ModeRow(0, "合并", "保留历史，生成合并提交；有冲突时会被拒绝", mode, enabled = modes.merge) { mode = it }
+            ModeRow(1, "仅快进", "目标没有独有提交时直接移动；否则拒绝", mode, enabled = modes.fastForward) { mode = it }
+            ModeRow(2, "覆盖", "强制指向源分支，会丢弃目标分支独有提交", mode, enabled = modes.overwrite, danger = true) { mode = it }
 
             feedback?.let {
                 Spacer(Modifier.height(12.dp))
@@ -334,20 +392,36 @@ fun BranchSyncScreen(
             }
 
             Spacer(Modifier.height(20.dp))
+            // 主按钮把「做什么 + 会丢什么」写清楚，而不是笼统的「同步 A → B」
+            val loseCount = cmp?.behindBy ?: 0
+            val primaryEnabled = !busy && !modes.nothingToSync
             Box(
                 Modifier.fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
-                    .background(if (busy) Primer.Gray150 else if (mode == 2) Primer.Red500 else Primer.Green500)
-                    .clickable(enabled = !busy) {
+                    .background(
+                        when {
+                            !primaryEnabled -> Primer.Gray150
+                            mode == 2 -> Primer.Red500
+                            else -> Primer.Green500
+                        }
+                    )
+                    .clickable(enabled = primaryEnabled) {
                         if (mode == 2) confirmOverwrite = true else doSync()
                     }
                     .padding(vertical = 13.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    if (busy) "同步中…" else "同步 $source → $target",
+                    when {
+                        busy -> "同步中…"
+                        modes.nothingToSync -> "目标已是最新，无需同步"
+                        mode == 1 -> "快进 $source → $target"
+                        mode == 2 ->
+                            if (loseCount > 0) "覆盖 $target（丢弃 $loseCount 个提交）" else "覆盖 $target"
+                        else -> "合并 $source → $target"
+                    },
                     fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                    color = if (busy) Primer.TextTertiary else Color.White,
+                    color = if (primaryEnabled) Color.White else Primer.TextTertiary,
                 )
             }
             Spacer(Modifier.height(24.dp))
@@ -428,21 +502,24 @@ private fun ModeRow(
     title: String,
     desc: String,
     current: Int,
+    enabled: Boolean = true,
     danger: Boolean = false,
     onPick: (Int) -> Unit,
 ) {
     val selected = current == index
+    // 禁用项不可点，圆圈与标题一起降级（与设置页 / 分支管理页禁用行的处理一致）
+    val accent = if (!enabled) Primer.Border else if (danger) Primer.Red500 else Primer.Blue500
     Row(
         Modifier.fillMaxWidth().padding(vertical = 4.dp)
             .clip(RoundedCornerShape(8.dp))
-            .clickable { onPick(index) }
+            .then(if (enabled) Modifier.clickable { onPick(index) } else Modifier)
             .padding(vertical = 8.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.Top,
     ) {
         Box(
             Modifier.size(16.dp).clip(CircleShape)
-                .border(2.dp, if (selected) (if (danger) Primer.Red500 else Primer.Blue500) else Primer.Border, CircleShape)
-                .background(if (selected) (if (danger) Primer.Red500 else Primer.Blue500) else Color.Transparent),
+                .border(2.dp, if (selected) accent else Primer.Border, CircleShape)
+                .background(if (selected) accent else Color.Transparent),
         )
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
@@ -450,7 +527,11 @@ private fun ModeRow(
                 title,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = if (danger) Primer.Red500 else Primer.TextPrimary,
+                color = when {
+                    !enabled -> Primer.TextTertiary
+                    danger -> Primer.Red500
+                    else -> Primer.TextPrimary
+                },
             )
             Text(desc, fontSize = 11.sp, color = Primer.TextTertiary, lineHeight = 16.sp, modifier = Modifier.padding(top = 2.dp))
         }

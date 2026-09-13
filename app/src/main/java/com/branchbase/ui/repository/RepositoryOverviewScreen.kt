@@ -1,7 +1,6 @@
 package com.branchbase.ui.repository
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -71,7 +70,6 @@ fun RepositoryOverviewContent(
     refreshTick: Int = 0,
     onLinkClick: (Destination) -> Unit,
     onActionClick: (String) -> Unit,
-    onOpenBranchSync: () -> Unit = {},
 ) {
     val session = remember(sessionJson) { runCatching { JSONObject(sessionJson) }.getOrNull() }
     val host = session?.optString("host", "github.com") ?: "github.com"
@@ -193,27 +191,8 @@ fun RepositoryOverviewContent(
             else -> LazyColumn(Modifier.fillMaxSize()) {
                 item { RepoHeader(repoInfo) }
                 item { ActionRow(repoInfo, onActionClick) }
-                item {
-                    // 分支同步入口（服务端合并，不需要本地 clone）
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .border(1.dp, Primer.Border, RoundedCornerShape(8.dp))
-                            .clickable { onOpenBranchSync() }
-                            .padding(horizontal = 12.dp, vertical = 11.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("分支同步", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "把某个分支的内容同步到另一个分支",
-                            fontSize = 11.sp,
-                            color = Primer.TextTertiary,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text("›", fontSize = 15.sp, color = Primer.TextTertiary)
-                    }
-                }
+                // 分支同步入口不在这里：它是写操作、又占掉首屏一整行，已收进底部栏 ⋮ 气泡
+                // （见 RepositoryScreen 的 bubbleEntries，按 canPush 门控）。
 
                 item { SectionTitle("自述文件 README") }
                 when {

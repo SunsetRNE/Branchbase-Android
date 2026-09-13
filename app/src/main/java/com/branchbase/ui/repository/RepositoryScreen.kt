@@ -226,7 +226,7 @@ fun RepositoryScreen(
                     branchCached = fromCache
                 }
             }
-            // 默认分支 + 当前用户写权限（发布页的编辑/删除判定依赖 canPush）
+            // 默认分支 + 当前用户写权限（发布页的编辑/删除、⋮ 气泡里的分支同步都依赖 canPush）
             infoJob.await()?.let { info ->
                 if (branch == null) branch = info.defaultBranch
                 repoCanPush = info.canPush
@@ -568,7 +568,7 @@ fun RepositoryScreen(
                                         sessionJson = sessionJson, owner = owner, repo = repo, branch = branch, refreshTick = refreshTick,
                                         onLinkClick = { dest -> handleLink(dest, context, onOpenRepo, { path, lines -> filePage = path to lines }) { page = it } },
                                         onActionClick = { action -> peoplePage = action },
-                                        onOpenBranchSync = { showBranchSync = true },
+                                        // 分支同步入口在底部栏 ⋮ 气泡里（见 bubbleEntries）
                                     )
                                     RepoPage.Code -> RepositoryCodeContent(sessionJson, owner, repo, branch, refreshTick, onOpenFile = { filePage = it to null })
                                     RepoPage.Issues -> IssueListContent(sessionJson, owner, repo, refreshTick, onItemClick = { issuePage = it.number })
@@ -615,6 +615,7 @@ fun RepositoryScreen(
 
                     RepoBottomBar(
                         selected = page,
+                        canPush = repoCanPush,
                         onSelect = {
                             page = it
                             Logger.ui("切换到「${it.label}」", "Compose")
@@ -628,6 +629,15 @@ fun RepositoryScreen(
                             bubbleExpanded = false
                             page = it
                             Logger.ui("打开「${it.label}」", "Compose")
+                        },
+                        onBubbleAction = { key ->
+                            bubbleExpanded = false
+                            when (key) {
+                                BUBBLE_ACTION_BRANCH_SYNC -> {
+                                    showBranchSync = true
+                                    Logger.ui("打开「分支同步」", "Compose")
+                                }
+                            }
                         },
                     )
                 }
@@ -1108,20 +1118,55 @@ private val bottomTabs = listOf(
     RepoPage.Releases to Icons.Filled.Sell,
 )
 
-private val bubbleItems = listOf(
-    RepoPage.PullRequests to Icons.AutoMirrored.Filled.CallSplit,
-    RepoPage.Commits to Icons.Filled.History,
-    RepoPage.Settings to Icons.Filled.Settings,
+/**
+ * ⋮ 气泡里的一项：要么切到某个 Tab 页，要么触发一个动作。
+ *
+ * 为什么不用 `List<Pair<RepoPage, Icon>>`：分支同步**不是** `RepoPage` —— 它不进 Tab 骨架
+ * （`when (page)` 里渲染不到），而是像其它全屏页一样盖上来（`RepoRoute.BranchSync`）。
+ * 硬塞进 `RepoPage` 会让那个 `when` 多出一条永远走不到的支路。
+ */
+private sealed interface BubbleEntry {
+    val label: String
+    val icon: ImageVector
+
+    data class Page(val page: RepoPage, override val icon: ImageVector) : BubbleEntry {
+        override val label: String get() = page.label
+    }
+
+    /** [key] 由 [RepoBottomBar] 的 `onBubbleAction` 分派。 */
+    data class Action(override val label: String, override val icon: ImageVector, val key: String) : BubbleEntry
+}
+
+/** 气泡动作 key：分支同步（服务端合并，需要写权限）。 */
+private const val BUBBLE_ACTION_BRANCH_SYNC = "branchSync"
+
+/**
+ * 气泡项（顺序即菜单顺序）。分支同步放最后 —— 它是动作，不是页面。
+ *
+ * 它以前是概览页里一整行描边入口，压在 README 之上、视觉重量和星标/复刻同级；
+ * 收进 ⋮ 之后首屏不再被它占掉一行，且天然落在「次要入口」的语境里。
+ *
+ * `canPush=false`（别人的仓库）时**不显示**而不是点进去再失败 —— 与
+ * [BranchManageScreen] 对新建/删除的处理一致（那里也是隐藏，只留只读的对比）。
+ */
+private fun bubbleEntries(canPush: Boolean): List<BubbleEntry> = listOfNotNull(
+    BubbleEntry.Page(RepoPage.PullRequests, Icons.AutoMirrored.Filled.CallSplit),
+    BubbleEntry.Page(RepoPage.Commits, Icons.Filled.History),
+    BubbleEntry.Page(RepoPage.Settings, Icons.Filled.Settings),
+    BubbleEntry.Action("分支同步", Icons.Filled.Sync, BUBBLE_ACTION_BRANCH_SYNC).takeIf { canPush },
 )
 
 @Composable
 private fun RepoBottomBar(
     selected: RepoPage,
+    canPush: Boolean,
     onSelect: (RepoPage) -> Unit,
     bubbleExpanded: Boolean,
     onBubbleToggle: (Boolean) -> Unit,
     onBubbleItem: (RepoPage) -> Unit,
+    onBubbleAction: (String) -> Unit,
 ) {
+    val entries = remember(canPush) { bubbleEntries(canPush) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1137,18 +1182,23 @@ private fun RepoBottomBar(
             Icon(
                 Icons.Filled.MoreVert,
                 contentDescription = "更多",
-                tint = if (bubbleItems.any { it.first == selected }) Primer.Blue500 else Primer.IconPrimary,
+                tint = if (entries.any { it is BubbleEntry.Page && it.page == selected }) Primer.Blue500 else Primer.IconPrimary,
                 modifier = Modifier
                     .size(46.dp)
                     .clickable { onBubbleToggle(!bubbleExpanded) }
                     .padding(10.dp),
             )
             DropdownMenu(expanded = bubbleExpanded, onDismissRequest = { onBubbleToggle(false) }) {
-                bubbleItems.forEach { (p, icon) ->
+                entries.forEach { entry ->
                     DropdownMenuItem(
-                        text = { Text(p.label) },
-                        leadingIcon = { Icon(icon, null, tint = Primer.IconSecondary, modifier = Modifier.size(18.dp)) },
-                        onClick = { onBubbleItem(p) },
+                        text = { Text(entry.label) },
+                        leadingIcon = { Icon(entry.icon, null, tint = Primer.IconSecondary, modifier = Modifier.size(18.dp)) },
+                        onClick = {
+                            when (entry) {
+                                is BubbleEntry.Page -> onBubbleItem(entry.page)
+                                is BubbleEntry.Action -> onBubbleAction(entry.key)
+                            }
+                        },
                     )
                 }
             }
