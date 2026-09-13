@@ -6,6 +6,9 @@ import androidx.compose.animation.AnimatedContentScope
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.Easing
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -16,6 +19,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 
@@ -39,25 +43,59 @@ import androidx.compose.ui.Modifier
  *
  * - **位移只用 1/4 屏**：整屏推进要重绘整块内容，长列表和 WebView 正文页会明显掉帧；
  *   1/4 屏已经足够表达方向，代价接近纯淡入；
- * - **进场 260ms / 退场 200ms**：Material 3 的常用区间；退场更快一点，让「返回」更跟手；
+ * - **进场 300ms / 退场 220ms**：Material 3 的常用区间；退场更快一点，让「返回」更跟手；
+ * - **两条曲线不一样，这是「丝滑」的主要来源**：进场用减速曲线（[PageMotion.EnterEasing]，
+ *   起步快、收尾缓），退场用加速曲线（[PageMotion.ExitEasing]，越走越快）。
+ *   两段都用同一条对称曲线（`tween` 的默认 `FastOutSlowInEasing`）时，动画**起步**那一拍是慢的，
+ *   手指已经离开屏幕、画面却「黏」着不动，观感就是不够跟手 —— 而这正是页面切换最常见的抱怨。
+ *   这套「进减速 / 出加速」与设计稿里的 `cubic-bezier(0.2, 0.8, 0.2, 1)` 同一个取向
+ *   （见 `design/messages-redesign/style.css` 的 `--ease`）；
+ * - **退场的「淡出」比「滑动」早收**：滑动走满 [PageMotion.EXIT_MS]，
+ *   但透明度在 [PageMotion.EXIT_FADE_MS] 内就到 0。两个页面在这段重叠期如果各是半透明，
+ *   中段会叠成一张「两张都看得见、又都看不清」的糊图（长列表页尤其明显）；
+ *   让旧页先退干净，重叠期就只剩新页在动，画面始终是清楚的；
  * - **不自定义 sizeTransform**：两个页面都是全屏、尺寸不变，动画里没有内容可插值。
  */
 object PageMotion {
 
     /** 子页进场时长：方向滑动 + 淡入。 */
-    const val ENTER_MS = 260
+    const val ENTER_MS = 300
 
-    /** 子页退场时长：比进场快，返回时更跟手。 */
-    const val EXIT_MS = 200
+    /** 子页退场时长（滑动走满这段）：比进场快，返回时更跟手。 */
+    const val EXIT_MS = 220
+
+    /**
+     * 退场**淡出**单独早收（比 [EXIT_MS] 短）。
+     *
+     * 滑动与淡出不必同长：让旧页先淡干净、再慢慢滑出去，重叠期就不会出现两张半透明页面叠着的糊图。
+     */
+    const val EXIT_FADE_MS = 130
 
     /** 位移距离 = 容器宽度的 1/4（见类注释里的取舍）。 */
     const val SLIDE_FRACTION = 0.25f
 
     /** 同级（Tab）切换时长。 */
-    const val TAB_MS = 180
+    const val TAB_MS = 220
+
+    /** 同级切换的退场淡出时长（同样比滑动早收，理由见 [EXIT_FADE_MS]）。 */
+    const val TAB_FADE_OUT_MS = 140
 
     /** 同级切换时新内容的起始上浮距离（容器高度的比例）。 */
     const val TAB_RISE_FRACTION = 0.02f
+
+    /**
+     * 进场曲线：**减速**（起步快、收尾缓）。
+     *
+     * 页面「进来」是把用户的意图落到实处，起步就要跟上手指；用对称曲线会在起步处黏一拍。
+     */
+    val EnterEasing: Easing = LinearOutSlowInEasing
+
+    /**
+     * 退场曲线：**加速**（起步慢、越走越快）。
+     *
+     * 页面「离开」是让位，越走越快才像干脆地退开；用减速曲线尾巴会拖。
+     */
+    val ExitEasing: Easing = FastOutLinearInEasing
 }
 
 /**
@@ -97,12 +135,17 @@ internal fun pageIsCurrent(target: Any?, current: Any?): Boolean = target == cur
  *
  * 3. 给每一格内容下发 [LocalPageActive]（见 [pageIsCurrent]）：**退场中的旧页一律放手**，
  *    否则用户「连按两次返回」的第二次会被旧页吃掉（顶层双击退出直接失灵）。
+ *
+ * [contentKey] 默认「状态本身」，也就是**状态值一变就当成换了一页**。带 payload 的路由如果
+ * payload 会在同一页内变（例：登录流程的 `Authorizing(url, verifier)` / `Error(message)`），
+ * 应传 `{ it::class }` 之类的稳定身份，否则同页刷新会白播一次换页动画。
  */
 @Composable
 fun <S : PageLevel> PageSwitcher(
     state: S,
     modifier: Modifier = Modifier,
     label: String = "page",
+    contentKey: (S) -> Any? = { it },
     content: @Composable AnimatedContentScope.(S) -> Unit,
 ) {
     AnimatedContent(
@@ -117,6 +160,7 @@ fun <S : PageLevel> PageSwitcher(
                 else -> levelTransform()
             }
         },
+        contentKey = contentKey,
         label = label,
     ) { target ->
         CompositionLocalProvider(LocalPageActive provides pageIsCurrent(target, state)) {
@@ -198,25 +242,47 @@ fun <S> TabSwitcher(
     state: S,
     modifier: Modifier = Modifier,
     label: String = "tab",
+    contentKey: (S) -> Any? = { it },
     content: @Composable AnimatedContentScope.(S) -> Unit,
 ) {
+    // 同级页来回切时，退场动画一结束 `AnimatedContent` 就把旧内容移出组合树 ——
+    // 里面 `rememberSaveable` 的东西（列表滚动位置、筛选、展开态…）跟着一起丢，
+    // 表现成「切走再切回来，列表回到顶部」。用同一个 holder 按目的地存住它们：
+    // 动画照旧「切一次播一次」，但切回来还是原来的位置。
+    //
+    // 只给 TabSwitcher 加：这里的 key 都是枚举 / 整数（`NavDestination`、`RepoPage`、
+    // `ProfileTab`、步骤号），能被 Bundle 序列化；`PageSwitcher` 的路由 key 是带 payload 的
+    // data class（如 `MainRoute.Repo(RepoDeepLink)`），不是所有都能存，强行加会在存盘时炸。
+    val stateHolder = rememberSaveableStateHolder()
     AnimatedContent(
         targetState = state,
         modifier = modifier,
         transitionSpec = { levelTransform() },
+        contentKey = contentKey,
         label = label,
     ) { target ->
-        CompositionLocalProvider(LocalPageActive provides pageIsCurrent(target, state)) {
-            content(target)
+        stateHolder.SaveableStateProvider(target as Any) {
+            CompositionLocalProvider(LocalPageActive provides pageIsCurrent(target, state)) {
+                content(target)
+            }
         }
     }
 }
 
-/** 同级切换的进出组合（Tab 与 [PageSwitcher] 的同层分支共用）。 */
+/**
+ * 同级切换的进出组合（Tab 与 [PageSwitcher] 的同层分支共用）。
+ *
+ * 进出两段共用 [PageMotion.EnterEasing]：同级切换没有「方向」，只有一个「内容被换掉了」的
+ * 提示，这里要的是**稳定的一次呼吸**，不该出现「新内容比旧内容先到位」的时序差。
+ * 退场淡出同样早收（[PageMotion.TAB_FADE_OUT_MS]），避免两张半透明的整页叠在中段。
+ */
 private fun levelTransform(): ContentTransform {
     val rise = { h: Int -> (h * PageMotion.TAB_RISE_FRACTION).toInt() }
-    return (fadeIn(tween(PageMotion.TAB_MS)) + slideInVertically(tween(PageMotion.TAB_MS)) { rise(it) }) togetherWith
-        (fadeOut(tween(PageMotion.TAB_MS)) + slideOutVertically(tween(PageMotion.TAB_MS)) { -rise(it) })
+    val enter = fadeIn(tween(PageMotion.TAB_MS, easing = PageMotion.EnterEasing)) +
+        slideInVertically(tween(PageMotion.TAB_MS, easing = PageMotion.EnterEasing)) { rise(it) }
+    val exit = fadeOut(tween(PageMotion.TAB_FADE_OUT_MS, easing = PageMotion.ExitEasing)) +
+        slideOutVertically(tween(PageMotion.TAB_MS, easing = PageMotion.ExitEasing)) { -rise(it) }
+    return enter togetherWith exit
 }
 
 /**
@@ -225,24 +291,29 @@ private fun levelTransform(): ContentTransform {
  * @param dir `+1` = 前进（新内容从右进、旧内容向左退）；`-1` = 返回（反过来）
  */
 private fun pageTransform(dir: Int): ContentTransform {
-    val enter = slideInHorizontally(tween(PageMotion.ENTER_MS)) { w ->
+    val enter = slideInHorizontally(tween(PageMotion.ENTER_MS, easing = PageMotion.EnterEasing)) { w ->
         dir * (w * PageMotion.SLIDE_FRACTION).toInt()
-    } + fadeIn(tween(PageMotion.ENTER_MS))
+    } + fadeIn(tween(PageMotion.ENTER_MS, easing = PageMotion.EnterEasing))
 
-    val exit = slideOutHorizontally(tween(PageMotion.EXIT_MS)) { w ->
+    // 滑动走满 EXIT_MS，淡出只走 EXIT_FADE_MS：旧页先退干净，重叠期画面才不糊。
+    val exit = slideOutHorizontally(tween(PageMotion.EXIT_MS, easing = PageMotion.ExitEasing)) { w ->
         -dir * (w * PageMotion.SLIDE_FRACTION).toInt()
-    } + fadeOut(tween(PageMotion.EXIT_MS))
+    } + fadeOut(tween(PageMotion.EXIT_FADE_MS, easing = PageMotion.ExitEasing))
 
     // 不自定义 sizeTransform：两个页面都是全屏，尺寸不会变（这版 Compose 里它也是 internal）
     return enter togetherWith exit
 }
 
 /** 供页面自行组合时复用（例如想给某个特殊页面单独定制动效）。 */
-fun pageEnterTransition(dir: Int): EnterTransition = slideInHorizontally(tween(PageMotion.ENTER_MS)) { w ->
+fun pageEnterTransition(dir: Int): EnterTransition = slideInHorizontally(
+    tween(PageMotion.ENTER_MS, easing = PageMotion.EnterEasing),
+) { w ->
     dir * (w * PageMotion.SLIDE_FRACTION).toInt()
-} + fadeIn(tween(PageMotion.ENTER_MS))
+} + fadeIn(tween(PageMotion.ENTER_MS, easing = PageMotion.EnterEasing))
 
 /** 与 [pageEnterTransition] 配对的退场。 */
-fun pageExitTransition(dir: Int): ExitTransition = slideOutHorizontally(tween(PageMotion.EXIT_MS)) { w ->
+fun pageExitTransition(dir: Int): ExitTransition = slideOutHorizontally(
+    tween(PageMotion.EXIT_MS, easing = PageMotion.ExitEasing),
+) { w ->
     -dir * (w * PageMotion.SLIDE_FRACTION).toInt()
-} + fadeOut(tween(PageMotion.EXIT_MS))
+} + fadeOut(tween(PageMotion.EXIT_FADE_MS, easing = PageMotion.ExitEasing))

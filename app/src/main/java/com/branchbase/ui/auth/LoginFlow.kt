@@ -75,7 +75,18 @@ fun LoginFlow(
 
     // 登录流程内部也按层级切换（欢迎 0 → 介绍页 1 → 授权中/密钥填写 2 → 主界面 3）：
     // 前进从右滑入、返回向右滑出，与 App 其它页面同一套动效规则。
-    PageSwitcher(state = state, modifier = Modifier.fillMaxSize(), label = "login-step") { s ->
+    //
+    // contentKey 取「状态类型」而不是状态本身：`Authorizing(url, verifier)` / `LoggedIn(json)` /
+    // `Error(message)` 都是**带 payload 的 data class**，payload 在同页内一变（例如连错两次、
+    // 换一个授权地址），按「状态本身」算就会被当成换了一页、白播一次切换动画。
+    // 页面身份只有「哪一步」这一层（见 LoginState 的注释：页面态与请求态分开），
+    // 所以身份用 `::class` 恰好。
+    PageSwitcher(
+        state = state,
+        modifier = Modifier.fillMaxSize(),
+        label = "login-step",
+        contentKey = { it::class },
+    ) { s ->
         when (s) {
             // 欢迎页：两种登录模式各一个入口（点进去各有流程要点介绍页）
             is LoginState.Idle -> WelcomeScreen(
