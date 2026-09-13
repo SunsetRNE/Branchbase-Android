@@ -116,6 +116,8 @@ fun LogScreen(onBack: () -> Unit) {
             Text("日志", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
             Spacer(Modifier.weight(1f))
             TextButton(onClick = {
+                // 写盘是异步的（见 FileAppender）：导出前先等积压落盘，否则会少最后几行
+                LogManager.flush()
                 val c = LogManager.logFile()?.readText().orEmpty()
                 clipboard.setText(AnnotatedString(c.ifEmpty { "（暂无日志）" }))
             }) { Text("导出 .log", color = Primer.Blue500, fontSize = 13.sp) }

@@ -131,11 +131,17 @@ fun ProfileScreen(
         }
     }
     // 共享仓库数据：个人页加载一次，Overview/Repositories 复用（避免重复请求）
-    val token = runCatching { JSONObject(sessionJson).getJSONObject("token").optString("access_token") }.getOrNull() ?: ""
-    val host = runCatching { JSONObject(sessionJson).optString("host", "github.com") }.getOrDefault("github.com")
+    //
+    // sessionJson 只解析**一次**：原先是三处各自 `JSONObject(sessionJson)`，而且都没进 remember
+    // —— 这个页面每重组一次就要把整份 session 解析三遍，而它在 Main ↔ 子页切换时会反复重组。
+    val session = remember(sessionJson) { runCatching { JSONObject(sessionJson) }.getOrNull() }
+    val token = remember(session) {
+        runCatching { session?.getJSONObject("token")?.optString("access_token") }.getOrNull() ?: ""
+    }
+    val host = remember(session) { session?.optString("host", "github.com") ?: "github.com" }
     var repos by remember { mutableStateOf<List<RepoItem>>(emptyList()) }
     var reposLoading by remember { mutableStateOf(true) }
-    val user = runCatching { JSONObject(sessionJson).getJSONObject("user") }.getOrNull()
+    val user = remember(session) { runCatching { session?.getJSONObject("user") }.getOrNull() }
     // login 兜底顺序：session.user.login → 当前账号（多账号表）→ 空
     // （OAuth 交换的 session 原本只有 token，user 由 LoginViewModel 登录后补全）
     val accountLogin = remember { AccountStore.currentLogin(context) }
