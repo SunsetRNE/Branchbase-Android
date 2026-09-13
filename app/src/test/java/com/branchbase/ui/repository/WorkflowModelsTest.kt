@@ -1,5 +1,6 @@
 package com.branchbase.ui.repository
 
+import com.branchbase.joblogs.LogSegment
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -202,45 +203,14 @@ class WorkflowModelsTest {
 
     // ── 日志分段 ──
 
+    // 「按 `##[group]` 切段」的解析用例已随实现迁到 :joblogs 模块（JobLogParserTest）；
+    // 这里只留需要 JobStep 这个 App 模型的「标题 ↔ 步骤名」匹配。
+
     private val steps = listOf(
         JobStep(1, "Set up job", "completed", "success"),
         JobStep(2, "Run actions/checkout@v4", "completed", "success"),
         JobStep(3, "Run tests", "completed", "failure"),
     )
-
-    @Test
-    fun `按 group 切分日志并去掉时间戳`() {
-        val log = """
-            2026-09-07T13:42:35.1234567Z ##[group]Set up job
-            2026-09-07T13:42:35.2345678Z Runner name: foo
-            2026-09-07T13:42:36.0000000Z ##[endgroup]
-            2026-09-07T13:42:36.1000000Z ##[group]Run actions/checkout@v4
-            2026-09-07T13:42:37.0000000Z with: fetch-depth: 0
-            2026-09-07T13:42:38.0000000Z ##[endgroup]
-            2026-09-07T13:42:39.0000000Z ##[group]Run tests
-            2026-09-07T13:42:40.0000000Z FAIL src/a.kt
-            2026-09-07T13:42:41.0000000Z ##[endgroup]
-        """.trimIndent()
-
-        val segs = splitJobLogBySteps(log, steps)
-        assertEquals(3, segs.size)
-        assertEquals("Set up job", segs[0].title)
-        assertEquals(listOf("Runner name: foo"), segs[0].lines)
-        assertEquals("Run actions/checkout@v4", segs[1].title)
-        assertEquals("FAIL src/a.kt", segs[2].lines.single())
-        // 时间戳被剥掉
-        assertTrue(segs.all { s -> s.lines.none { it.contains("2026-09-07T") } })
-    }
-
-    @Test
-    fun `无 group 标记时整体一段 不丢内容`() {
-        val log = "第一行\n第二行"
-        val segs = splitJobLogBySteps(log, steps)
-        assertEquals(1, segs.size)
-        assertEquals("全部日志", segs[0].title)
-        assertEquals(listOf("第一行", "第二行"), segs[0].lines)
-        assertTrue(splitJobLogBySteps("", steps).isEmpty())
-    }
 
     @Test
     fun `段落标题与步骤名匹配`() {

@@ -182,6 +182,10 @@ dependencies {
     // 图片查看器独立模块（正文页点图放大：双指缩放 / 双击 / 下拉关闭）
     implementation(project(":imageviewer"))
 
+    // 作业日志独立模块（取数单飞合并 / 分组切段 / 内存与磁盘缓存）
+    // :app 只注入日志来源（RustBridge）与缓存适配（PageCache），见 JobLogWiring.kt
+    implementation(project(":joblogs"))
+
     // core library desugaring：Sora Editor 的 language-textmate 要求
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 

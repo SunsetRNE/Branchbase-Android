@@ -1,5 +1,6 @@
 package com.branchbase.ui.repository
 
+import com.branchbase.joblogs.LogSegment
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
@@ -246,57 +247,9 @@ fun eventLabel(event: String): String = when (event) {
 
 // ── 日志分段 ──
 
-/** 一段日志（按 `##[group]` 切分，标题通常等于步骤名）。 */
-data class LogSegment(val title: String, val lines: List<String>)
-
-private val LOG_TIMESTAMP = Regex("^\\d{4}-\\d{2}-\\d{2}T[0-9:.]+Z ?")
-
-/** 去掉 GitHub 日志行首的 ISO 时间戳（保留正文，便于阅读）。 */
-fun stripLogTimestamp(line: String): String = LOG_TIMESTAMP.replaceFirst(line, "")
-
-/**
- * 把 job 日志按 `##[group]…##[endgroup]` 切成段。
- *
- * GitHub 的日志里每个 step 通常对应一个 group（`run:` 步骤的 group 名是步骤名或命令行，
- * `uses:` 步骤是 `Run owner/repo@ref`），因此可以据此把日志归到具体步骤下。
- * 没有 group 标记时返回单段「全部日志」，绝不丢内容。
- */
-fun splitJobLogBySteps(log: String, steps: List<JobStep> = emptyList()): List<LogSegment> {
-    if (log.isBlank()) return emptyList()
-    val segments = mutableListOf<LogSegment>()
-    var currentTitle: String? = null
-    var current = mutableListOf<String>()
-
-    fun flush() {
-        if (current.isNotEmpty()) {
-            segments += LogSegment(currentTitle ?: "全部日志", current.toList())
-        }
-        current = mutableListOf()
-    }
-
-    log.split('\n').forEach { raw ->
-        val line = stripLogTimestamp(raw.trimEnd('\r'))
-        val groupAt = line.indexOf("##[group]")
-        when {
-            groupAt >= 0 -> {
-                flush()
-                currentTitle = line.substring(groupAt + "##[group]".length).trim()
-            }
-
-            line.contains("##[endgroup]") -> {
-                flush()
-                currentTitle = null
-            }
-
-            else -> current += line
-        }
-    }
-    flush()
-
-    // 完全没有 group：内容整体落在「全部日志」一段里，直接返回
-    if (segments.size == 1 && segments[0].title == "全部日志") return segments
-    return segments
-}
+// 日志的取数、缓存与「按 `##[group]` 切段」都在独立模块 :joblogs 里
+// （`JobLogStore` / `LogSegment` / `splitJobLogBySteps`）；本文件只留
+// 「段落标题 ↔ 步骤名」的匹配 —— 它要读 JobStep 这个 App 模型，属于渲染关切。
 
 /** 段落标题与步骤名是否指同一步骤（GitHub 的 group 名不总是完全等于步骤名）。 */
 fun segmentMatchesStep(segmentTitle: String, stepName: String): Boolean {

@@ -44,7 +44,9 @@ import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import com.branchbase.core.RustBridge
+import com.branchbase.joblogs.JobLogStore
 import com.branchbase.ui.theme.iconTap
+import com.branchbase.ui.theme.CodeSyntax
 import com.branchbase.ui.theme.Primer
 
 /**
@@ -173,7 +175,7 @@ private fun WorkflowRunRow(run: WorkflowRun, onClick: () -> Unit) {
 
 /**
  * 运行详情：委托给 `WorkflowRunDetailScreen`（原生富渲染：run 头部 + jobs→steps 时间线 +
- * 步骤日志 + 注解 + 产物）。保留本函数名与签名，调用方无需改动。
+ * 步骤日志 + 注解 + 产物）。保留本函数名，调用方按新形参补一个共用的日志 store。
  */
 @Composable
 fun RunDetailContent(
@@ -181,6 +183,7 @@ fun RunDetailContent(
     owner: String,
     repo: String,
     runId: Long,
+    logStore: JobLogStore,
     onBack: () -> Unit,
     onOpenJob: (Long) -> Unit,
 ) {
@@ -189,6 +192,7 @@ fun RunDetailContent(
         owner = owner,
         repo = repo,
         runId = runId,
+        logStore = logStore,
         onBack = onBack,
         onOpenJob = onOpenJob,
     )
@@ -214,6 +218,7 @@ fun JobDetailContent(
     repo: String,
     jobId: Long,
     onBack: () -> Unit,
+    logStore: JobLogStore,
 ) {
     val (host, token, _) = sessionInfo(sessionJson)
     val context = LocalContext.current
@@ -225,11 +230,10 @@ fun JobDetailContent(
         loading = true
         val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
         val jobKey = PageCache.jobKey(owner, repo, jobId)
-        val logKey = PageCache.jobLogKey(owner, repo, jobId)
 
-        // ① 直出（steps 与日志都可能已缓存）
+        // ① 直出（steps 与日志都可能已缓存）：日志走 :joblogs（内存 → PageCache 磁盘）
         PageCache.cachedFirst(manager, jobKey, PageCache.TYPE_DETAIL)?.let { steps = parseJobSteps(it) }
-        PageCache.cachedFirst(manager, logKey, PageCache.TYPE_FILE)?.let { logs = it }
+        logStore.cached(jobId)?.let { logs = it.text }
         if (steps.isNotEmpty() || logs.isNotBlank()) loading = false
 
         // ② 回源（steps 与日志并行）
@@ -239,13 +243,9 @@ fun JobDetailContent(
                     RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/jobs/$jobId")
                 }
             }
-            val logJob = async {
-                PageCache.refresh(manager, logKey, PageCache.TYPE_FILE) {
-                    RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/jobs/$jobId/logs")
-                }
-            }
+            val logJob = async { logStore.refresh(jobId) }
             stepsJob.await()?.let { steps = parseJobSteps(it) }
-            logJob.await()?.let { logs = it }
+            logJob.await()?.let { logs = it.text }
         }
         loading = false
     }
@@ -262,8 +262,11 @@ fun JobDetailContent(
                             fontFamily = FontFamily.Monospace,
                             fontSize = 11.sp,
                             lineHeight = 16.sp,
-                            color = Color(0xFF24292F),
-                            modifier = Modifier.fillMaxWidth().background(Color(0xFFF6F8FA)).padding(12.dp),
+                            // 日志块跟随主题（CodeSyntax.CodeBg + Primer.TextPrimary，
+                            // 与搜索页代码块、文件页只读预览同一约定）——以前这里写死的是
+                            // 浅色主题取值，深色下是「深灰字压深色底」。
+                            color = Primer.TextPrimary,
+                            modifier = Modifier.fillMaxWidth().background(CodeSyntax.CodeBg).padding(12.dp),
                         )
                     }
                 }

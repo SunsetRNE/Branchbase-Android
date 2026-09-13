@@ -46,3 +46,9 @@ include(":downloader")
 // 正文渲染器（ReadmeWebView）用它弹一个全屏可缩放查看器。
 // 移除步骤：删本目录 + 本行 include + :app 的依赖 + ReadmeWebView 里那一处调用。
 include(":imageviewer")
+
+// 作业日志独立模块（GitHub Actions 的 job 日志：取数 / 单飞合并 / 分段 / 缓存）：
+// 只认「jobId → 日志原文」这一个来源，不认识 GitHub / Token / RustBridge / Room / PageCache；
+// 日志来源与缓存由 :app 注入（见 ui/repository/JobLogWiring.kt）。
+// 移除步骤：删本目录 + 本行 include + :app 的依赖 + JobLogWiring.kt 与两处 store 调用。
+include(":joblogs")

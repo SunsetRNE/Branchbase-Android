@@ -168,6 +168,9 @@ fun RepositoryScreen(
     val scope = rememberCoroutineScope()
     // 本地 git 相关动作（分支同步页）需要 token
     val sessionToken = remember(sessionJson) { sessionInfo(sessionJson).second }
+    // 作业日志：在仓库页这一层建**一个**，Run 详情与 Job 详情共用 ——
+    // 两个页面切来切去不会重复下载、也不会重复切段（取数逻辑在 :joblogs 模块）
+    val jobLogStore = rememberJobLogStore(sessionJson, owner, repo)
     // 当前提交模式：**它同时是「Git 悬浮球是否出现」的判据**（只有本地仓库模式才显示），
     // 所以必须是随切换更新的状态；只存 label 字符串就没法参与这个判断了。
     var mode by remember { mutableStateOf<CommitMode?>(commitMode(context)) }
@@ -470,6 +473,7 @@ fun RepositoryScreen(
                     repo = repo,
                     jobId = job,
                     onBack = { jobDetailPage = null },
+                    logStore = jobLogStore,
                 )
             }
 
@@ -482,6 +486,7 @@ fun RepositoryScreen(
                     owner = owner,
                     repo = repo,
                     runId = run,
+                    logStore = jobLogStore,
                     onBack = { runDetailPage = null },
                     onOpenJob = { jobDetailPage = it },
                 )

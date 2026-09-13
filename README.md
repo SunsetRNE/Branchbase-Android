@@ -46,6 +46,7 @@ Branchbase/
 │   ├── src/main/java/com/branchbase/downloader/  #   引擎 + 服务 + 通知 + 权限 + 系统动作
 │   └── src/main/AndroidManifest.xml              #   权限 / 前台服务 / FileProvider 都随模块合并
 ├── imageviewer/         # 图片查看器独立模块（正文页点图放大：缩放/平移/下拉关闭）
+├── joblogs/             # 作业日志独立模块（取数单飞合并/分组切段/缓存；来源与缓存由 :app 注入）
 ├── tools/               # 环境与构建脚本（tools/env、tools/build）
 ├── .github/workflows/   # CI/CD（Beta / Release）
 ├── version.properties   # 工程版本号配置（手动维护）
@@ -416,6 +417,37 @@ Sora 默认色板的 `TEXT_NORMAL = #FF333333` 且**不随明暗切换** —— 
 
 文字颜色一旦写错，编译不报、运行不崩、单测不测就**只有真机上肉眼能发现** ——
 这就是 `EditorPaletteTest` 存在的原因（配色是纯数据 + 纯映射，可在 JVM 上直接断言）。
+
+## 🧾 作业日志（`:joblogs`）
+
+GitHub Actions 的 job 日志（运行详情页按步骤看、Job 详情页整段看）以前在 `:app` 里
+**写了两遍**：各自的地址、各自的失败判定、各自的分段。现在取数收进 `:joblogs`：
+
+| 文件 | 职责 |
+|------|------|
+| `JobLogStore.kt` | 入口：内存 LRU → 缓存直出 → 回源；**同一 jobId 的并发调用合并成一次下载** |
+| `JobLogParser.kt` | 纯逻辑：剥掉行首 ISO 时间戳、按 `##[group]` 切段（可 JVM 单测） |
+| `JobLogCache.kt` | 缓存**窄接口**（先直出 / 回源两段式），由 `:app` 用 `PageCache` 实现 |
+| `JobLogSource` | 日志来源，「jobId → 日志原文」，由 `:app` 用 `RustBridge` 实现 |
+
+模块只认这两样注入，**不认识** GitHub / Token / RustBridge / Room / PageCache。
+接线全在 `:app` 的 `ui/repository/JobLogWiring.kt` 一个文件里，删模块时连它一起删。
+
+三条设计约束：
+
+- **单飞（single-flight）而不是「多线程」**：日志的可感开销是「下载整份日志 + 逐行切段」，
+  前者是网络等待、后者已经在 `Dispatchers.Default` 上，加线程数不会更快。真正省时间的是
+  同一 jobId 的并发请求只发一次 —— 例如运行详情页与 Job 详情页来回切、或手快点两个步骤。
+  模块不创建线程、也不持有自己的作用域，全部跑在调用方的协程里；
+- **页面之间共用一份 store**：`JobLogStore` 在 `RepositoryScreen` 层建一个，两个详情页共用，
+  于是已切好的分段与在飞请求表都是同一份；`rememberJobLogStore` 放在页面里会让内存缓存
+  随页面销毁而白建；
+- **失败就是 null**：`:app` 把 `RustBridge` 的两种失败（null / `ERROR:` 前缀）折叠成 null，
+  模块不解析任何错误字符串。取不到时**不写缓存**，下次调用会重新发起（可重试）。
+
+`WorkflowLogThemeTest` 钉住两条源码级约束：工作流两个页面的日志块必须跟随主题
+（`CodeSyntax.CodeBg` + `Primer.TextPrimary`，不得再出现浅色主题的写死取值），
+且作业日志地址只允许出现在接线层一处。
 
 ## 🎞 动效（两层规格：页面 / 元素）
 

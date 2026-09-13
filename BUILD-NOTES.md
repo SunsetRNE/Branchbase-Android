@@ -187,6 +187,7 @@ JNI 导出函数是**按名字 + 形参个数**硬匹配的：`RustBridge.native
 | `version.properties` | 工程版本号 / 版本码（手动维护） |
 | `app/build.gradle.kts` | 版本号标准化（优先读环境变量注入）+ APK 命名 + 签名配置 |
 | `translate/build.gradle.kts` | 沉浸式翻译模块（纯 Kotlin library，无 Compose；模块边界与移除步骤写在文件头注释） |
+| `joblogs/build.gradle.kts` | 作业日志模块（纯逻辑，无 Compose / 无 Android API；取数单飞合并 + 切段 + 缓存） |
 | `core/src/translate/` | 翻译后端（`mod.rs` 选后端 + `mymemory.rs` / `deepseek.rs`），改这里要重建 `.so` |
 | `core/tests/deepseek_http.rs` | 回环服务验证 DeepSeek 请求形状的集成测试（不联网、不需要 Key） |
 | `gradle/libs.versions.toml` | AGP / Kotlin / Compose 等依赖版本 |

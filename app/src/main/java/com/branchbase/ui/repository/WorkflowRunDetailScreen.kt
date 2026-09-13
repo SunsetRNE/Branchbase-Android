@@ -48,13 +48,14 @@ import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
+import com.branchbase.joblogs.JobLog
+import com.branchbase.joblogs.JobLogStore
 import com.branchbase.ui.theme.iconTap
+import com.branchbase.ui.theme.CodeSyntax
 import com.branchbase.ui.theme.Primer
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
  * 工作流运行详情（原生富渲染），对齐 GitHub 网页版的信息结构：
@@ -72,15 +73,13 @@ import kotlinx.coroutines.withContext
 private const val MAX_LOG_LINES = 200
 private const val LOG_BOX_MAX_HEIGHT_DP = 320
 
-private val LogBackground = Color(0xFFF6F8FA)
-private val LogTextColor = Color(0xFF24292F)
-
 @Composable
 fun WorkflowRunDetailScreen(
     sessionJson: String,
     owner: String,
     repo: String,
     runId: Long,
+    logStore: JobLogStore,
     onBack: () -> Unit,
     onOpenJob: (Long) -> Unit,
 ) {
@@ -96,30 +95,29 @@ fun WorkflowRunDetailScreen(
     var failed by remember { mutableStateOf(false) }
     var retryTick by remember { mutableStateOf(0) }
 
-    // 展开态 / 日志缓存：都以 jobId 为键，跨重组保留，仅本页面生命周期有效
+    // 展开态 / 日志装载态：都以 jobId 为键，跨重组保留，仅本页面生命周期有效。
+    // 日志**内容**不放这里 —— 它由 `:joblogs` 的 store 持有（在 RepositoryScreen 层创建，
+    // 与 Job 详情页共用同一份内存分段和同一张在飞请求表）；这里只存本次渲染要显示的成品。
     val expandedJobs = remember { mutableStateMapOf<Long, Boolean>() }
     val selectedSteps = remember { mutableStateMapOf<Long, Long>() }
-    val jobLogs = remember { mutableStateMapOf<Long, String>() }
-    val jobSegments = remember { mutableStateMapOf<Long, List<LogSegment>>() }
+    val jobLogs = remember { mutableStateMapOf<Long, JobLog>() }
     val logLoading = remember { mutableStateMapOf<Long, Boolean>() }
     val logFailed = remember { mutableStateMapOf<Long, Boolean>() }
     val logExpanded = remember { mutableStateMapOf<Long, Boolean>() }
 
-    /** 懒加载某个 job 的完整日志：命中缓存或正在加载则直接返回；失败不写缓存，便于再次点击重试。 */
+    /**
+     * 懒加载某个 job 的完整日志：命中缓存或正在加载则直接返回；失败不写状态，便于再次点击重试。
+     *
+     * 去重（同一 jobId 的并发调用合并成一次下载）、缓存、切段都在 [JobLogStore] 里，
+     * 这里只把「装载中 / 失败 / 成品」三种结果映射到 Compose 状态上。
+     */
     fun loadJobLog(job: RunJob) {
         if (jobLogs.containsKey(job.id) || logLoading[job.id] == true) return
         logLoading[job.id] = true
         logFailed[job.id] = false
         scope.launch {
-            val text = RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/jobs/${job.id}/logs")
-            if (text == null || text.startsWith("ERROR:")) {
-                logFailed[job.id] = true
-            } else {
-                // 分段放到后台线程：日志可达数 MB，主线程逐行 split + 正则会造成可见卡顿
-                val segments = withContext(Dispatchers.Default) { splitJobLogBySteps(text, job.steps) }
-                jobLogs[job.id] = text
-                jobSegments[job.id] = segments
-            }
+            val log = logStore.load(job.id)
+            if (log == null) logFailed[job.id] = true else jobLogs[job.id] = log
             logLoading[job.id] = false
         }
     }
@@ -134,7 +132,6 @@ fun WorkflowRunDetailScreen(
         expandedJobs.clear()
         selectedSteps.clear()
         jobLogs.clear()
-        jobSegments.clear()
         logLoading.clear()
         logFailed.clear()
         logExpanded.clear()
@@ -252,7 +249,7 @@ fun WorkflowRunDetailScreen(
 
                                 val currentStep = job.steps.firstOrNull { it.number == selectedStepNumber }
                                 if (currentStep != null) {
-                                    val segment = logSegmentForStep(jobSegments[job.id] ?: emptyList(), currentStep)
+                                    val segment = logSegmentForStep(jobLogs[job.id]?.segments ?: emptyList(), currentStep)
                                     StepLogBlock(
                                         step = currentStep,
                                         lines = segment?.lines ?: emptyList(),
@@ -495,7 +492,9 @@ private fun StepLogBlock(
                         .fillMaxWidth()
                         .heightIn(max = LOG_BOX_MAX_HEIGHT_DP.dp)
                         .clip(RoundedCornerShape(6.dp))
-                        .background(LogBackground)
+                        // 日志块跟随主题（与搜索页代码块、文件页只读预览同一约定）：
+                        // 以前这里是硬编码的浅色主题取值，深色下等于「深灰字压深色底」。
+                        .background(CodeSyntax.CodeBg)
                         .verticalScroll(rememberScrollState())
                         .padding(10.dp),
                 ) {
@@ -504,7 +503,7 @@ private fun StepLogBlock(
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
                         lineHeight = 16.sp,
-                        color = LogTextColor,
+                        color = Primer.TextPrimary,
                     )
                 }
                 if (lines.size > MAX_LOG_LINES) {
