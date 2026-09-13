@@ -30,6 +30,16 @@ sealed class NotifTarget {
     data class Pull(val owner: String, val repo: String, val number: Long) : NotifTarget()
     data class Commit(val owner: String, val repo: String, val sha: String) : NotifTarget()
     data class Run(val owner: String, val repo: String, val runId: Long) : NotifTarget()
+
+    /**
+     * 落到仓库的「工作流」tab。
+     *
+     * 只有 CheckSuite / CheckRun 会走这里：它们的 `subject.url` 是
+     * `.../check-suites/<id>` / `.../check-runs/<id>`，那个 id 与 **run id 不同域** ——
+     * 以前这里直接当成 runId 用，点通知会打开一个**编号巧合的、不相干的 run**。
+     * 通知里拿不到 run id，所以只能落到列表。
+     */
+    data class Workflows(val owner: String, val repo: String) : NotifTarget()
     data class Security(val owner: String, val repo: String, val title: String, val subjectUrl: String) : NotifTarget()
     data class Repo(val owner: String, val repo: String) : NotifTarget() // 兜底
 }
@@ -286,8 +296,12 @@ fun resolveTarget(n: Notification): NotifTarget = when (n.subjectType) {
     "PullRequest" -> n.targetNumber?.let { NotifTarget.Pull(n.owner, n.repo, it) }
         ?: NotifTarget.Repo(n.owner, n.repo)
     "Commit" -> NotifTarget.Commit(n.owner, n.repo, n.targetSha.orEmpty())
-    "CheckSuite", "CheckRun", "WorkflowRun" -> n.targetNumber?.let { NotifTarget.Run(n.owner, n.repo, it) }
-        ?: NotifTarget.Repo(n.owner, n.repo)
+    // 只有 WorkflowRun 的 subject.url 是 `/actions/runs/<id>`，那个 id 才是 run id。
+    // CheckSuite / CheckRun 的 id 是 check 域的编号，**不能**当 run id 用（会把用户带到
+    // 一个编号巧合的无关 run）—— 通知里拿不到 run id，只能落到工作流列表。
+    "WorkflowRun" -> n.targetNumber?.let { NotifTarget.Run(n.owner, n.repo, it) }
+        ?: NotifTarget.Workflows(n.owner, n.repo)
+    "CheckSuite", "CheckRun" -> NotifTarget.Workflows(n.owner, n.repo)
     "RepositoryVulnerabilityAlert", "RepositoryAdvisory" -> NotifTarget.Security(n.owner, n.repo, n.title, n.url)
     else -> NotifTarget.Repo(n.owner, n.repo)
 }

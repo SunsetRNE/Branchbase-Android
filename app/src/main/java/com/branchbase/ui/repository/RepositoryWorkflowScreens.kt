@@ -42,6 +42,9 @@ import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import com.branchbase.core.RustBridge
@@ -94,6 +97,15 @@ fun WorkflowRunsContent(
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var retryTick by remember { mutableStateOf(0) }
+
+    // 回到前台对一次：运行历史是最需要「切回来就是新的」的页面之一（CI 在后台跑完了）
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var seenStart by remember { mutableStateOf(false) }
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            if (RunPollPolicy.resumeShouldForceRefresh(seenStart)) retryTick++ else seenStart = true
+        }
+    }
 
     LaunchedEffect(owner, repo, workflowId, branch, refreshTick, retryTick) {
         loading = true
@@ -232,30 +244,50 @@ fun JobDetailContent(
 ) {
     val (host, token, _) = sessionInfo(sessionJson)
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var steps by remember { mutableStateOf<List<JobStep>>(emptyList()) }
     var logs by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(true) }
+    var logPending by remember { mutableStateOf(false) }
+    // 回到前台 / 手动重试 → +1，让下面的 effect 以 force = true 真回源一次
+    var forceTick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(owner, repo, jobId) {
+    // 回到前台对一次状态：作业在后台跑完了的话，这里就是它「自动出现」的时机
+    var seenStart by remember { mutableStateOf(false) }
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            if (RunPollPolicy.resumeShouldForceRefresh(seenStart)) forceTick++ else seenStart = true
+        }
+    }
+
+    LaunchedEffect(owner, repo, jobId, forceTick) {
         loading = true
+        logPending = false
+        val force = forceTick > 0
         val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
         val jobKey = PageCache.jobKey(owner, repo, jobId)
 
         // ① 直出（steps 与日志都可能已缓存）：日志走 :joblogs（内存 → PageCache 磁盘）
-        PageCache.cachedFirst(manager, jobKey, PageCache.TYPE_DETAIL)?.let { steps = parseJobSteps(it) }
-        logStore.cached(jobId)?.let { logs = it.text }
+        PageCache.cachedFirst(manager, jobKey, PageCache.TYPE_DETAIL, force)?.let { steps = parseJobSteps(it) }
+        logStore.cached(jobId, force)?.let { logs = it.text }
         if (steps.isNotEmpty() || logs.isNotBlank()) loading = false
 
         // ② 回源（steps 与日志并行）
         coroutineScope {
             val stepsJob = async {
-                PageCache.refresh(manager, jobKey, PageCache.TYPE_DETAIL) {
+                PageCache.refresh(manager, jobKey, PageCache.TYPE_DETAIL, force) {
                     RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/jobs/$jobId")
                 }
             }
-            val logJob = async { logStore.refresh(jobId) }
+            val logJob = async { logStore.refresh(jobId, force) }
             stepsJob.await()?.let { steps = parseJobSteps(it) }
-            logJob.await()?.let { logs = it.text }
+            val fresh = logJob.await()
+            if (fresh != null) {
+                logs = fresh.text
+            } else if (logs.isBlank() && steps.any { RunPollPolicy.isLogPending(it.status) }) {
+                // 任务还没结束 ⇒ 远端本来就没有这份日志，是**正常状态**而不是失败
+                logPending = true
+            }
         }
         loading = false
     }
@@ -265,6 +297,16 @@ fun JobDetailContent(
             loading -> CenterLoading()
             else -> LazyColumn(Modifier.fillMaxSize()) {
                 items(steps) { step -> JobStepRow(step) }
+                if (logPending) {
+                    item {
+                        Text(
+                            "任务运行中，日志将在该任务结束后自动出现",
+                            fontSize = 12.sp,
+                            color = Primer.TextTertiary,
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        )
+                    }
+                }
                 if (logs.isNotBlank()) {
                     item {
                         Text(

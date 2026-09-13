@@ -225,12 +225,13 @@ private sealed interface MainRoute : PageLevel {
     }
 }
 
-/** 通知跳转目标 → 仓库深链接（MVP：CheckSuite/CheckRun 因 id 语义差异暂落到工作流 tab；WorkflowRun 已可直达 Run 详情） */
+/** 通知跳转目标 → 仓库深链接（WorkflowRun 可直达 Run 详情；CheckSuite/CheckRun 只能落到工作流 tab） */
 private fun toDeepLink(t: NotifTarget): RepoDeepLink = when (t) {
     is NotifTarget.Issue -> RepoDeepLink(t.owner, t.repo, issueNumber = t.number)
     is NotifTarget.Pull -> RepoDeepLink(t.owner, t.repo, pullNumber = t.number)
     is NotifTarget.Commit -> RepoDeepLink(t.owner, t.repo, commitSha = t.sha)
     is NotifTarget.Run -> if (t.runId > 0) RepoDeepLink(t.owner, t.repo, runId = t.runId) else RepoDeepLink(t.owner, t.repo, page = RepoPage.Workflows)
+    is NotifTarget.Workflows -> RepoDeepLink(t.owner, t.repo, page = RepoPage.Workflows)
     is NotifTarget.Security -> RepoDeepLink(t.owner, t.repo)
     is NotifTarget.Repo -> RepoDeepLink(t.owner, t.repo)
 }

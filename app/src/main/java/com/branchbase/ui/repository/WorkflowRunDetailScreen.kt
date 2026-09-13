@@ -44,7 +44,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.branchbase.cache.PageCache
+import com.branchbase.cache.networkMetered
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
@@ -55,6 +59,8 @@ import com.branchbase.ui.theme.CodeSyntax
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -86,6 +92,8 @@ fun WorkflowRunDetailScreen(
     val (host, token, _) = sessionInfo(sessionJson)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // 轮询与「回前台对齐」都要用它把工作限制在 STARTED（退到后台即停，不额外保活）
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     var run by remember { mutableStateOf<WorkflowRun?>(null) }
     var jobs by remember { mutableStateOf<List<RunJob>>(emptyList()) }
@@ -94,6 +102,8 @@ fun WorkflowRunDetailScreen(
     var loading by remember { mutableStateOf(true) }
     var failed by remember { mutableStateOf(false) }
     var retryTick by remember { mutableStateOf(0) }
+    // 「回到前台 / 运行结束」时 +1：让主 effect 以 force = true 真回源一次
+    var forceTick by remember { mutableStateOf(0) }
 
     // 展开态 / 日志装载态：都以 jobId 为键，跨重组保留，仅本页面生命周期有效。
     // 日志**内容**不放这里 —— 它由 `:joblogs` 的 store 持有（在 RepositoryScreen 层创建，
@@ -103,13 +113,15 @@ fun WorkflowRunDetailScreen(
     val jobLogs = remember { mutableStateMapOf<Long, JobLog>() }
     val logLoading = remember { mutableStateMapOf<Long, Boolean>() }
     val logFailed = remember { mutableStateMapOf<Long, Boolean>() }
+    // 「job 还没结束，远端日志 blob 尚未生成」—— 与 logFailed 分开，别把正常状态显示成失败
+    val logPending = remember { mutableStateMapOf<Long, Boolean>() }
     val logExpanded = remember { mutableStateMapOf<Long, Boolean>() }
 
     /**
      * 懒加载某个 job 的完整日志：命中缓存或正在加载则直接返回；失败不写状态，便于再次点击重试。
      *
      * 去重（同一 jobId 的并发调用合并成一次下载）、缓存、切段都在 [JobLogStore] 里，
-     * 这里只把「装载中 / 失败 / 成品」三种结果映射到 Compose 状态上。
+     * 这里只把「装载中 / **还没生成** / 失败 / 成品」映射到 Compose 状态上。
      */
     fun loadJobLog(job: RunJob) {
         if (jobLogs.containsKey(job.id) || logLoading[job.id] == true) return
@@ -117,12 +129,20 @@ fun WorkflowRunDetailScreen(
         logFailed[job.id] = false
         scope.launch {
             val log = logStore.load(job.id)
-            if (log == null) logFailed[job.id] = true else jobLogs[job.id] = log
+            when {
+                log != null -> {
+                    jobLogs[job.id] = log
+                    logPending[job.id] = false
+                }
+                // job 还没结束 ⇒ 远端本来就没有这份日志，这是**正常状态**，不是失败
+                RunPollPolicy.isLogPending(job.status) -> logPending[job.id] = true
+                else -> logFailed[job.id] = true
+            }
             logLoading[job.id] = false
         }
     }
 
-    LaunchedEffect(owner, repo, runId, retryTick) {
+    LaunchedEffect(owner, repo, runId, retryTick, forceTick) {
         loading = true
         failed = false
         run = null
@@ -134,10 +154,11 @@ fun WorkflowRunDetailScreen(
         jobLogs.clear()
         logLoading.clear()
         logFailed.clear()
+        logPending.clear()
         logExpanded.clear()
 
-        // 手动重试必须真的回源
-        val force = retryTick > 0
+        // 手动重试 / 回到前台 / 运行结束 → 必须真的回源
+        val force = retryTick > 0 || forceTick > 0
         val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
         val runKey = PageCache.runKey(owner, repo, runId)
         val jobsKey = PageCache.runJobsKey(owner, repo, runId)
@@ -195,6 +216,66 @@ fun WorkflowRunDetailScreen(
             failed = parsedRun == null && parsedJobs.isEmpty()
         }
         loading = false
+    }
+
+    // ── 回到前台：对一次状态 ──
+    // 退到后台时轮询会停（`repeatOnLifecycle`），回来时状态可能已经变了 —— 强制回源一次。
+    // 这比后台常驻轮询省几个数量级，也是「不引入后台进程」这个决定的前提。
+    // 首次进入不算「回到前台」（那由上面的主 effect 负责），否则每次开页都多打一次网络。
+    var seenStart by remember { mutableStateOf(false) }
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            if (RunPollPolicy.resumeShouldForceRefresh(seenStart)) forceTick++ else seenStart = true
+        }
+    }
+
+    // ── 运行中：自适应轮询「任务状态」，任务定稿时抓一次日志 ──
+    // 为什么轮询 jobs 而不是日志：远端日志 blob 只有 job 结束后才存在，运行中根本没有可拉的东西
+    // （详见 [RunPollPolicy] 的说明）。`repeatOnLifecycle` 负责「退到后台就停」。
+    LaunchedEffect(owner, repo, runId, run?.status) {
+        if (!RunPollPolicy.shouldPoll(run?.status, foreground = true)) return@LaunchedEffect
+        val metered = networkMetered(context)
+        val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            var polls = 0
+            var failures = 0
+            var prevStatus = jobs.associate { it.id to it.status }
+            while (isActive) {
+                delay(RunPollPolicy.intervalMs(polls, metered))
+                val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/runs/$runId/jobs")
+                    ?.takeIf { !it.startsWith("ERROR:") }
+                if (json == null) {
+                    failures++
+                    delay(RunPollPolicy.backoffMs(failures))
+                    continue
+                }
+                failures = 0
+                polls++
+                val fresh = parseRunJobs(json)
+                if (fresh.isEmpty()) continue
+
+                // ① 状态推进：进度条 / 耗时 / 步骤状态跟着走
+                val justDone = newlyCompletedJobIds(prevStatus, fresh)
+                prevStatus = fresh.associate { it.id to it.status }
+                jobs = fresh
+
+                // ② 「刚刚定稿」的 job 抓一次日志（:joblogs 负责单飞与缓存），并直接补进界面
+                justDone.forEach { jobId ->
+                    val log = logStore.refresh(jobId) ?: return@forEach
+                    jobLogs[jobId] = log
+                    logPending[jobId] = false
+                    logFailed[jobId] = false
+                }
+
+                // ③ 全部任务结束 ⇒ 拉一次 run 详情拿最终结论；run?.status 一变，
+                //    这个 effect 会因 key 变化而重启并立刻 return —— 轮询到此为止。
+                if (fresh.all { it.status == "completed" }) {
+                    PageCache.refresh(manager, PageCache.runKey(owner, repo, runId), PageCache.TYPE_DETAIL, force = true) {
+                        RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/runs/$runId")
+                    }?.let { parseWorkflowRun(it) }?.let { run = it }
+                }
+            }
+        }
     }
 
     val title = run?.let { r ->
@@ -255,6 +336,7 @@ fun WorkflowRunDetailScreen(
                                         lines = segment?.lines ?: emptyList(),
                                         loaded = jobLogs.containsKey(job.id),
                                         loading = logLoading[job.id] == true,
+                                        pending = logPending[job.id] == true,
                                         failed = logFailed[job.id] == true,
                                         expanded = logExpanded[job.id] == true,
                                         onToggleExpand = { logExpanded[job.id] = logExpanded[job.id] != true },
@@ -457,6 +539,7 @@ private fun StepLogBlock(
     lines: List<String>,
     loaded: Boolean,
     loading: Boolean,
+    pending: Boolean,
     failed: Boolean,
     expanded: Boolean,
     onToggleExpand: () -> Unit,
@@ -473,6 +556,15 @@ private fun StepLogBlock(
 
         when {
             loading -> Text("正在加载日志…", fontSize = 11.5.sp, color = Primer.TextTertiary)
+
+            // 「还没生成」不是失败：远端日志 blob 只有 job 结束后才存在（见 RunPollPolicy）。
+            // 不给「重试」按钮 —— 重试也不会变出来；它一结束本页会自动把它补上。
+            pending -> Text(
+                "任务运行中，日志将在该任务结束后自动出现",
+                fontSize = 11.5.sp,
+                color = Primer.TextTertiary,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
 
             failed -> Text(
                 "日志加载失败，点击重试",

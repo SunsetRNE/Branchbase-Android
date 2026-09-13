@@ -449,6 +449,32 @@ GitHub Actions 的 job 日志（运行详情页按步骤看、Job 详情页整�
 （`CodeSyntax.CodeBg` + `Primer.TextPrimary`，不得再出现浅色主题的写死取值），
 且作业日志地址只允许出现在接线层一处。
 
+## 🔄 运行中的工作流：轮询的是**状态**，不是日志
+
+这条约束**必须写进代码注释之外的地方**，否则很容易被「顺手改成边跑边拉日志」：
+
+| 事实 | 依据 |
+|------|------|
+| 逐 job 日志是**纯文本**（不是 zip）：`GET /actions/jobs/{job_id}/logs` 返回 302，`Location:` 是签名 URL、**1 分钟过期** | REST 文档 / OpenAPI：*"a redirect URL to download a plain text file of logs for a workflow job"* |
+| **job 结束前日志 blob 不存在**（404），所以运行中**拉不到**日志 | [community #154834](https://github.com/orgs/community/discussions/154834)（*API No Longer Returns Logs in Real-Time, Only After Job Completion*）、[#75518](https://github.com/orgs/community/discussions/75518) |
+| GitHub **没有**长轮询 / SSE：挂住连接不会等到新内容。网页版能实时滚动，走的是**未公开**的内部 websocket（`pipelines.actions.githubusercontent.com`） | [逆向记录](https://github.com/Hacksore/github-websocket-pipeline-api) |
+
+由此定下三条：
+
+1. **持续获取的对象是 `GET /actions/runs/{id}/jobs`**（几 KB JSON，带每个 job / step 的状态与时间戳）；
+   日志只在**某个 job 的 status 变成 `completed`** 的那一刻抓一次（`newlyCompletedJobIds` 差分决定），
+   之后该 job 永不重抓；
+2. **不在后台轮询**：`WorkManager` 的周期任务有 [15 分钟硬下限](https://android.googlesource.com/platform/frameworks/support/+/androidx-main/work/work-runtime/src/main/java/androidx/work/PeriodicWorkRequest.kt)，
+   要更快就得常驻前台服务（常驻通知是**用户可见的代价**）。而「跑完知道」这件事
+   已经由 GitHub 的服务端 webhook 通知兜住了（`WorkflowRun` 通知可直达 Run 详情），
+   所以只需要**回到前台时强制对齐一次**；
+3. **「还没生成」不是「失败」**：job 没结束时取不到日志是**正常状态**，界面显示
+   「任务运行中，日志将在该任务结束后自动出现」，**不给「重试」按钮**。
+
+策略本身是纯逻辑，在 `ui/repository/RunPollPolicy.kt`（间隔阶梯 5s→15s→30s、
+计费网络只降速不停止、失败指数退避封顶 60s、`shouldPoll` 要求「运行中 + 前台」），
+由 `RunPollPolicyTest` 逐条钉住；取数与切片继续走 `:joblogs`（单飞 + 缓存 + 分段）。
+
 ## 🎞 动效（两层规格：页面 / 元素）
 
 此前全项目的动效基本是**零**：页面切换、Tab 切换、选中态、列表增删、加载骨架全是硬切。

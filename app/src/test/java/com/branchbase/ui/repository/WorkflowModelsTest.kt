@@ -232,4 +232,34 @@ class WorkflowModelsTest {
         assertEquals("b", logSegmentForStep(segs, steps[2])!!.lines.single())
         assertNull(logSegmentForStep(segs, JobStep(9, "不存在", "completed", "success")))
     }
+
+    // ── 运行中的差分（决定「什么时候值得抓日志」） ──
+
+    @Test
+    fun `只挑出刚刚完成的 job`() {
+        val current = listOf(
+            RunJob(1, "build", "completed", "success"),
+            RunJob(2, "test", "in_progress", null),
+            RunJob(3, "lint", "completed", "success"),
+        )
+        // 首次快照：prev 为空 ⇒ 已完成的两个都算「刚完成」（页面首次直出后也要补齐日志）
+        assertEquals(listOf(1L, 3L), newlyCompletedJobIds(emptyMap(), current))
+        // 已经记录为 completed 的不会重复出现（差分而不是全量）⇒ 不会重复抓日志
+        assertEquals(
+            emptyList<Long>(),
+            newlyCompletedJobIds(mapOf(1L to "completed", 2L to "in_progress", 3L to "completed"), current),
+        )
+        // 2 号刚跑完 ⇒ 只有它值得抓一次
+        assertEquals(
+            listOf(2L),
+            newlyCompletedJobIds(mapOf(1L to "completed", 2L to "in_progress", 3L to "completed"), current.map {
+                if (it.id == 2L) it.copy(status = "completed", conclusion = "success") else it
+            }),
+        )
+    }
+
+    @Test
+    fun `任务列表为空时不产生任何差分`() {
+        assertEquals(emptyList<Long>(), newlyCompletedJobIds(mapOf(1L to "in_progress"), emptyList()))
+    }
 }

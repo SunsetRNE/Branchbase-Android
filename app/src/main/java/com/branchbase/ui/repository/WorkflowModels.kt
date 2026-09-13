@@ -251,6 +251,20 @@ fun eventLabel(event: String): String = when (event) {
 // （`JobLogStore` / `LogSegment` / `splitJobLogBySteps`）；本文件只留
 // 「段落标题 ↔ 步骤名」的匹配 —— 它要读 JobStep 这个 App 模型，属于渲染关切。
 
+// ── 运行中的差分 ──
+
+/**
+ * 与上一次快照比较，挑出**刚刚变成 `completed`** 的 job id。
+ *
+ * 这是运行中唯一值得抓日志的时刻：远端的日志 blob 只有 job 结束后才存在
+ * （在此之前 404），所以「步骤定稿」= 「可以抓一次日志」。
+ * 已经 completed 的 job 不会重复出现（差分而不是全量），因此也不会重复抓。
+ *
+ * 纯函数，可 JVM 单测；`previous` 用 `id → status` 的映射，避免传整个模型。
+ */
+fun newlyCompletedJobIds(previous: Map<Long, String>, current: List<RunJob>): List<Long> =
+    current.filter { it.status == "completed" && previous[it.id] != "completed" }.map { it.id }
+
 /** 段落标题与步骤名是否指同一步骤（GitHub 的 group 名不总是完全等于步骤名）。 */
 fun segmentMatchesStep(segmentTitle: String, stepName: String): Boolean {
     val a = segmentTitle.trim().lowercase()
