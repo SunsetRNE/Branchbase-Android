@@ -24,13 +24,21 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.State
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 
 /**
  * 元素级动效规格（与页面级的 `ui/navigation/PageTransitions.kt` 分工不同）。
@@ -108,6 +116,58 @@ fun shimmerAlpha(): State<Float> = rememberInfiniteTransition(label = "shimmer")
     ),
     label = "shimmerAlpha",
 )
+
+/**
+ * 屏幕级 shimmer：**整屏骨架共用一条动画**。
+ *
+ * [shimmerAlpha] 的价值在于「有节奏地动」，但它有两个很容易踩的坑，都在使用方式上：
+ *
+ * 1. **不要在列表项里各调一次**。`items(6) { Skeleton() }` 里每个骨架各自
+ *    `rememberInfiniteTransition` 就是 6 条无限动画、6 个动画时钟（相位还可能漂移）；
+ * 2. **不要直接把值读进 `background(color.copy(alpha = it))`**。那是在**组合期**读状态，
+ *    骨架每帧重组一次 —— 加载中的页面本来就是「动画 + 首次组合」最重的时候，
+ *    再叠上每帧重组，就是「加载时/切页面时卡」的直接来源。
+ *
+ * 正确用法：屏幕级用 [ProvideShimmer] 包一层，占位块用 [skeletonBlock]
+ * （alpha 在**绘制期**读，只失效绘制，不触发重组）。
+ */
+@Composable
+fun ProvideShimmer(content: @Composable () -> Unit) {
+    val alpha = shimmerAlpha()
+    CompositionLocalProvider(LocalShimmerAlpha provides alpha, content = content)
+}
+
+/**
+ * 当前屏幕的 shimmer 透明度（由 [ProvideShimmer] 下发）。
+ *
+ * 拿到的必须是 `State` 本身而不是 `Float`：值要留到**绘制期**再读（见 [skeletonBlock]），
+ * 组合期读一次就等于把整块内容挂到了动画的每一帧上。
+ */
+val LocalShimmerAlpha = staticCompositionLocalOf<State<Float>> { mutableStateOf(1f) }
+
+/**
+ * 骨架占位块：用当前 shimmer 透明度画一个圆角矩形。
+ *
+ * 值在 [drawBehind] 里读 → 只失效**绘制**（不重组、不重新布局），
+ * 这正是 `Motion.kt` 与 README 里「动画值尽量在 graphicsLayer / 绘制期消费」那条约定的落法。
+ *
+ * 颜色默认取 [Primer.Gray150]（中性填充 `neutralFillStrong`）。**别用 `Primer.Border` 当填充** ——
+ * 那是描边色（见 `Color.kt` 的三条使用约束），深色下当填充用对比度也不够。
+ */
+@Composable
+fun Modifier.skeletonBlock(
+    cornerRadius: Dp = 4.dp,
+    fill: Color = Primer.Gray150,
+): Modifier {
+    val alpha = LocalShimmerAlpha.current
+    val radius = with(LocalDensity.current) { cornerRadius.toPx() }
+    return drawBehind {
+        drawRoundRect(
+            color = fill.copy(alpha = alpha.value),
+            cornerRadius = CornerRadius(radius, radius),
+        )
+    }
+}
 
 /**
  * 选中态颜色：在 [on] / [off] 之间渐变，而不是硬切。

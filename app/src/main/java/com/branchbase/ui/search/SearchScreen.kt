@@ -76,7 +76,8 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.branchbase.ui.repository.RepoRelation
 import com.branchbase.ui.repository.repoRelationOf
-import com.branchbase.ui.theme.shimmerAlpha
+import com.branchbase.ui.theme.ProvideShimmer
+import com.branchbase.ui.theme.skeletonBlock
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
@@ -602,44 +603,45 @@ private fun SearchTopBar(
     }
 }
 
-/** 搜索加载骨架屏（shimmer 微光扫过） */
+/** 搜索加载骨架屏（shimmer 呼吸） */
 @Composable
 private fun SearchSkeleton() {
-    // 微光规格收在 ui/theme/Motion.kt（通知页骨架用同一份）
-    val alpha by shimmerAlpha()
-    Column {
-        repeat(5) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Primer.BackgroundSecondary)
-                    .padding(14.dp),
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth(0.55f)
-                        .height(16.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Primer.Border.copy(alpha = alpha)),
-                )
-                Spacer(Modifier.height(10.dp))
-                Box(
+    // 微光规格收在 ui/theme/Motion.kt（通知页骨架用同一份）。
+    // ProvideShimmer 包在 repeat 外面：整屏一条动画；占位块用 skeletonBlock，
+    // alpha 在绘制期读 —— 以前是每个占位块 `background(color.copy(alpha = alpha))`，
+    // 等于把 15 个占位块都挂到动画的每一帧上，加载时每帧重组一遍。
+    ProvideShimmer {
+        Column {
+            repeat(5) {
+                Column(
                     Modifier
                         .fillMaxWidth()
-                        .height(12.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Primer.Border.copy(alpha = alpha)),
-                )
-                Spacer(Modifier.height(6.dp))
-                Box(
-                    Modifier
-                        .fillMaxWidth(0.7f)
-                        .height(12.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Primer.Border.copy(alpha = alpha)),
-                )
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Primer.BackgroundSecondary)
+                        .padding(14.dp),
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth(0.55f)
+                            .height(16.dp)
+                            .skeletonBlock(),
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(12.dp)
+                            .skeletonBlock(),
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Box(
+                        Modifier
+                            .fillMaxWidth(0.7f)
+                            .height(12.dp)
+                            .skeletonBlock(),
+                    )
+                }
             }
         }
     }

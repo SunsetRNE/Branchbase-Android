@@ -99,7 +99,8 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.theme.color
-import com.branchbase.ui.theme.shimmerAlpha
+import com.branchbase.ui.theme.ProvideShimmer
+import com.branchbase.ui.theme.skeletonBlock
 import com.branchbase.ui.theme.revealExit
 import com.branchbase.ui.theme.revealEnter
 import com.branchbase.cache.PageCache
@@ -1198,7 +1199,16 @@ private fun NotificationList(
     ) {
         when (state) {
             LoadState.Loading -> {
-                items(6) { NotificationSkeleton() }
+                // 一整格装 6 行骨架，而不是 `items(6) { NotificationSkeleton() }`：
+                // ProvideShimmer 只在这一格里存在 —— 一条动画驱动 6 行。
+                // 旧写法是每行各自 `rememberInfiniteTransition`（6 条动画 + 每帧 6 次重组）。
+                item(key = "__skeleton__") {
+                    ProvideShimmer {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            repeat(6) { NotificationSkeleton() }
+                        }
+                    }
+                }
             }
             is LoadState.Failed -> {
                 item(key = "__error__") { ErrorState(state.message, onRetry) }
@@ -1781,8 +1791,10 @@ private fun ErrorState(message: String, onRetry: () -> Unit) {
  */
 @Composable
 private fun NotificationSkeleton() {
-    // 之前这里是静态灰块：加载期间整页「死住」，与搜索页骨架（有微光）观感不一致
-    val shimmer by shimmerAlpha()
+    // 之前是静态灰块（加载期间整页「死住」），后来接了 shimmer。
+    // 占位块一律用 [skeletonBlock]：微光值在绘制期读。
+    // 早先的写法是 `background(color.copy(alpha = shimmer))` —— 组合期读状态，
+    // 6 行骨架各挂一条无限动画，加载时每帧把整块骨架重组一遍。
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
@@ -1797,15 +1809,14 @@ private fun NotificationSkeleton() {
             Box(
                 Modifier
                     .size(32.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Primer.Gray150.copy(alpha = shimmer)),
+                    .skeletonBlock(cornerRadius = 8.dp),
             )
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 // 顺序与真实卡片一致：元信息行（仓库 · 时间）在上，标题在下
-                Box(Modifier.fillMaxWidth(0.42f).height(15.dp).clip(RoundedCornerShape(4.dp)).background(Primer.Gray150.copy(alpha = shimmer)))
+                Box(Modifier.fillMaxWidth(0.42f).height(15.dp).skeletonBlock())
                 Spacer(Modifier.height(5.dp))
-                Box(Modifier.fillMaxWidth(0.72f).height(18.dp).clip(RoundedCornerShape(4.dp)).background(Primer.Gray150.copy(alpha = shimmer)))
+                Box(Modifier.fillMaxWidth(0.72f).height(18.dp).skeletonBlock())
             }
         }
     }
