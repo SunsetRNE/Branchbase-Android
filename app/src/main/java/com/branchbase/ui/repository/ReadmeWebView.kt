@@ -36,6 +36,8 @@ import com.branchbase.translate.TranslatePageSnapshot
 import com.branchbase.translate.TranslateRuntime
 import com.branchbase.translate.TranslateSettings
 import com.branchbase.ui.translate.LocalTranslateBubbleHost
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
@@ -105,9 +107,12 @@ fun ReadmeWebView(
     // 这里只负责把它们内联进 HTML —— 正文渲染器不需要知道翻译是怎么实现的
     // 深色主题：正文页由 WebView 渲染，CSS 必须跟着换（这部分 Compose 管不到）
     val darkTheme = LocalIsDarkTheme.current
-    val translatePage = remember(translateConfig, darkTheme) {
-        TranslatePage.load(context, translateConfig, darkTheme)
-    }
+    // 注：正文文档**不在这里**组装。以前这里是
+    //   remember(translateConfig, darkTheme) { TranslatePage.load(...) }
+    // 也就是在**组合期、主线程**上读 3 个 JS + 1 个 CSS；再加上下面 wrapHtml 里那次
+    // CSS 读盘与几十~几百 KB 的字符串拼接，全都落在「进入正文页」的同一帧上。
+    // 缓存命中时 readmeHtml 是**当帧**到位的，于是这段活刚好压在进场动画里 ——
+    // 「缓存命中反而更卡」就是这么来的。现在整体挪到后台线程，见下面的 LaunchedEffect。
     val heightBridge = remember { HeightBridge() }
     // 正文里的图片点击（未包在链接里的那些）→ 弹应用内查看器，而不是什么都不做
     val imageBridge = remember { ImageClickBridge() }
@@ -229,7 +234,12 @@ fun ReadmeWebView(
         )
         webView.loadDataWithBaseURL(
             documentUrl,
-            wrapHtml(html, context, translatePage, darkTheme),
+            // 组装放到后台线程：读资产（TranslatePage.load 首次调用 + 正文 CSS）与
+            // 「正文 + CSS + 31KB JS + 配置脚本」的大字符串拼接都是纯 CPU/IO，
+            // 主线程只需要最后这一步 loadDataWithBaseURL。
+            withContext(Dispatchers.IO) {
+                wrapHtml(html, context, TranslatePage.load(context, translateConfig, darkTheme), darkTheme)
+            },
             "text/html",
             "UTF-8",
             null,
@@ -426,16 +436,28 @@ private val IMAGE_EXTENSIONS = listOf(
 private val AUTH_HOSTS = setOf("github.com", "raw.githubusercontent.com")
 
 /**
+ * README 正文 CSS（`assets` 资产，运行期不变）。
+ *
+ * 读一次就常驻内存：这段以前每次进入正文页都读一遍盘，而它**永远返回同一份内容**。
+ */
+@Volatile
+private var cachedMarkdownCss: String? = null
+
+private fun markdownCss(context: Context): String = cachedMarkdownCss ?: runCatching {
+    context.assets.open("github-markdown-light.css").bufferedReader().use { it.readText() }
+}.getOrDefault("").also { cachedMarkdownCss = it }
+
+/**
  * 包裹 GitHub HTML：注入 viewport + Primer markdown CSS + 渲染增强脚本 + 翻译页面资产。
  *
  * 这里只做**拼装**：渲染增强脚本（高度/锚点/宽图）属于正文渲染，留在本文件；
  * 译文样式与页面脚本属于翻译功能，来自 `:translate` 模块的 [TranslatePage]
  * （`assets/translate/` 下的 CSS 与脚本）。这样「改译文样式」不需要动正文渲染器。
+ *
+ * ⚠️ 纯 CPU + 资产读盘，**调用点不要放主线程**（见 [ReadmeWebView] 里的 LaunchedEffect）。
  */
 private fun wrapHtml(body: String, context: Context, translate: TranslatePage.Assets, dark: Boolean): String {
-    val css = runCatching {
-        context.assets.open("github-markdown-light.css").bufferedReader().use { it.readText() }
-    }.getOrDefault("")
+    val css = markdownCss(context)
     return """
         <!DOCTYPE html><html><head>
         <meta charset="utf-8">

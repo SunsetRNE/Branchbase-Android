@@ -43,9 +43,25 @@ object TranslatePage {
     /** 装载结果：CSS / 合并后的 JS / 设置注入脚本。 */
     data class Assets(val css: String, val js: String, val configScript: String)
 
+    /**
+     * 资产内容在**运行期不会变**，所以只读一次就常驻内存。
+     *
+     * 这两个缓存是给「进入正文页」那一条路径省时间的：以前每次进入都要在主线程上
+     * `assets.open().readText()` 读 3 个 JS + 1 个 CSS（约 31 KB），而正文页的
+     * 缓存命中时这段活正好落在**进入页面的那一帧**上。
+     *
+     * ⚠️ 首次调用仍会在**调用线程**上读盘 —— 调用点必须不在主线程
+     * （见 `ReadmeWebView` 的 LaunchedEffect）。
+     */
+    @Volatile
+    private var cssCache: String? = null
+
+    @Volatile
+    private var jsCache: String? = null
+
     fun load(context: Context, config: TranslateConfig, dark: Boolean = false): Assets = Assets(
-        css = readAsset(context, CSS_ASSET),
-        js = JS_ASSETS.joinToString(separator = "\n") { readAsset(context, it) },
+        css = cssCache ?: readAsset(context, CSS_ASSET).also { cssCache = it },
+        js = jsCache ?: JS_ASSETS.joinToString(separator = "\n") { readAsset(context, it) }.also { jsCache = it },
         configScript = TranslateSettings.injectScript(config, dark),
     )
 
