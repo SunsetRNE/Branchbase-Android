@@ -1365,38 +1365,9 @@ private fun NotificationRow(
                     NotificationLead(selectionEnabled = selectionEnabled, selected = selected, n = n)
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(
-                            n.title,
-                            fontSize = 13.5.sp,
-                            fontWeight = if (n.unread) FontWeight.Bold else FontWeight.SemiBold,
-                            color = Primer.TextPrimary,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        // 内容预览：最新评论「作者：正文」。放在标题与元信息之间 ——
-                        // 「谁说了什么」是决定要不要点进去的关键信息，比仓库名/时间更该靠前。
-                        // 未取到（未预取、取失败、正文为空）时整行不占位，行高回到原来的样子。
-                        if (preview != null) {
-                            Spacer(Modifier.height(4.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (preview.avatarUrl.isNotBlank()) {
-                                    AsyncImage(
-                                        model = preview.avatarUrl,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(14.dp).clip(CircleShape),
-                                    )
-                                    Spacer(Modifier.width(4.dp))
-                                }
-                                Text(
-                                    if (preview.author.isBlank()) preview.body else "${preview.author}：${preview.body}",
-                                    fontSize = 12.sp,
-                                    color = Primer.TextSecondary,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(5.dp))
+                        // 元信息行（仓库 #号 · 原因 · 时间）提到标题**上方** —— 排布对齐 DioHub - Dev：
+                        // 「哪来的、什么时候」是定位坐标，先给坐标再读标题，扫一眼就能决定要不要点进去。
+                        // 仓库名仍用 weight(fill = false)：短名字时原因胶囊与时间贴右，长名字先省略号。
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 n.repoFullName + (n.targetNumber?.let { " #$it" } ?: ""),
@@ -1421,6 +1392,38 @@ private fun NotificationRow(
                             Spacer(Modifier.width(6.dp))
                             // 相对时间在**渲染期**由原始时间戳算出：快照 / 缓存里的时间不会失真
                             Text(relativeTimeOf(n.updatedAtMs), fontSize = 11.sp, color = Primer.TextTertiary)
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            n.title,
+                            fontSize = 13.5.sp,
+                            fontWeight = if (n.unread) FontWeight.Bold else FontWeight.SemiBold,
+                            color = Primer.TextPrimary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        // 动态预览（最新评论「作者：正文」）下移到标题**下方** —— 对齐 DioHub - Dev，
+                        // 它把「最新动态」放在卡片最底。预览仍是「要不要点进去」的关键依据，
+                        // 但标题永远是第一眼看到的那一行。未取到（未预取 / 取失败 / 正文为空）时整行不占位。
+                        if (preview != null) {
+                            Spacer(Modifier.height(4.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (preview.avatarUrl.isNotBlank()) {
+                                    AsyncImage(
+                                        model = preview.avatarUrl,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp).clip(CircleShape),
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                }
+                                Text(
+                                    if (preview.author.isBlank()) preview.body else "${preview.author}：${preview.body}",
+                                    fontSize = 12.sp,
+                                    color = Primer.TextSecondary,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                     }
                     if (n.unread && !selectionEnabled) {
@@ -1700,9 +1703,10 @@ private fun NotificationSkeleton() {
             )
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Box(Modifier.fillMaxWidth(0.72f).height(18.dp).clip(RoundedCornerShape(4.dp)).background(Primer.Gray150.copy(alpha = shimmer)))
-                Spacer(Modifier.height(5.dp))
+                // 顺序与真实卡片一致：元信息行（仓库 · 时间）在上，标题在下
                 Box(Modifier.fillMaxWidth(0.42f).height(15.dp).clip(RoundedCornerShape(4.dp)).background(Primer.Gray150.copy(alpha = shimmer)))
+                Spacer(Modifier.height(5.dp))
+                Box(Modifier.fillMaxWidth(0.72f).height(18.dp).clip(RoundedCornerShape(4.dp)).background(Primer.Gray150.copy(alpha = shimmer)))
             }
         }
     }
