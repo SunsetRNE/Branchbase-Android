@@ -1359,12 +1359,13 @@ internal enum class GroupSelectState { NONE, ALL, MIXED }
  *    方框自身不带点击与最小触摸目标，选择语义由整行的 `selectable` 统一提供。
  *
  * 手势分工（[selectionEnabled] = 当前是否处于多选态）：
- * - 非多选态：点击 → 打开；长按 → 快捷动作面板（页面级处理）；
+ * - 非多选态：点击 → 打开（未读时顺带标已读并打远端）；长按 → 快捷动作面板（单条动作，
+ *   多选是面板里的一个显式选项）；
  * - 多选态：点击 → 切换选中（不跳转）；长按由列表容器接管做区间 / 刷选；
- * - 右滑（StartToEnd）→ 标记已读、复位、不跳转，**多选态下必须关闭**：
- *   旧实现用「是否平铺布局」同时控制多选和右滑，导致多选态下未选中的未读行仍可被滑动，
- *   批量选择过程中很容易误触把行标成已读。现在改为「多选态一律禁用右滑」，
- *   并且右滑在 4 种布局下都可用（此前只在平铺布局可用属于顺带的耦合，并非设计）。
+ * - **左滑 / 右滑两个方向同效** → 标记已读、复位、不跳转，**多选态下一律禁用**：
+ *   旧实现用「是否平铺布局」同时控制多选和滑动，导致多选态下未选中的未读行仍可被滑动，
+ *   批量选择过程中很容易误触把行标成已读。现在改为「多选态一律禁用滑动」，
+ *   并且滑动在 4 种布局下都可用（此前只在平铺布局可用属于顺带的耦合，并非设计）。
  */
 @Composable
 private fun NotificationRow(
@@ -1566,10 +1567,16 @@ private fun SelectionCheckbox(
 }
 
 /**
- * 右滑标记已读的包装。
+ * 左右滑标记已读的包装。
  *
- * 只启用 `StartToEnd`（右滑）；`onDismiss` 里调用已读逻辑后必须 `reset()` 复位 ——
- * 已读只是状态变化，**不能真的把行从列表移除**。未读点/竖条的消失本身就是"已生效"的反馈。
+ * **两个方向都可用**（对齐 DioHub - Dev：左右滑都是 Mark as read）。只放开单方向时，
+ * 「从哪一侧滑」纯粹是用户的握持习惯 —— 左滑在单手 / 手小的场景下更顺手，没有理由拒绝。
+ * `onDismiss` 里调用已读逻辑后必须 `reset()` 复位 —— 已读只是状态变化，
+ * **不能真的把行从列表移除**。未读点/竖条的消失本身就是「已生效」的反馈。
+ *
+ * 背景提示按方向贴边：`backgroundContent` 本身不带方向参数（M3 1.4 的签名是
+ * `@Composable RowScope.() -> Unit`），方向从 [SwipeToDismissBoxState.dismissDirection] 读 ——
+ * 从左往右滑时内容右移、露出的是**左边缘**，提示就该靠左；反向同理。
  */
 @Composable
 private fun SwipeToReadRow(enabled: Boolean, onRead: () -> Unit, content: @Composable () -> Unit) {
@@ -1581,15 +1588,16 @@ private fun SwipeToReadRow(enabled: Boolean, onRead: () -> Unit, content: @Compo
     SwipeToDismissBox(
         state = dismissState,
         enableDismissFromStartToEnd = enabled,
-        enableDismissFromEndToStart = false,
+        enableDismissFromEndToStart = enabled,
         backgroundContent = {
+            val fromStart = dismissState.dismissDirection != SwipeToDismissBoxValue.EndToStart
             Row(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(RoundedCornerShape(8.dp))
                     .background(Primer.Blue500.copy(alpha = 0.12f))
                     .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.Start,
+                horizontalArrangement = if (fromStart) Arrangement.Start else Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.Filled.Check, contentDescription = null, tint = Primer.Blue500, modifier = Modifier.size(18.dp))
@@ -1598,7 +1606,7 @@ private fun SwipeToReadRow(enabled: Boolean, onRead: () -> Unit, content: @Compo
             }
         },
         onDismiss = { direction ->
-            if (direction == SwipeToDismissBoxValue.StartToEnd) currentOnRead()
+            if (direction != SwipeToDismissBoxValue.Settled) currentOnRead()
         },
     ) {
         content()
