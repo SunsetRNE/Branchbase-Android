@@ -41,6 +41,10 @@ EXCLUDE_AUTHOR=""
 OUT=""
 PREVIOUS_OUT=""
 MAX=100
+# 不建标签的发布流程用的显式锚点（提交）：见 build-release.yml 的 release 分支
+FROM=""
+TO=""
+EXPLICIT_RANGE=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -51,6 +55,8 @@ while [ $# -gt 0 ]; do
     --exclude-author) EXCLUDE_AUTHOR="${2:-}"; shift 2 ;;
     --out) OUT="${2:-}"; shift 2 ;;
     --previous-out) PREVIOUS_OUT="${2:-}"; shift 2 ;;
+    --from) FROM="${2:-}"; shift 2 ;;
+    --to) TO="${2:-}"; shift 2 ;;
     --max) MAX="${2:-}"; shift 2 ;;
     -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
     *) echo "未知参数: $1" >&2; exit 2 ;;
@@ -78,6 +84,15 @@ if [ -n "$PATTERN" ]; then
     fi
   done < <(git tag --list "$PATTERN" --sort=-creatordate 2>/dev/null || true)
 fi
+
+# ── ①' 显式提交区间（不建标签的正式版流程）──
+# 正式版已经不建 tag（产物直接推到 release 分支），锚点改成「上一次发布的提交」。
+# 指定 --from 时跳过标签搜索；--to 缺省用 --tag（标签模式下两者同义）。
+if [ -n "$FROM" ]; then
+  PREVIOUS="$FROM"
+  EXPLICIT_RANGE=1
+fi
+TARGET_REF="${TO:-$TAG}"
 
 # ── ② 收集提交 ──
 #
@@ -130,13 +145,27 @@ generate() {
   echo "## 代码变更引用"
   echo ""
   if [ -n "$PREVIOUS" ]; then
-    echo "- **完整对比**：[\`$PREVIOUS\` → \`$TAG\`]($BASE_URL/compare/$PREVIOUS...$TAG)"
+    # 锚点可能是「标签」（beta / 历史正式版）或「提交」（不建标签的正式版流程），
+    # 两者的链接目标不同：标签 → releases/tag，提交 → commit。
+    local prev_label prev_url compare_to compare_to_label
+    if [ "$EXPLICIT_RANGE" = "1" ]; then
+      prev_label=$(printf '%s' "$PREVIOUS" | cut -c1-7)
+      prev_url="$BASE_URL/commit/$PREVIOUS"
+      compare_to="$TARGET_REF"
+      compare_to_label=$(printf '%s' "$TARGET_REF" | cut -c1-7)
+    else
+      prev_label="$PREVIOUS"
+      prev_url="$BASE_URL/releases/tag/$PREVIOUS"
+      compare_to="$TAG"
+      compare_to_label="$TAG"
+    fi
+    echo "- **完整对比**：[\`$prev_label\` → \`$compare_to_label\`]($BASE_URL/compare/$PREVIOUS...$compare_to)"
     stats="**$TOTAL** 个提交"
     if [ "$FILE_COUNT" -gt 0 ]; then
       stats="$stats · **$FILE_COUNT** 个文件 · +$FILE_ADD −$FILE_DEL"
     fi
     echo "- **变更范围**：$stats"
-    echo "- **上一发布**：[\`$PREVIOUS\`]($BASE_URL/releases/tag/$PREVIOUS)"
+    echo "- **上一发布**：[\`$prev_label\`]($prev_url)"
   else
     echo "- **完整对比**：首次发布（无上一个标签），暂无对比基准"
     echo "- **变更范围**：最近 **$TOTAL** 个提交"
