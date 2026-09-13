@@ -24,7 +24,9 @@ class WorkflowModelsTest {
          "run_started_at":"2026-09-07T13:42:34Z","updated_at":"2026-09-07T13:44:35Z",
          "html_url":"https://github.com/o/r/actions/runs/34128896693",
          "path":".github/workflows/ci.yml","workflow_id":3160,
-         "actor":{"login":"SunsetRNE"},"triggering_actor":{"login":"Janno"}}
+         "actor":{"login":"SunsetRNE"},"triggering_actor":{"login":"Janno"},
+         "head_commit":{"id":"abc1234def","message":"修复登录时的空指针\n\n第二段不应进标题",
+                        "author":{"name":"SunsetRNE","email":"a@b.c"}}}
     """.trimIndent()
 
     @Test
@@ -40,6 +42,9 @@ class WorkflowModelsTest {
         assertEquals("SunsetRNE", run.actor)
         assertEquals(".github/workflows/ci.yml", run.path)
         assertEquals(3160L, run.workflowId)
+        // commit message 只取首行：头部的提交行放不下多段
+        assertEquals("修复登录时的空指针", run.headCommitMessage)
+        assertEquals("SunsetRNE", run.headCommitAuthor)
         assertNull(parseWorkflowRun(null))
         assertNull(parseWorkflowRun("ERROR: 404"))
         assertNull(parseWorkflowRun("{ 不是 JSON"))
@@ -74,7 +79,8 @@ class WorkflowModelsTest {
     fun `解析产物并格式化大小`() {
         val json = """
             {"total_count":2,"artifacts":[
-              {"id":1,"name":"app-debug.apk","size_in_bytes":5242880,"expired":false,"created_at":"2026-09-07T13:44:00Z"},
+              {"id":1,"name":"app-debug.apk","size_in_bytes":5242880,"expired":false,"created_at":"2026-09-07T13:44:00Z",
+               "archive_download_url":"https://api.github.com/repos/o/r/actions/artifacts/1/zip"},
               {"id":2,"name":"logs","size_in_bytes":2048,"expired":true,"created_at":"2026-09-07T13:44:00Z"}]}
         """.trimIndent()
         val arts = parseWorkflowArtifacts(json)
@@ -82,17 +88,40 @@ class WorkflowModelsTest {
         assertEquals("5.0 MB", arts[0].sizeText)
         assertEquals("2 KB", arts[1].sizeText)
         assertTrue(arts[1].expired)
+        // 下载地址是产物行「下载」按钮的唯一依据（以前没解析 → 产物只有名字没有入口）
+        assertEquals("https://api.github.com/repos/o/r/actions/artifacts/1/zip", arts[0].archiveDownloadUrl)
+        assertEquals("", arts[1].archiveDownloadUrl)
     }
 
     @Test
-    fun `只挑出带注解的 check-run`() {
+    fun `只挑出带注解的 check-run 并带上名字`() {
         val json = """
             {"total_count":3,"check_runs":[
-              {"id":11,"output":{"annotations_count":2}},
-              {"id":22,"output":{"annotations_count":0}},
-              {"id":33,"output":{"annotations_count":1}}]}
+              {"id":11,"name":"build","output":{"annotations_count":2}},
+              {"id":22,"name":"lint","output":{"annotations_count":0}},
+              {"id":33,"name":"test","output":{"annotations_count":1}}]}
         """.trimIndent()
         assertEquals(listOf(11L, 33L), annotationCheckRunIds(json))
+        // 名字是「注解归回任务卡片」的依据，必须一起取出来
+        assertEquals(
+            listOf(AnnotationCheckRun(11L, "build"), AnnotationCheckRun(33L, "test")),
+            annotationCheckRuns(json),
+        )
+        assertEquals(emptyList<AnnotationCheckRun>(), annotationCheckRuns("ERROR: 404"))
+    }
+
+    @Test
+    fun `注解带上 check-run 名字并归回对应任务`() {
+        val json = """[{"path":"src/a.kt","start_line":3,"end_line":5,"annotation_level":"failure",
+                       "message":"编译失败","title":"error"}]"""
+        val anno = parseWorkflowAnnotations(json, checkRunName = "test").single()
+        assertEquals("test", anno.checkRunName)
+        // 名字相同（或互相包含且都够长）才算这个任务报的 —— 宁可放不对，不要放错
+        assertTrue(jobBelongsToAnnotation(anno, RunJob(1, "test", "completed", "failure")))
+        assertTrue(jobBelongsToAnnotation(anno, RunJob(2, "Test (ubuntu-latest)", "completed", "failure")))
+        assertFalse(jobBelongsToAnnotation(anno, RunJob(3, "build", "completed", "success")))
+        // 名字为空（老缓存 / check-runs 里没给名字）时不归任何任务，交给「其他注解」聚合区
+        assertFalse(jobBelongsToAnnotation(anno.copy(checkRunName = ""), RunJob(1, "test", "completed", "failure")))
     }
 
     @Test

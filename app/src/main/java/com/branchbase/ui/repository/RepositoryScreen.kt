@@ -144,6 +144,8 @@ fun RepositoryScreen(
     var dispatchTarget by remember { mutableStateOf<WorkflowItem?>(null) }
     var runDetailPage by remember { mutableStateOf(initial?.runId) }
     var jobDetailPage by remember { mutableStateOf<Long?>(null) }
+    // 从运行详情点某一步进来时带上步骤号，日志页据此落在对应分段
+    var jobDetailStep by remember { mutableStateOf<Long?>(null) }
     var showBranchSync by remember { mutableStateOf(false) }
     var bubbleExpanded by remember { mutableStateOf(false) }
     // 分支切换弹窗（原先是一条占满整行的分支横条，现收进顶部栏胶囊）
@@ -286,7 +288,7 @@ fun RepositoryScreen(
         issuePage != null -> RepoRoute.Issue(issuePage!!)
         pullPage != null -> RepoRoute.Pull(pullPage!!)
         commitPage != null -> RepoRoute.Commit(commitPage!!)
-        jobDetailPage != null -> RepoRoute.JobDetail(jobDetailPage!!)
+        jobDetailPage != null -> RepoRoute.JobDetail(jobDetailPage!!, jobDetailStep)
         runDetailPage != null -> RepoRoute.RunDetail(runDetailPage!!)
         dispatchTarget != null -> RepoRoute.Dispatch(dispatchTarget!!)
         workflowRunsPage != null -> RepoRoute.WorkflowRuns(workflowRunsPage!!)
@@ -463,17 +465,18 @@ fun RepositoryScreen(
                 )
             }
 
-            // Job 详情（最深）
+            // 日志页（最深；原「Job 详情页」演进而来）
             is RepoRoute.JobDetail -> {
                 val job = r.id
-                PageBackHandler { jobDetailPage = null }
-                JobDetailContent(
+                PageBackHandler { jobDetailPage = null; jobDetailStep = null }
+                JobLogScreen(
                     sessionJson = sessionJson,
                     owner = owner,
                     repo = repo,
                     jobId = job,
-                    onBack = { jobDetailPage = null },
+                    initialStepNumber = r.step,
                     logStore = jobLogStore,
+                    onBack = { jobDetailPage = null; jobDetailStep = null },
                 )
             }
 
@@ -488,7 +491,8 @@ fun RepositoryScreen(
                     runId = run,
                     logStore = jobLogStore,
                     onBack = { runDetailPage = null },
-                    onOpenJob = { jobDetailPage = it },
+                    onOpenLog = { jobId, step -> jobDetailPage = jobId; jobDetailStep = step },
+                    onReRun = { dispatchTarget = it },
                 )
             }
 
@@ -742,7 +746,7 @@ private sealed interface RepoRoute : PageLevel {
     }
 
     // ── 第 3 层：Run 详情 → Job 详情 ──
-    data class JobDetail(val id: Long) : RepoRoute {
+    data class JobDetail(val id: Long, val step: Long? = null) : RepoRoute {
         override val depth: Int get() = 3
     }
 }

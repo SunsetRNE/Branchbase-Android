@@ -196,8 +196,9 @@ private fun WorkflowRunRow(run: WorkflowRun, onClick: () -> Unit) {
 }
 
 /**
- * 运行详情：委托给 `WorkflowRunDetailScreen`（原生富渲染：run 头部 + jobs→steps 时间线 +
- * 步骤日志 + 注解 + 产物）。保留本函数名，调用方按新形参补一个共用的日志 store。
+ * 运行详情：委托给 `WorkflowRunDetailScreen`（卡片流重绘版）。
+ *
+ * 取数链路与日志 store 都不变，调用方按新形参补两个回调：点步骤进日志页、重跑。
  */
 @Composable
 fun RunDetailContent(
@@ -207,7 +208,8 @@ fun RunDetailContent(
     runId: Long,
     logStore: JobLogStore,
     onBack: () -> Unit,
-    onOpenJob: (Long) -> Unit,
+    onOpenLog: (Long, Long?) -> Unit,
+    onReRun: (WorkflowItem) -> Unit,
 ) {
     WorkflowRunDetailScreen(
         sessionJson = sessionJson,
@@ -216,7 +218,8 @@ fun RunDetailContent(
         runId = runId,
         logStore = logStore,
         onBack = onBack,
-        onOpenJob = onOpenJob,
+        onOpenLog = onOpenLog,
+        onReRun = onReRun,
     )
 }
 
@@ -233,99 +236,6 @@ private fun RunJobRow(job: RunJob, onClick: () -> Unit) {
     }
 }
 
-@Composable
-fun JobDetailContent(
-    sessionJson: String,
-    owner: String,
-    repo: String,
-    jobId: Long,
-    onBack: () -> Unit,
-    logStore: JobLogStore,
-) {
-    val (host, token, _) = sessionInfo(sessionJson)
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var steps by remember { mutableStateOf<List<JobStep>>(emptyList()) }
-    var logs by remember { mutableStateOf("") }
-    var loading by remember { mutableStateOf(true) }
-    var logPending by remember { mutableStateOf(false) }
-    // 回到前台 / 手动重试 → +1，让下面的 effect 以 force = true 真回源一次
-    var forceTick by remember { mutableStateOf(0) }
-
-    // 回到前台对一次状态：作业在后台跑完了的话，这里就是它「自动出现」的时机
-    var seenStart by remember { mutableStateOf(false) }
-    LaunchedEffect(lifecycleOwner) {
-        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            if (RunPollPolicy.resumeShouldForceRefresh(seenStart)) forceTick++ else seenStart = true
-        }
-    }
-
-    LaunchedEffect(owner, repo, jobId, forceTick) {
-        loading = true
-        logPending = false
-        val force = forceTick > 0
-        val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
-        val jobKey = PageCache.jobKey(owner, repo, jobId)
-
-        // ① 直出（steps 与日志都可能已缓存）：日志走 :joblogs（内存 → PageCache 磁盘）
-        PageCache.cachedFirst(manager, jobKey, PageCache.TYPE_DETAIL, force)?.let { steps = parseJobSteps(it) }
-        logStore.cached(jobId, force)?.let { logs = it.text }
-        if (steps.isNotEmpty() || logs.isNotBlank()) loading = false
-
-        // ② 回源（steps 与日志并行）
-        coroutineScope {
-            val stepsJob = async {
-                PageCache.refresh(manager, jobKey, PageCache.TYPE_DETAIL, force) {
-                    RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/jobs/$jobId")
-                }
-            }
-            val logJob = async { logStore.refresh(jobId, force) }
-            stepsJob.await()?.let { steps = parseJobSteps(it) }
-            val fresh = logJob.await()
-            if (fresh != null) {
-                logs = fresh.text
-            } else if (logs.isBlank() && steps.any { RunPollPolicy.isLogPending(it.status) }) {
-                // 任务还没结束 ⇒ 远端本来就没有这份日志，是**正常状态**而不是失败
-                logPending = true
-            }
-        }
-        loading = false
-    }
-
-    FullScreen(title = "作业 #$jobId", onBack = onBack) {
-        when {
-            loading -> CenterLoading()
-            else -> LazyColumn(Modifier.fillMaxSize()) {
-                items(steps) { step -> JobStepRow(step) }
-                if (logPending) {
-                    item {
-                        Text(
-                            "任务运行中，日志将在该任务结束后自动出现",
-                            fontSize = 12.sp,
-                            color = Primer.TextTertiary,
-                            modifier = Modifier.fillMaxWidth().padding(12.dp),
-                        )
-                    }
-                }
-                if (logs.isNotBlank()) {
-                    item {
-                        Text(
-                            logs,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            lineHeight = 16.sp,
-                            // 日志块跟随主题（CodeSyntax.CodeBg + Primer.TextPrimary，
-                            // 与搜索页代码块、文件页只读预览同一约定）——以前这里写死的是
-                            // 浅色主题取值，深色下是「深灰字压深色底」。
-                            color = Primer.TextPrimary,
-                            modifier = Modifier.fillMaxWidth().background(CodeSyntax.CodeBg).padding(12.dp),
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
 
 @Composable
 private fun JobStepRow(step: JobStep) {

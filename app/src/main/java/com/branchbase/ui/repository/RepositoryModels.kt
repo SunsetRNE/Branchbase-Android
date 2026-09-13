@@ -714,6 +714,15 @@ data class WorkflowRun(
     val htmlUrl: String = "",
     val path: String = "",
     val workflowId: Long = 0,
+    /**
+     * `head_commit.message` 的**首行**。
+     *
+     * 同一个响应里本来就带 `head_commit`，以前没解析 —— 于是详情页头部只能重复
+     * `display_title`，用户看不出「这次跑的是哪个提交」。纯 Kotlin 侧解析，不动 JNI。
+     */
+    val headCommitMessage: String = "",
+    /** `head_commit.author.name`（提交作者，与触发人 `actor` 不是一回事）。 */
+    val headCommitAuthor: String = "",
 )
 
 data class RunJob(
@@ -761,6 +770,10 @@ fun parseWorkflowRuns(json: String): List<WorkflowRun> = runCatching {
             htmlUrl = o.optString("html_url"),
             path = o.optString("path"),
             workflowId = o.optLong("workflow_id"),
+            headCommitMessage = o.optJSONObject("head_commit")?.optString("message").orEmpty()
+                .lineSequence().firstOrNull().orEmpty(),
+            headCommitAuthor = o.optJSONObject("head_commit")
+                ?.optJSONObject("author")?.optString("name").orEmpty(),
         )
     }
 }.getOrDefault(emptyList())

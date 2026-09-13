@@ -1,8 +1,10 @@
 package com.branchbase.ui.repository
 
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,27 +12,21 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -38,25 +34,26 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.branchbase.cache.PageCache
-import com.branchbase.cache.networkMetered
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
+import com.branchbase.cache.networkMetered
 import com.branchbase.core.RustBridge
+import com.branchbase.downloader.DownloadRequest
+import com.branchbase.downloader.DownloaderRuntime
 import com.branchbase.joblogs.JobLog
 import com.branchbase.joblogs.JobLogStore
-import com.branchbase.ui.theme.iconTap
-import com.branchbase.ui.theme.CodeSyntax
 import com.branchbase.ui.theme.Primer
+import com.branchbase.ui.theme.iconTap
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -64,21 +61,30 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * 工作流运行详情（原生富渲染），对齐 GitHub 网页版的信息结构：
+ * 工作流**运行详情**：状态与日志的持续获取 + 卡片流重绘。
  *
- * run 头部（状态/标题/编号/事件/分支/提交/触发人/耗时/创建时间）
- * → jobs→steps 时间线（每步耗时，点击展开）
- * → 步骤日志（点击步骤懒加载、按 `##[group]` 归段）
- * → 注解（check-runs annotations）
- * → 产物（artifacts）。
+ * ## 结构（重绘后）
  *
- * 解析与纯逻辑全部复用 [WorkflowModels.kt] / [RepositoryModels.kt]，本文件只负责取数与渲染。
- * 网络请求一律容错：`RustBridge.getJson` 返回 null 或以 `ERROR:` 开头时按失败处理，绝不抛出。
+ * ```
+ * 顶栏（刷新 / 更多：浏览器打开 · 重新运行 · 复制链接 · 下载全部日志）
+ * RunHeaderCard    三段式：状态行 / 提交行 / 次要行 + 进度条
+ * 任务 · N         右侧分段控件「全部 / 失败」（仅存在失败或运行中时出现）
+ *   JobCard ×N     卡片头只做展开；展开是步骤时间线 + runner + 卡内注解
+ *   产物 · N       行尾直接下载（走 :downloader）
+ *   其他注解        归属不到任务的那些
+ * ```
+ *
+ * ## 两条来自 GitHub API 的硬约束（决定这里的取数方式）
+ *
+ * 1. **运行中拉不到日志**：远端日志文件在 job 结束后才生成（此前 404），
+ *    且没有长轮询 / SSE。所以持续获取的是 `/runs/{id}/jobs` 这个几 KB 的 JSON，
+ *    日志只在「job 定稿」那一刻抓一次（[newlyCompletedJobIds] 差分决定）；
+ * 2. **「还没生成」不是「失败」**：[RunPollPolicy.isLogPending] 为真时显示
+ *    「运行中，结束后自动出现」，不给重试按钮。
+ *
+ * 取数链路（run / jobs / artifacts 三路并行 + `PageCache` 直出）与日志取数（`:joblogs`）
+ * 都沿用原样，本轮只换皮与补「定稿抓日志」。
  */
-
-private const val MAX_LOG_LINES = 200
-private const val LOG_BOX_MAX_HEIGHT_DP = 320
-
 @Composable
 fun WorkflowRunDetailScreen(
     sessionJson: String,
@@ -87,12 +93,13 @@ fun WorkflowRunDetailScreen(
     runId: Long,
     logStore: JobLogStore,
     onBack: () -> Unit,
-    onOpenJob: (Long) -> Unit,
+    onOpenLog: (jobId: Long, stepNumber: Long?) -> Unit,
+    onReRun: (WorkflowItem) -> Unit,
 ) {
     val (host, token, _) = sessionInfo(sessionJson)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // 轮询与「回前台对齐」都要用它把工作限制在 STARTED（退到后台即停，不额外保活）
+    val clipboard = LocalClipboardManager.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
     var run by remember { mutableStateOf<WorkflowRun?>(null) }
@@ -102,46 +109,19 @@ fun WorkflowRunDetailScreen(
     var loading by remember { mutableStateOf(true) }
     var failed by remember { mutableStateOf(false) }
     var retryTick by remember { mutableStateOf(0) }
-    // 「回到前台 / 运行结束」时 +1：让主 effect 以 force = true 真回源一次
     var forceTick by remember { mutableStateOf(0) }
+    var menuOpen by remember { mutableStateOf(false) }
+    var filter by remember { mutableStateOf(JobFilter.ALL) }
+    // 展开态 / 日志装载态：以 jobId 为键，仅本页面生命周期有效。
+    // 日志**内容**不放这里 —— 它由 :joblogs 的 store 持有（与日志页共用同一份内存分段）。
+    var expandedJobs by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var jobLogs by remember { mutableStateOf<Map<Long, JobLog>>(emptyMap()) }
+    var logPending by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var logFailed by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    // 运行中：耗时每秒走动（靠它刷新，而不是靠网络）
+    var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
 
-    // 展开态 / 日志装载态：都以 jobId 为键，跨重组保留，仅本页面生命周期有效。
-    // 日志**内容**不放这里 —— 它由 `:joblogs` 的 store 持有（在 RepositoryScreen 层创建，
-    // 与 Job 详情页共用同一份内存分段和同一张在飞请求表）；这里只存本次渲染要显示的成品。
-    val expandedJobs = remember { mutableStateMapOf<Long, Boolean>() }
-    val selectedSteps = remember { mutableStateMapOf<Long, Long>() }
-    val jobLogs = remember { mutableStateMapOf<Long, JobLog>() }
-    val logLoading = remember { mutableStateMapOf<Long, Boolean>() }
-    val logFailed = remember { mutableStateMapOf<Long, Boolean>() }
-    // 「job 还没结束，远端日志 blob 尚未生成」—— 与 logFailed 分开，别把正常状态显示成失败
-    val logPending = remember { mutableStateMapOf<Long, Boolean>() }
-    val logExpanded = remember { mutableStateMapOf<Long, Boolean>() }
-
-    /**
-     * 懒加载某个 job 的完整日志：命中缓存或正在加载则直接返回；失败不写状态，便于再次点击重试。
-     *
-     * 去重（同一 jobId 的并发调用合并成一次下载）、缓存、切段都在 [JobLogStore] 里，
-     * 这里只把「装载中 / **还没生成** / 失败 / 成品」映射到 Compose 状态上。
-     */
-    fun loadJobLog(job: RunJob) {
-        if (jobLogs.containsKey(job.id) || logLoading[job.id] == true) return
-        logLoading[job.id] = true
-        logFailed[job.id] = false
-        scope.launch {
-            val log = logStore.load(job.id)
-            when {
-                log != null -> {
-                    jobLogs[job.id] = log
-                    logPending[job.id] = false
-                }
-                // job 还没结束 ⇒ 远端本来就没有这份日志，这是**正常状态**，不是失败
-                RunPollPolicy.isLogPending(job.status) -> logPending[job.id] = true
-                else -> logFailed[job.id] = true
-            }
-            logLoading[job.id] = false
-        }
-    }
-
+    // 主取数：run / jobs / artifacts 三路并行；注解依赖 headSha
     LaunchedEffect(owner, repo, runId, retryTick, forceTick) {
         loading = true
         failed = false
@@ -149,29 +129,24 @@ fun WorkflowRunDetailScreen(
         jobs = emptyList()
         artifacts = emptyList()
         annotations = emptyList()
-        expandedJobs.clear()
-        selectedSteps.clear()
-        jobLogs.clear()
-        logLoading.clear()
-        logFailed.clear()
-        logPending.clear()
-        logExpanded.clear()
+        expandedJobs = emptySet()
+        jobLogs = emptyMap()
+        logPending = emptySet()
+        logFailed = emptySet()
 
-        // 手动重试 / 回到前台 / 运行结束 → 必须真的回源
         val force = retryTick > 0 || forceTick > 0
         val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
         val runKey = PageCache.runKey(owner, repo, runId)
         val jobsKey = PageCache.runJobsKey(owner, repo, runId)
         val artifactsKey = PageCache.runArtifactsKey(owner, repo, runId)
 
-        // ① 先直出缓存（含过期）：run 头部与 jobs 是返回再进的高频内容
+        // ① 先直出缓存（含过期）：返回再进时头部与任务列表立刻有内容
         PageCache.cachedFirst(manager, runKey, PageCache.TYPE_DETAIL, force)?.let { run = parseWorkflowRun(it) }
         PageCache.cachedFirst(manager, jobsKey, PageCache.TYPE_DETAIL, force)?.let { jobs = parseRunJobs(it) }
         PageCache.cachedFirst(manager, artifactsKey, PageCache.TYPE_DETAIL, force)?.let { artifacts = parseWorkflowArtifacts(it) }
         if (run != null || jobs.isNotEmpty()) loading = false
 
         coroutineScope {
-            // ①②③ 并行：run 详情 / jobs（自带 steps）/ 产物（各自走 PageCache：命中即返回，无需联网）
             val runDeferred = async {
                 PageCache.refresh(manager, runKey, PageCache.TYPE_DETAIL, force) {
                     RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/runs/$runId")
@@ -192,20 +167,22 @@ fun WorkflowRunDetailScreen(
             val parsedJobs = parseRunJobs(jobsDeferred.await() ?: "").ifEmpty { jobs }
             val parsedArtifacts = parseWorkflowArtifacts(artifactsDeferred.await()).ifEmpty { artifacts }
 
-            // ④ 注解依赖 run 的 headSha：先查 check-runs，再只为「有注解」的前 3 个 run 拉详情
+            // ② 注解：先列「有注解」的 check-run，再逐个拉；**带上 check-run 名字**，
+            //    这样注解能归回对应任务卡片（否则只能全部沉在页尾，与任务脱钩）
             var parsedAnnotations = emptyList<WorkflowAnnotation>()
             val headSha = parsedRun?.headSha.orEmpty()
             if (headSha.isNotBlank()) {
-                val checkRunIds = annotationCheckRunIds(
+                val checkRuns = annotationCheckRuns(
                     RustBridge.getJson(host, token, "/repos/$owner/$repo/commits/$headSha/check-runs"),
                 ).take(3)
-                if (checkRunIds.isNotEmpty()) {
-                    val deferred = checkRunIds.map { checkRunId ->
-                        async {
-                            RustBridge.getJson(host, token, "/repos/$owner/$repo/check-runs/$checkRunId/annotations")
-                        }
+                if (checkRuns.isNotEmpty()) {
+                    val deferred = checkRuns.map { cr ->
+                        async { cr to RustBridge.getJson(host, token, "/repos/$owner/$repo/check-runs/${cr.id}/annotations") }
                     }
-                    parsedAnnotations = deferred.flatMap { parseWorkflowAnnotations(it.await()) }
+                    parsedAnnotations = deferred.flatMap { d ->
+                        val (cr, json) = d.await()
+                        parseWorkflowAnnotations(json, cr.name)
+                    }
                 }
             }
 
@@ -218,10 +195,7 @@ fun WorkflowRunDetailScreen(
         loading = false
     }
 
-    // ── 回到前台：对一次状态 ──
-    // 退到后台时轮询会停（`repeatOnLifecycle`），回来时状态可能已经变了 —— 强制回源一次。
-    // 这比后台常驻轮询省几个数量级，也是「不引入后台进程」这个决定的前提。
-    // 首次进入不算「回到前台」（那由上面的主 effect 负责），否则每次开页都多打一次网络。
+    // 回到前台：对一次状态（首次进入不算，由主取数负责）
     var seenStart by remember { mutableStateOf(false) }
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -229,13 +203,21 @@ fun WorkflowRunDetailScreen(
         }
     }
 
-    // ── 运行中：自适应轮询「任务状态」，任务定稿时抓一次日志 ──
-    // 为什么轮询 jobs 而不是日志：远端日志 blob 只有 job 结束后才存在，运行中根本没有可拉的东西
-    // （详见 [RunPollPolicy] 的说明）。`repeatOnLifecycle` 负责「退到后台就停」。
+    // 运行中：耗时每秒走动
+    LaunchedEffect(run?.status) {
+        if (!RunPollPolicy.shouldPoll(run?.status, foreground = true)) return@LaunchedEffect
+        while (isActive) {
+            nowMs = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
+
+    // 运行中：轮询「任务状态」，任务定稿时抓一次日志（详见 RunPollPolicy）
     LaunchedEffect(owner, repo, runId, run?.status) {
         if (!RunPollPolicy.shouldPoll(run?.status, foreground = true)) return@LaunchedEffect
         val metered = networkMetered(context)
         val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+        val runKey = PageCache.runKey(owner, repo, runId)
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             var polls = 0
             var failures = 0
@@ -254,23 +236,21 @@ fun WorkflowRunDetailScreen(
                 val fresh = parseRunJobs(json)
                 if (fresh.isEmpty()) continue
 
-                // ① 状态推进：进度条 / 耗时 / 步骤状态跟着走
                 val justDone = newlyCompletedJobIds(prevStatus, fresh)
                 prevStatus = fresh.associate { it.id to it.status }
                 jobs = fresh
 
-                // ② 「刚刚定稿」的 job 抓一次日志（:joblogs 负责单飞与缓存），并直接补进界面
+                // 刚定稿的任务：抓一次日志并让界面直接可用（:joblogs 负责单飞与缓存）
                 justDone.forEach { jobId ->
                     val log = logStore.refresh(jobId) ?: return@forEach
-                    jobLogs[jobId] = log
-                    logPending[jobId] = false
-                    logFailed[jobId] = false
+                    jobLogs = jobLogs + (jobId to log)
+                    logPending = logPending - jobId
+                    logFailed = logFailed - jobId
                 }
 
-                // ③ 全部任务结束 ⇒ 拉一次 run 详情拿最终结论；run?.status 一变，
-                //    这个 effect 会因 key 变化而重启并立刻 return —— 轮询到此为止。
+                // 全部结束 ⇒ 拉一次 run 详情拿最终结论；run?.status 一变本 effect 即重启停止
                 if (fresh.all { it.status == "completed" }) {
-                    PageCache.refresh(manager, PageCache.runKey(owner, repo, runId), PageCache.TYPE_DETAIL, force = true) {
+                    PageCache.refresh(manager, runKey, PageCache.TYPE_DETAIL, force = true) {
                         RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/runs/$runId")
                     }?.let { parseWorkflowRun(it) }?.let { run = it }
                 }
@@ -278,491 +258,238 @@ fun WorkflowRunDetailScreen(
         }
     }
 
-    val title = run?.let { r ->
-        val name = r.name.ifBlank { "Run" }
-        "$name · #${r.runNumber}"
-    } ?: "Run #$runId"
+    /** 懒加载某任务的日志（点「日志」时用）；「还没生成」不当作失败。 */
+    fun loadJobLog(job: RunJob) {
+        if (jobLogs.containsKey(job.id)) return
+        scope.launch {
+            val log = logStore.load(job.id)
+            when {
+                log != null -> {
+                    jobLogs = jobLogs + (job.id to log)
+                    logPending = logPending - job.id
+                }
+                RunPollPolicy.isLogPending(job.status) -> logPending = logPending + job.id
+                else -> logFailed = logFailed + job.id
+            }
+        }
+    }
 
-    Column(
-        Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding(),
+    val progress = remember(jobs) { runProgress(jobs) }
+    val elapsed = run?.let { r ->
+        if (r.status == RunPollPolicy.RUNNING) elapsedSince(r.runStartedAt, nowMs)
+        else durationMillis(r.runStartedAt, r.updatedAt)
+    }
+    val title = run?.let { "${it.name.ifBlank { "Run" }} · #${it.runNumber}" } ?: "Run #$runId"
+    // 失败任务排最前（稳定排序）：打开页面第一眼就是挂掉的那个
+    val orderedJobs = jobs
+        .sortedBy { if (isFailedConclusion(it.conclusion)) 0 else 1 }
+        .let { if (filter == JobFilter.FAILED) it.filter { j -> isFailedConclusion(j.conclusion) } else it }
+
+    DetailScaffold(
+        title = title,
+        onBack = onBack,
+        actions = {
+            // 刷新：跑成功或跑一半时也能手动回源（改前只有失败态有重试）
+            Text(
+                "刷新",
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Primer.Link,
+                modifier = Modifier.iconTap {
+                    retryTick++
+                }.padding(horizontal = 6.dp, vertical = 4.dp),
+            )
+            Box {
+                Icon(
+                    Icons.Filled.MoreVert,
+                    contentDescription = "更多操作",
+                    tint = Primer.IconPrimary,
+                    modifier = Modifier.size(20.dp).iconTap { menuOpen = true },
+                )
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("在浏览器打开") },
+                        onClick = {
+                            menuOpen = false
+                            run?.htmlUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
+                            }
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("重新运行") },
+                        onClick = {
+                            menuOpen = false
+                            run?.let { r ->
+                                if (r.workflowId > 0) {
+                                    onReRun(WorkflowItem(id = r.workflowId, name = r.name, state = "active", path = r.path))
+                                }
+                            }
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("复制运行链接") },
+                        onClick = {
+                            menuOpen = false
+                            run?.htmlUrl?.takeIf { it.isNotBlank() }?.let { clipboard.setText(AnnotatedString(it)) }
+                        },
+                    )
+                }
+            }
+        },
     ) {
-        DetailTopBar(title = title, onBack = onBack)
-
         when {
             loading -> DetailLoading()
 
             failed -> DetailErrorRetry { retryTick++ }
 
             else -> LazyColumn(Modifier.fillMaxSize()) {
-                run?.let { r -> item { RunHeaderCard(r) } }
+                run?.let { r ->
+                    item { RunHeaderCard(run = r, progress = progress, elapsedMs = elapsed) }
+                }
 
-                item { DetailSectionTitle("任务 Jobs") }
-                if (jobs.isEmpty()) {
-                    item { DetailEmptyText("暂无任务") }
-                } else {
-                    items(jobs, key = { it.id }) { job ->
-                        val expanded = expandedJobs[job.id] == true
-                        val selectedStepNumber = selectedSteps[job.id]
-
-                        Column(Modifier.fillMaxWidth()) {
-                            JobRow(
-                                job = job,
-                                expanded = expanded,
-                                onToggle = { expandedJobs[job.id] = !expanded },
-                                onOpenFullLog = { onOpenJob(job.id) },
-                            )
-
-                            if (expanded) {
-                                if (job.steps.isEmpty()) {
-                                    DetailEmptyText("该任务没有步骤")
-                                } else {
-                                    job.steps.forEach { step ->
-                                        StepRow(
-                                            step = step,
-                                            selected = selectedStepNumber == step.number,
-                                            onClick = {
-                                                selectedSteps[job.id] = step.number
-                                                loadJobLog(job)
-                                            },
-                                        )
-                                    }
-                                }
-
-                                val currentStep = job.steps.firstOrNull { it.number == selectedStepNumber }
-                                if (currentStep != null) {
-                                    val segment = logSegmentForStep(jobLogs[job.id]?.segments ?: emptyList(), currentStep)
-                                    StepLogBlock(
-                                        step = currentStep,
-                                        lines = segment?.lines ?: emptyList(),
-                                        loaded = jobLogs.containsKey(job.id),
-                                        loading = logLoading[job.id] == true,
-                                        pending = logPending[job.id] == true,
-                                        failed = logFailed[job.id] == true,
-                                        expanded = logExpanded[job.id] == true,
-                                        onToggleExpand = { logExpanded[job.id] = logExpanded[job.id] != true },
-                                        onRetry = { loadJobLog(job) },
-                                    )
-                                }
+                item {
+                    DetailSectionTitle("任务 · ${jobs.size}") {
+                        // 分段控件只在「有失败」或「运行中」时出现 —— 成功的小运行不必多一个控件
+                        if (progress.failed > 0 || progress.running > 0) {
+                            Row(
+                                Modifier.clip(RoundedCornerShape(999.dp)).background(Primer.Gray150)
+                                    .padding(2.dp),
+                            ) {
+                                FilterSegment(
+                                    label = "全部 ${jobs.size}",
+                                    on = filter == JobFilter.ALL,
+                                    onClick = { filter = JobFilter.ALL },
+                                )
+                                FilterSegment(
+                                    label = "失败 ${progress.failed}",
+                                    on = filter == JobFilter.FAILED,
+                                    onClick = { filter = JobFilter.FAILED },
+                                )
                             }
                         }
                     }
                 }
 
+                if (orderedJobs.isEmpty()) {
+                    item { DetailEmptyText(if (filter == JobFilter.FAILED) "没有失败的任务" else "暂无任务") }
+                } else {
+                    items(orderedJobs, key = { it.id }) { job ->
+                        Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                            JobCard(
+                                job = job,
+                                expanded = job.id in expandedJobs,
+                                onToggle = {
+                                    expandedJobs = if (job.id in expandedJobs) expandedJobs - job.id else expandedJobs + job.id
+                                },
+                                annotations = annotations.filter { jobBelongsToAnnotation(it, job) },
+                                onOpenStep = { stepNumber -> onOpenLog(job.id, stepNumber) },
+                                onOpenLog = { onOpenLog(job.id, null) },
+                                onCopyLog = {
+                                    scope.launch {
+                                        val log = jobLogs[job.id] ?: logStore.load(job.id)
+                                        log?.let { clipboard.setText(AnnotatedString(it.text)) }
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
+
                 if (artifacts.isNotEmpty()) {
-                    item { DetailSectionTitle("产物 Artifacts") }
-                    items(artifacts) { artifact -> ArtifactRow(artifact) }
+                    item { DetailSectionTitle("产物 · ${artifacts.size}") }
+                    items(artifacts, key = { it.id }) { artifact -> ArtifactRow(artifact, context) }
                 }
 
-                if (annotations.isNotEmpty()) {
-                    item { DetailSectionTitle("注解 Annotations") }
-                    items(annotations) { annotation -> AnnotationRow(annotation) }
+                // 归属不到任何任务的注解（宁可放不对，不要放错）
+                val loose = annotations.filter { a -> jobs.none { jobBelongsToAnnotation(a, it) } }
+                if (loose.isNotEmpty()) {
+                    item { DetailSectionTitle("其他注解 · ${loose.size}") }
+                    items(loose) { annotation -> AnnotationRow(annotation) }
                 }
 
-                item { Spacer(Modifier.height(28.dp)) }
+                item { Spacer(Modifier.height(24.dp)) }
             }
         }
     }
 }
 
-// ── 顶部栏 ──
+private enum class JobFilter { ALL, FAILED }
 
 @Composable
-private fun DetailTopBar(title: String, onBack: () -> Unit) {
-    Column(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "返回",
-                tint = Primer.IconPrimary,
-                modifier = Modifier.size(24.dp).iconTap { onBack() },
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                title,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Primer.TextPrimary,
-                maxLines = 1,
-                modifier = Modifier.weight(1f),
-            )
-        }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Gray150))
-    }
-}
-
-// ── run 头部卡片 ──
-
-@Composable
-private fun RunHeaderCard(run: WorkflowRun) {
-    Column(
+private fun FilterSegment(label: String, on: Boolean, onClick: () -> Unit) {
+    Box(
         Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 10.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .border(1.dp, Primer.Border, RoundedCornerShape(10.dp))
-            .padding(12.dp),
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (on) Primer.BackgroundPrimary else Primer.Gray150)
+            .clickable { onClick() }
+            .padding(horizontal = 11.dp, vertical = 4.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(10.dp).clip(CircleShape).background(runDotColor(run.status, run.conclusion)))
-            Spacer(Modifier.width(8.dp))
-            Text(
-                runStatusLabel(run.status, run.conclusion),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = runDotColor(run.status, run.conclusion),
-            )
-        }
-
-        Spacer(Modifier.height(6.dp))
         Text(
-            run.displayTitle.ifBlank { run.name },
-            fontSize = 14.5.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = Primer.TextPrimary,
-        )
-
-        Spacer(Modifier.height(8.dp))
-        val attemptText = if (run.runAttempt > 1) " · 第 ${run.runAttempt} 次尝试" else ""
-        MetaLine("编号", "#${run.runNumber}$attemptText")
-        MetaLine("事件", eventLabel(run.event))
-        MetaLine("分支", run.headBranch.ifBlank { "—" })
-        MetaLine("提交", shaShort(run.headSha), mono = true)
-        MetaLine("触发人", run.actor.ifBlank { "—" })
-        MetaLine("耗时", formatDuration(durationMillis(run.runStartedAt, run.updatedAt)))
-        MetaLine("创建", isoShort(run.createdAt))
-    }
-}
-
-@Composable
-private fun MetaLine(label: String, value: String, mono: Boolean = false) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-        Text(label, fontSize = 11.5.sp, color = Primer.TextTertiary, modifier = Modifier.width(52.dp))
-        Text(
-            value,
-            fontSize = 12.sp,
-            color = Primer.TextPrimary,
-            fontFamily = if (mono) FontFamily.Monospace else null,
-            modifier = Modifier.weight(1f),
-        )
-    }
-}
-
-// ── jobs / steps 时间线 ──
-
-@Composable
-private fun JobRow(
-    job: RunJob,
-    expanded: Boolean,
-    onToggle: () -> Unit,
-    onOpenFullLog: () -> Unit,
-) {
-    Column(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.fillMaxWidth().clickable { onToggle() }.padding(horizontal = 12.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(Modifier.size(10.dp).clip(CircleShape).background(runDotColor(job.status, job.conclusion)))
-            Spacer(Modifier.width(8.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    job.name.ifBlank { "（未命名任务）" },
-                    fontSize = 13.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Primer.TextPrimary,
-                    maxLines = 2,
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    "${runStatusLabel(job.status, job.conclusion)} · ${formatDuration(durationMillis(job.startedAt, job.completedAt))}",
-                    fontSize = 11.5.sp,
-                    color = Primer.TextTertiary,
-                )
-            }
-            Text(
-                "完整日志",
-                fontSize = 11.5.sp,
-                color = Primer.Blue500,
-                modifier = Modifier
-                    .clickable { onOpenFullLog() }
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-            )
-            Text(if (expanded) "▾" else "▸", fontSize = 12.sp, color = Primer.TextTertiary)
-        }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Gray100))
-    }
-}
-
-@Composable
-private fun StepRow(step: JobStep, selected: Boolean, onClick: () -> Unit) {
-    Column(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .background(if (selected) Primer.Gray150 else Color.Transparent)
-                .clickable { onClick() }
-                .padding(start = 30.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(Modifier.size(8.dp).clip(CircleShape).background(runDotColor(step.status, step.conclusion)))
-            Spacer(Modifier.width(8.dp))
-            Text(
-                "${step.number}. ${step.name.ifBlank { "（未命名步骤）" }}",
-                fontSize = 12.5.sp,
-                color = Primer.TextPrimary,
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                runStatusLabel(step.status, step.conclusion),
-                fontSize = 11.sp,
-                color = Primer.TextTertiary,
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                formatDuration(durationMillis(step.startedAt, step.completedAt)),
-                fontSize = 11.sp,
-                color = Primer.TextTertiary,
-            )
-        }
-        Box(Modifier.fillMaxWidth().padding(start = 30.dp).height(1.dp).background(Primer.Gray100))
-    }
-}
-
-// ── 步骤日志 ──
-
-@Composable
-private fun StepLogBlock(
-    step: JobStep,
-    lines: List<String>,
-    loaded: Boolean,
-    loading: Boolean,
-    pending: Boolean,
-    failed: Boolean,
-    expanded: Boolean,
-    onToggleExpand: () -> Unit,
-    onRetry: () -> Unit,
-) {
-    Column(Modifier.fillMaxWidth().padding(start = 30.dp, end = 12.dp, top = 4.dp, bottom = 12.dp)) {
-        Text(
-            "步骤日志 · ${step.name}",
+            label,
             fontSize = 11.5.sp,
             fontWeight = FontWeight.SemiBold,
-            color = Primer.TextSecondary,
+            color = if (on) Primer.TextPrimary else Primer.TextSecondary,
         )
-        Spacer(Modifier.height(6.dp))
-
-        when {
-            loading -> Text("正在加载日志…", fontSize = 11.5.sp, color = Primer.TextTertiary)
-
-            // 「还没生成」不是失败：远端日志 blob 只有 job 结束后才存在（见 RunPollPolicy）。
-            // 不给「重试」按钮 —— 重试也不会变出来；它一结束本页会自动把它补上。
-            pending -> Text(
-                "任务运行中，日志将在该任务结束后自动出现",
-                fontSize = 11.5.sp,
-                color = Primer.TextTertiary,
-                modifier = Modifier.padding(vertical = 4.dp),
-            )
-
-            failed -> Text(
-                "日志加载失败，点击重试",
-                fontSize = 11.5.sp,
-                color = Primer.Red500,
-                modifier = Modifier.clickable { onRetry() }.padding(vertical = 4.dp),
-            )
-
-            !loaded -> Text("点击步骤名加载日志", fontSize = 11.5.sp, color = Primer.TextTertiary)
-
-            lines.isEmpty() -> Text("该步骤没有日志输出", fontSize = 11.5.sp, color = Primer.TextTertiary)
-
-            else -> {
-                val limit = if (expanded) lines.size else MAX_LOG_LINES
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = LOG_BOX_MAX_HEIGHT_DP.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        // 日志块跟随主题（与搜索页代码块、文件页只读预览同一约定）：
-                        // 以前这里是硬编码的浅色主题取值，深色下等于「深灰字压深色底」。
-                        .background(CodeSyntax.CodeBg)
-                        .verticalScroll(rememberScrollState())
-                        .padding(10.dp),
-                ) {
-                    Text(
-                        lines.take(limit).joinToString("\n"),
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        lineHeight = 16.sp,
-                        color = Primer.TextPrimary,
-                    )
-                }
-                if (lines.size > MAX_LOG_LINES) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        if (expanded) "收起" else "展开剩余 ${lines.size - MAX_LOG_LINES} 行",
-                        fontSize = 11.5.sp,
-                        color = Primer.Blue500,
-                        modifier = Modifier.clickable { onToggleExpand() }.padding(vertical = 4.dp),
-                    )
-                }
-            }
-        }
     }
 }
 
-// ── 产物 / 注解 ──
-
+/**
+ * 产物行：名字 + 大小 + 「已过期」 + 行尾**直接下载**。
+ *
+ * 下载走 `:downloader`（前台服务 + 通知进度 + 重定向鉴权都是现成的）；
+ * `archive_download_url` 需要鉴权，由 `:downloader` 的 `AuthProvider` 按 host 注入。
+ * 地址缺失（老缓存 / 已过期被回收）时按钮置灰，不假装能下。
+ */
 @Composable
-private fun ArtifactRow(artifact: WorkflowArtifact) {
-    Column(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    artifact.name.ifBlank { "（未命名产物）" },
-                    fontSize = 13.sp,
-                    color = Primer.TextPrimary,
-                    maxLines = 2,
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(artifact.sizeText, fontSize = 11.5.sp, color = Primer.TextTertiary)
-            }
-            if (artifact.expired) {
-                Spacer(Modifier.width(8.dp))
-                Text("已过期", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.Red500)
-            }
-        }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Gray100))
-    }
-}
-
-@Composable
-private fun AnnotationRow(annotation: WorkflowAnnotation) {
-    Column(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.Top,
-        ) {
-            Column(Modifier.padding(top = 4.dp)) {
-                Box(Modifier.size(8.dp).clip(CircleShape).background(annotationLevelColor(annotation.level)))
-            }
-            Spacer(Modifier.width(8.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    annotationLocation(annotation),
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
-                    color = Primer.TextSecondary,
-                    maxLines = 2,
-                )
-                if (annotation.title.isNotBlank()) {
-                    Spacer(Modifier.height(3.dp))
-                    Text(
-                        annotation.title,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Primer.TextPrimary,
-                    )
-                }
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    annotation.message.ifBlank { "（无内容）" },
-                    fontSize = 12.sp,
-                    color = Primer.TextPrimary,
-                )
-            }
-        }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Gray100))
-    }
-}
-
-// ── 通用小件 ──
-
-@Composable
-private fun DetailSectionTitle(title: String) {
-    Text(
-        title,
-        fontSize = 12.5.sp,
-        fontWeight = FontWeight.SemiBold,
-        color = Primer.TextSecondary,
-        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 14.dp, bottom = 6.dp),
-    )
-}
-
-@Composable
-private fun DetailLoading() {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator(color = Primer.Blue500)
-    }
-}
-
-@Composable
-private fun DetailErrorRetry(onRetry: () -> Unit) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("加载失败", fontSize = 13.sp, color = Primer.TextSecondary)
-            Spacer(Modifier.height(10.dp))
+private fun ArtifactRow(artifact: WorkflowArtifact, context: android.content.Context) {
+    val downloadable = artifact.archiveDownloadUrl.isNotBlank() && !artifact.expired
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
             Text(
-                "重试",
-                fontSize = 13.sp,
+                artifact.name.ifBlank { "（未命名产物）" },
+                fontSize = 12.5.sp,
+                color = Primer.TextPrimary,
+                maxLines = 2,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(artifact.sizeText, fontSize = 11.sp, color = Primer.TextTertiary)
+        }
+        if (artifact.expired) {
+            Spacer(Modifier.width(8.dp))
+            Text("已过期", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Primer.DangerText)
+        }
+        Spacer(Modifier.width(8.dp))
+        Box(
+            Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(if (downloadable) Primer.Blue500 else Primer.Gray150)
+                .then(if (downloadable) Modifier.clickable {
+                    runCatching {
+                        DownloaderRuntime.enqueue(
+                            context,
+                            DownloadRequest(
+                                id = "artifact-${artifact.id}",
+                                url = artifact.archiveDownloadUrl,
+                                fileName = "${artifact.name}.zip",
+                                title = artifact.name,
+                                sizeHint = artifact.sizeInBytes,
+                            ),
+                        )
+                    }
+                } else Modifier)
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+        ) {
+            Text(
+                "下载",
+                fontSize = 11.5.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = Primer.Blue500,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .border(1.dp, Primer.Blue500, RoundedCornerShape(6.dp))
-                    .clickable { onRetry() }
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                color = if (downloadable) Primer.Gray000 else Primer.TextTertiary,
             )
         }
     }
+    Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Gray100))
 }
-
-@Composable
-private fun DetailEmptyText(text: String) {
-    Text(
-        text,
-        fontSize = 12.5.sp,
-        color = Primer.TextTertiary,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
-    )
-}
-
-// ── 纯函数小工具 ──
-
-/** 状态点颜色：成功绿、失败红、取消/跳过灰、进行中橙。 */
-@Composable
-private fun runDotColor(status: String, conclusion: String?): Color = when (conclusion) {
-    "success" -> Primer.Green500
-    "failure", "timed_out", "startup_failure" -> Primer.Red500
-    "cancelled", "skipped", "stale" -> Primer.TextTertiary
-    "action_required", "neutral" -> Primer.Orange500
-    else -> when (status) {
-        "queued", "in_progress", "requested", "waiting", "pending" -> Primer.Orange500
-        else -> Primer.TextTertiary
-    }
-}
-
-/** 注解等级色标：failure 红 / warning 橙 / 其它蓝。 */
-@Composable
-private fun annotationLevelColor(level: String): Color = when (level.lowercase()) {
-    "failure" -> Primer.Red500
-    "warning" -> Primer.Orange500
-    else -> Primer.Blue500
-}
-
-/** 注解位置 `path:startLine`（path 为空时退化为 `—`）。 */
-private fun annotationLocation(annotation: WorkflowAnnotation): String = when {
-    annotation.path.isBlank() -> "—"
-    annotation.startLine > 0 -> "${annotation.path}:${annotation.startLine}"
-    else -> annotation.path
-}
-
-/** 提交短 sha（前 7 位）。 */
-private fun shaShort(sha: String): String = if (sha.isBlank()) "—" else sha.take(7)
-
-/** 时间展示：截取前 16 字符并把 `T` 换成空格（`2026-09-07T13:42:34Z` → `2026-09-07 13:42`）。 */
-private fun isoShort(iso: String): String = if (iso.isBlank()) "—" else iso.take(16).replace('T', ' ')

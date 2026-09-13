@@ -445,9 +445,9 @@ GitHub Actions 的 job 日志（运行详情页按步骤看、Job 详情页整�
 - **失败就是 null**：`:app` 把 `RustBridge` 的两种失败（null / `ERROR:` 前缀）折叠成 null，
   模块不解析任何错误字符串。取不到时**不写缓存**，下次调用会重新发起（可重试）。
 
-`WorkflowLogThemeTest` 钉住两条源码级约束：工作流两个页面的日志块必须跟随主题
-（`CodeSyntax.CodeBg` + `Primer.TextPrimary`，不得再出现浅色主题的写死取值），
-且作业日志地址只允许出现在接线层一处。
+`WorkflowLogThemeTest` 钉住两条源码级约束：工作流这条链路上参与渲染的文件都不得出现
+浅色主题的写死取值（日志块用 `CodeSyntax.CodeBg` + `Primer.TextPrimary`），
+且作业日志地址**只允许出现在接线层一处**（扫整个 `ui/` 目录，不是写死几个文件名）。
 
 ## 🔄 运行中的工作流：轮询的是**状态**，不是日志
 
@@ -474,6 +474,28 @@ GitHub Actions 的 job 日志（运行详情页按步骤看、Job 详情页整�
 策略本身是纯逻辑，在 `ui/repository/RunPollPolicy.kt`（间隔阶梯 5s→15s→30s、
 计费网络只降速不停止、失败指数退避封顶 60s、`shouldPoll` 要求「运行中 + 前台」），
 由 `RunPollPolicyTest` 逐条钉住；取数与切片继续走 `:joblogs`（单飞 + 缓存 + 分段）。
+
+## 🧭 运行详情：卡片流（重绘）
+
+运行详情页从「7 条等权信息行 + 行内展开的任务列表 + 200 行日志小窗」重排成卡片流。
+设计稿与逐条论证在 `design/workflow-redesign/`（原型草稿不入库），落地后的结构：
+
+| 区块 | 变化 |
+|------|------|
+| 顶栏 | 补「刷新」（跑成功/跑一半也能手动回源，改前只有失败态有重试）与「更多」（浏览器打开 / 重新运行 / 复制链接） |
+| `RunHeaderCard` | 7 条平铺 `MetaLine` → **三段式**：状态胶囊+耗时 / 提交行（头像·分支·sha·**commit message**）/ 次要行；再加一条**进度条**（仅失败或运行中显示） |
+| 任务 | `JobRow` → `JobCard`：**卡片头只做展开/收起**（改前整行可点、里面又嵌一个可点的「完整日志」）；展开是步骤时间线（含**相对时长条**）；卡片脚显示 **`runner`**（这个字段模型里解析了、单测断言了，改前整个 app 从未显示过） |
+| 过滤 | 标题带计数 `任务 · 3` + 分段控件 `[全部][失败]`，**仅存在失败或运行中**时出现 |
+| 注解 | 按 check-run 名字**归回对应任务卡片**（改前全部沉在页尾，与任务脱钩）；归属不了的进底部「其他注解」 |
+| 产物 | 行尾加**下载**（走 `:downloader`；`archive_download_url` 是这轮才解析的，改前产物只有名字没有入口） |
+| 日志 | 运行详情页**不再内嵌日志小窗**；`JobDetailContent` 升级成 **`JobLogScreen`**：步骤 chips / 搜索命中跳转 / 仅错误·含警告过滤 / 分组折叠 / 复制，用 `LazyColumn` 逐行（改前把整段日志塞进一个 `Text`，几 MB 时整块测量、滚动会卡） |
+
+顺带把五件共享小件（`DetailTopBar` / `DetailSectionTitle` / `DetailLoading` / `DetailErrorRetry` /
+`DetailEmptyText`）从页面私有抽成 `DetailScaffold.kt` —— 它们原本在别的详情页各有一份。
+
+新增的纯逻辑都有单测：`runProgress`（进度分类）、`jobBelongsToAnnotation`（注解归属）、
+`annotationCheckRuns`（带名字的 check-run）、`logLineLevel` / `logHitIndexes`（日志分级与搜索）、
+`isFailedConclusion`、`elapsedSince`（运行中耗时按起点算）。
 
 ## 🎞 动效（两层规格：页面 / 元素）
 

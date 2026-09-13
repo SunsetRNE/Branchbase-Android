@@ -34,6 +34,11 @@ data class WorkflowArtifact(
     val sizeInBytes: Long,
     val expired: Boolean,
     val createdAt: String,
+    /**
+     * `archive_download_url` —— 产物的 zip 地址（**需要鉴权**，由 :downloader 的
+     * `AuthProvider` 按 host 注入；以前没解析，所以产物只有名字没有下载入口）。
+     */
+    val archiveDownloadUrl: String = "",
 ) {
     val sizeText: String
         get() = when {
@@ -55,6 +60,7 @@ fun parseWorkflowArtifacts(json: String?): List<WorkflowArtifact> {
                 sizeInBytes = o.optLong("size_in_bytes"),
                 expired = o.optBoolean("expired", false),
                 createdAt = o.optString("created_at"),
+                archiveDownloadUrl = o.optString("archive_download_url"),
             )
         }
     }.getOrDefault(emptyList())
@@ -69,9 +75,17 @@ data class WorkflowAnnotation(
     val level: String,      // notice / warning / failure
     val message: String,
     val title: String,
+    /**
+     * 产生这条注解的 check-run 名字。
+     *
+     * GitHub 的注解接口只给「文件 + 行号」，不给「哪个任务报的」—— 那正是它以前只能沉在页面
+     * 底部的原因。名字从 `/commits/{sha}/check-runs` 一起取（同一次请求里就有 `id` 与 `name`），
+     * 于是注解得以回到对应的任务卡片里（见 [jobBelongsToAnnotation]）。
+     */
+    val checkRunName: String = "",
 )
 
-fun parseWorkflowAnnotations(json: String?): List<WorkflowAnnotation> {
+fun parseWorkflowAnnotations(json: String?, checkRunName: String = ""): List<WorkflowAnnotation> {
     if (json.isNullOrBlank() || json.startsWith("ERROR:")) return emptyList()
     return runCatching {
         val arr = JSONArray(json)
@@ -84,23 +98,40 @@ fun parseWorkflowAnnotations(json: String?): List<WorkflowAnnotation> {
                 level = o.optString("annotation_level"),
                 message = o.optString("message"),
                 title = o.optString("title"),
+                checkRunName = checkRunName,
             )
         }
     }.getOrDefault(emptyList())
 }
 
-/** 从 check-runs 列表里挑出「有注解」的 run id（避免为每个 check-run 都发一次请求）。 */
-fun annotationCheckRunIds(json: String?): List<Long> {
+/** 一个「有注解」的 check-run：[id] + 名字（名字用来把注解归回任务）。 */
+data class AnnotationCheckRun(val id: Long, val name: String)
+
+/** 从 check-runs 列表里挑出「有注解」的那些（避免为每个 check-run 都发一次请求）。 */
+fun annotationCheckRuns(json: String?): List<AnnotationCheckRun> {
     if (json.isNullOrBlank() || json.startsWith("ERROR:")) return emptyList()
     return runCatching {
         val arr = JSONObject(json).optJSONArray("check_runs") ?: return@runCatching emptyList()
         (0 until arr.length()).mapNotNull { i ->
             val o = arr.optJSONObject(i) ?: return@mapNotNull null
             val count = o.optJSONObject("output")?.optInt("annotations_count", 0) ?: 0
-            o.optLong("id").takeIf { count > 0 }
+            if (count <= 0) null else AnnotationCheckRun(o.optLong("id"), o.optString("name"))
         }
     }.getOrDefault(emptyList())
 }
+
+/**
+ * 这条注解是不是某个任务报的。
+ *
+ * 依据是 check-run 名字与任务名（GitHub 的 check-run 名字通常就等于 job 名，
+ * 但会带前缀/后缀，所以复用与「日志段 ↔ 步骤」同一套模糊匹配）。
+ * 匹配不上就留空，由调用方放进底部的「其他注解」聚合区 —— **宁可放不对，不要放错**。
+ */
+fun jobBelongsToAnnotation(annotation: WorkflowAnnotation, job: RunJob): Boolean =
+    segmentMatchesStep(annotation.checkRunName, job.name)
+
+/** 从 check-runs 列表里挑出「有注解」的 run id（避免为每个 check-run 都发一次请求）。 */
+fun annotationCheckRunIds(json: String?): List<Long> = annotationCheckRuns(json).map { it.id }
 
 // ── 手动触发：输入定义 ──
 
@@ -252,6 +283,32 @@ fun eventLabel(event: String): String = when (event) {
 // 「段落标题 ↔ 步骤名」的匹配 —— 它要读 JobStep 这个 App 模型，属于渲染关切。
 
 // ── 运行中的差分 ──
+
+/**
+ * 一次运行的进度快照：头部进度条的**计数**与分段控件的数字都读它。
+ *
+ * 分类口径与状态点一致（[runStatusColor] 那套）：`success` 算成功；
+ * `cancelled` / `skipped` 既不算成功也不算失败（它们不该把进度条染红）；
+ * 其余非空结论算失败；还没结论的按 `status` 分「运行中 / 排队」。
+ */
+data class RunProgress(val ok: Int, val failed: Int, val running: Int, val waiting: Int) {
+    val total: Int get() = ok + failed + running + waiting
+    /** 只有「有失败」或「还没跑完」时才值得占头部一行（全成功的小运行不必显示进度）。 */
+    val worthShowing: Boolean get() = failed > 0 || running > 0 || waiting > 0
+}
+
+fun runProgress(jobs: List<RunJob>): RunProgress {
+    var ok = 0; var failed = 0; var running = 0; var waiting = 0
+    jobs.forEach { j ->
+        when {
+            j.conclusion == "success" -> ok++
+            j.conclusion != null && j.conclusion !in setOf("skipped", "cancelled") -> failed++
+            j.status == "in_progress" -> running++
+            else -> waiting++
+        }
+    }
+    return RunProgress(ok, failed, running, waiting)
+}
 
 /**
  * 与上一次快照比较，挑出**刚刚变成 `completed`** 的 job id。
