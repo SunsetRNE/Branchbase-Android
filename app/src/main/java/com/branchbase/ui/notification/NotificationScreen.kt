@@ -230,6 +230,17 @@ fun NotificationScreen(
     /** 远端结果 + 本地已读覆盖（唯一入口，保证「已读」口径只有一份） */
     fun applyRemote(list: List<Notification>): List<Notification> = NotifReadStore.apply(context, list)
 
+    /**
+     * 解析 + 合入本地已读：**放到后台线程**。
+     *
+     * [parseNotifications] 会把整份列表 JSON（首屏 50~200 条）解析成全量对象，而调用点原先
+     * 直接写在 `scope.launch { }` 里 —— 那是主线程。于是「进入消息页」那一帧上压着一坨 JSON 解析；
+     * 又因为 `TabSwitcher` 每次切 Tab 都会销毁并重建这一页，这笔开销是**每次进都付**，
+     * 不是只有首次（首次还额外叠了 DB/预取/类加载）。
+     */
+    suspend fun parseAndApply(json: String): List<Notification> =
+        withContext(Dispatchers.Default) { applyRemote(parseNotifications(json)) }
+
     /** 远端缓存失效（全部已读 / 单条已读共用） */
     suspend fun invalidateOnRead() {
         cacheManager.delete(PageCache.notificationKey(notifListPath()))
@@ -250,7 +261,7 @@ fun NotificationScreen(
             // 首帧已有快照时这里通常命中同一份数据，等于零成本。
             val cached = PageCache.cachedFirst(cacheManager, key, PageCache.TYPE_NOTIFICATION, force)
             if (cached != null) {
-                items = applyRemote(parseNotifications(cached))
+                items = parseAndApply(cached)
                 before = items.lastOrNull()?.updatedAt
                 hasMore = items.size >= 50
                 loadState = LoadState.Content
@@ -266,7 +277,7 @@ fun NotificationScreen(
                 // 首次进入（无缓存、无快照）仍按原语义落到错误态。
                 if (cached == null && items.isEmpty()) loadState = LoadState.Failed("消息加载失败")
             } else {
-                items = applyRemote(parseNotifications(json))
+                items = parseAndApply(json)
                 before = items.lastOrNull()?.updatedAt
                 hasMore = items.size >= 50
                 loadState = LoadState.Content
@@ -297,7 +308,7 @@ fun NotificationScreen(
             if (json == null || json.startsWith("ERROR:")) {
                 hasMore = false
             } else {
-                val newItems = applyRemote(parseNotifications(json))
+                val newItems = parseAndApply(json)
                 if (newItems.isEmpty()) {
                     hasMore = false
                 } else {
@@ -321,14 +332,15 @@ fun NotificationScreen(
             val path = notifListPath(participating = true)
             val key = PageCache.notificationKey(path)
             PageCache.cachedFirst(cacheManager, key, PageCache.TYPE_NOTIFICATION)?.let { cached ->
-                runCatching { parseNotifications(cached) }.getOrNull()
-                    ?.let { participatingItems = applyRemote(it) }
+                withContext(Dispatchers.Default) {
+                    runCatching { parseNotifications(cached) }.getOrNull()?.let { applyRemote(it) }
+                }?.let { participatingItems = it }
             }
             val json = PageCache.refresh(cacheManager, key, PageCache.TYPE_NOTIFICATION) {
                 withContext(Dispatchers.IO) { RustBridge.getJson(host, token, path) }
             }
             if (json != null && !json.startsWith("ERROR:")) {
-                participatingItems = applyRemote(parseNotifications(json))
+                participatingItems = parseAndApply(json)
             }
             participatingLoading = false
         }

@@ -144,11 +144,30 @@ object NotifArchive {
     private const val KEY = "notif_archive"
     private const val MAX = 300
 
+    /**
+     * 解析结果按**原始 JSON 字符串**记忆化。
+     *
+     * 这份存档最多 300 条，而消息页的 `remember(archiveVersion) { NotifArchive.entries(...) }`
+     * 是在**组合期**调的，且 `TabSwitcher` 每次切 Tab 都会销毁并重建消息页 ——
+     * 也就是「每次进入消息页」都要把整份 JSON 重新解析一遍，压在这一帧的主线程上。
+     * 内容没变就不该重解析。
+     */
+    @Volatile
+    private var cachedRaw: String? = null
+
+    @Volatile
+    private var cachedEntries: List<ArchivedThread> = emptyList()
+
     fun entries(context: Context): List<ArchivedThread> = runCatching {
         val raw = context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
             .getString(KEY, null) ?: return emptyList()
+        if (raw == cachedRaw) return cachedEntries
         val arr = JSONArray(raw)
-        (0 until arr.length()).mapNotNull { i -> parse(arr.optJSONObject(i)) }
+        val parsed = (0 until arr.length()).mapNotNull { i -> parse(arr.optJSONObject(i)) }
+        // 先写结果再写 key：读侧以 key 为准，顺序反了会读到半成品
+        cachedEntries = parsed
+        cachedRaw = raw
+        parsed
     }.getOrDefault(emptyList())
 
     /** 批量写入（同 id 覆盖：done 优先于 read）。 */
