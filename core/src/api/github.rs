@@ -379,6 +379,39 @@ impl GitHubApi {
             .await
     }
 
+    /// 上传一个 release 资产（`POST https://uploads.github.com/repos/{o}/{r}/releases/{id}/assets`）。
+    ///
+    /// 三点与仓库里其它 API 不同，都写在这里免得以后有人「顺手统一」掉：
+    /// 1. **不同源**：资产上传固定走 `uploads.github.com`（私有部署也一样，没有 `/api/v3` 前缀），
+    ///    所以 URL 直接拼死，不复用 `base_url()`；
+    /// 2. **参数在 query 上**：`name` 必填、`label` 可选，都要 URL 编码 ——
+    ///    附件名里空格、括号、中文都很常见，不编码直接 400；
+    /// 3. 返回的是资产 JSON（Kotlin 侧只取 `id`，重试时用来认领同一个资产）。
+    ///
+    /// @param file_path 本地绝对路径（App 私有暂存区里的那份，见 Kotlin 的 ReleaseAttachmentStore）
+    /// @param content_type 按扩展名给的 MIME，例如 `application/vnd.android.package-archive`
+    pub async fn upload_release_asset(
+        &self,
+        owner: &str,
+        repo: &str,
+        release_id: u64,
+        name: &str,
+        file_path: &str,
+        content_type: &str,
+        label: Option<&str>,
+    ) -> Result<String> {
+        let mut url = format!(
+            "https://uploads.github.com/repos/{owner}/{repo}/releases/{release_id}/assets?name={}",
+            url_encode(name),
+        );
+        if let Some(label) = label.map(str::trim).filter(|l| !l.is_empty()) {
+            url.push_str(&format!("&label={}", url_encode(label)));
+        }
+        self.client
+            .post_binary(&url, std::path::Path::new(file_path), content_type)
+            .await
+    }
+
     /// 编辑 release（`PATCH /repos/{o}/{r}/releases/{id}`）。
     ///
     /// @param make_latest 同 [create_release]；**编辑时默认传 `"legacy"`** ——
@@ -814,4 +847,11 @@ mod tests {
         assert_eq!("&page=2", GitHubApi::page_param(2));
         assert_eq!("&page=34", GitHubApi::page_param(34));
     }
+}
+
+/// query 参数用的百分号编码（`url` crate 的 form_urlencoded 实现）。
+///
+/// 单独提一个函数是因为「哪些地方要编码」很容易漏：`name` 与 `label` 都会进 query。
+fn url_encode(raw: &str) -> String {
+    url::form_urlencoded::byte_serialize(raw.as_bytes()).collect()
 }

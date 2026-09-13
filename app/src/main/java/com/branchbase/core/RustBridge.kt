@@ -230,6 +230,8 @@ object RustBridge {
 
     private external fun nativeDeleteRelease(host: String, token: String, owner: String, repo: String, id: String): String
 
+    private external fun nativeUploadReleaseAsset(host: String, token: String, owner: String, repo: String, releaseId: String, name: String, filePath: String, contentType: String, label: String): String
+
     /** 仓库当前「最新发布」的 id（空串 = 没有正式发布）。 */
     private external fun nativeLatestReleaseId(host: String, token: String, owner: String, repo: String): String
 
@@ -1049,6 +1051,29 @@ object RustBridge {
                 host, token, owner, repo, tag, name, body,
                 if (draft) "true" else "false", if (prerelease) "true" else "false", targetCommitish,
                 makeLatest,
+            ).takeIf { it.isNotBlank() && !it.startsWith("ERROR:") }
+        } catch (e: Throwable) {
+            null
+        }
+    }
+
+    /**
+     * 上传一个 release 资产（返回资产 JSON；null 表示失败）。
+     *
+     * **必须先有 release**：资产挂在 release 上，所以调用方要先用 [createRelease] / [updateRelease]
+     * 拿到 id。失败重试要复用同一个 id —— 重新 create 同名 tag 会 422 already_exists。
+     *
+     * [filePath] 是 App 私有暂存区里的绝对路径（见 `ReleaseAttachmentStore`），
+     * [contentType] 按扩展名给（`ReleaseAttachmentStore.mimeOf`）。
+     */
+    suspend fun uploadReleaseAsset(
+        host: String, token: String, owner: String, repo: String,
+        releaseId: Long, name: String, filePath: String, contentType: String, label: String? = null,
+    ): String? = withContext(Dispatchers.IO) {
+        try {
+            nativeUploadReleaseAsset(
+                host, token, owner, repo, releaseId.toString(), name, filePath, contentType,
+                label.orEmpty(),
             ).takeIf { it.isNotBlank() && !it.startsWith("ERROR:") }
         } catch (e: Throwable) {
             null

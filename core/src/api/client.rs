@@ -1,8 +1,31 @@
 //! 底层 HTTP 客户端（封装 reqwest，统一注入 token 与请求头）
 
 use crate::error::{CoreError, Result};
+use std::path::Path;
 use std::sync::OnceLock;
 use std::time::Duration;
+
+/// 单个附件的上限。
+///
+/// GitHub 自己的上限是 2GiB，但本实现是把文件读进内存再发（原因见 [ApiClient::post_binary]），
+/// 移动端一次分配 2GB 必被 OOM 杀掉。超过这个值宁可明确报错，让用户去网页端传。
+const MAX_UPLOAD_BYTES: u64 = 256 * 1024 * 1024;
+
+/// 上传专用的 HTTP 客户端。
+///
+/// **为什么不复用 [shared_http]**：那个客户端带 15s **总**超时（对 JSON 请求是必要的兜底），
+/// 而一个几十 MB 的 APK 上传经常要跑十几秒到几分钟 —— 用同一个客户端会把正常上传掐断在
+/// 15 秒处，且报错长得像网络故障。这里只保留连接超时。
+fn upload_http() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(20))
+            .tcp_nodelay(true)
+            .build()
+            .expect("构建上传客户端失败")
+    })
+}
 
 /// 进程内共享的 HTTP 客户端。
 ///
@@ -105,6 +128,60 @@ impl ApiClient {
             .header("Content-Type", "application/json")
             .header("User-Agent", "Branchbase/0.1")
             .body(body.to_string())
+            .send()
+            .await?;
+        let status = resp.status();
+        let text = resp.text().await?;
+        if !status.is_success() {
+            return Err(CoreError::Other(format!("HTTP {status}: {text}")));
+        }
+        Ok(text)
+    }
+
+    /// 把本地文件作为请求体 POST 到一个**绝对 URL**，返回响应体。
+    ///
+    /// 与 [post_json] 的三点不同：
+    /// 1. **不同源**：release 附件走 `uploads.github.com`，`base_url()` 拼不出来，所以收绝对 URL；
+    /// 2. **请求体是二进制**，`Content-Type` 由调用方按扩展名给；
+    /// 3. 走 [upload_http]（没有总超时），见那个函数的注释。
+    ///
+    /// ## 关于「一次性读进内存」
+    ///
+    /// 本仓库的 reqwest 只开了 `json / rustls-tls / http2`，流式 body（`Body::wrap_stream`）
+    /// 挂在 `stream` feature 下，而该 feature 会连带 `wasm-streams`（离线环境取不到，交叉编译也不需要）。
+    /// 所以这里在 `spawn_blocking` 里读成 `Vec<u8>` 再发，并用 [MAX_UPLOAD_BYTES] 兜住上限。
+    /// 要升级成真正的流式：给 reqwest 开 `stream`，把 body 换成
+    /// `Body::wrap_stream(tokio_util::io::ReaderStream::new(tokio::fs::File::open(path).await?))`。
+    pub async fn post_binary(&self, url: &str, file: &Path, content_type: &str) -> Result<String> {
+        let path = file.to_path_buf();
+        // 文件 IO 是阻塞的：放到阻塞线程池，别把 runtime 的工作线程占住
+        let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
+            let len = std::fs::metadata(&path)
+                .map_err(|e| CoreError::Other(format!("读取附件失败: {e}")))?
+                .len();
+            if len == 0 {
+                return Err(CoreError::Other("附件是空文件".to_string()));
+            }
+            if len > MAX_UPLOAD_BYTES {
+                return Err(CoreError::Other(format!(
+                    "附件超过 {} MB 上限，请改用网页端上传",
+                    MAX_UPLOAD_BYTES / 1024 / 1024
+                )));
+            }
+            std::fs::read(&path).map_err(|e| CoreError::Other(format!("读取附件失败: {e}")))
+        })
+        .await
+        .map_err(|e| CoreError::Other(format!("上传任务异常: {e}")))??;
+
+        let len = bytes.len();
+        let resp = upload_http()
+            .post(url)
+            .header("Authorization", format!("token {}", self.token))
+            .header("Accept", "application/vnd.github+json")
+            .header("Content-Type", content_type)
+            .header("Content-Length", len.to_string())
+            .header("User-Agent", "Branchbase/0.1")
+            .body(bytes)
             .send()
             .await?;
         let status = resp.status();

@@ -1668,6 +1668,52 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeCreateRelease<'
     into_jstring(&mut env, result)
 }
 
+/// 上传 release 资产（返回资产 JSON）
+/// 参数：host, token, owner, repo, releaseId, name, filePath, contentType, label
+///
+/// id 与其它 release 接口一样走字符串（Kotlin 侧是 Long，约定见 nativeUpdateRelease）。
+/// label 传空串视为「不带 label」。
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeUploadReleaseAsset<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    owner: JString<'local>,
+    repo: JString<'local>,
+    release_id: JString<'local>,
+    name: JString<'local>,
+    file_path: JString<'local>,
+    content_type: JString<'local>,
+    label: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let owner = jstr(&mut env, &owner);
+    let repo = jstr(&mut env, &repo);
+    let release_id = jstr(&mut env, &release_id);
+    let name = jstr(&mut env, &name);
+    let file_path = jstr(&mut env, &file_path);
+    let content_type = jstr(&mut env, &content_type);
+    let label = jstr(&mut env, &label);
+    let result: crate::error::Result<String> = block_on(async move {
+        let id: u64 = release_id.parse().unwrap_or(0);
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client)
+            .upload_release_asset(
+                &owner,
+                &repo,
+                id,
+                &name,
+                &file_path,
+                &content_type,
+                if label.trim().is_empty() { None } else { Some(label.as_str()) },
+            )
+            .await
+    });
+    into_jstring(&mut env, result)
+}
+
 /// 编辑 release（返回原始 JSON）
 /// 参数：host, token, owner, repo, id, tag, name, body, draft, prerelease, makeLatest
 #[no_mangle]

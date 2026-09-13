@@ -542,18 +542,48 @@ PATCH 的默认值是 `legacy`（= 不动归属），所以编辑标题/正文�
 （「最新的非草稿非预发布」只是 `make_latest` 缺省时的近似规则，一旦有人显式改过归属就是错的）。
 所以走权威端点 `GET /releases/latest`（`GitHubApi::latest_release_id`），拿不到时才退回上面那条近似规则。
 
-### 编辑页：三段式性质 + 只有一条底线的输入框
+### 编辑页：一屏装下「表单 + 附件 + 更新内容」
 
 - **性质从两个开关改成三段式单选**。改前是「草稿」「预发布」两个可以同时勾上、含义又重叠的开关，
-  而「最新发布」这个概念在 App 里根本没有；现在一屏说清三档各自的可见性与能否占用 Latest，
-  选中档位的说明文字直接写在下面；
-- **去掉输入框的四边框**。改前四个 `OutlinedTextField` 就是四个圆角矩形叠着，框线比内容还显眼。
-  单行字段改成「标签在上 + 一条底线」，聚焦时底线转蓝；**只给多行正文保留描边**——
-  一块 200dp 高的可编辑区域没有边界，用户分不清是输入区还是说明文字；
-- **补「生成说明」**：接官方 `POST /releases/generate-notes`，按 tag 与目标分支之间的合并记录自动起草；
-  已经有内容时先弹确认，不让它静默覆盖用户写的字；
-- **主操作在顶栏且文字随状态变**：草稿写「存为草稿」、其余写「发布」/「保存」——
-  点下去之前就知道会发生什么。
+  而「最新发布」这个概念在 App 里根本没有；现在一屏说清三档各自的可见性与能否占用 Latest；
+- **垂直预算从 ≈694dp 压到 ≈360dp**（逐项见 `docs/specs/prototypes/release-redesign.md`）：
+  标签 / 标题 / 目标分支**并成一行**（标签是等宽 chip、分支是行尾只读 chip）；
+  「设为最新」从一张卡片变成类型行里的小开关，且只在该有意义（正式发布）时出现；
+  分组标题去掉、统计（`附件 · 2 个 · 14.0 MB`、`更新内容 · 12 行 · 348 字`）挪进分组头；
+  分组之间用 1dp 发丝线代替大留白。**没有这一步，附件区根本没有位置**；
+- **更新内容去掉包裹框**，改用编辑器的**行标识槽**：行号（等宽右对齐 / `CodeSyntax.LineNo`）+
+  当前行底色 + **定宽标记列**，正文无框、3 行起步自动增高（改前是固定 200dp 的描边盒子）。
+  槽宽、行号字号、「不画分隔竖线」、当前行底色全部取自仓库既有的行号列与 `BranchbaseCodeEditor`
+  的取舍；「槽宽恒定」这条约束连槽内部也遵守 —— `+` 标记出现/消失时数字轴不动。
+  折行对齐走 `TextLayoutResult`（一条逻辑行折成多行时行号只占第一视觉行），不按 `\n` 数；
+- **「生成说明」不再整段覆盖**：接官方 `POST /releases/generate-notes`，生成的行在行号槽里带 `+`、
+  行底淡绿，底部给 `+ N 行来自生成说明 · [全部保留] [丢弃生成行]` —— 手写的字一行都不会被吞，
+  所以那个「替换现有更新内容？」的确认弹窗也删掉了；
+- **预览**放在底部弹层（正文 → HTML 仍走 Rust 的渲染器），编辑区不挂 WebView；
+- **主操作在顶栏且文字随状态变**：草稿写「存为草稿」、其余写「发布」/「保存」。
+
+### 附件：导入的文件先落盘，再上传
+
+| 环节 | 做法 | 为什么 |
+|------|------|--------|
+| 选择 | `ActivityResultContracts.GetMultipleContents`（SAF） | 零存储权限，与 App 既有基调一致 |
+| 落盘 | `getExternalFilesDir(null)/release-uploads/{owner}/{repo}/{tag}/`，先写 `.part` 再 rename | 选择器给的 `content://` 是**临时凭据**：进程被杀或重启就失效。**不用 cacheDir** —— 系统在低存储时会清它，「导入 → 切出去查个东西 → 回来」就发现文件没了 |
+| 清单 | `filesDir/release-drafts/{owner}-{repo}.json`（表单 + 附件元数据） | 文件大、改动少；清单小、敲字就可能要落盘。分开存，「退出再回来」两边各恢复各的 |
+| 回收 | 发布成功即删 / 未发布保留 7 天（进编辑页时顺手 prune）/ 点「移除」立即删 | 参照仓库里唯一带 TTL 的缓存实现（`readme_images`） |
+| 引用 | `downloads/` 里已有同名文件时只记路径不复制 | 省一次 IO；这类文件不是我们的，「移除」时不删它 |
+
+### 上传：先建 release，再逐个传资产
+
+资产**必须挂在 release 上**，所以「发布」是两步：先 `create_release` / `update_release` 拿到 id，
+再对每个待上传附件调 `upload_release_asset`。拿到 id 后记下来 —— 附件失败重试时不能重新 create
+（同名 tag 会 422 `already_exists`）。有附件失败就不算完成：不清理暂存、不关页面，让用户重试或移除。
+
+> **已知取舍（写在代码注释里）**：上传目前**不是流式**的。reqwest 只开了 `json / rustls-tls / http2`，
+> 流式 body 挂在 `stream` feature 下，而它会连带 `wasm-streams`（离线环境取不到、交叉编译也不需要），
+> 所以实现是 `spawn_blocking` 读进内存再发，并用 256MB 上限兜住（GitHub 本身允许 2GiB，
+> 但移动端一次分配 2GB 必被 OOM 杀掉）。升级成真正的流式只需给 reqwest 开 `stream`、
+> 把 body 换成 `Body::wrap_stream(...)`。另外 Rust 侧是一次阻塞调用、拿不到百分比，
+> 所以附件行用的是不确定进度条。
 
 ### 详情页：去掉「一个附件一个框」
 
@@ -562,8 +592,10 @@ PATCH 的默认值是 `legacy`（= 不动归属），所以编辑标题/正文�
 
 ### 落到底层
 
-`GitHubApi` 三个方法 + 对应 JNI 导出：`create_release` / `update_release` 新增 `make_latest`
-（草稿与预发布下一个字段都不发，省掉可能 422 的往返）、`latest_release_id`、`generate_release_notes`。
+`GitHubApi` 四个方法 + 对应 JNI 导出：`create_release` / `update_release` 新增 `make_latest`
+（草稿与预发布下一个字段都不发，省掉可能 422 的往返）、`latest_release_id`、`generate_release_notes`、
+**`upload_release_asset`**（`POST uploads.github.com/repos/{o}/{r}/releases/{id}/assets` ——
+与 API 不同源所以不复用 `base_url()`；`name` / `label` 走 URL 编码，附件名里空格、括号、中文都常见）。
 
 > **JNI 签名是编译期查不出来的**：`external fun` 与 `Java_*` 只靠名字关联，参数表对不上时
 > Kotlin 编译通过、Rust 编译通过、JVM 单测也永远不会加载那个 `.so`（它是 aarch64-android 的），
