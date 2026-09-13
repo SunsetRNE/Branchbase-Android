@@ -212,6 +212,9 @@ fun NotificationScreen(
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var anchorId by remember { mutableStateOf<String?>(null) }
     var bulkRunning by remember { mutableStateOf(false) }
+    // 批次代次：只增不减。批量是「远端逐条写」的长任务，用户完全可能在它跑完前退出多选、
+    // 甚至重新选一批再点一次；收尾逻辑靠它分辨「我是不是最新一批」，见 [runBulk]。
+    var bulkSeq by remember { mutableStateOf(0) }
     var sheetTarget by remember { mutableStateOf<Notification?>(null) }
     var undo by remember { mutableStateOf<UndoState?>(null) }
 
@@ -369,7 +372,11 @@ fun NotificationScreen(
     fun exitSelection() {
         selectedIds = emptySet()
         anchorId = null
-        bulkRunning = false
+        // 这里**不能**重置 [bulkRunning]：批量是仍在跑的远端长任务，用户中途退出多选
+        // 只是收起选择 UI，不等于那批请求停了。旧实现把它置 false 有两个后果 ——
+        // ① 退出后能再触发一批，两批并发打远端（每条间隔 [NOTIF_BULK_GAP_MS] 的限流保护失效）；
+        // ② 旧批次收尾时调用本函数，会把用户**新选的一批**一起清掉。
+        // 批次是否在跑只由 [runBulk] 自己管，收尾是否清选择由 [bulkSeq] + 选择是否被改过共同决定。
     }
 
     fun enterSelection(n: Notification) {
@@ -439,7 +446,9 @@ fun NotificationScreen(
     /** 点击通知：本地标记已读 + 跳转 */
     fun onNotifClick(n: Notification) {
         markReadLocal(listOf(n))
-        markReadRemote(n)
+        // 已读的条目再点不该再发一次写请求：GitHub 对同秒内的写请求有二级限流，
+        // 而「点开一条早已读过的消息」是很常见的动作。与 DioHub 一致：只在未读时才标记。
+        if (n.unread) markReadRemote(n)
         onOpenTarget(resolveTarget(n))
     }
 
@@ -535,6 +544,30 @@ fun NotificationScreen(
     }
 
     /**
+     * 单条完成：先本地归档（乐观），再远端 `DELETE /notifications/threads/{id}`，失败按 id 回滚。
+     *
+     * 为什么必须打远端：完成在本地只是「加进 [NotifArchive] + 从快照移出」，服务端完全不知情。
+     * 不打远端的话，下拉刷新（或下次进页面）时这条又会原样回来 —— 用户会认为「完成没生效」。
+     * 这里曾经只在 [runBulk] 里调用过 [RustBridge.markNotificationDone]：
+     * 长按面板的单条「标记完成」是纯本地的空操作（且因为长按接线错，那个按钮当时还点不到）。
+     */
+    fun markDoneRemote(n: Notification) {
+        val unreadBefore = mapOf(n.id to n.unread)
+        val archiveBefore = NotifArchive.entries(context)
+        val readBefore = NotifReadStore.ids(context)
+        markDoneLocal(listOf(n))
+        scope.launch {
+            val ok = RustBridge.markNotificationDone(host, token, n.id)
+            if (ok) {
+                invalidateOnRead()
+            } else {
+                rollbackLocal(listOf(n), unreadBefore, archiveBefore, readBefore)
+                toast(context, "标记完成失败，请重试")
+            }
+        }
+    }
+
+    /**
      * 批量操作：先本地乐观更新，再**按顺序**逐条调用远端（每条之间 [NOTIF_BULK_GAP_MS] 间隔，不并发，
      * 避免触发二级速率限制）；失败逐条回滚并在结束时 Toast 汇总；全部结束退出多选模式。
      *
@@ -549,6 +582,7 @@ fun NotificationScreen(
         val unreadBefore = targets.associate { it.id to it.unread }
         val archiveBefore = NotifArchive.entries(context)
         val readBefore = NotifReadStore.ids(context)
+        val seq = ++bulkSeq
 
         bulkRunning = true
         // ① 本地乐观更新
@@ -560,38 +594,53 @@ fun NotificationScreen(
 
         scope.launch {
             // ② 远端顺序执行：串行 for + delay，单条失败不影响后续
-            val failed = mutableListOf<String>()
+            val failed = mutableListOf<Notification>()
             targets.forEachIndexed { index, n ->
                 val ok = when (op) {
                     BulkOp.READ -> RustBridge.markNotificationRead(host, token, n.id)
                     BulkOp.DONE -> RustBridge.markNotificationDone(host, token, n.id)
                     BulkOp.MUTE -> RustBridge.unsubscribeThread(host, token, n.id)
                 }
-                if (!ok) failed += n.id
+                if (!ok) failed += n
                 if (index != targets.lastIndex) delay(NOTIF_BULK_GAP_MS)
             }
-            // ③ 终态：失败则整批回滚，让用户看到的和远端一致
+            // ③ 终态：**只回滚失败的那些**（规则见 [bulkRollbackTargets]，纯函数、有单测）。
+            // 整批回滚会把远端已经改成功的条目在本地又变回未读 —— 用户看到「批量失败」，
+            // 过一会儿下拉刷新，其中一部分又自己变回已改；本地与远端在这段窗口里并不一致，
+            // 而「回滚是为了跟远端一致」恰恰是整批回滚的理由。静音不改本地状态，没有可回滚的。
+            val toRollback = bulkRollbackTargets(targets, failed.map { it.id }.toSet(), op)
+            if (toRollback.isNotEmpty()) {
+                rollbackLocal(toRollback, unreadBefore, archiveBefore, readBefore)
+            }
+            val what = when (op) {
+                BulkOp.READ -> "标记已读"
+                BulkOp.DONE -> "标记完成"
+                BulkOp.MUTE -> "静音"
+            }
             if (failed.isNotEmpty()) {
-                rollbackLocal(targets, unreadBefore, archiveBefore, readBefore)
-                val what = when (op) {
-                    BulkOp.READ -> "标记已读"
-                    BulkOp.DONE -> "标记完成"
-                    BulkOp.MUTE -> "静音"
-                }
-                toast(context, "$what 失败：${failed.size} 条")
+                toast(context, "$what：成功 ${targets.size - failed.size} 条，失败 ${failed.size} 条")
             } else {
                 invalidateOnRead()
-                val what = when (op) {
-                    BulkOp.READ -> "已标记为已读"
-                    BulkOp.DONE -> "已完成"
-                    BulkOp.MUTE -> "已静音"
-                }
-                undo = UndoState("${targets.size} 条$what") {
-                    rollbackLocal(targets, unreadBefore, archiveBefore, readBefore)
+                // 静音在本地没有任何可见状态可回退（远端也没有 subscribe 接口），
+                // 因此不给撤销 —— 给一个按下去什么都不变的「撤销」比不给更糟。
+                if (op != BulkOp.MUTE) {
+                    undo = UndoState("${targets.size} 条已$what") {
+                        rollbackLocal(targets, unreadBefore, archiveBefore, readBefore)
+                    }
                 }
             }
             bulkRunning = false
-            exitSelection()
+
+            // ④ 收尾：只在「本批仍是最新一批」且「用户没动过选择」时才收拾多选态。
+            // 否则旧批次收尾时调用 exitSelection() 会把用户中途重新选的一批一起清掉。
+            if (seq != bulkSeq || selectedIds != targetIds) return@launch
+            if (failed.isEmpty()) {
+                exitSelection()
+            } else {
+                // 失败的保留选中：用户可以直接再点一次重试，不用重新一条条勾。
+                selectedIds = failed.map { it.id }.toSet()
+                anchorId = selectedIds.firstOrNull()
+            }
         }
     }
 
@@ -772,7 +821,11 @@ fun NotificationScreen(
                     selectedIds = selected,
                     listState = listState,
                     onClick = { onNotifClick(it) },
-                    onLongClick = { enterSelection(it) },
+                    // 长按 → 快捷动作面板（**不是**直接进多选）：想「只把这一条标成已读」时，
+                    // 先长按进多选再点「已读」多一步、且列表结构已经变了。多选是面板里的一个显式选项。
+                    // 这里曾经是 `enterSelection(it)`，于是面板的非多选分支从引入起就没被显示过（死代码），
+                    // 长按退化成「进多选」—— 与文档和 design/messages-redesign 原型描述的状态机不一致。
+                    onLongClick = { sheetTarget = it },
                     onToggleSelection = { id -> toggleSelection(id) },
                     onToggleGroupSelection = { toggleGroupSelection(it) },
                     onSwipeRead = { n -> markReadLocal(listOf(n)); markReadRemote(n) },
@@ -892,7 +945,7 @@ fun NotificationScreen(
                 sheetTarget = null
             },
             onMarkDone = {
-                if (bulkMode) runBulk(BulkOp.DONE, selected) else markDoneLocal(listOf(target))
+                if (bulkMode) runBulk(BulkOp.DONE, selected) else markDoneRemote(target)
                 sheetTarget = null
             },
             onMute = {
@@ -1279,13 +1332,17 @@ internal enum class GroupSelectState { NONE, ALL, MIXED }
  * 识别特征保留「类型图标块」；未读额外有左侧 3dp 蓝色竖条 + 极浅蓝底 + 加粗标题 + 尾点
  * （多重视觉冗余，不依赖单一信号，色弱 / 灰度屏也能区分）。
  *
- * ## 布局结构（重绘后：固定「识别槽」，多选方框不再与标题重叠）
+ * ## 布局结构（固定「识别槽」，多选方框不再与标题重叠）
+ *
+ * 正文顺序对齐 DioHub - Dev：元信息行（仓库 #号 · 原因 · 时间）在**最上**、标题居中、
+ * 评论预览在**最下**。理由见 README「卡片的约束」表 —— 「哪来的、什么时候」是定位坐标，
+ * 先给坐标再读标题；预览仍是「要不要点进去」的依据，但标题必须是第一眼看到的那一行。
  *
  * ```
  * ┌ Card ─────────────────────────────────────────────┐
- * │▍ ┌──────┐  标题（最多 2 行）                        │
- * │▍ │ 识别 │  评论预览（作者：正文）                    │
- * │▍ │ 槽位 │  仓库 #号 · 原因 · 时间                   │
+ * │▍ ┌──────┐  仓库 #号 · 原因 · 时间                   │
+ * │▍ │ 识别 │  标题（最多 2 行）                        │
+ * │▍ │ 槽位 │  评论预览（作者：正文）                    │
  * │▍ └──────┘                                         │
  * └───────────────────────────────────────────────────┘
  *  ▍ = 未读竖条（overlay 绘制，不占布局宽度）
@@ -1843,7 +1900,24 @@ private sealed interface LoadState {
 }
 
 /** 多选批量操作 */
-private enum class BulkOp { READ, DONE, MUTE }
+internal enum class BulkOp { READ, DONE, MUTE }
+
+/**
+ * 批量结束后**要回滚**的条目（纯函数，有单测）。
+ *
+ * 只回滚**失败**的那些。旧实现一失败就整批回滚，于是远端已经改成功的条目在本地又被撤回：
+ * 用户看到「批量失败」，过一会儿下拉刷新，其中一部分又自己变回已改 —— 这段窗口里
+ * 本地与远端并不一致，而「回滚是为了跟远端一致」恰恰是整批回滚的理由，逻辑上是自相矛盾的。
+ *
+ * 静音（[BulkOp.MUTE]）不改变任何本地可见状态，没有可回滚的东西 —— 回滚它反而会
+ * 顺带重写 [NotifArchive]（把期间用户从别的入口产生的归档改动覆盖掉）。
+ */
+internal fun bulkRollbackTargets(
+    targets: List<Notification>,
+    failedIds: Set<String>,
+    op: BulkOp,
+): List<Notification> =
+    if (op == BulkOp.MUTE) emptyList() else targets.filter { it.id in failedIds }
 
 /** 批量操作顺序执行时每条之间的间隔（毫秒）：避免同一秒内连发多次写请求触发二级速率限制 */
 private const val NOTIF_BULK_GAP_MS = 120L
