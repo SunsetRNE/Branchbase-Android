@@ -92,6 +92,9 @@ object Primer {
     val SelectedRow: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.selectedRow
     val WarningSurface: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.warningSurface
 
+    /** 紫色（`done`）的浅底：重命名标签这类「不是成功也不是警告」的第三态。 */
+    val PurpleSurface: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.doneSurface
+
     // ── 品牌文字色（小字标签用；深色下自动提亮）──
     val SuccessText: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.successText
     val SuccessTextStrong: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.successTextStrong

@@ -107,6 +107,8 @@ data class PrimerPalette(
     val infoSurfaceSoft: Color,
     val selectedRow: Color,
     val warningSurface: Color,
+    /** 紫色（`done`，如「重命名」标签）的浅底。 */
+    val doneSurface: Color,
     // ── 品牌文字色（比品牌主色深一档，浅色下用于小字标签）──
     val successText: Color,
     val successTextStrong: Color,
@@ -164,6 +166,7 @@ val LightPrimerPalette = PrimerPalette(
     infoSurfaceSoft = Color(0xFFE6F1FF),
     selectedRow = Color(0xFFF6FAFF),
     warningSurface = Color(0xFFFFF1E0),
+    doneSurface = Color(0xFFF3EEFF),
     successText = Color(0xFF1A7F37),
     successTextStrong = Color(0xFF176F2C),
     accentText = Color(0xFF0550AE),
@@ -238,6 +241,8 @@ val DarkPrimerPalette = PrimerPalette(
     infoSurfaceSoft = Color(0xFF10283F),
     selectedRow = Color(0xFF161B22),
     warningSurface = Color(0xFF2A2113),
+    // 与 GitHub dark 的 done.subtle 同法：把 #A371F7 以 15% 叠在 canvas(#0D1117) 上
+    doneSurface = Color(0xFF221F38),
     successText = Color(0xFF3FB950),
     successTextStrong = Color(0xFF3FB950),
     accentText = Color(0xFF79C0FF),

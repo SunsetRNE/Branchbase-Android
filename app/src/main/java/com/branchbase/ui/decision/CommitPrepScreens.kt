@@ -104,7 +104,7 @@ internal fun StageCommitScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFFFFF8C5))
+                    .background(Primer.WarningSurface)
                     .padding(10.dp),
             )
         }
@@ -183,8 +183,8 @@ internal fun StageCommitScreen(
 @Composable
 private fun StatusChip(status: String) {
     val (fg, bg) = when (status) {
-        "A" -> Color(0xFF005CC5) to Primer.InfoSurfaceStrong
-        "D" -> Color(0xFFCF222E) to Primer.DangerSurface
+        "A" -> Primer.Blue600 to Primer.InfoSurfaceStrong
+        "D" -> Primer.Red500 to Primer.DangerSurface
         else -> Primer.SuccessTextStrong to Primer.SuccessSurfaceSoft
     }
     Text(

@@ -333,7 +333,7 @@ private fun StarredRepoCard(repo: RepoItem, onClick: () -> Unit) {
         }
         Spacer(Modifier.width(8.dp))
         Box(
-            Modifier.clip(RoundedCornerShape(6.dp)).background(Color(0xFFFFF8C5)).border(1.dp, Color(0xFFD4A72C), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 3.dp),
+            Modifier.clip(RoundedCornerShape(6.dp)).background(Primer.WarningSurface).border(1.dp, Primer.Border, RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 3.dp),
             contentAlignment = Alignment.Center,
         ) {
             Text("已星标", fontSize = 12.sp, color = Primer.WarningText)
@@ -1392,10 +1392,10 @@ private fun BranchesScreen(
             Text(
                 "工作区有 $dirtyCount 个改动；切换分支若会覆盖它们将被拒绝",
                 fontSize = 11.5.sp,
-                color = Color(0xFF7A5B00),
+                color = Primer.WarningTextStrong,
                 lineHeight = 16.sp,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
-                    .clip(RoundedCornerShape(8.dp)).background(Color(0xFFFFF8E5))
+                    .clip(RoundedCornerShape(8.dp)).background(Primer.WarningSurface)
                     .padding(10.dp),
             )
         }

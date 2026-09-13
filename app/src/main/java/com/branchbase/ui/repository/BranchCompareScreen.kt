@@ -441,8 +441,8 @@ private fun DiffLineRow(line: DiffLine) {
         return
     }
     val bg = when (line.kind) {
-        DiffLineKind.Add -> Color(0xFFE6FFEC)
-        DiffLineKind.Remove -> Color(0xFFFFEBE9)
+        DiffLineKind.Add -> Primer.SuccessSurface
+        DiffLineKind.Remove -> Primer.DangerSurface
         else -> Color.Transparent
     }
     val prefix = when (line.kind) {
@@ -470,7 +470,7 @@ private fun DiffLineRow(line: DiffLine) {
         )
         Text(
             line.text.ifEmpty { " " },
-            fontSize = 11.5.sp, fontFamily = FontFamily.Monospace, color = Color(0xFF24292F),
+            fontSize = 11.5.sp, fontFamily = FontFamily.Monospace, color = Primer.TextPrimary,
             modifier = Modifier.weight(1f).padding(end = 8.dp),
         )
     }
@@ -479,9 +479,9 @@ private fun DiffLineRow(line: DiffLine) {
 @Composable
 private fun StatusTag(file: CompareFile) {
     val (fg, bg) = when (file.status) {
-        "added" -> Primer.Green500 to Color(0xFFE6FFEC)
-        "removed" -> Primer.Red500 to Color(0xFFFFEBE9)
-        "renamed" -> Primer.Purple500 to Color(0xFFF3EEFF)
+        "added" -> Primer.Green500 to Primer.SuccessSurface
+        "removed" -> Primer.Red500 to Primer.DangerSurface
+        "renamed" -> Primer.Purple500 to Primer.PurpleSurface
         else -> Primer.TextSecondary to Primer.Gray150
     }
     Box(

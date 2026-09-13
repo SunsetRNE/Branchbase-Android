@@ -413,7 +413,7 @@ private fun TodoCard(
         TodoRow("未读通知", "$unread 条", Primer.InfoSurfaceSoft, Primer.Blue500, unread > 0, onOpenNotifications)
         TodoRow("待我审查", "$reviews 个 PR", Primer.SuccessSurface, Primer.Green500, reviews > 0, onOpenSearch)
         TodoRow(
-            "分配给我", "$assigned 个 issue", Color(0xFFFFF8E5), Primer.WarningText,
+            "分配给我", "$assigned 个 issue", Primer.WarningSurface, Primer.WarningText,
             assigned > 0, onOpenSearch, last = true,
         )
     }

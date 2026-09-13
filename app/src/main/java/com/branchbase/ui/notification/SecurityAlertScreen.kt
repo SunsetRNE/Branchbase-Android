@@ -145,15 +145,15 @@ fun SecurityAlertScreen(
         Column(
             Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
         ) {
-            // 红色横幅（对齐线框 #FFDCE0）
+            // 红色横幅（浅色取值 = `Primer.Red100`，深色下自动压暗）
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color(0xFFFFDCE0)).padding(12.dp),
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Primer.Red100).padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Warning, null, tint = Primer.Red500, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("检测到安全风险", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFFB91C1C))
+                    Text("检测到安全风险", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.Red500)
                 }
                 Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
                 detail?.summary?.let {

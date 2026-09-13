@@ -669,7 +669,7 @@ private fun ReleaseRow(item: ReleaseItem, onClick: () -> Unit) {
                         fontSize = 10.sp,
                         color = Primer.WarningText,
                         modifier = Modifier.clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFFFFF8E5)).padding(horizontal = 6.dp, vertical = 1.dp),
+                            .background(Primer.WarningSurface).padding(horizontal = 6.dp, vertical = 1.dp),
                     )
                 }
                 if (item.prerelease) {
@@ -677,7 +677,7 @@ private fun ReleaseRow(item: ReleaseItem, onClick: () -> Unit) {
                     Text(
                         "预发布",
                         fontSize = 10.sp,
-                        color = Color(0xFF0A4E9B),
+                        color = Primer.AccentText,
                         modifier = Modifier.clip(RoundedCornerShape(6.dp))
                             .background(Primer.InfoSurfaceSoft).padding(horizontal = 6.dp, vertical = 1.dp),
                     )

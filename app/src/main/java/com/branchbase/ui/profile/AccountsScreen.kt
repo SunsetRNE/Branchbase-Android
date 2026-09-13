@@ -240,7 +240,7 @@ private fun AccountCard(
                     Text(account.login, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
                     if (isCurrent) {
                         Spacer(Modifier.width(6.dp))
-                        Badge("当前", Color(0xFF0A4E9B), Primer.InfoSurfaceSoft, Color(0xFFA9CDF5))
+                        Badge("当前", Primer.AccentText, Primer.InfoSurfaceSoft, Primer.Border)
                     }
                 }
                 Spacer(Modifier.height(2.dp))
@@ -274,7 +274,7 @@ private fun AccountCard(
 
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Badge(if (isChecking) "检查中…" else "● ${account.status.label}", statusFg(account.status), statusBg(account.status), statusBorder(account.status))
+            Badge(if (isChecking) "检查中…" else "● ${account.status.label}", statusFg(account.status), statusBg(account.status), Primer.Border)
             Spacer(Modifier.width(6.dp))
             Badge(account.auth.label, Primer.TextTertiary, Primer.Gray150, Primer.Border)
             Spacer(Modifier.width(6.dp))
@@ -299,26 +299,18 @@ private fun Badge(text: String, fg: Color, bg: Color, border: Color) {
 
 @Composable
 private fun statusFg(s: AccountStatus): Color = when (s) {
-    AccountStatus.OK -> Color(0xFF0B6B2E)
-    AccountStatus.INVALID, AccountStatus.SUSPENDED -> Color(0xFF9E1C24)
-    AccountStatus.LIMITED -> Color(0xFF7A5B00)
+    AccountStatus.OK -> Primer.SuccessTextStrong
+    AccountStatus.INVALID, AccountStatus.SUSPENDED -> Primer.Red500
+    AccountStatus.LIMITED -> Primer.WarningTextStrong
     else -> Primer.TextTertiary
 }
 
 @Composable
 private fun statusBg(s: AccountStatus): Color = when (s) {
-    AccountStatus.OK -> Color(0xFFE7F8ED)
-    AccountStatus.INVALID, AccountStatus.SUSPENDED -> Color(0xFFFDECEC)
-    AccountStatus.LIMITED -> Color(0xFFFFF8E5)
+    AccountStatus.OK -> Primer.SuccessSurface
+    AccountStatus.INVALID, AccountStatus.SUSPENDED -> Primer.DangerSurface
+    AccountStatus.LIMITED -> Primer.WarningSurface
     else -> Primer.Gray150
-}
-
-@Composable
-private fun statusBorder(s: AccountStatus): Color = when (s) {
-    AccountStatus.OK -> Color(0xFFA9E3BC)
-    AccountStatus.INVALID, AccountStatus.SUSPENDED -> Color(0xFFF5B5B5)
-    AccountStatus.LIMITED -> Color(0xFFE3B341)
-    else -> Primer.Border
 }
 
 /** 「3 分钟前 / 2 小时前 / 5 天前」 */

@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,13 +54,22 @@ import com.branchbase.ui.theme.Primer
  * 工作流（Actions）四级页面：工作流列表 → 运行历史 → Run 详情（jobs）→ Job 详情（steps+日志）。
  */
 
+/**
+ * 运行 / 任务 / 步骤的状态点颜色。
+ *
+ * 必须读主题角色：以前这里写死的是**浅色色板**的 `success` / `danger` / `warning` 取值
+ * （`#28A745` / `#D73A49` / `#F66A0A`），深色下那些色偏暗，状态点会糊在深色底上。
+ * 中性态用 `Gray500`（浅色 `#6A6D7C`，深色 `#8B949E`）—— 取值与改前的 `#6A6D7C` 完全一致。
+ */
+@Composable
+@ReadOnlyComposable
 private fun runStatusColor(status: String, conclusion: String?): Color = when (conclusion) {
-    "success" -> Color(0xFF28A745)
-    "failure" -> Color(0xFFD73A49)
-    "cancelled", "skipped" -> Color(0xFF6A6D7C)
+    "success" -> Primer.Green500
+    "failure" -> Primer.Red500
+    "cancelled", "skipped" -> Primer.Gray500
     else -> when (status) {
-        "queued", "in_progress" -> Color(0xFFF66A0A)
-        else -> Color(0xFF6A6D7C)
+        "queued", "in_progress" -> Primer.Orange500
+        else -> Primer.Gray500
     }
 }
 

@@ -847,13 +847,18 @@ private fun PullCard(pull: PullResult, onClick: () -> Unit) {
     }
 }
 
-/** 状态徽章（open/merged/closed） */
+/**
+ * 状态徽章（open/merged/closed）。
+ *
+ * `Open` 早就用了主题角色（`SuccessText`），只有 merged / closed 还写死浅色取值 ——
+ * 现在三者都走角色（`Purple500` = `done`、`Red500` = `danger`）。
+ */
 @Composable
 private fun StatusBadge(pull: PullResult) {
     val (text, color) = when {
-        pull.merged -> "Merged" to Color(0xFF8250DF)
+        pull.merged -> "Merged" to Primer.Purple500
         pull.state == "open" -> "Open" to Primer.SuccessText
-        else -> "Closed" to Color(0xFFCF222E)
+        else -> "Closed" to Primer.Red500
     }
     Text(
         text,
