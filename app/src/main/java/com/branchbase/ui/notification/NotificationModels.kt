@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.branchbase.ui.theme.TintRole
 import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * 通知解析模块。
@@ -35,9 +36,13 @@ sealed class NotifTarget {
      * 落到仓库的「工作流」tab。
      *
      * 只有 CheckSuite / CheckRun 会走这里：它们的 `subject.url` 是
-     * `.../check-suites/<id>` / `.../check-runs/<id>`，那个 id 与 **run id 不同域** ——
-     * 以前这里直接当成 runId 用，点通知会打开一个**编号巧合的、不相干的 run**。
-     * 通知里拿不到 run id，所以只能落到列表。
+     * `.../check-suites/<id>` / `.../check-runs/<id>`（对 CheckSuite 还常常直接是 `null`），
+     * 那个 id 与 **run id 不同域** —— 以前这里直接当成 runId 用，点通知会打开一个
+     * **编号巧合的、不相干的 run**。
+     *
+     * ⚠️ 这只是**纯函数的兜底**：点击时 [NotificationScreen.onNotifClick] 还会拿标题里的
+     * 「工作流名 + 分支」去 run 列表配对（见 [CheckSuiteHint]），配对成功会改跳
+     * [Run]；配不上才真的落到这里。
      */
     data class Workflows(val owner: String, val repo: String) : NotifTarget()
     data class Security(val owner: String, val repo: String, val title: String, val subjectUrl: String) : NotifTarget()
@@ -304,6 +309,115 @@ fun resolveTarget(n: Notification): NotifTarget = when (n.subjectType) {
     "CheckSuite", "CheckRun" -> NotifTarget.Workflows(n.owner, n.repo)
     "RepositoryVulnerabilityAlert", "RepositoryAdvisory" -> NotifTarget.Security(n.owner, n.repo, n.title, n.url)
     else -> NotifTarget.Repo(n.owner, n.repo)
+}
+
+// ───────────────────────── 工作流通知 → 具体 run（点击时解析） ─────────────────────────
+
+/**
+ * 工作流通知的**标题线索**（CheckSuite / CheckRun / WorkflowRun 共用同一套标题格式）。
+ *
+ * ## 为什么只能从标题里抠
+ *
+ * GitHub **不在通知里给 run id**：
+ * - `subject.url` 对 CheckSuite 常常直接就是 `null`（社区讨论 #158253「Missing subject URL
+ *   field for CheckSuite Notification type」）；
+ * - 即便给了，形态也是 `.../check-suites/<id>` —— 那是 **check 域的编号，不是 run id**，
+ *   直接当 run id 用会打开一个编号巧合的无关 run（1.0.29 修过一次这个 bug）。
+ *
+ * 能用的只有标题，格式为
+ * `"<workflowName> workflow run[, Attempt #N] <status> for <branch> branch"`，
+ * 例如 `"CI workflow run failed for main branch"`、
+ * `"Deploy workflow run, Attempt #2 succeeded for release/1.0 branch"`。
+ * 这个格式与 gitify（成熟的三方通知客户端，见 `utils/forges/github/handlers/checkSuite.ts`）
+ * 从真实报文反推出的正则一致；它的注释也写明「目前没有干净的办法用 API 直接拿 CheckSuite /
+ * WorkflowRun 的状态」，所以那边同样退回带筛选的 Actions 列表页。
+ *
+ * 本应用能做得更好一点：拿「工作流名 + 分支（+ attempt / 结论）」去 run 列表里配对，
+ * 配对不上就**老实退回工作流列表** —— 绝不猜一个编号去开一个无关的 run。
+ */
+data class CheckSuiteHint(
+    val workflowName: String,
+    val branch: String,
+    val attemptNumber: Int?,
+    /** 归一化到 API 的 `conclusion` 取值域；对不上时为 null（不参与筛选） */
+    val conclusion: String?,
+)
+
+/** 标题：`<workflow> workflow run[, Attempt #N] <status> for <branch> branch` */
+private val CHECK_SUITE_TITLE = Regex("^(.*?) workflow run(?:, Attempt #(\\d+))? (.*?) for (.*?) branch$")
+
+/** 解析工作流通知标题；格式对不上返回 null（调用方退回工作流列表）。 */
+fun parseCheckSuiteTitle(title: String): CheckSuiteHint? {
+    val m = CHECK_SUITE_TITLE.find(title.trim()) ?: return null
+    val workflow = m.groupValues[1].trim()
+    val branch = m.groupValues[4].trim()
+    if (workflow.isEmpty() || branch.isEmpty()) return null
+    return CheckSuiteHint(
+        workflowName = workflow,
+        branch = branch,
+        attemptNumber = m.groupValues[2].takeIf { it.isNotEmpty() }?.toIntOrNull(),
+        conclusion = conclusionOf(m.groupValues[3].trim()),
+    )
+}
+
+/** 标题里的口语化状态 → API 的 `conclusion` 取值域（认不出就返回 null，不拿它筛选）。 */
+private fun conclusionOf(display: String): String? = when (display) {
+    "succeeded" -> "success"
+    "failed", "failed at startup" -> "failure"
+    "cancelled" -> "cancelled"
+    "skipped" -> "skipped"
+    else -> null
+}
+
+/** run 列表里的一条，只保留配对用得到的字段。 */
+data class RunCandidate(
+    val id: Long,
+    val name: String,
+    val branch: String,
+    val attempt: Int,
+    val conclusion: String?,
+    val updatedAtMs: Long,
+)
+
+/** 解析 `GET /repos/{o}/{r}/actions/runs` 的 `{workflow_runs:[…]}`（只取配对需要的那几项）。 */
+fun parseRunCandidates(json: String): List<RunCandidate> = runCatching {
+    val arr = JSONObject(json).optJSONArray("workflow_runs") ?: return@runCatching emptyList()
+    (0 until arr.length()).map { i ->
+        val o = arr.getJSONObject(i)
+        RunCandidate(
+            id = o.optLong("id"),
+            name = o.optString("name").trim(),
+            branch = o.optString("head_branch"),
+            attempt = o.optInt("run_attempt", 1),
+            conclusion = o.optString("conclusion").takeIf { it.isNotBlank() },
+            updatedAtMs = parseIsoMs(o.optString("updated_at")),
+        )
+    }
+}.getOrDefault(emptyList())
+
+/** 允许的最大时间偏差：超过就认为没找到（宁可退回列表，也不开一个「看起来像」的 run）。 */
+private const val RUN_MATCH_MAX_GAP_MS = 24 * 60 * 60 * 1000L
+
+/**
+ * 从候选 run 里挑出通知所指的那一次（纯函数，有单测）。
+ *
+ * 先用「工作流名 + 分支」硬筛（标题里给了 attempt / 结论就一并要求相等），再用**时间最近**收口：
+ * 同一个工作流在同一分支上会跑很多次，而 run 的 `updated_at` 就是它结束、通知发出的那一刻。
+ * 一个都匹配不上、或最好的那个偏差超过 [RUN_MATCH_MAX_GAP_MS] 时返回 null —— 退回工作流列表。
+ */
+fun pickRunId(candidates: List<RunCandidate>, hint: CheckSuiteHint, notifUpdatedAtMs: Long): Long? {
+    val matched = candidates.filter { c ->
+        c.name == hint.workflowName &&
+            c.branch == hint.branch &&
+            (hint.attemptNumber == null || c.attempt == hint.attemptNumber) &&
+            (hint.conclusion == null || c.conclusion == hint.conclusion)
+    }
+    val best = matched.minByOrNull { kotlin.math.abs(it.updatedAtMs - notifUpdatedAtMs) } ?: return null
+    // 通知时间未知（0）时不拿时间卡人，只凭「名字 + 分支」的硬筛结果
+    if (notifUpdatedAtMs > 0 && kotlin.math.abs(best.updatedAtMs - notifUpdatedAtMs) > RUN_MATCH_MAX_GAP_MS) {
+        return null
+    }
+    return best.id
 }
 
 // ───────────────────────── 安全警报详情（Dependabot alerts / security-advisories） ─────────────────────────

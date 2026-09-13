@@ -108,6 +108,7 @@ import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.theme.Primer
+import java.net.URLEncoder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -443,13 +444,46 @@ fun NotificationScreen(
         }
     }
 
-    /** 点击通知：本地标记已读 + 跳转 */
+    /**
+     * 工作流通知 → 具体 run id；拿不到返回 null（调用方退回工作流列表）。
+     *
+     * GitHub **不在通知里给 run id**（CheckSuite 的 `subject.url` 常常就是 null，
+     * 给了也只是 check 域的编号，见 [CheckSuiteHint] 的注释），只能拿标题里的
+     * 「工作流名 + 分支」去 `GET /repos/{o}/{r}/actions/runs?branch=…` 配对。
+     * 一次请求；配对不上就返回 null —— 绝不猜一个编号去开一个无关的 run
+     * （1.0.29 修过「把 check id 当 run id」的那次就是这么错的）。
+     */
+    suspend fun resolveWorkflowRunId(n: Notification, hint: CheckSuiteHint): Long? {
+        val branch = runCatching { URLEncoder.encode(hint.branch, "UTF-8") }.getOrNull() ?: return null
+        val path = "/repos/${n.owner}/${n.repo}/actions/runs?branch=$branch&per_page=50"
+        val json = RustBridge.getJson(host, token, path) ?: return null
+        return pickRunId(parseRunCandidates(json), hint, n.updatedAtMs)
+    }
+
+    /** 点击通知：本地标记已读 + 跳转；工作流通知要先解析出具体这次 run。 */
     fun onNotifClick(n: Notification) {
         markReadLocal(listOf(n))
         // 已读的条目再点不该再发一次写请求：GitHub 对同秒内的写请求有二级限流，
         // 而「点开一条早已读过的消息」是很常见的动作。与 DioHub 一致：只在未读时才标记。
         if (n.unread) markReadRemote(n)
-        onOpenTarget(resolveTarget(n))
+
+        val target = resolveTarget(n)
+        if (target !is NotifTarget.Workflows) {
+            onOpenTarget(target)
+            return
+        }
+        // 工作流通知：先解析出具体这次 run 再跳（一次 /actions/runs 请求）。
+        // 解析不出来就按原样落到工作流列表 —— 并说明原因，而不是让用户以为自己点错了。
+        scope.launch {
+            val hint = parseCheckSuiteTitle(n.title)
+            val runId = hint?.let { resolveWorkflowRunId(n, it) }
+            if (runId != null) {
+                onOpenTarget(NotifTarget.Run(n.owner, n.repo, runId))
+            } else {
+                if (hint != null) toast(context, "未能定位到具体这次运行，已打开工作流列表")
+                onOpenTarget(target)
+            }
+        }
     }
 
     /** 归档条目回填为列表行（恢复未读用） */

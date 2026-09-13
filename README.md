@@ -838,6 +838,29 @@ Canvas 绘制 lambda），它们改用 `TintRole` 角色表 / 在 composable 里
 且旧批次收尾时的 `exitSelection()` 会把用户新选的一批一起清掉。现在收尾只在「本批仍是最新一批
 （`bulkSeq`）且用户没动过选择」时才收拾多选态。
 
+### 工作流通知：点击落到「这一次」运行
+
+工作流通知（`CheckSuite` / `CheckRun` / `WorkflowRun`）点进去曾经只落到仓库的「工作流」tab，
+到不了这次 run 的详情页。根因是 **GitHub 不在通知里给 run id**：
+
+| 来源 | 能不能拿到 run id |
+|------|------------------|
+| `subject.url`（CheckSuite） | 常常**直接是 `null`** —— [社区讨论 #158253](https://github.com/orgs/community/discussions/158253)「Missing subject URL field for CheckSuite Notification type」 |
+| `subject.url`（有值时） | 形态是 `.../check-suites/<id>` / `.../check-runs/<id>`，是 **check 域的编号**，当 run id 用会打开一个编号巧合的无关 run（1.0.29 修过一次） |
+| `subject.title` | **唯一能用的**：`"<workflow> workflow run[, Attempt #N] <status> for <branch> branch"` |
+
+所以点击时补一次解析：从标题抠出「工作流名 + 分支（+ attempt / 结论）」，
+`GET /repos/{owner}/{repo}/actions/runs?branch=…` 拿到候选后用**时间最近**收口
+（run 的 `updated_at` 就是它结束、通知发出的那一刻）。
+
+- 标题格式与 [gitify](https://github.com/gitify-app/gitify)（成熟的三方通知客户端）从真实报文
+  反推出的正则一致；它的注释写明「目前没有干净的办法用 API 直接拿 CheckSuite / WorkflowRun 状态」，
+  因此那边只退回带筛选的 Actions 列表页 —— 本应用多做一步配对，能真正落到 run 详情。
+- **配不上就退回工作流列表**，并 Toast 说明原因：一个都匹配不上、或最好的候选与通知时间
+  偏差超过 24h 时一律不猜（与上面「宁可放不对，不要放错」同一条原则）。
+- 三个纯函数（`parseCheckSuiteTitle` / `parseRunCandidates` / `pickRunId`）有单测
+  （`NotificationWorkflowDeepLinkTest`，覆盖各类误配：名字、分支、attempt、结论、时间偏差）。
+
 ### 选中集合必须与可见集合收敛
 
 `selectedIds` 是「用户点过的 id」，而可见列表会因换分类 / 类型 / 时间范围、下拉刷新、
