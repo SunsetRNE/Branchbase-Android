@@ -354,7 +354,7 @@ internal fun toNavigationUrl(url: String, host: String, owner: String, repo: Str
     if (!rest.startsWith("$ref/")) return null
     val file = rest.substring(ref.length + 1)
     if (file.isEmpty()) return null
-    // 末尾 `/` 判目录（对齐 html-parser-design.md §5.1）
+    // 末尾 `/` 判目录（对齐 docs/specs/html-parser-design.md §5.1，与 Rust 侧 resolve_relative 同一条判定）
     val target = if (file.endsWith("/")) "tree" else "blob"
     return "https://$host/$ownerSeg/$repoSeg/$target/$ref/$file"
 }

@@ -46,11 +46,17 @@ local.properties
 # CI 产物收集临时目录（upload-artifact 前统一收集，不入库）
 /dist/
 
-# 原型设计草图（HTML 草图，不入库）
+# 原型设计草图（HTML 草图，永久不入库）
+# 草图本体（index.html / app.js / style.css…）留在 /design/<原型名>/，DSH 侧边栏「原型预览」能扫到；
+# 但同一件事的「说明与落实方案」（现状测绘 / 取舍论证 / 落地清单）是结论，抽一份进
+# /docs/specs/prototypes/ 入库 —— 草图与结论的寿命不一样，见 /docs/README.md
 /design/
 
-# 原型设计文档（不入库）
-/docs/
+# 注意：/docs/ **不再**整体忽略。
+# 历史上来过一版「/docs/ 也忽略」的写法，代价是 core/src/html/mod.rs 长年引用一份
+# docs/html-parser-design.md，而它从未进过版本库、丢失后无从找回 ——
+# 注释指向不存在的文件比没有注释更坏。结论类文档必须入库：
+# /docs/README.md（收纳规则）+ /docs/specs/（重点文档）。
 
 # 校验文件（CI 在 beta 分支生成，main 不保留）
 /verify/signature.txt

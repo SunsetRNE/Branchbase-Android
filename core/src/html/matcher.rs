@@ -3,7 +3,7 @@
 //! 把任意 GitHub 链接（绝对 / 相对 / 锚点 / 站外）归一化为一个 `Destination`，
 //! 供 Compose 层做「内部跳转导航」。
 //!
-//! 规则：有序、声明式（见 `docs/html-parser-design.md` §3），命中即停。
+//! 规则：有序、声明式（见 `docs/specs/html-parser-design.md` §3），命中即停。
 
 use serde::Serialize;
 

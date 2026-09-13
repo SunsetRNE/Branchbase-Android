@@ -9,7 +9,7 @@ import org.junit.Test
  * 「返回键消费逻辑」的结构性钉子（源码级，和 `ReadmeRenderAssetTest` / `TranslateBootScriptTest`
  * 同一套路：这些行为只有真机连按才试得出来，JVM 单测里没有 Compose 运行时，只能把规则钉在源码上）。
  *
- * 两条规则来自根目录的 `NAVIGATION-NOTES.md`：
+ * 两条规则来自 `docs/specs/NAVIGATION-NOTES.md`：
  *
  * 1. **页面级返回键一律走 `PageBackHandler`**，不许裸用 `androidx.activity.compose.BackHandler`
  *    —— 裸用手会绕过 `LocalPageActive`，退场动画期间新旧两页抢同一个事件；

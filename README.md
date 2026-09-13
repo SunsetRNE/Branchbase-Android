@@ -47,16 +47,22 @@ Branchbase/
 │   └── src/main/AndroidManifest.xml              #   权限 / 前台服务 / FileProvider 都随模块合并
 ├── imageviewer/         # 图片查看器独立模块（正文页点图放大：缩放/平移/下拉关闭）
 ├── joblogs/             # 作业日志独立模块（取数单飞合并/分组切段/缓存；来源与缓存由 :app 注入）
+├── docs/                # 设计文档（入库）：README 收纳规则 + specs/ 重点文档（见 /docs/README.md）
 ├── tools/               # 环境与构建脚本（tools/env、tools/build）
 ├── .github/workflows/   # CI/CD（Beta / Release）
 ├── version.properties   # 工程版本号配置（手动维护）
 └── setup_android_env.sh # ARM64 AAPT2 替换脚本
 ```
 
-> `docs/`（设计文档 wireframe / 规范）、`design/`（原型草图）、`re-workspace/`（逆向资源）、
-> `tools/aapt2/`（官方二进制）、`.kotlin/` 等目录已加入 `.gitignore`，**不入库**。
-> 因此代码注释里不再引用这些文件路径 —— 规格与结论直接写在注释与本文档中；
-> 迁移过程中丢失的文档请以代码与本文档为准。
+> **文档分两类，寿命不一样**：
+> `docs/`（**设计文档：结论类，入库**）—— 收纳规则、走哪、什么该存什么不存见
+> [`docs/README.md`](docs/README.md)；重点是 `docs/specs/`。
+> `design/`（**原型草图：HTML/CSS/JS，永久不入库**）在 `.gitignore` 里，本地可见、DSH 侧边栏
+> 「原型预览」能扫到；但草图的『说明与落实方案』会抽一份进 `docs/specs/prototypes/`。
+> `re-workspace/`（逆向资源）、`tools/aapt2/`（官方二进制）、`.kotlin/` 等同样不入库。
+>
+> 由此，**代码注释可以放心引用 `docs/specs/` 下的文档**（含 `§` 章节号，改文档要回头改注释）；
+> 引用 `design/` 下的草图文件则要意识到「那份文件不在版本库里」。
 
 ## 🚀 功能特性
 
@@ -100,7 +106,7 @@ Branchbase/
   未登录的欢迎页按返回直接退出；子页 / 详情 / 多选态 / 页面内的决策页与编辑态**逐层关闭自己**，
   且与页面左上角返回箭头**走同一条路径**（如「设置 → 关于」按返回回设置、而不是跳回个人主页；
   本地仓库的决策页回列表；任务详情回列表；文件页决策页回编辑态；Issue 评论编辑态 = 取消编辑）
-  —— 完整链路、两条硬规则与踩过的坑见 [`NAVIGATION-NOTES.md`](NAVIGATION-NOTES.md)
+  —— 完整链路、两条硬规则与踩过的坑见 [`docs/specs/NAVIGATION-NOTES.md`](docs/specs/NAVIGATION-NOTES.md)
 - **关于页**：紧凑单屏版（图标 52dp 与名称同行 + 右侧校验结论胶囊 + 两张信息卡），
   版本号标准化展示（工程版本 / 标准版本 / 构建时间 / 七位哈希 / Git 配置包 / 代码编辑器），
   构建校验（发布版本 / 签名校验 / 远程校验 + 一行结论说明，五态文案由 `verifyCopy` 纯函数产出），
@@ -478,7 +484,8 @@ GitHub Actions 的 job 日志（运行详情页按步骤看、Job 详情页整�
 ## 🧭 运行详情：卡片流（重绘）
 
 运行详情页从「7 条等权信息行 + 行内展开的任务列表 + 200 行日志小窗」重排成卡片流。
-设计稿与逐条论证在 `design/workflow-redesign/`（原型草稿不入库），落地后的结构：
+设计稿与逐条论证在 `design/workflow-redesign/`（原型草稿不入库；**文档已入库**：
+[`docs/specs/prototypes/workflow-redesign.md`](docs/specs/prototypes/workflow-redesign.md)），落地后的结构：
 
 | 区块 | 变化 |
 |------|------|
@@ -837,7 +844,8 @@ Canvas 绘制 lambda），它们改用 `TintRole` 角色表 / 在 composable 里
 
 > 这里曾有一处**接线缺陷**：`NotificationList(onLongClick = { enterSelection(it) })` 一直写成
 > 「进多选」，而 `sheetTarget` 只有多选条上的「更多」会赋值 —— 于是面板的**非多选分支从引入起
-> 就没显示过**（死代码），长按退化成「进多选」，与本节（以及 `design/messages-redesign` 原型
+> 就没显示过**（死代码），长按退化成「进多选」，与本节（以及
+> [`docs/specs/prototypes/messages-redesign.md`](docs/specs/prototypes/messages-redesign.md) 原型
 > 的 ② 手势状态机）描述的行为不一致。修好接线后又暴露出第二个问题：面板里的单条「标记完成」
 > 只写本地、从不调 `RustBridge.markNotificationDone`（该接口此前只在批量路径里用过），
 > 刷新后条目会原样回来。两者一起修好，并抽出 `markDoneRemote`（本地乐观归档 → 远端 DELETE → 失败按 id 回滚）。
@@ -929,7 +937,7 @@ chmod +x ./setup_android_env.sh
 cd core && cargo test                                            # Rust 核心
 ```
 > 容器/proot 环境先 `source tools/env/env.rc`（其中导出了 `LANG/LC_ALL=C.UTF-8`：
-> JVM 的文件名编码取自 locale，非 UTF-8 时中文命名的测试方法会编译失败，见 `BUILD-NOTES.md`）。
+> JVM 的文件名编码取自 locale，非 UTF-8 时中文命名的测试方法会编译失败，见 [`docs/specs/BUILD-NOTES.md`](docs/specs/BUILD-NOTES.md)）。
 
 ### Rust 核心
 ```bash
