@@ -21,7 +21,8 @@ import androidx.compose.ui.graphics.Color
  * | [canvas] | 白 | #0D1117 | 页面底 |
  * | [canvasSubtle] | 白 | #161B22 | 导航栏 / 卡片 / 弹层底（靠它与 [canvas] 的差分层） |
  * | [textPrimary]/[textSecondary]/[textTertiary] | 深→浅灰 | 浅→中灰 | 正文 / 次要 / 说明 |
- * | [iconPrimary]/[iconSecondary] | 中灰 | 亮灰 | 图标 |
+ * | [iconPrimary] | 纯黑 | 纯白 | 常态图标（见下「图标去灰」） |
+ * | [iconSecondary] | 中灰 | 亮灰 | 次要 / 禁用图标 |
  * | [border] | #BFC1C9 | #30363D | 描边（**只做 stroke**） |
  * | [neutralFill]/[neutralFillStrong]/[neutralBorder] | 浅灰阶 | 深灰阶 | chip / 代码底 / 未选中底 |
  * | [emphasisFill] + [onEmphasis] | 深底 + 白字 | **浅底 + 深字** | 高强调胶囊（注意是成对翻转的） |
@@ -142,7 +143,12 @@ val LightPrimerPalette = PrimerPalette(
     textPrimary = Color(0xFF050505),
     textSecondary = Color(0xFF41434E),
     textTertiary = Color(0xFF6A6D7C),
-    iconPrimary = Color(0xFF525560),
+    // 常态图标取纯黑（深色板对应 #FFFFFF）。
+    // 图标是图形不是长文本，21:1 的对比不构成阅读负担，而原来的中灰 #525560 在浅色下
+    // 有种「发灰、像没加载出颜色」的观感。**只有常态图标换**：
+    // iconSecondary 仍留中灰，否则会与常态图标合并、丢掉「未选中 / 禁用」这层语义；
+    // 正文与次级文字、描边、灰底填充一律不动。
+    iconPrimary = Color(0xFF000000),
     iconSecondary = Color(0xFF9194A1),
     border = Color(0xFFBFC1C9),
     neutralFill = Color(0xFFF7F7F9),
@@ -218,7 +224,8 @@ val DarkPrimerPalette = PrimerPalette(
     textPrimary = Color(0xFFE6EDF3),
     textSecondary = Color(0xFFC9D1D9),
     textTertiary = Color(0xFF8B949E),
-    iconPrimary = Color(0xFFB1BAC4),
+    // 同浅色板：常态图标纯白（对应 #000000）
+    iconPrimary = Color(0xFFFFFFFF),
     iconSecondary = Color(0xFF8B949E),
     border = Color(0xFF30363D),
     neutralFill = Color(0xFF161B22),
