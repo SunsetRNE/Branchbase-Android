@@ -127,6 +127,28 @@ android {
                 "proguard-rules.pro"
             )
         }
+        /**
+         * 性能测试版：**release 的性能特征 + beta 的签名**。
+         *
+         * 为什么需要它 —— 在此之前想评一次动效/滚动性能只能二选一：
+         * - beta（`assembleDebug` + 入库的 beta 钥匙）：能覆盖安装，但 `isDebuggable=true`
+         *   → ART 几乎不做 AOT、也拿不到依赖自带的 baseline profile，**测出来的不是真实性能**；
+         * - 正式版（`assembleRelease` + CI secrets 里的 release 钥匙）：性能真实，
+         *   但签名与 beta 不同 → **必须卸载才能装**，登录态与缓存全清，首轮都是冷缓存，
+         *   同样没法做「改前 / 改后」对比。
+         *
+         * 这个变体取两者交集：`initWith(release)` 拿到 `isDebuggable=false`（ART 才愿意 AOT、
+         * AGP 才会把 baseline profile 合进 APK），签名却沿用入库的固定 beta 钥匙 —— 覆盖安装即可。
+         */
+        create("perfBeta") {
+            initWith(getByName("release"))
+            // ⚠️ 必须在 initWith 之后覆盖：release 的 signingConfig 会被一起复制过来
+            signingConfig = signingConfigs.getByName("beta")
+            versionNameSuffix = "-Beta"
+            isMinifyEnabled = false
+            // 依赖的 library 模块只有 debug/release 两套变体，这里指回去
+            matchingFallbacks += listOf("release")
+        }
     }
     compileOptions {
         // Sora Editor 的 language-textmate 要求 app 启用 core library desugaring
@@ -146,12 +168,17 @@ android {
     }
 }
 
-// APK 输出文件名：Branchbase-工程版本号-年月日-时分-七位哈希[-debug].apk
+// APK 输出文件名：Branchbase-工程版本号-年月日-时分-七位哈希[-debug|-perfBeta].apk
 // 例：Branchbase-1.0.3-20260902-2226-a1b2c3d-debug.apk / Branchbase-1.0.3-20260902-2226-a1b2c3d.apk
 androidComponents {
     onVariants { variant ->
         variant.outputs.forEach { output ->
-            val suffix = if (variant.buildType == "debug") "-debug" else ""
+            // 各个变体要在 dist/ 里能分辨：release 不带后缀，其余带自己的变体名
+            val suffix = when (variant.buildType) {
+                "debug" -> "-debug"
+                "perfBeta" -> "-perfBeta"
+                else -> ""
+            }
             (output as VariantOutputImpl).outputFileName.set("Branchbase-${standardVersion}${suffix}.apk")
         }
     }

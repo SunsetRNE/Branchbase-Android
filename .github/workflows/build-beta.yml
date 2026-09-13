@@ -48,13 +48,17 @@ jobs:
       - name: Build Rust core (.so)
         run: bash tools/build/build-core.sh --mode=ci
 
-      - name: Build Debug APK (注入版本参数)
+      - name: Build APK (debug + perfBeta，注入版本参数)
         id: ver
         run: |
           set -o pipefail
-          if ! bash tools/build/assemble.sh assembleDebug 2>&1 | tee /tmp/assemble.log; then
+          # 两个变体一起出：
+          #   debug    —— 可调试，排障用；
+          #   perfBeta —— 非 debuggable（ART 才做 AOT、AGP 才合入 baseline profile），
+          #               但沿用入库的固定 beta 钥匙，可以覆盖安装 —— 评性能用它。
+          if ! bash tools/build/assemble.sh assembleDebug assemblePerfBeta 2>&1 | tee /tmp/assemble.log; then
             # 失败时把关键行做成 annotation —— 无需日志下载权限即可通过 check-runs API 定位
-            echo "::error title=assemble::assembleDebug 失败，关键行如下"
+            echo "::error title=assemble::assembleDebug/assemblePerfBeta 失败，关键行如下"
             # 先取 Kotlin 编译错误，再取 Gradle FAILURE 段（真实原因在 FAILURE 之后）
             {
               grep -aE "^e: |^error:" /tmp/assemble.log | tail -12
@@ -71,6 +75,7 @@ jobs:
         run: |
           mkdir -p dist
           cp app/build/outputs/apk/debug/*.apk dist/ || true
+          cp app/build/outputs/apk/perfBeta/*.apk dist/ || true
           cp app/src/main/jniLibs/arm64-v8a/libbranchbase_core.so dist/ || true
           ls -la dist/
 

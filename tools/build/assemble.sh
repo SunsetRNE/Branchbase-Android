@@ -5,9 +5,11 @@
 #       ① 注入环境变量（app/build.gradle.kts 优先读取，保证版本号一致）
 #       ② 写入 $GITHUB_OUTPUT（远程 CI 供后续 publish 阶段引用）
 #       ③ 打印到 stdout（本地可读）
-# 然后执行 ./gradlew <task>。
+# 然后执行 ./gradlew <task> [task...]。
 #
-# 用法：tools/build/assemble.sh assembleDebug|assembleRelease
+# 用法：tools/build/assemble.sh <task> [task...]
+#   tools/build/assemble.sh assembleDebug
+#   tools/build/assemble.sh assembleDebug assemblePerfBeta   # 一次跑多个变体
 
 set -e
 
@@ -15,7 +17,11 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT_DIR=$(cd "$SCRIPT_DIR/../.." && pwd)
 cd "$ROOT_DIR"
 
-TASK="${1:-assembleDebug}"
+# 不传任务时退回原来的默认值（既有调用点不受影响）
+TASKS=("$@")
+if [[ ${#TASKS[@]} -eq 0 ]]; then
+  TASKS=("assembleDebug")
+fi
 
 # ── 读取工程版本 ──
 VERSION_NAME=$(grep '^versionName=' version.properties | cut -d= -f2 | tr -d '[:space:]')
@@ -54,7 +60,7 @@ GRADLE_ARGS=()
 if [[ "${CI:-false}" == "true" || "${GITHUB_ACTIONS:-false}" == "true" ]]; then
   GRADLE_ARGS+=("-Pandroid.aapt2.process.daemon=true")
 fi
-./gradlew "$TASK" "${GRADLE_ARGS[@]}"
+./gradlew "${TASKS[@]}" "${GRADLE_ARGS[@]}"
 
-echo "[assemble] 完成 task=$TASK"
+echo "[assemble] 完成 task=${TASKS[*]}"
 echo "BRANCHBASE_STANDARD_VERSION=$STANDARD_VERSION"
