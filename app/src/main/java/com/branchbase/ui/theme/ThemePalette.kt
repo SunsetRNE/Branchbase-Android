@@ -72,6 +72,15 @@ data class PrimerPalette(
     val iconSecondary: Color,
     // ── 描边 ──
     val border: Color,
+    /**
+     * **可交互控件**的边界（输入框 / 单选圆点 / 分段控件 / 次级按钮），与 [border] 分开。
+     *
+     * WCAG 1.4.11 要求「活动 UI 组件的边界」对比度 ≥ 3:1，而 [border] 与 [neutralBorder]
+     * 是**装饰性**描边（分隔线、卡片边），豁免该条。一个取值同时满足两种语义是做不到的：
+     * 把 [border] 提到 3:1 会让分隔线变得很重，不提升则控件边界不达标。
+     * 出处：`docs/specs/settings-design.md` §9、`design/settings-redesign` 的对比度审计。
+     */
+    val borderControl: Color,
     // ── 中性填充（浅色是浅灰、深色是深灰）──
     val neutralFill: Color,
     val neutralFillStrong: Color,
@@ -151,6 +160,7 @@ val LightPrimerPalette = PrimerPalette(
     iconPrimary = Color(0xFF000000),
     iconSecondary = Color(0xFF9194A1),
     border = Color(0xFFBFC1C9),
+    borderControl = Color(0xFF8B8E99),   // 3.27:1 on #FFFFFF（1.4.11 达标）
     neutralFill = Color(0xFFF7F7F9),
     neutralFillStrong = Color(0xFFEFF0F5),
     neutralBorder = Color(0xFFE3E4E8),
@@ -228,6 +238,7 @@ val DarkPrimerPalette = PrimerPalette(
     iconPrimary = Color(0xFFFFFFFF),
     iconSecondary = Color(0xFF8B949E),
     border = Color(0xFF30363D),
+    borderControl = Color(0xFF6E7681),   // 3.77:1 on #161B22 · 4.12:1 on #0D1117（1.4.11 达标）
     neutralFill = Color(0xFF161B22),
     neutralFillStrong = Color(0xFF21262D),
     neutralBorder = Color(0xFF30363D),

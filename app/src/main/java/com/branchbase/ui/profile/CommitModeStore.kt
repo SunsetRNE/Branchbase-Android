@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.ui.settings.SettingsKeys
 import com.branchbase.ui.theme.Primer
 
 /**
@@ -39,14 +40,13 @@ import com.branchbase.ui.theme.Primer
 
 /** 读取当前提交模式（null = 未配置） */
 internal fun commitMode(context: Context): CommitMode? =
-    context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
-        .getString(KEY_COMMIT_MODE, null)
+    SettingsKeys.prefs(context)
+        .getString(SettingsKeys.COMMIT_MODE, null)
         ?.let { name -> runCatching { CommitMode.valueOf(name) }.getOrNull() }
 
 /** 保存提交模式（固化到本地配置） */
 internal fun saveCommitMode(context: Context, mode: CommitMode) {
-    context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
-        .edit().putString(KEY_COMMIT_MODE, mode.name).apply()
+    SettingsKeys.prefs(context).edit().putString(SettingsKeys.COMMIT_MODE, mode.name).apply()
 }
 
 /** 可复用「提交模式」选择弹窗（提交时用，跳过后的延迟决定） */

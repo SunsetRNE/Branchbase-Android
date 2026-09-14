@@ -3,7 +3,6 @@ package com.branchbase.ui.profile
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,9 +16,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -48,6 +47,9 @@ import com.branchbase.translate.TranslateRuntime
 import com.branchbase.translate.TranslateSettings
 import com.branchbase.translate.TranslateStats
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.settings.ActionRow
+import com.branchbase.ui.settings.SettingsSectionTitle
+import com.branchbase.ui.settings.SwitchRow
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.launch
 
@@ -133,17 +135,18 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
 
             // ── 自动翻译开关（也是页面上唯一的开启入口：关掉后页面不留控件） ──
             SwitchRow(
-                title = "自动翻译正文",
-                desc = "沉浸式翻译的总开关：开启后进入自述文件等正文页会自动开始翻译，" +
+                name = "自动翻译正文",
+                sub = "沉浸式翻译的总开关：开启后进入自述文件等正文页会自动开始翻译，" +
                     "页面上出现可移动悬浮球（点开是翻译工具菜单）；关闭后不进正文页翻译，" +
                     "页面上的悬浮球也会收起。",
                 checked = config.enabled,
-            ) {
-                config = config.copy(enabled = it)
-                TranslateSettings.setEnabled(context, it)
-            }
+                onCheckedChange = {
+                    config = config.copy(enabled = it)
+                    TranslateSettings.setEnabled(context, it)
+                },
+            )
 
-            SectionTitle("翻译服务")
+            SettingsSectionTitle("翻译服务")
             TranslateProvider.entries.forEach { provider ->
                 ModeOptionRow(
                     label = provider.label,
@@ -231,7 +234,7 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                 }
             }
 
-            SectionTitle("目标语言")
+            SettingsSectionTitle("目标语言")
             TranslateLang.entries.forEach { lang ->
                 ModeOptionRow(
                     label = lang.label,
@@ -243,7 +246,7 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                 }
             }
 
-            SectionTitle("显示方式")
+            SettingsSectionTitle("显示方式")
             ModeOptionRow(
                 label = "原文 + 译文对照",
                 desc = "译文插在每段原文下方，原文保持不动（推荐）",
@@ -261,7 +264,7 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                 TranslateSettings.setDual(context, false)
             }
 
-            SectionTitle("译文样式")
+            SettingsSectionTitle("译文样式")
             ModeOptionRow(
                 label = "卡片",
                 desc = "蓝色左边框 + 浅灰底，边界最清楚（默认）",
@@ -287,52 +290,45 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                 TranslateSettings.setStyle(context, TranslateConfig.STYLE_PLAIN)
             }
 
-            SectionTitle("翻译质量")
+            SettingsSectionTitle("翻译质量")
             SwitchRow(
-                title = "保护代码与链接",
-                desc = "翻译前把 URL、@提及、#编号、提交 SHA 等标记临时占位，译完原样还原；" +
+                name = "保护代码与链接",
+                sub = "翻译前把 URL、@提及、#编号、提交 SHA 等标记临时占位，译完原样还原；" +
                     "避免它们被机器翻译改写（默认开启）。",
                 checked = config.protect,
-            ) {
-                config = config.copy(protect = it)
-                TranslateSettings.setProtect(context, it)
-            }
+                onCheckedChange = {
+                    config = config.copy(protect = it)
+                    TranslateSettings.setProtect(context, it)
+                },
+            )
 
-            SectionTitle("译文缓存")
+            SettingsSectionTitle("译文缓存")
             SwitchRow(
-                title = "本地缓存",
-                desc = "把译文落盘，重开 App 后同一段不再重复翻译（关闭只是不再读写磁盘，不清除已存内容）。",
+                name = "本地缓存",
+                sub = "把译文落盘，重开 App 后同一段不再重复翻译（关闭只是不再读写磁盘，不清除已存内容）。",
                 checked = config.persist,
-            ) {
-                config = config.copy(persist = it)
-                TranslateSettings.setPersist(context, it)
-            }
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        scope.launch {
-                            translator.clearCache()
-                            stats = translator.stats()
-                            Toast.makeText(context, "已清空译文缓存", Toast.LENGTH_SHORT).show()
-                        }
+                onCheckedChange = {
+                    config = config.copy(persist = it)
+                    TranslateSettings.setPersist(context, it)
+                },
+            )
+            // 原先这里是自制的 Row + clickable —— 规范 §4.1 要求行必须来自 6 种行型之一。
+            // 归位成 ActionRow：行为不变（仍然立即清空）；是否该按 §7 补二次确认见规范 §11 待办。
+            ActionRow(
+                icon = Icons.Filled.Delete,
+                name = "清空译文缓存",
+                sub = "内存 ${stats.memoryCount} 段 / 本地 ${stats.diskCount} 段" + statusSuffix(stats),
+                hint = "清空",
+                onClick = {
+                    scope.launch {
+                        translator.clearCache()
+                        stats = translator.stats()
+                        Toast.makeText(context, "已清空译文缓存", Toast.LENGTH_SHORT).show()
                     }
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("清空译文缓存", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
-                    Spacer(Modifier.height(3.dp))
-                    Text(
-                        "内存 ${stats.memoryCount} 段 / 本地 ${stats.diskCount} 段" + statusSuffix(stats),
-                        fontSize = 12.sp,
-                        color = if (stats.blocked) Primer.Red500 else Primer.TextTertiary,
-                    )
-                }
-                Text("清空", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
-            }
+                },
+            )
 
-            SectionTitle("说明")
+            SettingsSectionTitle("说明")
             Text(
                 "• 生效范围：自述文件（README）、Issue / PR 主帖、发布说明等**正文页**" +
                     "（评论区为 Compose 原生渲染，暂不在范围内）。\n" +
@@ -375,49 +371,6 @@ private fun describeTestResult(result: EngineResult): String = when (result) {
         FailKind.NETWORK -> "失败：网络不可达（${result.message.take(60)}）"
         FailKind.UNSUPPORTED -> "失败：参数不被接受（${result.message.take(60)}）"
         FailKind.UNKNOWN -> "失败：${result.message.take(80)}"
-    }
-}
-
-/** 开关行（标题 + 说明 + Switch），本页有三处相同结构。 */
-@Composable
-private fun SwitchRow(title: String, desc: String, checked: Boolean, onChange: (Boolean) -> Unit) {    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
-            Spacer(Modifier.height(3.dp))
-            Text(desc, fontSize = 12.sp, color = Primer.TextTertiary, lineHeight = 17.sp)
-        }
-        Spacer(Modifier.width(12.dp))
-        Switch(
-            checked = checked,
-            onCheckedChange = onChange,
-            colors = SwitchDefaults.colors(checkedTrackColor = Primer.Blue500),
-        )
-    }
-}
-
-/** 分组标题（与设置页其它分组同款样式）。 */
-@Composable
-private fun SectionTitle(title: String) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 6.dp),
-    ) {
-        Text(
-            title,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            color = Primer.TextTertiary,
-            modifier = Modifier
-                .clip(RoundedCornerShape(4.dp))
-                .background(Primer.Gray100)
-                .padding(horizontal = 6.dp, vertical = 2.dp),
-        )
     }
 }
 

@@ -29,19 +29,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Translate
-import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.BrightnessAuto
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -66,7 +58,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -78,7 +69,30 @@ import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.repository.RepoRelation
 import com.branchbase.ui.theme.selectionColor
 import com.branchbase.BuildConfig
+import com.branchbase.core.AccountStatus
+import com.branchbase.ui.settings.gitProxy
+import com.branchbase.translate.TranslateSettings
 import com.branchbase.core.AccountStore
+import com.branchbase.ui.log.LogLevel
+import com.branchbase.ui.log.LogManager
+import com.branchbase.ui.settings.AccountRow
+import com.branchbase.ui.settings.ChoiceRow
+import com.branchbase.ui.settings.DangerRow
+import com.branchbase.ui.settings.DisabledNavRow
+import com.branchbase.ui.settings.NavRow
+import com.branchbase.ui.settings.SettingsProse
+import com.branchbase.ui.settings.SettingsSection
+import com.branchbase.ui.settings.StatusTone
+import com.branchbase.ui.settings.SwitchRow
+import com.branchbase.ui.settings.displayGitProxy
+import com.branchbase.ui.theme.ThemeMode
+import com.branchbase.ui.theme.ThemeRuntime
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.automirrored.filled.Article
+import androidx.compose.material.icons.filled.Commit
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Tune
 import com.branchbase.core.LocalRepos
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
@@ -90,8 +104,6 @@ import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.LanguageColors
 import com.branchbase.ui.theme.AppIcon
 import com.branchbase.ui.theme.Primer
-import com.branchbase.ui.theme.ThemeMode
-import com.branchbase.ui.theme.ThemeRuntime
 import com.branchbase.ui.task.TaskKind
 import com.branchbase.ui.task.TaskStore
 import com.branchbase.ui.decision.AuthorIdentityScreen
@@ -129,6 +141,7 @@ enum class SubPage(val label: String) {
     Tasks("任务"),
     Accounts("账号"),
     CommitMode("提交模式"),
+    GitProxy("Git 代理"),
 }
 
 // ───────────────────────── 缓存机制（内存缓存 + TTL 过期） ─────────────────────────
@@ -443,119 +456,216 @@ internal enum class CommitMode(
     LOCAL_REPO("本地仓库（Git）", "文件拉取到本地仓库，由本地 git 管理提交推送", "Git 命令行习惯"),
 }
 
-internal const val KEY_COMMIT_MODE = "commit_mode"
-
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onOpenLocalRepo: () -> Unit, onOpenAbout: () -> Unit, onOpenLog: () -> Unit, onOpenNotificationSettings: () -> Unit, onOpenTranslate: () -> Unit, onOpenAccounts: () -> Unit, onOpenCommitMode: () -> Unit) {
+fun SettingsScreen(
+    onBack: () -> Unit,
+    onOpenLocalRepo: () -> Unit,
+    onOpenAbout: () -> Unit,
+    onOpenLog: () -> Unit,
+    onOpenNotificationSettings: () -> Unit,
+    onOpenTranslate: () -> Unit,
+    onOpenAccounts: () -> Unit,
+    onOpenCommitMode: () -> Unit,
+    onOpenGitProxy: () -> Unit,
+    onLogout: () -> Unit,
+) {
     LaunchedEffect(Unit) { Logger.ui("进入设置页", "Compose") }
     val context = LocalContext.current
-    var mode by remember { mutableStateOf(commitMode(context)) } // CommitMode?，null = 未配置
-    // 系统通知状态（权限 + 总开关）：设置列表里直接回显「已开启 / 未开启」
+
+    // 提交模式决定「本地仓库」那一行是导航行还是禁用态（规范 §6.3）
+    val mode = commitMode(context)
+    val themeMode by ThemeRuntime.mode.collectAsState()
     val notificationPermission = rememberSystemNotificationState()
-    var showProxyDialog by remember { mutableStateOf(false) }
-    var proxyInput by remember { mutableStateOf(gitProxy(context)) }
-    var proxyFeedback by remember { mutableStateOf<String?>(null) }
+    val account = remember { AccountStore.current(context) }
+
+    var translateEnabled by remember { mutableStateOf(TranslateSettings.read(context).enabled) }
+    var confirmLogout by remember { mutableStateOf(false) }
+
+    // 错误数只取一次快照：设置页不做高频重组，没必要给「日志」行挂订阅
+    val logErrors = remember { LogManager.all().count { it.level == LogLevel.ERROR } }
 
     Column(
         modifier = Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding()
             .verticalScroll(rememberScrollState()),
     ) {
         SubPageHeader("设置", onBack)
+        Spacer(Modifier.height(6.dp))
 
-        SettingsSectionTitle("提交")
-        SettingsItem(
-            Icons.Filled.Check,
-            "提交模式",
-            value = mode?.label ?: "未配置",
-            onClick = onOpenCommitMode,
-        )
-
-        SettingsSectionTitle("本地仓库")
-        LocalRepoEntry(enabled = mode == CommitMode.LOCAL_REPO, onClick = onOpenLocalRepo)
-
-        SettingsSectionTitle("网络")
-        SettingsItem(
-            Icons.Filled.Build,
-            if (gitProxy(context).isBlank()) "Git 代理（未设置）" else "Git 代理：${gitProxy(context)}",
-            onClick = { showProxyDialog = true },
-        )
-
-        SettingsSectionTitle("账号")
-        SettingsItem(Icons.Filled.AccountCircle, "账号管理", onClick = onOpenAccounts)
-
-        SettingsSectionTitle("外观")
-        SettingsItem(
-            icon = when (ThemeRuntime.mode.collectAsState().value) {
-                ThemeMode.SYSTEM -> Icons.Filled.BrightnessAuto
-                ThemeMode.LIGHT -> Icons.Filled.LightMode
-                ThemeMode.DARK -> Icons.Filled.DarkMode
-            },
-            name = "主题",
-            value = ThemeRuntime.mode.collectAsState().value.label,
-            onClick = { ThemeRuntime.cycle(context) },
-        )
-
-        SettingsSectionTitle("其他")
-        // 通知项直接显示系统通知是否开启：这是「为什么没有提醒」最常见的原因，别让用户点两层才知道
-        SettingsItem(
-            Icons.Filled.Notifications,
-            "通知",
-            value = notificationPermission.label,
-            onClick = onOpenNotificationSettings,
-        )
-        SettingsItem(Icons.Filled.Translate, "沉浸式翻译", onClick = onOpenTranslate)
-        SettingsItem(Icons.Filled.Info, "关于", onClick = onOpenAbout)
-        SettingsItem(Icons.Filled.Build, "日志", onClick = onOpenLog)
-
-        proxyFeedback?.let {
-            Text(it, fontSize = 12.sp, color = if (it.startsWith("已")) Primer.Green500 else Primer.Red500, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+        // ── ① 账户：身份是第一信息（规范 §3.2） ──
+        SettingsSection("账户") {
+            AccountRow(
+                login = account?.login,
+                host = account?.host,
+                statusLabel = account?.status?.label,
+                statusTone = account?.status?.let { accountStatusTone(it) } ?: StatusTone.MUTE,
+                onClick = onOpenAccounts,
+            )
         }
+
+        // ── ② 外观：三档分段控件，取代「点一下循环」（规范 §5.2） ──
+        SettingsSection("外观") {
+            ChoiceRow(
+                icon = Icons.Filled.Palette,
+                name = "主题",
+                sub = "选「跟随系统」时，App 会随系统的浅色 / 深色自动切换。",
+                options = ThemeMode.entries.map { it to it.label },
+                selected = themeMode,
+                onSelect = { ThemeRuntime.set(context, it) },
+                divider = false,
+            )
+        }
+
+        // ── ③ 通知 ──
+        SettingsSection("通知") {
+            // 这一行**不是**开关：系统通知权限不是 App 的布尔值，App 只能申请或跳系统设置。
+            // 用导航行 + 状态胶囊，才不会让「开了但系统没授权」变成一个骗人的开关（规范 §4.3）。
+            NavRow(
+                icon = Icons.Filled.Notifications,
+                name = "通知",
+                sub = notificationPermission.hint,
+                value = notificationPermission.label,
+                onClick = onOpenNotificationSettings,
+                divider = false,
+            )
+        }
+
+        // ── ④ 翻译 ──
+        SettingsSection("翻译") {
+            SwitchRow(
+                icon = Icons.Filled.Translate,
+                name = "自动翻译正文",
+                sub = if (translateEnabled) {
+                    "进入自述文件等正文页会自动翻译，页面上出现可移动悬浮球。"
+                } else {
+                    "关闭后不进正文页翻译，页面上的悬浮球也会收起。"
+                },
+                checked = translateEnabled,
+                onCheckedChange = {
+                    translateEnabled = it
+                    TranslateSettings.setEnabled(context, it)
+                },
+                divider = false,
+            )
+            NavRow(
+                icon = Icons.Filled.Tune,
+                name = "沉浸式翻译",
+                onClick = onOpenTranslate,
+            )
+        }
+
+        // ── ⑤ 代码与提交 ──
+        SettingsSection("代码与提交") {
+            NavRow(
+                icon = Icons.Filled.Commit,
+                name = "提交模式",
+                value = mode?.label ?: "未设置",
+                onClick = onOpenCommitMode,
+                divider = false,
+            )
+            if (mode == CommitMode.LOCAL_REPO) {
+                NavRow(
+                    icon = Icons.Filled.Folder,
+                    name = "本地仓库",
+                    onClick = onOpenLocalRepo,
+                )
+            } else {
+                // 禁用态**不能只调 alpha**：说明原因 + 给出去开启的路（规范 §6.3）
+                DisabledNavRow(
+                    icon = Icons.Filled.Folder,
+                    name = "本地仓库",
+                    reason = "开启需先将「提交模式」设为「本地仓库（Git）」。",
+                    onFix = onOpenCommitMode,
+                )
+            }
+        }
+
+        // ── ⑥ 网络 ──
+        SettingsSection("网络") {
+            NavRow(
+                icon = Icons.Filled.Language,
+                name = "Git 代理",
+                // 值列只显示 host:port，凭据不进列表（规范 §6.5）
+                value = displayGitProxy(gitProxy(context)).ifEmpty { "未设置" },
+                sub = "仅作用于本地仓库的 clone / pull / push。",
+                onClick = onOpenGitProxy,
+                divider = false,
+            )
+        }
+
+        // ── ⑦ 关于与诊断：兜底组，位置固定（规范 §3.3） ──
+        SettingsSection("关于与诊断") {
+            NavRow(
+                icon = Icons.AutoMirrored.Filled.Article,
+                name = "日志",
+                value = if (logErrors > 0) "$logErrors 条错误" else null,
+                onClick = onOpenLog,
+                divider = false,
+            )
+            NavRow(
+                icon = Icons.Filled.Info,
+                name = "关于",
+                value = BuildConfig.STANDARD_VERSION,
+                onClick = onOpenAbout,
+            )
+        }
+
+        // ── 危险动作：单独一组、放最末（规范 §7.2） ──
+        SettingsSection {
+            DangerRow(
+                icon = Icons.AutoMirrored.Filled.Logout,
+                name = if (account != null) "退出登录 ${account.login}" else "退出登录",
+                hint = "不可撤销",
+                onClick = { confirmLogout = true },
+                divider = false,
+            )
+        }
+
+        Spacer(Modifier.height(12.dp))
     }
 
-    if (showProxyDialog) {
+    // 二次确认：标题 = 动词 + 对象名；正文三条（会发生什么 / 影响范围 / 能否撤销）；
+    // 确认按钮写**动词**，不写「确定」（规范 §7.2 / §7.3）
+    if (confirmLogout) {
         AlertDialog(
-            onDismissRequest = { showProxyDialog = false },
-            title = { Text("Git 代理") },
+            onDismissRequest = { confirmLogout = false },
+            title = {
+                Text(
+                    if (account != null) "退出登录 ${account.login}" else "退出登录",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Primer.TextPrimary,
+                )
+            },
             text = {
-                Column {
-                    Text(
-                        "libgit2（本地仓库 clone/pull/push）的 HTTP 代理。留空表示不使用代理。",
-                        fontSize = 12.sp,
-                        color = Primer.TextTertiary,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = proxyInput,
-                        onValueChange = { proxyInput = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("http://127.0.0.1:7890 或 socks5://127.0.0.1:1080", fontSize = 12.sp, color = Primer.TextTertiary) },
-                        singleLine = true,
-                    )
-                }
+                Text(
+                    "将清除本机保存的凭据，并切回未登录状态。\n" +
+                        "本地仓库目录、已下载内容与站内通知不受影响。\n" +
+                        "此操作不可撤销 —— 需要重新走一次授权才能恢复。",
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                    color = Primer.TextSecondary,
+                )
             },
             confirmButton = {
                 TextButton(onClick = {
-                    val ok = RustBridge.setGitProxy(context.cacheDir.absolutePath, proxyInput.trim())
-                    if (ok) {
-                        context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
-                            .edit().putString(KEY_GIT_PROXY, proxyInput.trim()).apply()
-                        proxyFeedback = if (proxyInput.isBlank()) "已清除 Git 代理" else "已设置 Git 代理"
-                    } else {
-                        proxyFeedback = "设置失败（引擎不可用）"
-                    }
-                    showProxyDialog = false
-                }) { Text("保存", color = Primer.Blue500) }
+                    confirmLogout = false
+                    onLogout()
+                }) { Text("退出登录", color = Primer.DangerText) }
             },
-            dismissButton = { TextButton(onClick = { showProxyDialog = false }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { confirmLogout = false }) { Text("取消") } },
         )
     }
 }
 
-internal const val KEY_GIT_PROXY = "git_proxy"
 
-/** 读取已保存的 Git 代理。 */
-internal fun gitProxy(context: Context): String =
-    context.getSharedPreferences("branchbase", Context.MODE_PRIVATE).getString(KEY_GIT_PROXY, "") ?: ""
+
+/** 账号状态 → 胶囊语气（规范 §4.3：状态要能一眼分辨「好 / 警告 / 坏」）。 */
+private fun accountStatusTone(status: AccountStatus): StatusTone = when (status) {
+    AccountStatus.OK -> StatusTone.OK
+    AccountStatus.UNKNOWN -> StatusTone.MUTE
+    AccountStatus.LIMITED, AccountStatus.UNREACHABLE -> StatusTone.WARN
+    AccountStatus.INVALID, AccountStatus.SUSPENDED -> StatusTone.BAD
+}
 
 /** 通知设置子页面：系统通知权限入口 + 通知列表显示模式。 */
 @Composable
@@ -567,184 +677,102 @@ fun NotificationSettingsScreen(onBack: () -> Unit) {
     val permission = rememberSystemNotificationState()
 
     Column(
-        modifier = Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding(),
+        modifier = Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding()
+            .verticalScroll(rememberScrollState()),
     ) {
         SubPageHeader("通知", onBack)
+        Spacer(Modifier.height(6.dp))
 
-        SettingsSectionTitle("系统通知")
-        SettingsItem(
-            icon = Icons.Filled.Notifications,
-            name = "允许发送通知",
-            value = permission.label,
+        SettingsSection("系统通知") {
             // 已开启 → 进系统设置（可关掉 / 改渠道）；未开启 → 能弹授权框就弹，否则去设置页
-            onClick = { if (permission.granted) permission.openSettings() else permission.request() },
-        )
-        Text(
-            permission.hint,
-            fontSize = 12.sp,
-            color = Primer.TextTertiary,
-            lineHeight = 18.sp,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-        )
+            NavRow(
+                icon = Icons.Filled.Notifications,
+                name = "允许发送通知",
+                sub = permission.hint,
+                value = permission.label,
+                onClick = { if (permission.granted) permission.openSettings() else permission.request() },
+                divider = false,
+            )
+        }
 
-        SettingsSectionTitle("通知显示模式")
-        NotifLayout.entries.forEach { l ->
-            ModeOptionRow(
-                label = l.label,
-                desc = l.desc,
-                selected = layout == l,
-                onClick = {
+        SettingsSection("通知显示模式") {
+            NotifLayout.entries.forEachIndexed { i, l ->
+                ModeOptionRow(
+                    label = l.label,
+                    desc = l.desc,
+                    selected = layout == l,
+                    divider = i != 0,
+                ) {
                     layout = l
                     writeNotifLayout(context, l)
-                },
+                }
+            }
+        }
+
+        SettingsSection("说明") {
+            SettingsProse(
+                "「允许发送通知」只控制系统通知栏的提醒（下载进度 / 下载完成）：关掉它，站内通知列表与未读徽标照常工作。\n" +
+                    "通知列表的展示方式：「平铺」为默认：每条通知独立成卡；分组/合并/两级模式可将相关通知折叠，减少列表长度。",
+                divider = false,
             )
         }
 
-        SettingsSectionTitle("说明")
-        Text(
-            "「允许发送通知」只控制系统通知栏的提醒（下载进度 / 下载完成）：关掉它，站内通知列表与未读徽标照常工作。\n" +
-                "通知列表的展示方式：「平铺」为默认：每条通知独立成卡；分组/合并/两级模式可将相关通知折叠，减少列表长度。",
-            fontSize = 12.sp,
-            color = Primer.TextTertiary,
-            lineHeight = 18.sp,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-        )
+        Spacer(Modifier.height(12.dp))
     }
 }
 
-@Composable
-private fun SettingsSectionTitle(title: String) {
-    Text(
-        title,
-        fontSize = 12.sp,
-        fontWeight = FontWeight.SemiBold,
-        color = Primer.TextTertiary,
-        modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 6.dp),
-    )
-}
-
-@Composable
-internal fun ModeOptionRow(label: String, desc: String, selected: Boolean, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(selectionColor(selected, on = Primer.SuccessSurface))
-            .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.Top,
-    ) {
-        // 单选圆点：外圈与填充一起渐变（设置页里每个开关都会走这条路径）
-        Box(
-            modifier = Modifier
-                .size(18.dp)
-                .clip(CircleShape)
-                .border(
-                    2.dp,
-                    selectionColor(selected, on = Primer.Green500, off = Primer.Border),
-                    CircleShape,
-                )
-                .background(selectionColor(selected, on = Primer.Green500)),
-        )
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
-            Spacer(Modifier.height(2.dp))
-            Text(desc, fontSize = 12.sp, color = Primer.TextTertiary)
-        }
-    }
-}
-
-@Composable
-private fun LocalRepoEntry(enabled: Boolean, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = enabled) { onClick() }
-            .padding(horizontal = 16.dp, vertical = 13.dp)
-            .alpha(if (enabled) 1f else 0.55f),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            Icons.Filled.Folder,
-            contentDescription = "本地仓库",
-            tint = if (enabled) Primer.IconPrimary else Primer.Gray500,
-            modifier = Modifier.size(20.dp),
-        )
-        Spacer(Modifier.width(12.dp))
-        Text(
-            "本地仓库",
-            fontSize = 14.sp,
-            color = if (enabled) Primer.TextPrimary else Primer.Gray500,
-            modifier = Modifier.weight(1f),
-        )
-        if (enabled) {
-            Icon(Icons.Filled.ChevronRight, null, tint = Primer.TextTertiary, modifier = Modifier.size(20.dp))
-        } else {
-            Text("未开启", fontSize = 11.sp, color = Primer.Gray500)
-        }
-    }
-}
 
 /**
- * 设置项行：`图标 + 名称 …… 值 >`。
+ * 二级页的单选行：18dp 圆点 + 名称 + 说明（规范 §5.4：「4–7 档枚举走 L2 单选列表」）。
  *
- * ## 布局为什么这样写（曾经把名称挤没）
+ * 每行**必须**有说明 —— 单选列表的选择质量完全取决于说明文案。
  *
- * 行高固定 48dp。原来的写法是「名称 `weight(1f)`、值**不设权重**」——
- * Row 先量没有权重的子项（值），值有多长就占多长；名称只能分到剩下的空间，
- * 长值一来就被压到 0 宽、换行成两行，再被 48dp 行高裁掉
- * （现象：提交模式选「本地仓库」后，那一行只剩右边的长文案，左边的「提交模式」不见了）。
- *
- * 现在：
- * - 名称放进**权重盒（`fill = false`）**：按内容取宽，最多占可用宽度的一半，超长才省略；
- * - 值放进**权重盒（填充剩余空间、右对齐、单行省略）**：由它来负责「不够就省略」，
- *   而不是去挤名称。
+ * 两处配色是**按对比度审计定的**，不是随手挑的：
+ * - 未选中描边走 [Primer.BorderControl]（可交互控件边界，WCAG 1.4.11 要 ≥3:1）；
+ *   `Primer.Border` 是装饰性描边，只有 1.80:1。
+ * - 选中圆点走 [Primer.SuccessTextStrong]，不用 `Primer.Green500`：
+ *   后者压在 `SuccessSurface` 上只有 2.79:1，而圆点是**唯一**表达「选了哪个」的图形。
  */
 @Composable
-internal fun SettingsItem(icon: ImageVector, name: String, value: String? = null, onClick: () -> Unit = {}) {
-    Row(
-        Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 16.dp).clickable { onClick() },
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, contentDescription = name, tint = Primer.IconSecondary, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(12.dp))
-        if (value.isNullOrBlank()) {
-            // 没有值：整行剩余宽度都给名称（如很长的 Git 代理地址），超长才省略
-            Text(
-                name,
-                fontSize = 14.sp,
-                color = Primer.TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+internal fun ModeOptionRow(
+    label: String,
+    desc: String,
+    selected: Boolean,
+    divider: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        if (divider) Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Gray200))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(selectionColor(selected, on = Primer.SuccessSurface))
+                .clickable { onClick() }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            // 单选圆点：外圈与填充一起渐变（设置页里每个开关都会走这条路径）
+            Box(
+                modifier = Modifier
+                    .size(18.dp)
+                    .clip(CircleShape)
+                    .border(
+                        2.dp,
+                        selectionColor(selected, on = Primer.SuccessTextStrong, off = Primer.BorderControl),
+                        CircleShape,
+                    )
+                    .background(selectionColor(selected, on = Primer.SuccessTextStrong)),
             )
-        } else {
-            // 名称 + 值：两边各一个权重盒，**由值负责省略**而不是去挤名称
-            Box(Modifier.weight(1f, fill = false)) {
-                Text(
-                    name,
-                    fontSize = 14.sp,
-                    color = Primer.TextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
             Spacer(Modifier.width(10.dp))
-            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
-                Text(
-                    value,
-                    fontSize = 12.sp,
-                    color = Primer.TextTertiary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.End,
-                )
+            Column(Modifier.weight(1f)) {
+                Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+                Spacer(Modifier.height(2.dp))
+                Text(desc, fontSize = 12.sp, color = Primer.TextTertiary)
             }
         }
-        Spacer(Modifier.width(6.dp))
-        Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = Primer.TextTertiary, modifier = Modifier.size(20.dp))
     }
 }
+
 
 // ───────────────────────── 本地仓库列表页 ─────────────────────────
 

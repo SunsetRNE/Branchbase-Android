@@ -81,6 +81,10 @@ object Primer {
     /** 描边色（**只用于 border/stroke**，不要当填充）。 */
     val Border: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.border
 
+    /** **可交互控件**的边界（输入框 / 单选圆点 / 分段控件 / 次级按钮）。
+     *  与 [Border]（装饰性描边）分开：前者要过 WCAG 1.4.11 的 3:1，后者豁免。 */
+    val BorderControl: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.borderControl
+
     // ── 浅底彩块（chip / 横幅底；深色下自动压暗）──
     val SuccessSurface: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.successSurface
     val SuccessSurfaceSoft: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.successSurfaceSoft

@@ -58,6 +58,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import com.branchbase.ui.settings.GitProxyScreen
 import com.branchbase.ui.repository.repoRelationOf
 import com.branchbase.ui.repository.RepoRelation
 import com.branchbase.ui.theme.color
@@ -237,7 +238,7 @@ fun ProfileScreen(
                     is ProfileRoute.Sub -> when (r.page) {
                         SubPage.Stars -> StarsScreen(sessionJson, onBack = { subPage = null }, onOpenRepo = onOpenRepo)
                         SubPage.Projects -> ProjectsScreen(sessionJson, onBack = { subPage = null })
-                        SubPage.Settings -> SettingsScreen(onBack = { subPage = null }, onOpenLocalRepo = { subPage = SubPage.LocalRepo }, onOpenAbout = { subPage = SubPage.About }, onOpenLog = { subPage = SubPage.Log }, onOpenNotificationSettings = { subPage = SubPage.NotificationSettings }, onOpenTranslate = { subPage = SubPage.Translate }, onOpenAccounts = { subPage = SubPage.Accounts }, onOpenCommitMode = { subPage = SubPage.CommitMode })
+                        SubPage.Settings -> SettingsScreen(onBack = { subPage = null }, onOpenLocalRepo = { subPage = SubPage.LocalRepo }, onOpenAbout = { subPage = SubPage.About }, onOpenLog = { subPage = SubPage.Log }, onOpenNotificationSettings = { subPage = SubPage.NotificationSettings }, onOpenTranslate = { subPage = SubPage.Translate }, onOpenAccounts = { subPage = SubPage.Accounts }, onOpenCommitMode = { subPage = SubPage.CommitMode }, onOpenGitProxy = { subPage = SubPage.GitProxy }, onLogout = onLogout)
                         SubPage.LocalRepo -> LocalRepoScreen(sessionJson, onBack = { subPage = SubPage.Settings })
                         SubPage.About -> AboutScreen(onBack = { subPage = SubPage.Settings })
                         SubPage.Log -> LogScreen(onBack = { subPage = SubPage.Settings })
@@ -246,6 +247,7 @@ fun ProfileScreen(
                         SubPage.Tasks -> com.branchbase.ui.task.TaskScreen(onBack = { subPage = null })
                         SubPage.Accounts -> AccountsScreen(onBack = { subPage = SubPage.Settings }, onAdd = onLogout)
                         SubPage.CommitMode -> CommitModeScreen(onBack = { subPage = SubPage.Settings })
+                        SubPage.GitProxy -> GitProxyScreen(onBack = { subPage = SubPage.Settings })
                         SubPage.EditProfile -> ProfileEditScreen(sessionJson, onBack = { subPage = null }, onSaved = { subPage = null })
                     }
 
@@ -322,7 +324,7 @@ private sealed interface ProfileRoute : PageLevel {
  */
 internal fun subPageDepth(page: SubPage): Int = when (page) {
     SubPage.LocalRepo, SubPage.About, SubPage.Log, SubPage.NotificationSettings,
-    SubPage.Translate, SubPage.Accounts, SubPage.CommitMode,
+    SubPage.Translate, SubPage.Accounts, SubPage.CommitMode, SubPage.GitProxy,
     -> 2
 
     else -> 1

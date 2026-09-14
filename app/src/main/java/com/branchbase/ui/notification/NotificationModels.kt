@@ -9,8 +9,8 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.branchbase.ui.settings.SettingsKeys
 import com.branchbase.ui.theme.TintRole
 import org.json.JSONArray
 import org.json.JSONObject
@@ -466,17 +466,14 @@ enum class NotifLayout(val label: String, val desc: String) {
     TWO_LEVEL("两级折叠", "仓库分组 + 主题合并"),
 }
 
-const val KEY_NOTIF_LAYOUT = "notif_layout"
-
 /** 读取通知显示模式（未设置默认 FLAT） */
 fun readNotifLayout(context: Context): NotifLayout {
-    val name = context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
-        .getString(KEY_NOTIF_LAYOUT, null) ?: return NotifLayout.FLAT
+    val name = SettingsKeys.prefs(context)
+        .getString(SettingsKeys.NOTIF_LAYOUT, null) ?: return NotifLayout.FLAT
     return NotifLayout.entries.firstOrNull { it.name == name } ?: NotifLayout.FLAT
 }
 
 /** 持久化通知显示模式 */
 fun writeNotifLayout(context: Context, layout: NotifLayout) {
-    context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
-        .edit().putString(KEY_NOTIF_LAYOUT, layout.name).apply()
+    SettingsKeys.prefs(context).edit().putString(SettingsKeys.NOTIF_LAYOUT, layout.name).apply()
 }

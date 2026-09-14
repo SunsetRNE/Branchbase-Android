@@ -17,9 +17,11 @@
     ├── html-parser-design.md     ← HTML 链接解析与跳转导航的设计契约（规则表 + 已知边界）
     ├── NAVIGATION-NOTES.md       ← 返回键与导航（反复踩坑后定下的两条硬规则）
     ├── BUILD-NOTES.md            ← 构建环境、AGP 9.0 API、版本号体系
+    ├── settings-design.md        ← **设置页设计规范**（信息架构 / 6 种行型 / 控件选型 / 用语表 / 危险操作）
     └── prototypes/               ← 原型**说明文档**的入库副本（原型本体不在这里）
         ├── messages-redesign.md
         ├── workflow-redesign.md
+        ├── settings-redesign.md
         └── theme-neutral-preview.md
 
 /design/<原型名>/                  ← 原型**草图本体**（HTML/CSS/JS）：**永久不入库**
@@ -94,6 +96,8 @@ README.md                          ← 项目门面 + 主设计记录，留在�
 | [`specs/prototypes/messages-redesign.md`](specs/prototypes/messages-redesign.md) | 消息页重做：右下弹窗面板 / 长按状态机 / 预渲染 / Issue 单消息页 | `NotificationScreen.kt` |
 | [`specs/prototypes/workflow-redesign.md`](specs/prototypes/workflow-redesign.md) | Run 详情卡片流 + 作业日志页合并 | `WorkflowRunDetailScreen.kt`、`JobLogScreen.kt` |
 | [`specs/prototypes/theme-neutral-preview.md`](specs/prototypes/theme-neutral-preview.md) | 中性色「去灰」三个方案的取值与结论 | `ThemePalette.kt` |
+| [`specs/settings-design.md`](specs/settings-design.md) | **设置页设计规范**：两级 IA、6 种行型的封闭集合、控件选型决策树、用语表、危险操作规格、`SettingsSpecTest` 钉子 | `ui/profile/SubPageScreens.kt`、`CommitModeScreen.kt`、`TranslateSettingsScreen.kt`、`AccountsScreen.kt` |
+| [`specs/prototypes/settings-redesign.md`](specs/prototypes/settings-redesign.md) | 设置页重设计原型：8 套行组件 → 6 种行型、主题去循环化、禁用行给出路、3 个对比度修正 | `docs/specs/settings-design.md` |
 
 ---
 

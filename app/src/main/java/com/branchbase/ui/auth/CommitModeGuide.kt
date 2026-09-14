@@ -1,6 +1,5 @@
 package com.branchbase.ui.auth
 
-import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -38,7 +37,7 @@ import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.navigation.rememberTopLevelBackAction
 import com.branchbase.ui.main.MainScreen
 import com.branchbase.ui.profile.CommitMode
-import com.branchbase.ui.profile.KEY_COMMIT_MODE
+import com.branchbase.ui.settings.SettingsKeys
 import com.branchbase.ui.theme.Primer
 
 /**
@@ -56,15 +55,15 @@ fun LoggedInGate(
     onLogout: () -> Unit,
 ) {
     val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences("branchbase", Context.MODE_PRIVATE) }
-    var configured by remember { mutableStateOf(prefs.getString(KEY_COMMIT_MODE, null) != null) }
+    val prefs = remember { SettingsKeys.prefs(context) }
+    var configured by remember { mutableStateOf(prefs.getString(SettingsKeys.COMMIT_MODE, null) != null) }
 
     if (!configured) {
         val confirmExit = rememberTopLevelBackAction()
         PageBackHandler(enabled = true) { confirmExit() }
         CommitModeGuideScreen(
             onConfirm = { mode ->
-                prefs.edit().putString(KEY_COMMIT_MODE, mode.name).apply()
+                prefs.edit().putString(SettingsKeys.COMMIT_MODE, mode.name).apply()
                 configured = true
             },
             onSkip = { configured = true },
