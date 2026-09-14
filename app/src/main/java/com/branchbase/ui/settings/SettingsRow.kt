@@ -210,7 +210,15 @@ fun NavRow(
     enabled: Boolean = true,
 ) {
     SettingsRowShell(divider = divider, onClick = onClick, enabled = enabled) {
-        Row(Modifier.weight(1f, fill = false).alpha(if (enabled) 1f else 0.5f)) {
+        Row(
+            Modifier.weight(1f, fill = false).alpha(if (enabled) 1f else 0.5f),
+            // 图标与右端的值按**整行**垂直居中（原型 `design/settings-redesign/style.css`
+            // 的 `.row { align-items: center }`）。
+            // Row 默认是 Top 对齐：说明折行把这个内层 Row 撑高之后，图标与值都停在卡片上沿，
+            // 而名称被 `SettingsText` 的 11dp 上内边距压下去 —— 行越高偏得越明显，
+            // 「通知」这种三行说明的行，图标直接贴在卡片左上角。
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             RowIcon(icon, name)
             SettingsText(name = name, sub = sub, value = value)
         }
@@ -428,7 +436,11 @@ fun DisabledNavRow(
     divider: Boolean = true,
 ) {
     SettingsRowShell(divider = divider, onClick = null) {
-        Row(Modifier.weight(1f, fill = false)) {
+        Row(
+            Modifier.weight(1f, fill = false),
+            // 与 NavRow 同一条规则：图标按整行垂直居中，不跟着首行文字往上飘（原型 `.row { align-items: center }`）
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Box(Modifier.alpha(0.5f)) { Icon(icon, contentDescription = name, tint = Primer.IconSecondary, modifier = Modifier.size(IconSize)) }
             Spacer(Modifier.width(IconGap))
             Column(Modifier.weight(1f, fill = false).padding(vertical = 11.dp)) {

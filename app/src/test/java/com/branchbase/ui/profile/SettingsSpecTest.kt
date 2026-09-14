@@ -230,6 +230,23 @@ class SettingsSpecTest {
     }
 
     @Test
+    fun `行首图标与右端的值按整行垂直居中`() {
+        val row = source(rowComponentsPath)
+        // 图标与文字被**内层 Row** 包住的两个行型（NavRow / DisabledNavRow）。
+        // 内层 Row 用默认的 Top 对齐时：图标与右端的值停在行顶，名称却被 SettingsText 的
+        // 11dp 上内边距压下去 —— 行越高偏得越狠（三行说明的「通知」行里图标贴在卡片左上角）。
+        // 原型是 `.row { align-items: center }`（`design/settings-redesign/style.css` §4.2），
+        // 所以这条是「实现别退回顶对齐」的钉子，而不是新增的样式选择。
+        listOf("fun NavRow(", "fun DisabledNavRow(").forEach { fn ->
+            val body = row.substring(row.indexOf(fn)).substringBefore("\n}\n")
+            assertTrue(
+                "$fn 里的内层 Row 必须垂直居中（verticalAlignment = Alignment.CenterVertically）",
+                body.contains("verticalAlignment = Alignment.CenterVertically"),
+            )
+        }
+    }
+
+    @Test
     fun `值负责省略而不是挤名称`() {
         val row = source(rowComponentsPath)
         val text = row.substring(row.indexOf("private fun RowScope.SettingsText("))
