@@ -289,8 +289,20 @@ internal fun isImageNavigation(url: String): Boolean {
 
 // ── HTML 基准与 URL 归一化（纯 Kotlin，可单测） ──
 
-/** 超长 README 的高度上限（超出部分由 WebView 内部滚动，避免 LazyColumn 出现巨型 item）。 */
-private const val MAX_README_HEIGHT = 20_000
+/**
+ * README WebView 的高度上限 —— **只用于挡异常上报，不是显示上限**。
+ *
+ * 上一版这里是 `20_000`，注释写着「超出部分由 WebView 内部滚动」—— 那个前提在 `LazyColumn`
+ * 的 item 里不成立：外层列表把这一项滚过去就直接进下一节，被钳掉的部分**在 App 里没有任何入口**。
+ * 真机表现（2026-09）：本仓库自己那份 94KB 的 README 渲染高度 ≈45k~58k px（模型估算 44.7k），
+ * 于是正文在一张表格中间被切断，紧接着就是「许可证 License」，后 2/3 读不到。
+ * 这与「正文 WebView 的高度等于整篇内容高度，滚动交给外层原生列表」的架构约定也不一致
+ * （见 `docs/specs/modules-design.md` §1）。
+ *
+ * 现在它只挡「脚本取到离谱值」这类异常：200k px ≈ 能放 700KB 级中文正文，正常 README 碰不到；
+ * 真碰到时钳住也比把内容藏起来强（那时 WebView 至少还能在内部滚）。
+ */
+private const val MAX_README_HEIGHT = 200_000
 
 /** 从 GitHub 返回的 HTML 里取 README 路径（`<div id="readme" data-path="docs/README.md">`）。 */
 private val README_WRAPPER_PATH_RE = Regex("<[^>]*id=\"readme\"[^>]*data-path=\"([^\"]+)\"")
