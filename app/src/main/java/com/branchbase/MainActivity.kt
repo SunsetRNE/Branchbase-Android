@@ -16,6 +16,7 @@ import com.branchbase.ui.translate.TranslateBubbleHost
 import com.branchbase.ui.theme.ThemeRuntime
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.auth.LoginFlow
+import com.branchbase.ui.log.FrameWatch
 import com.branchbase.ui.log.LogManager
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.theme.BranchbaseTheme
@@ -40,6 +41,11 @@ class MainActivity : ComponentActivity() {
         // 初始化日志管理器（FileAppender 持久化到 branchbase.log）
         LogManager.init(applicationContext)
         Logger.ui("App 启动", "System")
+
+        // 慢帧守望：把系统每帧下发的 FrameMetrics（与 `dumpsys gfxinfo framestats` 同源）
+        // 里挑出的慢帧写进日志 —— 「切页那一下卡了多少毫秒、卡在哪一段」从此不用另开终端敲
+        // dumpsys（那个 120 帧窗口 + dump 自身跑在主线程的两个硬伤见 FrameWatch 类注释）
+        FrameWatch.install(this)
 
         // 清理超期短任务记录（后台，不阻塞启动）
         Thread {

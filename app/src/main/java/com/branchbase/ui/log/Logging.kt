@@ -1,7 +1,9 @@
 package com.branchbase.ui.log
 
 import android.content.Context
+import java.io.BufferedWriter
 import java.io.File
+import java.io.FileOutputStream
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -56,6 +58,19 @@ object LogManager {
 
     fun all(): List<LogEntry> = synchronized(buffer) { buffer.toList() }
 
+    /**
+     * 最近一条 **UI 类**日志（不拷贝整个缓冲，只从表头取）。
+     *
+     * 给 [FrameWatch] 当「这一帧发生在哪个页面」的注脚用：页面进入/切换都会打一条 UI 日志
+     * （「进入设置页」「切换到「仓库」」…），所以慢帧记下来时带上它，就能直接看出
+     * **是哪次导航引起的**，而不用另外维护一份「当前页面」状态（那种状态一定会和实际路由走散）。
+     *
+     * 表头 = 最新（`addFirst`），所以正常情况下第一个元素就命中。
+     */
+    fun lastUiMessage(): String? = synchronized(buffer) {
+        buffer.firstOrNull { it.category == LogCategory.UI_RENDER }?.message
+    }
+
     fun clear() = synchronized(buffer) { buffer.clear() }
 
     /** 读日志文件前调一次：把队列里还没落盘的行刷下去（有界等待，超时即返回）。 */
@@ -97,6 +112,19 @@ private val fileZone: ZoneId = ZoneId.of("Asia/Shanghai")
 
 /** 写盘队列上限：日志**永远不许**阻塞业务线程，满了就丢最旧的。 */
 private const val APPEND_QUEUE_MAX = 512
+
+/**
+ * 以**追加**方式打开日志文件。
+ *
+ * 必须是 append 而不是截断写：`file.bufferedWriter()` 走的是 `File.outputStream()`，
+ * 那是**截断模式** —— 每批积压落盘都会把之前的行整片冲掉，磁盘上永远只剩最近一批
+ * （实测常常只有一行）。而「设置 → 日志 → 导出 .log」读的正是这个文件
+ * （`LogScreen.kt:121` 的 `logFile()?.readText()`），于是导出的日志几乎是空的。
+ *
+ * 抽成一个函数是为了让这条语义能被纯 JVM 单测钉住（见 `LogFileAppendTest`）。
+ */
+internal fun openLogFileForAppend(file: File): BufferedWriter =
+    FileOutputStream(file, /* append = */ true).bufferedWriter()
 
 /**
  * 文件持久化：把日志追加写入 branchbase.log。
@@ -153,7 +181,9 @@ private class FileAppender(dir: File) {
         while (true) {
             try {
                 var entry: LogEntry? = queue.take()
-                file.bufferedWriter().use { out ->
+                // 追加写（**不是** `file.bufferedWriter()`：那是截断模式，会把历史冲掉，
+                // 见 openLogFileForAppend 的注释）
+                openLogFileForAppend(file).use { out ->
                     while (entry != null) {
                         out.append(line(entry)).append('\n')
                         pending.decrementAndGet()
