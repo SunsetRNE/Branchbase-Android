@@ -2,6 +2,7 @@ package com.branchbase.ui.settings
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.branchbase.BuildConfig
 
 /**
  * 设置项落盘键的**唯一声明处**（设计规范 `docs/specs/settings-design.md` §8.1）。
@@ -34,6 +35,14 @@ object SettingsKeys {
     const val NOTIF_LAYOUT = "notif_layout"
 
     /**
+     * 慢帧日志开关（`FrameWatch`）。
+     *
+     * **只有用户动过开关才有这个键** —— 缺失时用编译通道的默认值
+     * （[BuildConfig.FRAME_WATCH_DEFAULT]：Beta 开、正式版关）。
+     */
+    const val FRAME_WATCH = "frame_watch"
+
+    /**
      * 统一的 SharedPreferences 句柄。
      *
      * 优先用 `applicationContext`：设置页可能在 Activity 重建的瞬间读写，
@@ -46,3 +55,22 @@ object SettingsKeys {
 /** 读取已保存的 Git 代理（空串 = 不使用代理）。键与读取口都在这里，避免第二个真源。 */
 fun gitProxy(context: Context): String =
     SettingsKeys.prefs(context).getString(SettingsKeys.GIT_PROXY, "") ?: ""
+
+/**
+ * 慢帧日志是否开启。
+ *
+ * 默认值来自**编译通道**：Beta（debug / perfBeta）默认开、正式版默认关（见
+ * `app/build.gradle.kts` 的 `FRAME_WATCH_DEFAULT`）。用户可以在
+ * 「设置 → 关于与诊断 → 慢帧日志」里覆盖 —— 所以这里存的是**显式选择**，
+ * 缺键时才回落到通道默认值。
+ *
+ * 读它的地方有两处：[com.branchbase.ui.log.FrameWatch.setEnabled] 的调用方（启动时）
+ * 与设置页那一行开关。**不要在组合期直接读**（`SharedPreferences` 首次加载会读盘）。
+ */
+fun frameWatchEnabled(context: Context): Boolean =
+    SettingsKeys.prefs(context).getBoolean(SettingsKeys.FRAME_WATCH, BuildConfig.FRAME_WATCH_DEFAULT)
+
+/** 写入慢帧日志开关（调用方紧接着要同步 [com.branchbase.ui.log.FrameWatch.setEnabled]）。 */
+fun setFrameWatchEnabled(context: Context, enabled: Boolean) {
+    SettingsKeys.prefs(context).edit().putBoolean(SettingsKeys.FRAME_WATCH, enabled).apply()
+}

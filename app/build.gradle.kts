@@ -112,10 +112,21 @@ android {
     }
 
     buildTypes {
+        /**
+         * 慢帧日志（`FrameWatch`）的**编译通道默认值**。
+         *
+         * 需求：正式编译（`build-release.yml` → `assembleRelease`）**默认关闭**，
+         * Beta（`build-beta.yml` → `assembleDebug` / `assemblePerfBeta`）**默认开启**。
+         *
+         * 为什么按通道分：慢帧日志是**诊断仪表**，会给日志文件持续增量，正式版用户不该
+         * 无缘无故多出一份常年写入的文件；而 Beta 的全部意义就是拿来测。运行时开关
+         * （设置 → 关于与诊断 → 慢帧日志）永远保留，所以正式版用户可以临时打开来抓一次。
+         */
         debug {
             signingConfig = signingConfigs.getByName("beta")
             // Beta 版：标准版本号尾部附加 "-Beta"
             versionNameSuffix = "-Beta"
+            buildConfigField("boolean", "FRAME_WATCH_DEFAULT", "true")
         }
         release {
             if (releaseKeystoreFile != null) {
@@ -126,6 +137,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            buildConfigField("boolean", "FRAME_WATCH_DEFAULT", "false")
         }
         /**
          * 性能测试版：**release 的性能特征 + beta 的签名**。
@@ -142,10 +154,12 @@ android {
          */
         create("perfBeta") {
             initWith(getByName("release"))
-            // ⚠️ 必须在 initWith 之后覆盖：release 的 signingConfig 会被一起复制过来
+            // ⚠️ 必须在 initWith 之后覆盖：release 的 signingConfig 与 buildConfigField 会被一起复制过来
             signingConfig = signingConfigs.getByName("beta")
             versionNameSuffix = "-Beta"
             isMinifyEnabled = false
+            // 性能测试版属于 Beta 通道：慢帧日志默认开启（见 buildTypes 顶部的说明）
+            buildConfigField("boolean", "FRAME_WATCH_DEFAULT", "true")
             // 依赖的 library 模块只有 debug/release 两套变体，这里指回去
             matchingFallbacks += listOf("release")
         }

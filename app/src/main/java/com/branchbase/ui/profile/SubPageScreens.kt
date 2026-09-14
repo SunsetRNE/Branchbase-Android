@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -70,9 +71,12 @@ import com.branchbase.ui.repository.RepoRelation
 import com.branchbase.ui.theme.selectionColor
 import com.branchbase.BuildConfig
 import com.branchbase.core.AccountStatus
+import com.branchbase.ui.settings.frameWatchEnabled
 import com.branchbase.ui.settings.gitProxy
+import com.branchbase.ui.settings.setFrameWatchEnabled
 import com.branchbase.translate.TranslateSettings
 import com.branchbase.core.AccountStore
+import com.branchbase.ui.log.FrameWatch
 import com.branchbase.ui.log.LogLevel
 import com.branchbase.ui.log.LogManager
 import com.branchbase.ui.settings.AccountRow
@@ -480,147 +484,192 @@ fun SettingsScreen(
 
     var translateEnabled by remember { mutableStateOf(TranslateSettings.read(context).enabled) }
     var confirmLogout by remember { mutableStateOf(false) }
+    // 慢帧日志开关：只在这里读一次盘（默认值来自编译通道），之后由用户点击驱动
+    var frameWatch by remember { mutableStateOf(frameWatchEnabled(context)) }
 
     // 错误数只取一次快照：设置页不做高频重组，没必要给「日志」行挂订阅
     val logErrors = remember { LogManager.all().count { it.level == LogLevel.ERROR } }
 
-    Column(
-        modifier = Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding()
-            .verticalScroll(rememberScrollState()),
+    LazyColumn(
+        // 惰性化：设置页有 8 组卡片、二十多行，`Column + verticalScroll` 会在**首帧**
+        // 把整棵树组合出来（真机实测「进入设置页」首帧 43~89ms，其中重组≈绘制）；
+        // 换成 LazyColumn 后首帧只组合可见的那几组，剩下的滚到才建。
+        modifier = Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding(),
     ) {
-        SubPageHeader("设置", onBack)
-        Spacer(Modifier.height(6.dp))
+
+        item {
+            SubPageHeader("设置", onBack)
+        }
+
+        item {
+            Spacer(Modifier.height(6.dp))
+        }
 
         // ── ① 账户：身份是第一信息（规范 §3.2） ──
-        SettingsSection("账户") {
-            AccountRow(
-                login = account?.login,
-                host = account?.host,
-                statusLabel = account?.status?.label,
-                statusTone = account?.status?.let { accountStatusTone(it) } ?: StatusTone.MUTE,
-                onClick = onOpenAccounts,
-            )
-        }
-
-        // ── ② 外观：三档分段控件，取代「点一下循环」（规范 §5.2） ──
-        SettingsSection("外观") {
-            ChoiceRow(
-                icon = Icons.Filled.Palette,
-                name = "主题",
-                sub = "选「跟随系统」时，App 会随系统的浅色 / 深色自动切换。",
-                options = ThemeMode.entries.map { it to it.label },
-                selected = themeMode,
-                onSelect = { ThemeRuntime.set(context, it) },
-                divider = false,
-            )
-        }
-
-        // ── ③ 通知 ──
-        SettingsSection("通知") {
-            // 这一行**不是**开关：系统通知权限不是 App 的布尔值，App 只能申请或跳系统设置。
-            // 用导航行 + 状态胶囊，才不会让「开了但系统没授权」变成一个骗人的开关（规范 §4.3）。
-            NavRow(
-                icon = Icons.Filled.Notifications,
-                name = "通知",
-                sub = notificationPermission.hint,
-                value = notificationPermission.label,
-                onClick = onOpenNotificationSettings,
-                divider = false,
-            )
-        }
-
-        // ── ④ 翻译 ──
-        SettingsSection("翻译") {
-            SwitchRow(
-                icon = Icons.Filled.Translate,
-                name = "自动翻译正文",
-                sub = if (translateEnabled) {
-                    "进入自述文件等正文页会自动翻译，页面上出现可移动悬浮球。"
-                } else {
-                    "关闭后不进正文页翻译，页面上的悬浮球也会收起。"
-                },
-                checked = translateEnabled,
-                onCheckedChange = {
-                    translateEnabled = it
-                    TranslateSettings.setEnabled(context, it)
-                },
-                divider = false,
-            )
-            NavRow(
-                icon = Icons.Filled.Tune,
-                name = "沉浸式翻译",
-                onClick = onOpenTranslate,
-            )
-        }
-
-        // ── ⑤ 代码与提交 ──
-        SettingsSection("代码与提交") {
-            NavRow(
-                icon = Icons.Filled.Commit,
-                name = "提交模式",
-                value = mode?.label ?: "未设置",
-                onClick = onOpenCommitMode,
-                divider = false,
-            )
-            if (mode == CommitMode.LOCAL_REPO) {
-                NavRow(
-                    icon = Icons.Filled.Folder,
-                    name = "本地仓库",
-                    onClick = onOpenLocalRepo,
-                )
-            } else {
-                // 禁用态**不能只调 alpha**：说明原因 + 给出去开启的路（规范 §6.3）
-                DisabledNavRow(
-                    icon = Icons.Filled.Folder,
-                    name = "本地仓库",
-                    reason = "开启需先将「提交模式」设为「本地仓库（Git）」。",
-                    onFix = onOpenCommitMode,
+        item {
+            SettingsSection("账户") {
+                AccountRow(
+                    login = account?.login,
+                    host = account?.host,
+                    statusLabel = account?.status?.label,
+                    statusTone = account?.status?.let { accountStatusTone(it) } ?: StatusTone.MUTE,
+                    onClick = onOpenAccounts,
                 )
             }
         }
 
+        // ── ② 外观：三档分段控件，取代「点一下循环」（规范 §5.2） ──
+        item {
+            SettingsSection("外观") {
+                ChoiceRow(
+                    icon = Icons.Filled.Palette,
+                    name = "主题",
+                    sub = "选「跟随系统」时，App 会随系统的浅色 / 深色自动切换。",
+                    options = ThemeMode.entries.map { it to it.label },
+                    selected = themeMode,
+                    onSelect = { ThemeRuntime.set(context, it) },
+                    divider = false,
+                )
+            }
+        }
+
+        // ── ③ 通知 ──
+        item {
+            SettingsSection("通知") {
+                // 这一行**不是**开关：系统通知权限不是 App 的布尔值，App 只能申请或跳系统设置。
+                // 用导航行 + 状态胶囊，才不会让「开了但系统没授权」变成一个骗人的开关（规范 §4.3）。
+                NavRow(
+                    icon = Icons.Filled.Notifications,
+                    name = "通知",
+                    sub = notificationPermission.hint,
+                    value = notificationPermission.label,
+                    onClick = onOpenNotificationSettings,
+                    divider = false,
+                )
+            }
+        }
+
+        // ── ④ 翻译 ──
+        item {
+            SettingsSection("翻译") {
+                SwitchRow(
+                    icon = Icons.Filled.Translate,
+                    name = "自动翻译正文",
+                    sub = if (translateEnabled) {
+                        "进入自述文件等正文页会自动翻译，页面上出现可移动悬浮球。"
+                    } else {
+                        "关闭后不进正文页翻译，页面上的悬浮球也会收起。"
+                    },
+                    checked = translateEnabled,
+                    onCheckedChange = {
+                        translateEnabled = it
+                        TranslateSettings.setEnabled(context, it)
+                    },
+                    divider = false,
+                )
+                NavRow(
+                    icon = Icons.Filled.Tune,
+                    name = "沉浸式翻译",
+                    onClick = onOpenTranslate,
+                )
+            }
+        }
+
+        // ── ⑤ 代码与提交 ──
+        item {
+            SettingsSection("代码与提交") {
+                NavRow(
+                    icon = Icons.Filled.Commit,
+                    name = "提交模式",
+                    value = mode?.label ?: "未设置",
+                    onClick = onOpenCommitMode,
+                    divider = false,
+                )
+                if (mode == CommitMode.LOCAL_REPO) {
+                    NavRow(
+                        icon = Icons.Filled.Folder,
+                        name = "本地仓库",
+                        onClick = onOpenLocalRepo,
+                    )
+                } else {
+                    // 禁用态**不能只调 alpha**：说明原因 + 给出去开启的路（规范 §6.3）
+                    DisabledNavRow(
+                        icon = Icons.Filled.Folder,
+                        name = "本地仓库",
+                        reason = "开启需先将「提交模式」设为「本地仓库（Git）」。",
+                        onFix = onOpenCommitMode,
+                    )
+                }
+            }
+        }
+
         // ── ⑥ 网络 ──
-        SettingsSection("网络") {
-            NavRow(
-                icon = Icons.Filled.Language,
-                name = "Git 代理",
-                // 值列只显示 host:port，凭据不进列表（规范 §6.5）
-                value = displayGitProxy(gitProxy(context)).ifEmpty { "未设置" },
-                sub = "仅作用于本地仓库的 clone / pull / push。",
-                onClick = onOpenGitProxy,
-                divider = false,
-            )
+        item {
+            SettingsSection("网络") {
+                NavRow(
+                    icon = Icons.Filled.Language,
+                    name = "Git 代理",
+                    // 值列只显示 host:port，凭据不进列表（规范 §6.5）
+                    value = displayGitProxy(gitProxy(context)).ifEmpty { "未设置" },
+                    sub = "仅作用于本地仓库的 clone / pull / push。",
+                    onClick = onOpenGitProxy,
+                    divider = false,
+                )
+            }
         }
 
         // ── ⑦ 关于与诊断：兜底组，位置固定（规范 §3.3） ──
-        SettingsSection("关于与诊断") {
-            NavRow(
-                icon = Icons.AutoMirrored.Filled.Article,
-                name = "日志",
-                value = if (logErrors > 0) "$logErrors 条错误" else null,
-                onClick = onOpenLog,
-                divider = false,
-            )
-            NavRow(
-                icon = Icons.Filled.Info,
-                name = "关于",
-                value = BuildConfig.STANDARD_VERSION,
-                onClick = onOpenAbout,
-            )
+        item {
+            SettingsSection("关于与诊断") {
+                // 慢帧日志：诊断仪表。默认值随编译通道（Beta 开 / 正式版关，见 build.gradle.kts 的
+                // FRAME_WATCH_DEFAULT），这里可以随时覆盖 —— 正式版用户要抓一次卡顿就靠它。
+                SwitchRow(
+                    icon = Icons.Filled.Speed,
+                    name = "慢帧日志",
+                    sub = if (frameWatch) {
+                        "记录每次卡顿的耗时与分段（等待 / 动画 / 绘制 …）并带上页面名；日志每天 0 点换目录、旧的丢弃。"
+                    } else {
+                        "关闭后不再记录慢帧；已经写进日志的内容不受影响。"
+                    },
+                    checked = frameWatch,
+                    onCheckedChange = {
+                        frameWatch = it
+                        setFrameWatchEnabled(context, it)
+                        FrameWatch.setEnabled(it)
+                    },
+                    divider = false,
+                )
+                NavRow(
+                    icon = Icons.AutoMirrored.Filled.Article,
+                    name = "日志",
+                    value = if (logErrors > 0) "$logErrors 条错误" else null,
+                    onClick = onOpenLog,
+                )
+                NavRow(
+                    icon = Icons.Filled.Info,
+                    name = "关于",
+                    value = BuildConfig.STANDARD_VERSION,
+                    onClick = onOpenAbout,
+                )
+            }
         }
 
         // ── 危险动作：单独一组、放最末（规范 §7.2） ──
-        SettingsSection {
-            DangerRow(
-                icon = Icons.AutoMirrored.Filled.Logout,
-                name = if (account != null) "退出登录 ${account.login}" else "退出登录",
-                hint = "不可撤销",
-                onClick = { confirmLogout = true },
-                divider = false,
-            )
+        item {
+            SettingsSection {
+                DangerRow(
+                    icon = Icons.AutoMirrored.Filled.Logout,
+                    name = if (account != null) "退出登录 ${account.login}" else "退出登录",
+                    hint = "不可撤销",
+                    onClick = { confirmLogout = true },
+                    divider = false,
+                )
+            }
         }
 
-        Spacer(Modifier.height(12.dp))
+        item {
+            Spacer(Modifier.height(12.dp))
+        }
     }
 
     // 二次确认：标题 = 动词 + 对象名；正文三条（会发生什么 / 影响范围 / 能否撤销）；

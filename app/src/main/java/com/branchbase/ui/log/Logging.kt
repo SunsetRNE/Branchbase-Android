@@ -116,6 +116,42 @@ private val fileZone: ZoneId = ZoneId.of("Asia/Shanghai")
 /** 写盘队列上限：日志**永远不许**阻塞业务线程，满了就丢最旧的。 */
 private const val APPEND_QUEUE_MAX = 512
 
+/** 日志根目录（外部私有目录下）：`logs/<北京时间日期>/branchbase.log`。 */
+private const val LOG_ROOT = "logs"
+
+/** 日志文件名。**按天换目录、文件名固定** —— 导出与文档里说的仍是 `branchbase.log`。 */
+private const val LOG_FILE_NAME = "branchbase.log"
+
+/**
+ * 日志轮转的日期戳（**北京时间**，`yyyy-MM-dd`）。
+ *
+ * 轮转边界是北京时间每天 `00:00:00`：跨过零点后的第一批日志落进新目录。
+ * 抽成纯函数是为了能单测（`LogRotationTest`）。
+ */
+internal fun logDayStamp(nowMs: Long): String =
+    Instant.ofEpochMilli(nowMs).atZone(fileZone).toLocalDate().toString()
+
+/** 某一天的日志文件：`<root>/logs/<day>/branchbase.log`。 */
+internal fun logFileFor(root: File, day: String): File =
+    File(File(File(root, LOG_ROOT), day), LOG_FILE_NAME)
+
+/**
+ * 删掉除 [keep] 以外的历史日志目录。
+ *
+ * 需求就是「**只留当天**」：旧的一律丢弃（不归档、不压缩、不问），所以这里直接递归删除。
+ * 只在「开新的一天」与「App 启动」两处调用，**不在写盘路径上**。
+ *
+ * @return 删掉的目录数（调用方可以据此记一行「清理了 N 天历史」）
+ */
+internal fun cleanupOldLogDays(logsRoot: File, keep: String): Int {
+    val children = logsRoot.listFiles() ?: return 0
+    var removed = 0
+    for (child in children) {
+        if (child.isDirectory && child.name != keep && child.deleteRecursively()) removed++
+    }
+    return removed
+}
+
 /**
  * 以**追加**方式打开日志文件。
  *
@@ -130,7 +166,7 @@ internal fun openLogFileForAppend(file: File): BufferedWriter =
     FileOutputStream(file, /* append = */ true).bufferedWriter()
 
 /**
- * 文件持久化：把日志追加写入 branchbase.log。
+ * 文件持久化：把日志追加写入 `logs/<北京时间日期>/branchbase.log`。
  *
  * ## 为什么必须异步（这不是优化，是修 bug）
  *
@@ -144,18 +180,44 @@ internal fun openLogFileForAppend(file: File): BufferedWriter =
  * 现在 `append` 只入队；写盘交给一个后台守护线程，一次 `take` 醒来后把积压整批写掉再关文件：
  * 日志是突发式的，这样既有批量写的效率，也不会长期占着文件句柄。
  *
+ * ## 按天轮转（北京时间 00:00:00 换目录）
+ *
+ * 一天一个目录、**旧的一律丢弃**：跨零点后的第一批日志落进新目录，同时把历史目录删掉。
+ * 这样日志既不会无限长（`log-redesign` 文档里那条「磁盘没有上限」），导出也不会一次吐出
+ * 几个月的量 —— 代价是**只剩当天**，需要跨天对比就得当天取走。
+ *
  * 内存环形缓冲（[LogManager.all]，日志页列表用）不受影响，仍是同步写入的。
  */
-private class FileAppender(dir: File) {
-    val file = File(dir, "branchbase.log")
+private class FileAppender(private val root: File) {
+
+    /**
+     * 当前正在写的文件。**跨天会换**，所以是 `var`（写盘线程改、[LogManager.logFile] 读）。
+     *
+     * 路径：`<root>/logs/<北京时间日期>/branchbase.log`。
+     */
+    @Volatile var file: File
 
     private val queue = ArrayBlockingQueue<LogEntry>(APPEND_QUEUE_MAX)
 
     /** 还在队列里没落盘的条数，供 [flush] 等待。 */
     private val pending = AtomicInteger(0)
 
+    /** [file] 对应的日期戳，判断要不要轮转。只有写盘线程读写。 */
+    private var day: String
+
     init {
-        dir.mkdirs()
+        val today = logDayStamp(System.currentTimeMillis())
+        day = today
+        file = logFileFor(root, today)
+        file.parentFile?.mkdirs()
+        // 启动就清历史：需求是「只留当天」，所以昨天以前的一律丢弃
+        val removed = cleanupOldLogDays(File(root, LOG_ROOT), today)
+        if (removed > 0) {
+            LogManager.log(
+                LogCategory.LOCAL_TASK, LogLevel.INFO, "日志",
+                "清理历史日志目录 $removed 天（只保留当天 $today）",
+            )
+        }
         Thread(::drainLoop, "bb-log-writer").apply {
             isDaemon = true
             priority = Thread.MIN_PRIORITY
@@ -183,7 +245,10 @@ private class FileAppender(dir: File) {
     private fun drainLoop() {
         while (true) {
             try {
-                var entry: LogEntry? = queue.take()
+                val first = queue.take()
+                // 跨天就换目录（并清掉历史）—— 轮转发生在**写盘线程**，不碰调用方
+                rotateIfNeeded(first.time)
+                var entry: LogEntry? = first
                 // 追加写（**不是** `file.bufferedWriter()`：那是截断模式，会把历史冲掉，
                 // 见 openLogFileForAppend 的注释）
                 openLogFileForAppend(file).use { out ->
@@ -200,6 +265,20 @@ private class FileAppender(dir: File) {
                 pending.set(0)
             }
         }
+    }
+
+    /**
+     * 跨过北京时间零点就换到新一天的目录，并把历史目录删掉。
+     *
+     * 判定用**这一批第一条日志的时间**（而不是墙钟 `now`）：补写积压时也该落在它原本那一天。
+     */
+    private fun rotateIfNeeded(nowMs: Long) {
+        val target = logDayStamp(nowMs)
+        if (target == day) return
+        day = target
+        file = logFileFor(root, target)
+        file.parentFile?.mkdirs()
+        cleanupOldLogDays(File(root, LOG_ROOT), target)
     }
 
     private fun line(e: LogEntry): String =

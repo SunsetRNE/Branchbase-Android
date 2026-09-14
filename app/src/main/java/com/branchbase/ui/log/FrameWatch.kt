@@ -97,6 +97,24 @@ object FrameWatch {
 
     @Volatile private var installed = false
 
+    /**
+     * 仪表是否在工作。
+     *
+     * **默认值来自编译通道**（`BuildConfig.FRAME_WATCH_DEFAULT`：Beta 开、正式版关），
+     * 由 `MainActivity` 启动时同步一次、设置页的开关随时改（见 `SettingsKeys.FRAME_WATCH`）。
+     *
+     * 关掉时监听器仍然挂着，但回调**第一行就返回** —— 一次 `getMetric` 都不做，
+     * 每帧只多一次空调用（挂/摘监听器要在主线程且要记住同一个实例，远比这个贵）。
+     */
+    @Volatile private var enabled = false
+
+    /** 打开 / 关闭仪表（设置页与启动路径各调一次）。 */
+    fun setEnabled(value: Boolean) {
+        enabled = value
+    }
+
+    fun isEnabled(): Boolean = enabled
+
     // 小结窗口内的累计（只在主线程读写）
     private var windowStart = 0L
     private var frames = 0
@@ -105,6 +123,7 @@ object FrameWatch {
     private var worstMs = 0.0
     private var worstPage: String? = null
     private var lastLoggedAt = 0L
+    private var lastLoggedTotal = 0.0
 
     /** 注册慢帧监听（主线程调用；重复调用只有第一次生效）。 */
     fun install(activity: Activity) {
@@ -116,7 +135,20 @@ object FrameWatch {
         }, Handler(Looper.getMainLooper()))
     }
 
+    /**
+     * 这一帧该不该**单独**记一条明细（纯函数，便于单测）。
+     *
+     * 限流不能吞掉更慢的帧：真机日志出现过「小结写着最慢 240.9ms，明细里最慢只有 179.8ms」——
+     * 那 240.9ms 的两帧挨得太近，被 [MIN_GAP_MS] 限流吃掉了，而**最慢的那几帧恰恰最不该丢**。
+     * 规则：距上次记录够久就记；否则**只要这一帧比上次记下的还慢**也记 ——
+     * 于是明细里的慢帧是单调升级的，最慢的一定留得下，同时天然防刷屏。
+     */
+    internal fun shouldLogFrame(totalMs: Double, nowMs: Long, lastAtMs: Long, lastTotalMs: Double): Boolean =
+        totalMs >= SLOW_MS && (nowMs - lastAtMs >= MIN_GAP_MS || totalMs > lastTotalMs)
+
     private fun onFrame(metrics: FrameMetrics, dropped: Int) {
+        if (!enabled) return
+
         // 首帧（窗口第一次绘制）的 TOTAL_DURATION 含建窗时间，天然是慢帧，不算
         if (metrics.getMetric(FrameMetrics.FIRST_DRAW_FRAME) == 1L) return
 
@@ -135,8 +167,9 @@ object FrameWatch {
         }
 
         val now = System.currentTimeMillis()
-        if (total >= SLOW_MS && now - lastLoggedAt >= MIN_GAP_MS) {
+        if (shouldLogFrame(total, now, lastLoggedAt, lastLoggedTotal)) {
             lastLoggedAt = now
+            lastLoggedTotal = total
             Logger.ui(formatSlowFrame(parts, dropped, LogManager.lastUiMessage(excludeTag = TAG)), TAG)
         }
         if (now - windowStart >= SUMMARY_MS) {
@@ -152,6 +185,7 @@ object FrameWatch {
             slowCount = 0
             worstMs = 0.0
             worstPage = null
+            lastLoggedTotal = 0.0
         }
     }
 

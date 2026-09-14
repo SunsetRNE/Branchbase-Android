@@ -74,6 +74,16 @@ private val timeFmt = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
 internal fun formatTime(epochMs: Long): String =
     Instant.ofEpochMilli(epochMs).atZone(ZoneId.of("Asia/Shanghai")).format(timeFmt)
 
+/**
+ * 一行日志的完整文本。
+ *
+ * 原始日志、点按复制、过滤面板复制**共用这一个格式** —— 原先三处各拼一遍，
+ * 改一处就会分家（`log-redesign` 文档把「点行复制的内容 = `branchbase.log` 的行格式」
+ * 列为验收项）。
+ */
+internal fun logLine(e: LogEntry): String =
+    "${formatTime(e.time)} [${e.category.label}] [${e.tag}] ${e.level.name} ${e.message}"
+
 private enum class LogMode { STREAM, RAW }
 
 @Composable
@@ -91,8 +101,11 @@ fun LogScreen(onBack: () -> Unit) {
 
     fun refresh() { logs = LogManager.all() }
 
-    // 进入日志页时主动拉取最新日志（避免 remember 首次读取到旧值/空值）
-    LaunchedEffect(Unit) { logs = LogManager.all() }
+    // 这里**刻意不再补一个 `LaunchedEffect(Unit) { logs = LogManager.all() }`**：
+    // 上面的 `remember` 初始化本来就是在首次组合那一刻读的（不旧也不空），而 `all()` 每次返回
+    // **新的 List 实例**；只要这中间又落了日志（进页面自己就会写一条「进入日志页」），
+    // 赋值就会判成「变了」→ 把整页再组合一遍。真机上「进入日志页」首帧 58~99ms，
+    // 一次多余的整页重组就占在里面。
 
     val filtered = remember(logs, keyword, curCategory, curLevel, curTag) {
         logs.filter { e ->
@@ -102,6 +115,9 @@ fun LogScreen(onBack: () -> Unit) {
                 (keyword.isBlank() || e.message.contains(keyword, true) || e.tag.contains(keyword, true))
         }
     }
+
+    // 四类计数一次遍历算完（原来是每个徽章各扫一遍 logs）
+    val counts = remember(logs) { logs.groupingBy { it.category }.eachCount() }
 
     Column(
         modifier = Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding(),
@@ -171,7 +187,7 @@ fun LogScreen(onBack: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             LogCategory.entries.forEach { c ->
-                StatBadge(c.label, logs.count { it.category == c }, catColor[c]!!)
+                StatBadge(c.label, counts[c] ?: 0, catColor[c]!!)
             }
             StatBadge("共", logs.size, null)
         }
@@ -204,21 +220,42 @@ fun LogScreen(onBack: () -> Unit) {
             } else {
                 LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
                     items(filtered, key = { it.time.toString() + it.message }) { e ->
-                        LogStreamItem(e, onClick = { clipboard.setText(AnnotatedString("${formatTime(e.time)} [${e.category.label}] [${e.tag}] ${e.level.name} ${e.message}")) })
+                        LogStreamItem(e, onClick = { clipboard.setText(AnnotatedString(logLine(e))) })
                     }
                 }
             }
         } else {
-            // 原始日志
-            Box(Modifier.fillMaxSize().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF0A0E14)).border(1.dp, Primer.Border, RoundedCornerShape(12.dp)).padding(14.dp)) {
-                Text(
-                    filtered.joinToString("\n") { "${formatTime(it.time)} [${it.category.label}] [${it.tag}] ${it.level.name} ${it.message}" }
-                        .ifEmpty { "（无日志）" },
-                    fontSize = 12.sp,
-                    color = Color(0xFFC9D1D9),
-                    lineHeight = 20.sp,
-                    modifier = Modifier.fillMaxSize(),
-                )
+            // 原始日志：**一行一个 item**。
+            // 原来是把最多 1000 条 `joinToString("\n")` 拼成一个大字符串塞进一个 `Text` ——
+            // 进页面 / 切到这一档时要在主线程拼出几百 KB 的字符串，再让一个 Text 整块测量，
+            // 长行被裁还没有任何提示（log-redesign 文档 §二.4 测绘的就是这一条）。
+            Box(
+                Modifier.fillMaxSize().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF0A0E14)).border(1.dp, Primer.Border, RoundedCornerShape(12.dp)),
+            ) {
+                if (filtered.isEmpty()) {
+                    Text(
+                        "（无日志）",
+                        fontSize = 12.sp,
+                        color = Color(0xFFC9D1D9),
+                        lineHeight = 20.sp,
+                        modifier = Modifier.padding(14.dp),
+                    )
+                } else {
+                    LazyColumn(Modifier.fillMaxSize().padding(vertical = 8.dp)) {
+                        items(filtered, key = { it.time.toString() + it.message }) { e ->
+                            Text(
+                                logLine(e),
+                                fontSize = 12.sp,
+                                color = Color(0xFFC9D1D9),
+                                lineHeight = 20.sp,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -233,7 +270,7 @@ fun LogScreen(onBack: () -> Unit) {
             onCategory = { curCategory = it },
             onLevel = { curLevel = it },
             onTag = { curTag = it },
-            onCopy = { clipboard.setText(AnnotatedString(logs.joinToString("\n") { "${formatTime(it.time)} [${it.category.label}] [${it.tag}] ${it.level.name} ${it.message}" })) },
+            onCopy = { clipboard.setText(AnnotatedString(logs.joinToString("\n") { logLine(it) })) },
             onClear = { LogManager.clear(); refresh() },
             onDismiss = { showFilter = false },
         )

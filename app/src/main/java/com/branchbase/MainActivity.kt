@@ -18,6 +18,7 @@ import com.branchbase.core.RustBridge
 import com.branchbase.ui.auth.LoginFlow
 import com.branchbase.ui.log.FrameWatch
 import com.branchbase.ui.log.LogManager
+import com.branchbase.ui.settings.frameWatchEnabled
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.theme.BranchbaseTheme
 
@@ -46,6 +47,8 @@ class MainActivity : ComponentActivity() {
         // 里挑出的慢帧写进日志 —— 「切页那一下卡了多少毫秒、卡在哪一段」从此不用另开终端敲
         // dumpsys（那个 120 帧窗口 + dump 自身跑在主线程的两个硬伤见 FrameWatch 类注释）
         FrameWatch.install(this)
+        // 默认值随编译通道（Beta 开、正式版关），用户可在「设置 → 关于与诊断 → 慢帧日志」改
+        FrameWatch.setEnabled(frameWatchEnabled(applicationContext))
 
         // 清理超期短任务记录（后台，不阻塞启动）
         Thread {
