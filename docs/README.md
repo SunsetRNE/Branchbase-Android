@@ -19,6 +19,7 @@
     ├── BUILD-NOTES.md            ← 构建环境、AGP 9.0 API、版本号体系
     ├── settings-design.md        ← **设置页设计规范**（信息架构 / 6 种行型 / 控件选型 / 用语表 / 危险操作）
     └── prototypes/               ← 原型**说明文档**的入库副本（原型本体不在这里）
+        ├── log-redesign.md
         ├── messages-redesign.md
         ├── workflow-redesign.md
         ├── settings-redesign.md
@@ -97,6 +98,7 @@ README.md                          ← 项目门面 + 主设计记录，留在�
 | [`specs/prototypes/workflow-redesign.md`](specs/prototypes/workflow-redesign.md) | Run 详情卡片流 + 作业日志页合并 | `WorkflowRunDetailScreen.kt`、`JobLogScreen.kt` |
 | [`specs/prototypes/theme-neutral-preview.md`](specs/prototypes/theme-neutral-preview.md) | 中性色「去灰」三个方案的取值与结论 | `ThemePalette.kt` |
 | [`specs/settings-design.md`](specs/settings-design.md) | **设置页设计规范**：两级 IA、6 种行型的封闭集合、控件选型决策树、用语表、危险操作规格、`SettingsSpecTest` 钉子 | `ui/profile/SubPageScreens.kt`、`CommitModeScreen.kt`、`TranslateSettingsScreen.kt`、`AccountsScreen.kt` |
+| [`specs/prototypes/log-redesign.md`](specs/prototypes/log-redesign.md) | 日志页重设计原型：chrome 196→110dp、单行网格、9 个写死色值→主题角色 | `docs/specs/settings-design.md`（同族参考） |
 | [`specs/prototypes/settings-redesign.md`](specs/prototypes/settings-redesign.md) | 设置页重设计原型：8 套行组件 → 6 种行型、主题去循环化、禁用行给出路、3 个对比度修正 | `docs/specs/settings-design.md` |
 
 ---
