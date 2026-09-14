@@ -541,6 +541,7 @@ L1 设置（唯一入口）
 |---|---|---|
 | v1 | 2026-09 | 首次成文：现状测绘（12 个界面 / 8 套行组件）、两级 IA、6 种行型、控件决策树、用语表、危险操作规格、令牌约束、`SettingsSpecTest` 钉子、三步落地路径 |
 | v2 | 2026-09 | 落地第一轮：新增 `ui/settings/` 四个文件（行组件 / 键 / 代理纯逻辑 / 代理页）；`SettingsScreen` 与 `NotificationSettingsScreen` 重写；删掉 `SettingsItem` 等三处重复组件；新增 `Primer.BorderControl` 角色；补 `SettingsSpecTest`(18) + `GitProxyTest`(10)。偏离与待办见 §14 |
+| v3 | 2026-09 | 账户卡修复：`AccountRow` 原来是写死的灰底首字母，改成统一 `theme/Avatar`（本地缓存 → `avatar_url` → 首字母兜底，圆形裁切），新增 `avatar` 参数；账号侧补 `Account.avatarUrl`（快照缺失回落会话 `user.avatar_url`），`MainActivity` 预热同源；`SettingsSpecTest` 新增两条钉子；偏离表补第 4 条。见 §14 |
 
 ---
 
@@ -562,15 +563,17 @@ L1 设置（唯一入口）
 | 改动 | `theme/ThemePalette.kt` + `Color.kt` —— 新增 `borderControl` 角色（可交互控件边界，WCAG 1.4.11） |
 | 删除 | `SettingsItem` / 私有 `SettingsSectionTitle` / `LocalRepoEntry`（`SettingsItem` 只被设置页使用，无其他调用点） |
 
-### 与原型的三处**刻意偏离**（原型错了，实现按实际改）
+### 与原型的多处**刻意偏离**（原型错了，实现按实际改）
 
-原型是可点草图，它为了演示行型而简化了数据模型。落地时发现三处不能照抄：
+原型是可点草图，它为了演示行型而简化了数据模型。落地时发现三处不能照抄；
+第 4 条是后续真机反馈补上的（账户卡写死的首字母）：
 
 | # | 原型怎么画 | App 实际是什么 | 实现怎么改 |
 |---|---|---|---|
 | 1 | 「允许发送通知」是 **`SwitchRow`**（带 `checked`） | 「允许通知」是**系统权限**，不是 App 的布尔值；App 只能 `request()` 或 `openSettings()` | 改成 **`NavRow` + 状态胶囊**，点击进「通知」子页。**一个骗人的开关比没有开关更坏** —— 用户开了它但系统没授权，会以为已经生效 |
 | 2 | 沉浸式翻译页**不在重画范围** | 该页 500+ 行，且原型里它的入口只是 toast 占位 | 只做**组件统一**（删私有 `SwitchRow`/`SectionTitle`、自制行归位），**未卡片化** —— 见下方待办 |
 | 3 | 主页有「退出登录」`DangerRow` | 个人页 `⋮` 气泡**已经**有一个登出入口 | 照原型实现（含 §7.2 确认框），于是现在有**两个**登出入口。这是刻意的：设置页放登出是通行做法，且原入口埋在气泡里可发现性差。若要收敛成一个，属于产品决策 |
+| 4 | 账户卡头像画成**写死的首字母**（`accountCard()` 里的 `<span class="av">` + `initial`） | App 有真实头像：`AvatarCache` 本地缓存（登录即预热）优先、缺失回落 `avatar_url`；首页 / 个人页 / 账号管理页都走同一个 `theme/Avatar`（圆形裁切 + 首字母兜底） | `AccountRow` 改用 `Avatar` 并新增 `avatar: String?` 参数；地址取 `Account.avatarUrl`（快照缺失时回落会话 `user.avatar_url`）。`SettingsSpecTest` 钉住「不许再写死首字母」与「设置页必须传 `account.avatarUrl`」 |
 
 ### 尚未完成（按优先级）
 

@@ -511,6 +511,10 @@ fun SettingsScreen(
                 AccountRow(
                     login = account?.login,
                     host = account?.host,
+                    // 账户卡的头像必须传下去：Avatar 内部按「本地缓存 → avatar_url → 首字母」
+                    // 依次回落并做圆形裁切；漏传这一项，圈选处就只剩写死的首字母。
+                    // 用 avatarUrl（快照缺失时回落会话 user.avatar_url）而不是裸 avatar。
+                    avatar = account?.avatarUrl,
                     statusLabel = account?.status?.label,
                     statusTone = account?.status?.let { accountStatusTone(it) } ?: StatusTone.MUTE,
                     onClick = onOpenAccounts,

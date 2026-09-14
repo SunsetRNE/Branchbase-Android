@@ -229,7 +229,8 @@ private fun AccountCard(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Avatar(
-                url = account.avatar,
+                // avatarUrl：快照缺失时回落会话 user.avatar_url（老版本迁移来的账号只有会话）
+                url = account.avatarUrl,
                 login = account.login,
                 size = 44.dp,
                 background = if (isCurrent) Primer.Blue500 else Primer.Gray150,

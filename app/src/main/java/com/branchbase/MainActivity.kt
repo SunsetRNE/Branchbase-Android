@@ -60,13 +60,16 @@ class MainActivity : ComponentActivity() {
             kotlinx.coroutines.runBlocking { com.branchbase.core.AccountChecks.checkAll(applicationContext) }
         }.start()
 
-        // 当前账号头像预热：本地没有才拉（老用户升级后首次启动补齐，之后渲染零网络）
+        // 当前账号头像预热：本地没有才拉（老用户升级后首次启动补齐，之后渲染零网络）。
+        // 用 `avatarUrl`（快照缺失时回落会话里的 user.avatar_url）而不是裸 `avatar` ——
+        // 老版本迁移来的账号只有会话、没有快照，用裸 avatar 会永远跳过预热。
         Thread {
             val ctx = applicationContext
             com.branchbase.core.AccountStore.current(ctx)?.let { acc ->
-                if (acc.avatar != null && !com.branchbase.core.AvatarCache.has(ctx, acc.login)) {
+                val url = acc.avatarUrl
+                if (url != null && !com.branchbase.core.AvatarCache.has(ctx, acc.login)) {
                     kotlinx.coroutines.runBlocking {
-                        com.branchbase.core.AvatarCache.refresh(ctx, acc.login, acc.avatar)
+                        com.branchbase.core.AvatarCache.refresh(ctx, acc.login, url)
                     }
                 }
             }

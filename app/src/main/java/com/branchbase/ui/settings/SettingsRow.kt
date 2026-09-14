@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.ui.theme.Avatar
 import com.branchbase.ui.theme.Primer
 import com.branchbase.ui.theme.selectionColor
 
@@ -519,27 +520,30 @@ fun SettingsSectionTitle(title: String) {
  * 它不是 §4.1 的 6 种行型之一，而是**账户卡**：
  * 比普通行高（40dp 头像），并且状态胶囊要在一屏内可读 ——
  * 「令牌失效 / 触发限流」这类状态必须第一眼看到，而不是点进账号管理才发现。
+ *
+ * ## 头像走统一 [Avatar]，不许在这里再写一遍占位
+ *
+ * 这一格原来是一个写死的灰底首字母 `Box` —— 它**根本不接 [avatar]**，
+ * 于是哪怕本地缓存和 `avatar_url` 都在，设置页也永远只显示字母，更谈不上圆形裁切。
+ * 首字母只是 [Avatar] 内部「图还没到时」的兜底层，不该是账户卡的全部实现：
+ * 账号管理页 / 首页 / 个人页早就用 [Avatar]，只有这里漏了。
  */
 @Composable
 fun AccountRow(
     login: String?,
     host: String?,
+    avatar: String?,
     statusLabel: String?,
     statusTone: StatusTone,
     onClick: () -> Unit,
 ) {
     SettingsRowShell(divider = false, onClick = onClick) {
-        Box(
-            modifier = Modifier.size(40.dp).clip(RoundedCornerShape(999.dp)).background(Primer.Gray150),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                login?.take(1)?.uppercase() ?: "?",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Primer.TextSecondary,
-            )
-        }
+        // 本地缓存优先、缺缓存回落 avatar_url 网络图、两者都没有才首字母 —— 逻辑全在 Avatar 里
+        Avatar(
+            url = avatar,
+            login = login ?: "?",
+            size = 40.dp,
+        )
         Spacer(Modifier.width(IconGap))
         Column(Modifier.weight(1f, fill = false).padding(vertical = 14.dp)) {
             Text(

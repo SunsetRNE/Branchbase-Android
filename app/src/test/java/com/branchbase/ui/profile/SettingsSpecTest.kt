@@ -285,4 +285,37 @@ class SettingsSpecTest {
         // 说明用 TextSecondary（不降 alpha），只有名称与图标降级
         assertTrue("禁用行的原因要用 TextSecondary 保持可读", block.contains("color = Primer.TextSecondary"))
     }
+
+    // ── ⑪ 账户卡渲染真实头像，而不是写死的首字母 ────────────────────────
+
+    /**
+     * 账户卡曾长期把**写死的灰底首字母**当头像：它压根不接 `avatar`，
+     * 于是本地缓存与 `avatar_url` 都在，设置页也只有一个字母，更谈不上圆形裁切。
+     * 首字母只是 `theme/Avatar` 内部「图还没到」的兜底层，不是账户卡的实现。
+     */
+    @Test
+    fun `账户行用统一头像组件渲染真实头像`() {
+        val row = source(rowComponentsPath)
+        val block = row.substring(
+            row.indexOf("fun AccountRow("),
+            row.indexOf("// ───────────────────────── 表单：输入"),
+        )
+        assertTrue("AccountRow 必须接收头像地址参数", block.contains("avatar: String?"))
+        assertTrue(
+            "AccountRow 必须用统一 Avatar 组件（本地缓存优先 + 圆形裁切 + 首字母兜底）",
+            block.contains("Avatar("),
+        )
+        assertFalse(
+            "AccountRow 里又写死了首字母占位：即使有头像也永远不显示",
+            block.contains("uppercase()"),
+        )
+    }
+
+    @Test
+    fun `设置页把当前账号头像传给账户行`() {
+        assertTrue(
+            "设置页必须把 account.avatarUrl 传给 AccountRow，否则账户卡只剩字母占位（圈选处曾如此）",
+            settingsRegion().contains("avatar = account?.avatarUrl"),
+        )
+    }
 }

@@ -47,6 +47,17 @@ data class Account(
 ) {
     /** 会话里的 access token（供 API 调用）。 */
     val token: String get() = AccountStore.accessTokenOf(session)
+
+    /**
+     * **实际用于渲染**的头像地址：快照优先，缺失时回落会话里的 `user.avatar_url`。
+     *
+     * [avatar] 是登录时抓下的快照，但它**不一定存在** —— 老版本单会话迁移成的账号
+     * （见 `migrateIfNeeded`）没有这个字段，早期 PAT 登录也可能没写。会话里的
+     * `user.avatar_url` 通常还在，所以这里必须兜一层：否则设置页账户卡、启动预热
+     * 都拿不到地址，用户明明有头像却永远只看到首字母。
+     */
+    val avatarUrl: String?
+        get() = avatar ?: AccountStore.avatarUrlOfSession(session)
 }
 
 /**
@@ -226,6 +237,16 @@ object AccountStore {
         val root = JSONObject(session)
         root.optJSONObject("user")?.optString("login")?.takeIf { it.isNotBlank() }
             ?: root.optString("login").takeIf { it.isNotBlank() }
+    }.getOrNull()
+
+    /**
+     * 从会话 JSON 里取头像地址（`user.avatar_url`）。
+     *
+     * 账号记录里的 `avatar` 快照缺失时由 [Account.avatarUrl] 兜底 —— 老版本迁移的账号
+     * 只有会话，没有快照；只要会话里有 `user`，头像就还能渲染出来。
+     */
+    fun avatarUrlOfSession(session: String): String? = runCatching {
+        JSONObject(session).optJSONObject("user")?.optString("avatar_url")?.takeIf { it.isNotBlank() }
     }.getOrNull()
 
     /**
