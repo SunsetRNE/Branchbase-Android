@@ -65,10 +65,13 @@ object LogManager {
      * （「进入设置页」「切换到「仓库」」…），所以慢帧记下来时带上它，就能直接看出
      * **是哪次导航引起的**，而不用另外维护一份「当前页面」状态（那种状态一定会和实际路由走散）。
      *
+     * [excludeTag] 用来把**慢帧自己打的日志**排掉：它也是 UI 类日志，不排掉的话下一条慢帧
+     * 会把上一条慢帧的正文当成「页面」，越套越深（真机日志里出现过五层套娃）。
+     *
      * 表头 = 最新（`addFirst`），所以正常情况下第一个元素就命中。
      */
-    fun lastUiMessage(): String? = synchronized(buffer) {
-        buffer.firstOrNull { it.category == LogCategory.UI_RENDER }?.message
+    fun lastUiMessage(excludeTag: String? = null): String? = synchronized(buffer) {
+        buffer.firstOrNull { it.category == LogCategory.UI_RENDER && it.tag != excludeTag }?.message
     }
 
     fun clear() = synchronized(buffer) { buffer.clear() }

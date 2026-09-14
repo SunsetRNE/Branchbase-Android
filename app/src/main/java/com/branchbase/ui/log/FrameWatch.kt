@@ -46,6 +46,17 @@ import java.util.Locale
  */
 object FrameWatch {
 
+    /**
+     * 慢帧日志自己的 tag。
+     *
+     * 它同时是 [LogManager.lastUiMessage] 的排除标记 —— 慢帧日志也是 UI 类日志，
+     * 不排除的话下一条慢帧会把上一条的正文当成「页面」，套娃到看不清（真机日志出现过五层）。
+     */
+    internal const val TAG = "帧"
+
+    /** 页面名最长保留多少字符：套娃 / 超长事件名都不该把一行日志撑成一小段散文。 */
+    private const val PAGE_MAX = 60
+
     /** 一帧的预算（ms）：超过就是丢了 vsync（60Hz 的经典阈值）。 */
     private const val BUDGET_MS = 16.0
 
@@ -119,20 +130,20 @@ object FrameWatch {
             slowCount++
             if (total > worstMs) {
                 worstMs = total
-                worstPage = LogManager.lastUiMessage()
+                worstPage = LogManager.lastUiMessage(excludeTag = TAG)
             }
         }
 
         val now = System.currentTimeMillis()
         if (total >= SLOW_MS && now - lastLoggedAt >= MIN_GAP_MS) {
             lastLoggedAt = now
-            Logger.ui(formatSlowFrame(parts, dropped, LogManager.lastUiMessage()), "帧")
+            Logger.ui(formatSlowFrame(parts, dropped, LogManager.lastUiMessage(excludeTag = TAG)), TAG)
         }
         if (now - windowStart >= SUMMARY_MS) {
             if (slowCount > 0) {
                 Logger.ui(
                     formatSummary(now - windowStart, worstMs, worstPage, slowCount, overBudget, frames),
-                    "帧",
+                    TAG,
                 )
             }
             windowStart = now
@@ -164,7 +175,7 @@ object FrameWatch {
             if (i == big) sb.append('*')
         }
         sb.append("）")
-        if (page != null) sb.append(" · 页面「").append(page).append("」")
+        if (!page.isNullOrBlank()) sb.append(" · 页面「").append(page.take(PAGE_MAX)).append("」")
         if (dropped > 0) sb.append(" · 漏采 ").append(dropped)
         return sb.toString()
     }

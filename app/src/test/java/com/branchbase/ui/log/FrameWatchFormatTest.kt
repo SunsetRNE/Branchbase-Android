@@ -72,4 +72,25 @@ class FrameWatchFormatTest {
         assertEquals(4, FrameWatch.P_DRAW)
         assertEquals(8, FrameWatch.P_TOTAL)
     }
+
+    /**
+     * 真机上踩过：慢帧日志本身也是「UI 类」日志，于是下一条慢帧把上一条的正文当成了「页面」，
+     * 日志里出现「页面「慢帧 …页面「慢帧 …」」」的五层套娃。
+     */
+    @Test
+    fun `页面归属跳过慢帧自己的日志`() {
+        LogManager.clear()
+        LogManager.log(LogCategory.UI_RENDER, LogLevel.INFO, "Compose", "进入设置页")
+        LogManager.log(LogCategory.UI_RENDER, LogLevel.INFO, FrameWatch.TAG, "慢帧 54.7ms（…）")
+
+        assertEquals("进入设置页", LogManager.lastUiMessage(excludeTag = FrameWatch.TAG))
+        assertEquals("慢帧 54.7ms（…）", LogManager.lastUiMessage())
+    }
+
+    @Test
+    fun `超长页面名会被截断`() {
+        val line = FrameWatch.formatSlowFrame(waitHeavy(), dropped = 0, page = "慢".repeat(200))
+        assertTrue("只保留前 60 个字符：$line", line.contains("页面「" + "慢".repeat(60) + "」"))
+        assertFalse("不该原样塞进去：$line", line.contains("慢".repeat(61)))
+    }
 }
