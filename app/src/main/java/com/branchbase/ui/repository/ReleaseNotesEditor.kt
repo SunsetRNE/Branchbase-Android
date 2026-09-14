@@ -54,7 +54,7 @@ import com.branchbase.ui.theme.Primer
  *    这里用 [TextLayoutResult] 逐行量（`getLineForOffset` → `getLineTop`），
  *    等价于 sora 在 `BranchbaseCodeEditor` 里自己算的那套几何；**不要**按 `\n` 数了就当一行高。
  * 2. **标记列定宽**（[MARKER_W]）：`+` 出现/消失时数字轴不动 —— 与消息卡片「行首恒为 32dp 识别槽」
- *    是同一个约束（`README.md:804-821`）。
+ *    是同一个约束（`docs/specs/screens-design.md` §3）。
  * 3. **当前行底色不覆盖行号槽**：底色画在正文自己的 `drawBehind` 里（正文是 Row 的第二个子项），
  *    编辑器里也是槽底色后绘、盖住整行高亮（`EditorRenderer.java:595`）。
  *

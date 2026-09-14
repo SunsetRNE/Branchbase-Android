@@ -50,7 +50,7 @@ Branchbase/
 ├── docs/                # 设计文档（入库）：README 收纳规则 + specs/ 重点文档（见 /docs/README.md）
 ├── tools/               # 环境与构建脚本（tools/env、tools/build）
 ├── .github/workflows/   # CI/CD（Beta / Release）
-├── version.properties   # 工程版本号配置（手动维护）
+├── version.properties   # 工程版本号配置（手动维护；逐版变更说明见 docs/specs/VERSION-NOTES.md）
 └── setup_android_env.sh # ARM64 AAPT2 替换脚本
 ```
 
@@ -63,6 +63,24 @@ Branchbase/
 >
 > 由此，**代码注释可以放心引用 `docs/specs/` 下的文档**（含 `§` 章节号，改文档要回头改注释）；
 > 引用 `design/` 下的草图文件则要意识到「那份文件不在版本库里」。
+
+## 📚 文档导航
+
+结论类文档全部入库在 `docs/`（原型草稿留在 `/design/`，不入库）——**该往哪放、什么该入库、
+什么永远不入库，先读 [`docs/README.md`](docs/README.md)**。本文件只留「门面 + 功能概览 + 指向」，
+各专题的**完整设计记录**在下面这些文档里（正文已迁出，这里只留结论摘要）：
+
+| 文档 | 一句话 |
+|---|---|
+| [`docs/specs/modules-design.md`](docs/specs/modules-design.md) | **功能模块族**：沉浸式翻译 / 内建下载 / 图片查看器 / 代码编辑器 / 作业日志与运行轮询 |
+| [`docs/specs/ui-design.md`](docs/specs/ui-design.md) | **界面规格**：配色与弹层（单一真源）/ 深色主题 / 动效（页面级 + 元素级） |
+| [`docs/specs/screens-design.md`](docs/specs/screens-design.md) | **页面重绘**：运行详情卡片流 / 发布（三档性质 + 三个页面）/ 消息卡片流与多选 |
+| [`docs/specs/settings-design.md`](docs/specs/settings-design.md) | **设置页设计规范**：两级 IA / 6 种行型 / 控件选型 / 用语表 / 危险操作 |
+| [`docs/specs/NAVIGATION-NOTES.md`](docs/specs/NAVIGATION-NOTES.md) | 返回键与导航的两条硬规则（顶层双击退出、页面内逐层消费） |
+| [`docs/specs/html-parser-design.md`](docs/specs/html-parser-design.md) | 正文链接如何归一化成跳转目标：§3 规则表、§6 已知边界 |
+| [`docs/specs/BUILD-NOTES.md`](docs/specs/BUILD-NOTES.md) | AGP 9.0 的 `VariantOutputImpl` 坑 + 版本号体系 + JNI 签名与 locale |
+| [`docs/specs/VERSION-NOTES.md`](docs/specs/VERSION-NOTES.md) | **版本变更记录**：逐版改了什么、为什么这么改 + `versionCode` 流水 + 新增一版的写法约定 |
+| [`docs/specs/prototypes/`](docs/specs/prototypes/) | 原型**说明文档**的入库副本（原型本体在 `/design/`，不入库） |
 
 ## 🚀 功能特性
 
@@ -96,11 +114,11 @@ Branchbase/
   本地仓库模式下球里给的是就地切换提交模式、分支管理 / 对比、本地分支同步与刷新，
   徽标是本地工作树的改动数 / 领先落后
 - **本地仓库**：libgit2 浅 clone / pull（fast-forward）/ commit / push
-- **沉浸式翻译**：正文页原文 + 译文对照（独立 `:translate` 模块，见下文）
+- **沉浸式翻译**：正文页原文 + 译文对照（独立 `:translate` 模块，见 [`docs/specs/modules-design.md`](docs/specs/modules-design.md)）
 - **附件下载（内建下载器）**：发布页附件走应用内下载 —— 前台服务保活、通知栏进度条、
-  断点续传，完成后可直接安装 APK / 用其他应用打开 / 分享（独立 `:downloader` 模块，见下文）
+  断点续传，完成后可直接安装 APK / 用其他应用打开 / 分享（独立 `:downloader` 模块，见 [`docs/specs/modules-design.md`](docs/specs/modules-design.md)）
 - **图片查看器**：正文页点图放大 —— 双指缩放 / 双击 / 拖动 / 下拉关闭
-  （独立 `:imageviewer` 模块，见下文）
+  （独立 `:imageviewer` 模块，见 [`docs/specs/modules-design.md`](docs/specs/modules-design.md)）
 - **返回键（顶层双击退出，页面内逐层消费）**：已登录时主界面顶层按返回**不离开主界面**，而是提示
   「再按一次返回退出应用」，2 秒内再按一次才退出（保留防误触，又不会把已登录用户丢回登录页）；
   未登录的欢迎页按返回直接退出；子页 / 详情 / 多选态 / 页面内的决策页与编辑态**逐层关闭自己**，
@@ -112,496 +130,61 @@ Branchbase/
   构建校验（发布版本 / 签名校验 / 远程校验 + 一行结论说明，五态文案由 `verifyCopy` 纯函数产出），
   末尾是项目主页与开发交流 QQ 群入口
 
-## 🌐 沉浸式翻译（模块化实现）
-
-在**正文页**（自述文件 README、Issue / PR 主帖、发布说明 —— 即 WebView 渲染的那些页面）把每个段落
-翻成目标语言、插在原文下方，形成「原文 + 译文」对照。
-
-**开启入口只有一个**：设置 → 沉浸式翻译 →「自动翻译正文」（总开关），开了之后正文页会自动开始翻译，
-并在屏幕右下角（底部导航条之上）出现一枚**可移动悬浮球** —— 这是「翻译模式」下的唯一控件。
-**翻译关掉（面板里的「本页翻译」开关）球立刻收起**，屏幕上不留任何东西。
-整页可见文本 ≤ 5000 字符时一次翻完，更长则按视口滚动逐段翻译。
-
-设计对齐网页版[沉浸式翻译](https://github.com/immersive-translate/immersive-translate)
-（可读源码的开源旧版：[old-immersive-translate](https://github.com/immersive-translate/old-immersive-translate)）：
-沿用「独立译文容器 + 视口优先 + 持久缓存 + 请求限流 + 占位符保护」的思路，落成 Android 侧的分层实现。
-
-### 悬浮球与翻译工具菜单（原生 Compose 覆盖层）
-
-| 交互 | 行为 |
-|------|------|
-| 位置 | 窗口右下角、底部导航条之上；**面板展开时用满屏幕高度**（内容超出才在面板内部滚动） |
-| 出现条件 | 只在**翻译模式**下出现：关掉本页翻译（面板里的开关）球立刻收起；重新开启走设置里的「自动翻译正文」 |
-| 单击悬浮球 | 悬浮球让位，展开工具菜单（球与面板**不会同时出现**） |
-| × / 点面板外任意位置 | 收起面板、变回悬浮球；覆盖全屏的透明遮罩同时挡住正文，不会顺手点开链接 |
-| 拖动悬浮球 | 跟着手指走，钳制在窗口内；偏移记在会话里（离开正文页再回来仍是原位） |
-| 菜单 → 数据 | 已译 / 候选段数 + 进度条、候选字符数、翻译服务（MyMemory / DeepSeek）、目标语言与样式、实时状态 |
-| 菜单 → 快捷设置 | **本页翻译开关（悬浮球的存在与否由它决定）**、显示方式（对照 / 仅译文）、译文样式（卡片 / 下划线 / 淡灰）、目标语言（中 / 英）、自动翻译正文、本地缓存、保护代码与链接 |
-| 菜单 → 操作 | 重试（失败时出现）、翻译当前视口、翻译全文、清空本页译文、重置悬浮球位置 |
-
-**界面为什么在原生层**（`app/ui/translate/TranslateBubble.kt`）：正文 WebView 的高度等于整篇内容高度
-（滚动由外层原生列表负责），页面里的 `position: fixed` 钉的是**整篇文章**的右下角，绝对定位又会被
-WebView 的边界裁掉 —— 结果是「正文比屏幕短时，面板永远长不过正文，只能一直往下滑」。
-搬到原生 Compose 层后，位置锚定**窗口**、面板高度由窗口决定，正文长短与滚动都不再影响它；
-代价是页面要把状态推上来（`BBTranslate.report` → `TranslatePageSnapshot`），并接受原生下发的命令
-（`window.__bbIT.command` → `TranslatePageCommands`）。
-
-**快捷设置是「真设置」**：面板本身就是原生界面，改动直接落 SharedPreferences（不再需要
-「页面 → 设置」的白名单写入口），因此与「设置 → 沉浸式翻译」永远是同一份配置。
-页面脚本因此**没有任何写设置的通道**，凭据只走 JNI（有单测钉住）。
-
-**总开关只有一个**（设置里的「自动翻译正文」）：
-
-- 进入正文页时是否自动开始翻译，**只看这一个开关**；
-- 页内开关（面板里的「本页翻译」）只作用于当前页面，**不写 localStorage** ——
-  一旦持久化，「设置里关掉」之后上次留下的标记会把翻译重新拉起来，
-  表现为「设置里关了，仓库页的悬浮球还在」（用户反馈修掉，`TranslateBootScriptTest` 钉住）；
-- 面板里的总开关改动会**立刻**下发到当前页（开 → 开始翻、关 → 本页翻译与悬浮球一起收起）。
-
-
-### 译文怎么「拼」进正文（结构兼容性）
-
-译文插入按宿主结构分两种，**不能一刀切**：
-
-| 宿主 | 插法 | 为什么 |
-|------|------|--------|
-| 段落 / 标题 / 引用块 / 定义列表 | 插成原文的**兄弟节点** | 原文一个字不动，删掉容器即完全还原（幂等） |
-| **列表项 `<li>`**、**表格单元格 `<td>/<th>`** | 插成元素的**子节点** | `<ul>/<ol>` 里只允许 `<li>`、`<tr>` 里只允许 `<td>/<th>`；插兄弟节点是**非法 HTML**，浏览器按匿名内容处理 → 列表缩进/编号乱、表格被撑开列错位 |
-
-内部插入时原文会被包进 `<span class="bb-tr-src" data-bb-wrap>`：这样「仅译文」模式仍然只藏原文
-（直接藏整个 `<td>` 会让表格塌一列），「清空本页译文」再把包裹层拆掉还原。表格表头 `<th>` 也在
-候选里（表头是正文）。译文块的排版属性（字重 / 斜体 / 对齐 / 行高）全部显式声明、不继承宿主
-——落在 `<th>`（粗体）或单元格（可能居中）里不会「换个结构就变样」。下划线样式用
-`text-decoration`（逐行下划线）而不是 `border-bottom`（整块下面一条线，换行后像分隔线）。
-
-### 模块划分（`:translate`）
-
-依赖方向单向：`:app → :translate`，模块内不引用任何 App 类型；翻译**后端由 App 注入**
-（`RustTranslateEngine` → `core/src/translate.rs`，默认 MyMemory 匿名接口）。
-
-| 文件 | 职责 |
-|------|------|
-| `TranslateLanguages.kt` | 语言模型（中英两向）+ 页面判定参数 `PageRules`（含注入 JS 的 JSON） |
-| `TranslateProvider.kt` | 可选后端：MyMemory（免费）/ DeepSeek（自带 API Key，OpenAI 兼容） |
-| `TranslateTextPolicy.kt` | 「这一段值不值得翻」的权威判定（纯函数，可单测） |
-| `TextSegmenter.kt` | 长文本分片：段落 → 句末 → 空格 → 硬切（后端 500 字符硬上限） |
-| `PlaceholderGuard.kt` | 占位符保护：URL / `@提及` / `#编号` / 邮箱 / 模板变量 / 提交 SHA |
-| `TranslateCache.kt` | 进程内 LRU + 磁盘追加日志缓存（跨进程复用） |
-| `TranslateEngine.kt` | 后端接口 + 失败分类（`QUOTA` / `NETWORK` / `UNSUPPORTED` / `UNKNOWN`） |
-| `TranslateScheduler.kt` | 全局串行闸门 + 指数退避重试 + 两级熔断 |
-| `Translator.kt` | 门面：判定 → 缓存 → 保护 → 分片 → 调度 → 还原 → 回写缓存 |
-| `TranslateConfig.kt` | 用户设置与读写（自动翻译 / 目标语言 / 显示方式 / 样式 / 本地缓存 / 保护） |
-| `TranslatePageProtocol.kt` | 页面 ↔ 原生的协议：状态快照 `TranslatePageSnapshot` + 命令 `TranslatePageCommands` |
-| `TranslatePage.kt` | 页面资产装载：`assets/translate/*` 的 CSS 与三个脚本按序拼接 |
-| `TranslateBridge.kt` | WebView JS 桥（`request` / `retry` / `state` / `report`，异步回调 + 状态上报） |
-| `TranslateRuntime.kt` | 装配点：`Application.onCreate` 里 `install(this, RustTranslateEngine())` |
-
-页面脚本按职责拆分（`translate/src/main/assets/translate/`）：
-`01-core.js`（配置 / 状态机 / 批量队列 / 状态上报）、
-`02-dom.js`（段落收集 / 跳过 / 插入 / 视口观察 / 候选统计与清空）、
-`03-boot.js`（启动与命令入口：开关、显示方式/样式/目标语言、滚动兜底）、
-`translate.css`（译文样式与显示模式）。
-
-界面侧：设置页（设置 → 沉浸式翻译）负责完整设置与**总开关**；悬浮球与工具面板是 `:app` 的原生
-Compose 覆盖层（`ui/translate/TranslateBubble.kt`，在 `MainActivity` 根部渲染），正文页通过
-`LocalTranslateBubbleHost` 绑定会话、上报状态并接收命令；翻译本身的判定/缓存/调度仍全在 Kotlin。
-控件只在**正文页绑着且翻译开着**时出现 —— 关掉翻译就整层收起。
-
-### 翻译服务：可以自带 DeepSeek API Key
-
-默认用 **MyMemory**（公开匿名接口，零配置，额度约 5000 词/天，本质是句子库匹配）。
-想要更好的长句 / 术语一致性时，在**设置 → 沉浸式翻译 → 翻译服务**里切到 **DeepSeek** 并填入自己的 Key：
-
-- 走 OpenAI 兼容的 `POST /chat/completions`（`Authorization: Bearer <key>`），
-  **模型名与接入地址都可改**——官方模型名会随版本调整，接口兼容又意味着可以接中转 / 自建网关；
-- 请求体只带 `model` / `messages` / `stream:false`：**不传 temperature**，
-  官方对「翻译推荐温度」的说法变过，与其钉死一个可能被弃用的参数，不如用服务端默认；
-- 系统提示词里唯一承担职责的一条是「`⟦n⟧` 占位符必须原样保留」（配合下面的占位符保护），
-  另外要求「只输出译文、不加引号/前缀」，Rust 侧还会兜底清理模型爱加的外壳（`译文：`、包裹引号）；
-- Key 只存在 App 私有 SharedPreferences、**绝不注入网页**（有单测钉住这条边界），设置页里可以
-  「保存并测试连接」，失败原因会区分「Key 无效 / 余额不足 / 网络不可达」；
-- 实现落在 `core/src/translate/`（`mod.rs` 选后端 + 2 个 provider），Kotlin 侧只是换一个后端选项，
-  分片、缓存、串行、熔断全部复用同一套。
-
-### 关键设计决策
-
-1. **译文是原文的兄弟节点，原文一个字都不改** —— 网页版旧实现把译文写回原文本节点、再靠隐藏副本
-   实现双语，导致「切回原文 / 切换对照」都依赖额外状态并互相打架；独立容器天然幂等（有容器=已翻译）。
-2. **判定规则只有一个真源** —— 阈值与跳过正则定义在 Kotlin 的 `PageRules`，随设置注入
-   `window.__bbTranslate.rules`，JS 只使用不定义；原生侧仍做权威判定，防止脚本版本漂移。
-3. **占位符保护** —— 待译文本里的 URL / `@提及` / `#编号` / 提交 SHA 等先换成 `⟦n⟧`，
-   译后还原；任一占位符丢失即判失败，并**不加保护地重翻一次**（对齐网页版「还原失败就重译该段」）。
-4. **三种熔断** —— 额度用尽（余额/限流）与 API Key 无效都立刻停发请求（继续发只是浪费额度、
-   或被 401 刷屏），二者状态分开，页面分别提示「稍后再试」与「去设置检查 Key」；
-   连续 3 次其它失败也暂停。状态回推页面，按钮变成「可重试」，而不是「点了没反应」。
-5. **缓存两层** —— 内存 LRU（512 条）+ 磁盘追加日志（2000 条，`filesDir/translate/cache.tsv`），
-   键含源/目标语言；磁盘坏行跳过而不是让缓存整体失效。
-6. **短页一次翻完、长页视口优先** —— 候选文本 ≤ 5000 字符直接全翻；超过则按 `IntersectionObserver`
-   滚动逐段，避免一次几百个请求烧光额度、卡住首屏。
-7. **译文样式只改一个根属性** —— `body[data-bb-style]`（卡片 / 下划线 / 淡灰），切换不重翻、不重建 WebView。
-8. **JS 只做 DOM** —— 网络、缓存、串行与重试全在 Kotlin，桥上一次只传一批（≤3 段）文本，
-   避免把整页内容或配置在 JS ↔ Native 之间来回搬。[#3262](https://github.com/immersive-translate/immersive-translate/issues/3262)
-   的 OOM 正是「大对象过桥」造成的。
-9. **悬浮控件必须是原生 Compose** —— 试过两版页面内实现都不成立：`position: fixed` 钉的是
-   **整篇文章**的右下角（长 README 里球会跑到文末），改成「原生推可见带 + 页面绝对定位」之后，
-   可见带只能取「正文框 ∩ 屏幕」，于是**正文比屏幕短时面板永远长不过正文**、只能一直往下滑。
-   把球与面板搬到窗口层（`MainActivity` 根部的覆盖层）是唯一能让面板用满屏幕高度的做法。
-10. **状态单向流** —— 页面只上报状态快照（`report`）、只接受命令（`command`），**没有写设置的通道**；
-    设置由原生的面板/设置页直接落盘。少一条信任通道，凭据更安全，也不会出现双真源。
-11. **球与面板互斥** —— 展开面板时球隐藏、收起时球回来（「点球 = 变成菜单」）；
-    点面板之外的那一下被全屏遮罩吃掉，避免收起面板的同时误开正文里的链接。
-12. **拼接按结构分两种，不用一套规则硬套** —— 普通块插兄弟节点（幂等、可完全还原），
-    列表项与表格单元格插子节点（兄弟节点在那儿是非法 HTML，会破坏列表/表格排版，见上文）；
-    统计与判定用 `sourceText()` 排除已插入的译文，否则候选数会虚高、同一段还会被重复翻译。
-13. **开关搬进面板、页面只在翻译模式下有控件** —— 悬浮球不再是「开关」，只是面板入口；
-    本页翻译的开关在面板内部，关掉即球与面板一起收起。开启入口收进设置页的总开关，
-    代价是「关掉后不能在页面上重新打开」（这是刻意的：不翻译时屏幕不留控件），
-    设置页的说明里写明了这条路径。
-
-### 已知边界
-
-- 生效范围是 **WebView 渲染的正文页**；评论区由 Compose 原生渲染（`MarkdownBody`），暂不在范围内；
-- 后端支持 MyMemory 与「任意 OpenAI 兼容服务」（DeepSeek 官方 / 中转 / 自建）两种态；
-  再加一家（DeepL 等）只需在 `core/src/translate/` 加一个 provider + 设置页加一项；
-- 术语库 / 自定义提示词 / 悬停看原文等网页版高级能力未实现
-  （`TranslateEngine` 的 options JSON 与提示词构建是预留的落点，
-  `translate/build.gradle.kts` 里写了移除步骤）。
-
-参考：[主仓库](https://github.com/immersive-translate/immersive-translate) ·
-[开源旧版源码](https://github.com/immersive-translate/old-immersive-translate) ·
-[官网文档](https://immersivetranslate.com/docs/usage/)
-
-## 📥 内建下载（模块化实现）
-
-发布页附件（APK / 压缩包 / 任意产物）走**应用内下载器**：前台服务保活、通知栏进度条、
-断点续传、完成后直接拉起系统安装器或交给其他应用打开。实现全在 `:downloader` 模块里，
-`:app` 只注入两样只有它才知道的东西（凭据与小图标）：
-
-```kotlin
-DownloaderRuntime.install(
-    this,
-    DownloaderConfig(smallIconRes = R.drawable.ic_stat_download, auth = AuthProvider { url -> ... }),
-)
-```
-
-### 模块划分（`:downloader`）
-
-依赖方向单向：`:app → :downloader`，模块内不引用任何 App 类型。
-
-| 文件 | 职责 |
-|------|------|
-| `DownloadModels.kt` | `DownloadRequest` / `DownloadStatus` / `DownloadTask`（含进度派生，纯数据） |
-| `DownloadStore.kt` | 进程内任务表（`StateFlow<List<DownloadTask>>`）+ 取消信号表 |
-| `DownloadEngine.kt` | `AuthProvider` 接口 + `HttpURLConnection` 引擎（手动跟随重定向 / Range 续传 / 进度节流） |
-| `DownloadService.kt` | `dataSync` 前台服务：串行执行队列、刷新进度通知、收尾（含 Android 15 超时兜底） |
-| `DownloadNotifications.kt` | 通知渠道 + 一条常驻进度通知 + 每条任务的完成/失败通知（进度通知上叠三层：标准进度 / Hook 载荷 / 厂商「上岛」） |
-| `DownloadNotificationState.kt` | 一帧通知态快照（百分比 / 不确定态 / 字节文案 / 状态键，纯数据可单测）—— 通知栏与各厂商岛共用同一份语义 |
-| `DownloadNotificationHook.kt` | 给第三方 Hook 读的稳定 extras（`com.branchbase.download.*`，键名即对外契约） |
-| `DownloadIslandExtension.kt` | 「上岛」扩展点接口 + 注册表（派发全程 `runCatching`，厂商 SDK 崩了也不能影响下载） |
-| `VendorIslandExtensions.kt` | 三家内置实现：小米超级岛（extras）、谷歌实时更新（反射调 androidx.core 1.17+ API）、OPPO（基线形态 + 官方 SDK 注入点） |
-| `NotificationPermission.kt` | 系统通知权限与总开关状态、申请与跳设置（**通知板块也复用它**） |
-| `DownloadPaths.kt` | 落盘目录、文件名净化、`.part` 原子改名、sha256 校验（纯函数可单测） |
-| `DownloadActions.kt` | 安装 APK / 打开 / 分享 / 在文件管理器里显示（FileProvider + 逐级兜底） |
-| `DownloaderRuntime.kt` | 装配点与门面：`install` / `enqueue` / `cancel` / `retry` / `tasks` / `registerIslandExtension` |
-
-### 关键设计决策
-
-1. **通知与下载解耦** —— `POST_NOTIFICATIONS` 被拒时前台服务照常运行、下载照常完成
-   （只是没有通知）。因此权限申请不进下载主链路：它只在**通知板块**里提示
-   （消息页顶部横幅 + 设置 → 通知里的状态行），被拒也不会让下载失败。
-2. **凭据按「每一跳」重新决策** —— `AuthProvider` 拿到的是**当前这一跳**的 URL，
-   于是「GitHub 附件 302 到对象存储」时 token 不会跟着过去；策略放在 provider 而不是
-   引擎里，就不会漏掉任何一条重定向链路。
-3. **`Accept-Encoding: identity`** —— 默认的透明 gzip 会让 `Content-Length`（压缩后长度）
-   与实际落盘字节数对不上：进度条冲到 100% 再回退，Range 偏移也全错。
-4. **先 `.part` 再改名** —— 失败/取消留下的是可续传的临时文件，最终文件名要么完整要么不存在；
-   文件名来自网络，落盘前净化（去路径分隔符 / 控制字符 / `..`）。
-5. **串行下载** —— 同一条链路上并发多个大文件只会互相抢带宽，进度条也失去意义。
-6. **状态只有一个真源** —— 应用内 UI 与系统通知都读 `DownloaderRuntime.tasks`，
-   不存在两套进度；退出页面再回来、应用退到后台，进度都还在。
-7. **进度通知本身是可扩展的** —— 同一条通知上按顺序叠三层：标准进度（`setProgress` + 文案）、
-   Hook 载荷（`com.branchbase.download.*` 稳定 extras，给第三方模块读）、厂商「上岛」。
-   厂商能力只作用于**这一条**通知，不另发一条（否则通知栏会出现两条重复的下载）。
-   装配见 `DownloaderConfig.islandExtensions` / `DownloaderRuntime.registerIslandExtension`。
-
-### 灵动岛 / 实时活动（`上岛`）
-
-下载进度会顺带尝试投到厂商的「灵动岛 / 实时活动」，三家都**可能因为没被加上白名单而不显示**，
-这时通知退回普通形态（不是 bug，也不影响下载）：
-
-| 厂商 | 形态 | 本项目怎么接 | 前置条件 |
-|------|------|-------------|---------|
-| 谷歌 | Android 16 Live Updates（promoted ongoing） | `NotificationCompat.ProgressStyle` + `setRequestPromotedOngoing`（**反射**调用，依赖是 1.10.1 时静默跳过） | `POST_PROMOTED_NOTIFICATIONS`（已声明）+ 系统 16 |
-| 小米 | 超级岛 / 焦点通知 | 通知 extras 里挂 `miui.focus.param`（JSON，`XiaomiIslandPayload`） | 焦点通知权限（`notification_focus_protocol ≥ 2`） |
-| OPPO | ColorOS 实况通知（流体云） | 把通知规范成常驻 + 进度 + 不重复提醒；官方 SDK 走 `OppoLiveAlertExtension(attacher = …)` 注入 | 开放平台白名单 / 官方 SDK |
-
-没白名单还想上岛，只能靠第三方模块 Hook 通知 —— 所以进度通知上固定带一份
-`com.branchbase.download.*` 的 extras（任务 id / 标题 / 状态 / 已下载 / 总量 / 百分比 / 是否常驻），
-键名一经发布不再改（见 `DownloadNotificationHook`）。
-
-### 已知边界
-
-- 任务表在**进程内存**里：进程被杀就重来（没有「重启后继续」的语义，也没有落盘恢复）；
-- 前台服务类型是 `dataSync`：Android 15 起有累计时长上限，超时回调里落成「可重试的失败态」；
-- 「打开所在文件夹」没有统一契约，只能尽力而为（DocumentsUI 根 URI → 常见文件管理器包名探测）；
-  失败时由调用方降级成「分享」（`ACTION_SEND` 是人人都有实现的那条路）；
-- 需要用户能在系统文件管理器里直接看到文件时另走「导出」（MediaStore / SAF），
-  下载主链路不申请存储权限；
-- 失败文案**只出中文**：网络栈的原始异常（`Unable to resolve host …`）不进通知栏，
-  统一在 `DownloadErrors` 里归到「网络 / 超时 / 证书 / 权限 / 服务端」几类结论上。
-
-## 🔍 图片查看器（模块化实现）
-
-正文页（README / issue 主帖）里的图片点一下就能放大看：双指缩放 / 双击放大 / 拖动平移 /
-下拉关闭，全屏 `Dialog` 弹出，不进导航栈。实现收在 `:imageviewer`：
-
-| 文件 | 职责 |
-|------|------|
-| `ImageViewerDialog.kt` | 全屏 Dialog：手势、加载/失败态、「用浏览器打开」、顶栏 |
-| `ImageViewerMath.kt` | 纯计算：缩放钳制（1×–8×）、双击目标、平移边界、下拉关闭判定（可 JVM 单测） |
-
-两条入口，覆盖两种标记方式：
-
-- **图片没被链接包住** → 注入脚本的点击监听调用 `BBImage.openImage()` 桥（< 240×120 的小图不弹，
-  徽章/图标弹出来只是一张糊图）；
-- **图片被 `<a>` 包住**（README 里点截图最常见）→ 不动链接语义，改由 `shouldOverrideUrlLoading`
-  判断目标是不是图片：是图片（`camo.githubusercontent.com` 无扩展名 / 常见图片后缀）就弹查看器，
-  否则照旧交给浏览器 —— 所以「点徽章去仓库页」仍然正常。
-
-取图凭据沿用与 WebView 拦截同一条策略：**只给 GitHub 自有域名带 Token**；
-camo 是签名地址、第三方图床（shields.io 等）一律不带。
-
-## ⌨️ 代码编辑器（`:editor`）
-
-Sora Editor 的独立封装，对外只有 `BranchbaseCodeEditor` 一个组件（换库 / 移除只动这个模块）。
-
-### 接在哪：文件页的**编辑态**（查看态是页面自绘的只读预览）
-
-上一版这份组件在 App 里**一次都没被调用**（`:editor` 只在关于页留了一行痕迹），
-文件页编辑态仍用 Material 的 `OutlinedTextField`：四周一圈方框、没有行号，
-观感反而比同一页的只读预览还差。现在编辑态走这个组件，外观契约是
-**等宽 + 行号 + 无边框 + 与调用方同一块底色**：
-
-| 观感项 | 约定 | 落点 |
-|--------|------|------|
-| 行号 | 开、右对齐、左侧留白 8dp；**不画行号栏竖线**（竖线等于又加一圈边框） | `BranchbaseCodeEditor.applyEditorAppearance` |
-| 字体 | 正文与行号都用等宽，13sp（比只读预览的 12sp 大一档） | 同上 |
-| 底色 | 调用方把页面的代码表面色传进来（`backgroundColor`），画布与行号栏同色 | `backgroundColor = CodeSyntax.CodeBg.toArgb()` |
-| 明暗 | 传 App 的生效值（三档主题），不用 `isSystemInDarkTheme()` | `darkTheme = LocalIsDarkTheme.current` |
-| 当前代码块高亮 | 关：没有语法分析器时它只会把整片文本糊上一层色；当前行高亮与括号配对保留 | `applyEditorAppearance` |
-
-> `backgroundColor` 的覆盖**不能**塞进 `BranchbaseEditorColorScheme` 的构造参数再在
-> `applyDefault()` 里用 —— 那是父类构造器里的回调，那一刻子类字段还没赋值，读到的是 0 / null
-> （只能构造完成后再 `applySurface()`，所以两者是分开的两步）。
-
-`FileEditorWiringTest` 把这条接线钉在源码上（文件页必须调用组件、正文不得回退成带方框的输入框、
-必须传主题与底色）—— 「模块写了却没人接」编译不报、单测不红，只能这样拦。
-
-### 配色：显式覆盖，且**编辑态与只读预览态共用同一份**
-
-Sora 默认色板的 `TEXT_NORMAL = #FF333333` 且**不随明暗切换** —— 亮色下是深灰不是纯黑，
-深色下背景变深后几乎看不见。所以 `:editor` 不再使用库默认值：
-
-| 约束 | 说明 |
-|------|------|
-| 正文 / 行号 / 选中文字 / 内联提示 / 补全文字 / 诊断提示 / 删除线 / 操作窗图标 | **浅色纯黑 `#000000`、深色纯白 `#FFFFFF`**（`EditorPalette.PureTextIds` 是机器可读清单，单测逐项断言） |
-| 背景 / 当前行 / 选区 / 分隔线 / 滚动条 / 括号配对 / 行号面板 / 操作窗 | 成对给出的主题表面色（浅色白底，深色 `#0D1117`）；这些「没有语法分析器也会被画出来」的 id 由 `EditorPalette.VisibleSurfaceIds` 声明，漏一项单测就红 |
-| 语法令牌（关键字 / 注释 / 字符串 / 运算符 / 函数名） | 保留主题色：注释偏暗是**语法语义**，不是渲染缺陷 |
-
-三条容易踩的坑：
-
-1. **只覆盖一部分 id 等于没修**：漏掉的那些会退回库默认的灰 / 透明，而它们恰恰在
-   「只看不编辑」的**只读预览**态最常见（选中文字默认透明、删除线默认透明、
-   深浅色分隔符前景是半透明黑、诊断提示浅色下是 `#424242`、深色下行号面板文字变深色），
-   编辑态也躲不开（`SCROLL_BAR_TRACK` 默认是一条有色竖带、`LINE_NUMBER_PANEL` 默认全透明、
-   操作窗默认是深灰底配白图标、与本模块「浅色黑字」的契约相反）。
-   所以覆盖项只从 `EditorPalette.assignments()` 来（单一真源），漏一项单测就会红；
-2. **`applyDefault()` 会在父类构造器里被回调**（Sora 的设计），覆写里只能读 `isDark()`，
-   不能碰子类字段（调用方的表面色因此只能在构造完成后 `applySurface()`）；
-3. **`EditorColorScheme(boolean)` 是 `protected`**：直接 `EditorColorScheme()` 得到的永远是
-   「浅色」实例、`isDark()` 会撒谎，所以必须以子类形式继承它。
-
-文字颜色一旦写错，编译不报、运行不崩、单测不测就**只有真机上肉眼能发现** ——
-这就是 `EditorPaletteTest` 存在的原因（配色是纯数据 + 纯映射，可在 JVM 上直接断言）。
-
-## 🧾 作业日志（`:joblogs`）
-
-GitHub Actions 的 job 日志（运行详情页按步骤看、Job 详情页整段看）以前在 `:app` 里
-**写了两遍**：各自的地址、各自的失败判定、各自的分段。现在取数收进 `:joblogs`：
-
-| 文件 | 职责 |
-|------|------|
-| `JobLogStore.kt` | 入口：内存 LRU → 缓存直出 → 回源；**同一 jobId 的并发调用合并成一次下载** |
-| `JobLogParser.kt` | 纯逻辑：剥掉行首 ISO 时间戳、按 `##[group]` 切段（可 JVM 单测） |
-| `JobLogCache.kt` | 缓存**窄接口**（先直出 / 回源两段式），由 `:app` 用 `PageCache` 实现 |
-| `JobLogSource` | 日志来源，「jobId → 日志原文」，由 `:app` 用 `RustBridge` 实现 |
-
-模块只认这两样注入，**不认识** GitHub / Token / RustBridge / Room / PageCache。
-接线全在 `:app` 的 `ui/repository/JobLogWiring.kt` 一个文件里，删模块时连它一起删。
-
-三条设计约束：
-
-- **单飞（single-flight）而不是「多线程」**：日志的可感开销是「下载整份日志 + 逐行切段」，
-  前者是网络等待、后者已经在 `Dispatchers.Default` 上，加线程数不会更快。真正省时间的是
-  同一 jobId 的并发请求只发一次 —— 例如运行详情页与 Job 详情页来回切、或手快点两个步骤。
-  模块不创建线程、也不持有自己的作用域，全部跑在调用方的协程里；
-- **页面之间共用一份 store**：`JobLogStore` 在 `RepositoryScreen` 层建一个，两个详情页共用，
-  于是已切好的分段与在飞请求表都是同一份；`rememberJobLogStore` 放在页面里会让内存缓存
-  随页面销毁而白建；
-- **失败就是 null**：`:app` 把 `RustBridge` 的两种失败（null / `ERROR:` 前缀）折叠成 null，
-  模块不解析任何错误字符串。取不到时**不写缓存**，下次调用会重新发起（可重试）。
-
-`WorkflowLogThemeTest` 钉住两条源码级约束：工作流这条链路上参与渲染的文件都不得出现
-浅色主题的写死取值（日志块用 `CodeSyntax.CodeBg` + `Primer.TextPrimary`），
-且作业日志地址**只允许出现在接线层一处**（扫整个 `ui/` 目录，不是写死几个文件名）。
-
-## 🔄 运行中的工作流：轮询的是**状态**，不是日志
-
-这条约束**必须写进代码注释之外的地方**，否则很容易被「顺手改成边跑边拉日志」：
-
-| 事实 | 依据 |
-|------|------|
-| 逐 job 日志是**纯文本**（不是 zip）：`GET /actions/jobs/{job_id}/logs` 返回 302，`Location:` 是签名 URL、**1 分钟过期** | REST 文档 / OpenAPI：*"a redirect URL to download a plain text file of logs for a workflow job"* |
-| **job 结束前日志 blob 不存在**（404），所以运行中**拉不到**日志 | [community #154834](https://github.com/orgs/community/discussions/154834)（*API No Longer Returns Logs in Real-Time, Only After Job Completion*）、[#75518](https://github.com/orgs/community/discussions/75518) |
-| GitHub **没有**长轮询 / SSE：挂住连接不会等到新内容。网页版能实时滚动，走的是**未公开**的内部 websocket（`pipelines.actions.githubusercontent.com`） | [逆向记录](https://github.com/Hacksore/github-websocket-pipeline-api) |
-
-由此定下三条：
-
-1. **持续获取的对象是 `GET /actions/runs/{id}/jobs`**（几 KB JSON，带每个 job / step 的状态与时间戳）；
-   日志只在**某个 job 的 status 变成 `completed`** 的那一刻抓一次（`newlyCompletedJobIds` 差分决定），
-   之后该 job 永不重抓；
-2. **不在后台轮询**：`WorkManager` 的周期任务有 [15 分钟硬下限](https://android.googlesource.com/platform/frameworks/support/+/androidx-main/work/work-runtime/src/main/java/androidx/work/PeriodicWorkRequest.kt)，
-   要更快就得常驻前台服务（常驻通知是**用户可见的代价**）。而「跑完知道」这件事
-   已经由 GitHub 的服务端 webhook 通知兜住了（`WorkflowRun` 通知可直达 Run 详情），
-   所以只需要**回到前台时强制对齐一次**；
-3. **「还没生成」不是「失败」**：job 没结束时取不到日志是**正常状态**，界面显示
-   「任务运行中，日志将在该任务结束后自动出现」，**不给「重试」按钮**。
-
-策略本身是纯逻辑，在 `ui/repository/RunPollPolicy.kt`（间隔阶梯 5s→15s→30s、
-计费网络只降速不停止、失败指数退避封顶 60s、`shouldPoll` 要求「运行中 + 前台」），
-由 `RunPollPolicyTest` 逐条钉住；取数与切片继续走 `:joblogs`（单飞 + 缓存 + 分段）。
-
-## 🧭 运行详情：卡片流（重绘）
-
-运行详情页从「7 条等权信息行 + 行内展开的任务列表 + 200 行日志小窗」重排成卡片流。
-设计稿与逐条论证在 `design/workflow-redesign/`（原型草稿不入库；**文档已入库**：
-[`docs/specs/prototypes/workflow-redesign.md`](docs/specs/prototypes/workflow-redesign.md)），落地后的结构：
-
-| 区块 | 变化 |
-|------|------|
-| 顶栏 | 补「刷新」（跑成功/跑一半也能手动回源，改前只有失败态有重试）与「更多」（浏览器打开 / 重新运行 / 复制链接） |
-| `RunHeaderCard` | 7 条平铺 `MetaLine` → **三段式**：状态胶囊+耗时 / 提交行（头像·分支·sha·**commit message**）/ 次要行；再加一条**进度条**（仅失败或运行中显示） |
-| 任务 | `JobRow` → `JobCard`：**卡片头只做展开/收起**（改前整行可点、里面又嵌一个可点的「完整日志」）；展开是步骤时间线（含**相对时长条**）；卡片脚显示 **`runner`**（这个字段模型里解析了、单测断言了，改前整个 app 从未显示过） |
-| 过滤 | 标题带计数 `任务 · 3` + 分段控件 `[全部][失败]`，**仅存在失败或运行中**时出现 |
-| 注解 | 按 check-run 名字**归回对应任务卡片**（改前全部沉在页尾，与任务脱钩）；归属不了的进底部「其他注解」 |
-| 产物 | 行尾加**下载**（走 `:downloader`；`archive_download_url` 是这轮才解析的，改前产物只有名字没有入口） |
-| 日志 | 运行详情页**不再内嵌日志小窗**；`JobDetailContent` 升级成 **`JobLogScreen`**：步骤 chips / 搜索命中跳转 / 仅错误·含警告过滤 / 分组折叠 / 复制，用 `LazyColumn` 逐行（改前把整段日志塞进一个 `Text`，几 MB 时整块测量、滚动会卡） |
-
-顺带把五件共享小件（`DetailTopBar` / `DetailSectionTitle` / `DetailLoading` / `DetailErrorRetry` /
-`DetailEmptyText`）从页面私有抽成 `DetailScaffold.kt` —— 它们原本在别的详情页各有一份。
-
-新增的纯逻辑都有单测：`runProgress`（进度分类）、`jobBelongsToAnnotation`（注解归属）、
-`annotationCheckRuns`（带名字的 check-run）、`logLineLevel` / `logHitIndexes`（日志分级与搜索）、
-`isFailedConclusion`、`elapsedSince`（运行中耗时按起点算）。
-
-## 📦 发布（Releases）：三档性质与三个页面重绘
-
-### 先对齐官方语义：什么是「正式发布」
-
-GitHub 的 release 有三种性质，「最新发布（Latest）」只在其中一档里成立。官方原文
-（[REST `POST /repos/{owner}/{repo}/releases`](https://docs.github.com/en/rest/releases/releases#create-a-release)
-的 `make_latest` 字段）：
-
-> Specifies whether this release should be set as the latest release for the repository.
-> **Drafts and prereleases cannot be set as latest.** Defaults to `true` for newly published releases.
-> `legacy` specifies that the latest release should be determined based on the release creation date
-> and higher semantic version.
-
-| 性质 | `draft` | `prerelease` | 能否是 latest |
-|------|---------|--------------|---------------|
-| **正式发布** | false | false | **可以**（新建默认 `make_latest=true`） |
-| 预发布 | false | true | 不可以 |
-| 草稿 | true | — | 不可以 |
-
-两点容易踩的细节：`make_latest` 的取值是**字符串** `"true"` / `"false"` / `"legacy"` 而不是布尔；
-PATCH 的默认值是 `legacy`（= 不动归属），所以编辑标题/正文不应顺手改 latest。
-
-### 列表：入口从「一整行空框」收成标题行右侧的「+」
-
-「新建发布」原本是列表最上面一条**占满整行的描边按钮**——它没有任何信息，却永远压在第一条发布之上，
-进页面第一眼看到的是一个空框。现在它是 `发布 · N` 标题行右侧的 30dp 圆形「+」
-（与 `DetailSectionTitle` 同一套版式，仅 `canPush` 时出现）。
-
-条目本身也重排了：**tag 提到第一眼**（它是唯一稳定标识，`name` 可能为空或与 tag 重复），
-做成等宽胶囊；徽章紧挨着说明性质（`最新发布` / `预发布` / `草稿`）；name 与元信息依次降一级。
-改前 name 在第一行、tag 混在灰色小字里，扫过去分不出哪条是哪个版本。
-
-### 「最新发布」怎么判定
-
-列表接口 `GET /releases` 的**每条记录里不带 latest 标记**，不能拿列表自己算
-（「最新的非草稿非预发布」只是 `make_latest` 缺省时的近似规则，一旦有人显式改过归属就是错的）。
-所以走权威端点 `GET /releases/latest`（`GitHubApi::latest_release_id`），拿不到时才退回上面那条近似规则。
-
-### 编辑页：一屏装下「表单 + 附件 + 更新内容」
-
-- **性质从两个开关改成三段式单选**。改前是「草稿」「预发布」两个可以同时勾上、含义又重叠的开关，
-  而「最新发布」这个概念在 App 里根本没有；现在一屏说清三档各自的可见性与能否占用 Latest；
-- **垂直预算从 ≈694dp 压到 ≈360dp**（逐项见 `docs/specs/prototypes/release-redesign.md`）：
-  标签 / 标题 / 目标分支**并成一行**（标签是等宽 chip、分支是行尾只读 chip）；
-  「设为最新」从一张卡片变成类型行里的小开关，且只在该有意义（正式发布）时出现；
-  分组标题去掉、统计（`附件 · 2 个 · 14.0 MB`、`更新内容 · 12 行 · 348 字`）挪进分组头；
-  分组之间用 1dp 发丝线代替大留白。**没有这一步，附件区根本没有位置**；
-- **更新内容去掉包裹框**，改用编辑器的**行标识槽**：行号（等宽右对齐 / `CodeSyntax.LineNo`）+
-  当前行底色 + **定宽标记列**，正文无框、3 行起步自动增高（改前是固定 200dp 的描边盒子）。
-  槽宽、行号字号、「不画分隔竖线」、当前行底色全部取自仓库既有的行号列与 `BranchbaseCodeEditor`
-  的取舍；「槽宽恒定」这条约束连槽内部也遵守 —— `+` 标记出现/消失时数字轴不动。
-  折行对齐走 `TextLayoutResult`（一条逻辑行折成多行时行号只占第一视觉行），不按 `\n` 数；
-- **「生成说明」不再整段覆盖**：接官方 `POST /releases/generate-notes`，生成的行在行号槽里带 `+`、
-  行底淡绿，底部给 `+ N 行来自生成说明 · [全部保留] [丢弃生成行]` —— 手写的字一行都不会被吞，
-  所以那个「替换现有更新内容？」的确认弹窗也删掉了；
-- **预览**放在底部弹层（正文 → HTML 仍走 Rust 的渲染器），编辑区不挂 WebView；
-- **主操作在顶栏且文字随状态变**：草稿写「存为草稿」、其余写「发布」/「保存」。
-
-### 附件：导入的文件先落盘，再上传
-
-| 环节 | 做法 | 为什么 |
-|------|------|--------|
-| 选择 | `ActivityResultContracts.GetMultipleContents`（SAF） | 零存储权限，与 App 既有基调一致 |
-| 落盘 | `getExternalFilesDir(null)/release-uploads/{owner}/{repo}/{tag}/`，先写 `.part` 再 rename | 选择器给的 `content://` 是**临时凭据**：进程被杀或重启就失效。**不用 cacheDir** —— 系统在低存储时会清它，「导入 → 切出去查个东西 → 回来」就发现文件没了 |
-| 清单 | `filesDir/release-drafts/{owner}-{repo}.json`（表单 + 附件元数据） | 文件大、改动少；清单小、敲字就可能要落盘。分开存，「退出再回来」两边各恢复各的 |
-| 回收 | 发布成功即删 / 未发布保留 7 天（进编辑页时顺手 prune）/ 点「移除」立即删 | 参照仓库里唯一带 TTL 的缓存实现（`readme_images`） |
-| 引用 | `downloads/` 里已有同名文件时只记路径不复制 | 省一次 IO；这类文件不是我们的，「移除」时不删它 |
-
-### 上传：先建 release，再逐个传资产
-
-资产**必须挂在 release 上**，所以「发布」是两步：先 `create_release` / `update_release` 拿到 id，
-再对每个待上传附件调 `upload_release_asset`。拿到 id 后记下来 —— 附件失败重试时不能重新 create
-（同名 tag 会 422 `already_exists`）。有附件失败就不算完成：不清理暂存、不关页面，让用户重试或移除。
-
-> **已知取舍（写在代码注释里）**：上传目前**不是流式**的。reqwest 只开了 `json / rustls-tls / http2`，
-> 流式 body 挂在 `stream` feature 下，而它会连带 `wasm-streams`（离线环境取不到、交叉编译也不需要），
-> 所以实现是 `spawn_blocking` 读进内存再发，并用 256MB 上限兜住（GitHub 本身允许 2GiB，
-> 但移动端一次分配 2GB 必被 OOM 杀掉）。升级成真正的流式只需给 reqwest 开 `stream`、
-> 把 body 换成 `Body::wrap_stream(...)`。另外 Rust 侧是一次阻塞调用、拿不到百分比，
-> 所以附件行用的是不确定进度条。
-
-### 详情页：去掉「一个附件一个框」
-
-附件原本一条一个描边圆角盒，三个附件就是三个盒子叠着，把版面切得很碎。现在整组只用**分隔线**分区，
-描边留给真正需要边界的输入框。头部（tag + 性质徽章 + 名字 + 署名）与附件、更新内容之间用发丝线分段。
-
-### 落到底层
-
-`GitHubApi` 四个方法 + 对应 JNI 导出：`create_release` / `update_release` 新增 `make_latest`
-（草稿与预发布下一个字段都不发，省掉可能 422 的往返）、`latest_release_id`、`generate_release_notes`、
-**`upload_release_asset`**（`POST uploads.github.com/repos/{o}/{r}/releases/{id}/assets` ——
-与 API 不同源所以不复用 `base_url()`；`name` / `label` 走 URL 编码，附件名里空格、括号、中文都常见）。
-
-> **JNI 签名是编译期查不出来的**：`external fun` 与 `Java_*` 只靠名字关联，参数表对不上时
-> Kotlin 编译通过、Rust 编译通过、JVM 单测也永远不会加载那个 `.so`（它是 aarch64-android 的），
-> 直到真机点下按钮才炸 `UnsatisfiedLinkError`。这次正好同时改了两侧，因此新增
-> `JniSignatureTest`：把 83 对声明与实现**逐参数、逐类型**钉在一起
-> （`JString<'local>` ↔ `String`、`jint` ↔ `Int`、`jboolean` ↔ `Boolean` …）。
+## 🧩 功能模块（`:translate` / `:downloader` / `:imageviewer` / `:editor` / `:joblogs`）
+
+自成一体、可整体换掉的能力都收进独立模块，依赖方向一律单向（`:app → :<module>`），
+模块内不引用任何 App 类型 —— App 只注入「只有它才知道的东西」（凭据、小图标、缓存与取数实现）。
+**装配点、关键设计决策与已知边界**见 [`docs/specs/modules-design.md`](docs/specs/modules-design.md)：
+
+- **沉浸式翻译（`:translate`）**：WebView 正文页「原文 + 译文」对照。悬浮球与工具面板是 `:app` 的
+  原生 Compose 覆盖层，页面脚本只做 DOM，判定 / 缓存 / 调度 / 熔断全在 Kotlin，后端由 App 注入
+  （默认 MyMemory，可切自带 Key 的 DeepSeek）。**已知边界**：只覆盖 WebView 渲染的正文页，
+  Compose 原生渲染的评论区不在范围内。
+- **内建下载（`:downloader`）**：发布页附件走应用内下载 —— 前台服务保活、通知栏进度、断点续传，
+  完成后可直接安装 APK / 交给其他应用打开 / 分享；同一条通知上叠三层（标准进度 / Hook extras / 厂商「上岛」）。
+  **已知边界**：任务表在进程内存里，进程被杀即重来。
+- **图片查看器（`:imageviewer`）**：正文页点图放大（缩放 / 拖动 / 下拉关闭），两条入口分别覆盖
+  「图片没被链接包住」与「被 `<a>` 包住」两种标记；取图凭据只给 GitHub 自有域名带。
+- **代码编辑器（`:editor`）**：Sora Editor 的独立封装，只接在文件页**编辑态**；外观契约是
+  等宽 + 行号 + 无边框 + 与调用方同一块底色，配色显式覆盖（编辑态与只读预览共用一份）。
+- **作业日志（`:joblogs`）**：取数单飞合并 + 分组切段 + 窄接口缓存；只认 `JobLogSource` /
+  `JobLogCache` 两样注入，接线集中在 `ui/repository/JobLogWiring.kt` 一处。
+- **运行中的工作流**：轮询的是「状态」不是日志 —— GitHub 在 job 结束前拿不到日志 blob，也没有长轮询，
+  所以只持续拉 `GET /actions/runs/{id}/jobs`，策略收在 `RunPollPolicy.kt`（纯逻辑 + 单测）。
+
+## 🎨 界面规格（配色 / 深色主题 / 动效）
+
+跨页面、每个页面都要遵守的三份规格，完整条文与已知取舍见
+[`docs/specs/ui-design.md`](docs/specs/ui-design.md)：
+
+- **配色与弹层（单一真源）**：所有颜色来自 `ui/theme/Color.kt` 的 `Primer` 色板，不在调用处写死色值；
+  弹层统一「白底 + 1dp `Primer.Border` 描边 + 阴影 + 16dp 圆角」，M3 的容器角色一次性对齐到设计色板
+  （改前弹层读的是带紫调的 Material 基线色）。单行状态位只放短名，且**由值负责省略、不许挤压名称**。
+- **深色主题**：**色板 + 角色**两层架构 —— `Primer.XXX` 的调用点一行不改就跟着主题切换，
+  真正要改的只有「非 Composable 上下文」那 105 处；文字色 ≠ 填充色（WCAG 对比度由 `ThemeContrastTest`
+  钉住），常态图标取纯黑 / 纯白，Compose 管不到的（状态栏、WebView CSS、翻译页面脚本）另行跟随。
+  启动瞬间的一帧浅色、约 30 处「拿填充色当文字」等**已知取舍**也记在文档里。
+- **动效**：两层规格各一处真源 —— 页面级 `ui/navigation/PageTransitions.kt`（层级推进用方向、
+  同级切换用淡入）、元素级 `ui/theme/Motion.kt`（原语表：选中态 / 出现消失 / 气泡 / 按下 / 徽标 / 微光）。
+  真正起作用的三条：进出场曲线不对称、退场淡出早收、切 Tab 存住原位置；元素级一律不用 spring。
+
+## 🖥 页面重绘（运行详情 / 发布 / 消息）
+
+三个页面从「信息平铺」重排成「卡片流」的落地规格见
+[`docs/specs/screens-design.md`](docs/specs/screens-design.md)；原型**草稿**在 `/design/`（不入库），
+同一件事的**说明文档**入库在 [`docs/specs/prototypes/`](docs/specs/prototypes/)：
+
+- **运行详情：卡片流** —— 7 条等权信息行 + 行内展开的任务列表，重排成 `RunHeaderCard` + `JobCard`
+  （步骤时间线 + 相对时长条 + `runner`），注解按 check-run 归回任务卡，产出行尾给下载入口，
+  日志从「整段塞进一个 `Text`」升级成 `JobLogScreen`。逐条论证见
+  [`docs/specs/prototypes/workflow-redesign.md`](docs/specs/prototypes/workflow-redesign.md)。
+- **发布（Releases）** —— 先对齐官方三档性质（草稿 / 预发布 / 正式发布，只有正式发布能占 Latest），
+  再重绘列表（入口收成标题行右侧的「+」）、编辑页（垂直预算 694dp → 360dp、生成说明不覆盖手写行）、
+  详情页（附件组改用分隔线，不再一框一个）。逐项预算见
+  [`docs/specs/prototypes/release-redesign.md`](docs/specs/prototypes/release-redesign.md)。
+- **消息（通知收件箱）** —— 卡片流固定 32dp「识别槽」、长按 = 单条动作面板（多选是面板里的显式选项）、
+  批量失败**只回滚失败的条目**、工作流通知点击落到「这一次」运行。原型见
+  [`docs/specs/prototypes/messages-redesign.md`](docs/specs/prototypes/messages-redesign.md)。
 
 ## 🔀 分支同步：入口收进 `⋮` 气泡，模式跟着预览结论走
 
@@ -740,338 +323,6 @@ App 这轮没有落地：重绘后的设置页没有填充式危险按钮（确�
 本轮只把这行从自制 `Row` 归位成 `ActionRow`，**行为未变**）、200% 字号真机验证。
 完整清单见 [`docs/specs/settings-design.md`](docs/specs/settings-design.md) §14。
 
-## 🎞 动效（两层规格：页面 / 元素）
-
-此前全项目的动效基本是**零**：页面切换、Tab 切换、选中态、列表增删、加载骨架全是硬切。
-现在动效分成两层，每层只有一处真源，调用方只挑语义、不定参数：
-
-| 层级 | 真源 | 管什么 |
-|------|------|--------|
-| 页面 | `ui/navigation/PageTransitions.kt` | 整页之间的进出（层级推进 / 同级切换） |
-| 元素 | `ui/theme/Motion.kt` | **同一页面内**元素的状态变化（选中态 / 出现消失 / 图标切换 / 骨架微光） |
-
-### 页面级
-
-页面只声明「我在第几层」（`PageLevel.depth`），方向由层级差决定：
-
-| 场景 | 动效 | 为什么 |
-|------|------|--------|
-| 有层级的推进 / 返回（`PageSwitcher`） | 水平滑动 1/4 屏 + 淡入淡出；进场 300ms 减速、退场滑动 220ms 加速、退场淡出 130ms | 子页有前后关系：前进从右进、返回向右出。登录流程内部也按层级（欢迎 0 → 模式介绍 1 → 密钥填写 / 授权中 2 → 主界面 3） |
-| 同级切换（`TabSwitcher`，含仓库页切 Tab） | 淡入淡出 + 轻微上浮 2%；220ms，退场淡出 140ms 早收 | 同级没有前后关系，横向滑动会暗示错误的层级 |
-
-「丝滑」这件事上真正起作用的是三条，都在 `PageMotion` 里：
-
-1. **两条曲线不一样**：进场 `LinearOutSlowInEasing`（减速，起步快收尾缓）、
-   退场 `FastOutLinearInEasing`（加速，越走越快）。原先进出都用 `tween` 的默认对称曲线
-   `FastOutSlowInEasing`，**起步那一拍是慢的** —— 手指已经离开屏幕、画面却黏着不动，
-   这是「不够跟手」的主因。取向与设计稿的 `cubic-bezier(0.2, 0.8, 0.2, 1)` 一致；
-2. **退场淡出比滑动早收**：滑动走满 220ms，透明度 130ms 就到 0。两张整页同时在屏上、
-   又各是半透明时，中段会叠成「两张都看得见、又都看不清」的糊图（长列表页尤其明显）；
-   旧页先退干净，重叠期就只剩新页在动；
-3. **切 Tab 会存住原来的位置**：`TabSwitcher` 用 `rememberSaveableStateHolder()` 按目的地
-   保存 `rememberSaveable` 状态（列表滚动位置、筛选、展开态）。不加的话，
-   退场动画一结束旧内容就移出组合树，切走再切回来列表回到顶部 —— 动画本身没问题，
-   但整体仍然「不丝滑」。`PageSwitcher` **没有**加：它的路由 key 是带 payload 的 data class
-   （如 `MainRoute.Repo(RepoDeepLink)`），不是所有都能进 Bundle，强行加会在存盘时崩。
-
-`PageSwitcher` / `TabSwitcher` 还有一个 `contentKey`（默认「状态本身」= 状态值一变就算换页）。
-带 payload 的路由如果 payload 会在同一页内变，要传稳定身份（如登录流程传 `{ it::class }`），
-否则同页刷新会白播一次换页动画。
-
-约定：
-- **页面状态要收敛成一条路由**（枚举 / data class），交给 `PageSwitcher` 渲染 ——
-  它同时承担「渲染哪个页面」和「动画期间把旧状态原样交给退场内容」两件事。
-  用 `if (x != null) { 页面(); return }` 的老写法做不到后者：状态一清空，
-  退场中的页面会先变成空白、再淡出（看起来像闪烁）；
-- **路由要把页面数据带上**（如 `RepoRoute.Issue(number)`），不要在页面里现读可变状态；
-- 返回键**按当前路由分派一个**（不要每个页面各挂一个 `BackHandler`）：
-  动画期间新旧两个页面会同时存在，两个 BackHandler 会抢同一个返回事件；
-- **导航栏不许长在切换器里**：带底部导航的骨架一律走 `NavigationShell`
-  （主界面 / 仓库页 / 个人页三处），栏在 `PageSwitcher` **外面**。
-  放在里面的话，同级切换那 2% 的垂直位移会连着整条栏一起播 —— 旧栏上移、新栏上浮、
-  两栏错位叠着，就是「切页面时导航栏上下跳」；同理，**Tab 维度也不进外层路由**
-  （`MainRoute.Tabs` / `RepoRoute.Tab` / `ProfileRoute.Main` 都是 `data object`），
-  切 Tab 由内容区自己的 `TabSwitcher` 负责淡入淡出。
-  这条也是后续换悬浮 / 玻璃形态的前置条件（栏要能不占位、内容从它下面穿过）。
-
-### 元素级
-
-| 场景 | 原语 | 时长 | 已接入 |
-|------|------|------|--------|
-| 选中态颜色 | `selectionColor(selected, on, off)` | 180ms | 底部导航（普通 / 玻璃球 / 侧边气泡 / 仓库底栏）、个人页气泡 Tab、筛选 chip、分段控件、日志过滤按钮、设置单选行、Issue 筛选胶囊、反应 chip |
-| 出现 / 消失 | `revealEnter()` / `revealExit()` | 220ms 展开 + 淡入 | 多选工具栏、撤销条、分组展开、阶段预取横幅 |
-| 气泡弹层 | `bubbleEnter()` / `bubbleExit(origin)` | 180ms 锚点缩放 + 淡入 | 个人页 More 气泡、侧边气泡导航 |
-| 按下反馈 | `rememberPressFeedback()` | 120ms 缩到 0.94 | 个人页气泡手柄与主项、气泡条目、侧边气泡手柄、Git 气泡手柄 |
-| 图标形态切换 | `AnimatedStateIcon(icon, …)` | 200ms 交叉淡入 + 缩放 | 筛选 ↔ 关闭、全选 ↔ 取消、Git 手柄 ↔ 关闭 |
-| 数量徽标 | `CountBadge(count, …)` | 220ms 缩放淡入 | 底部导航未读数（含清零时的淡出） |
-| 骨架屏微光 | `shimmerAlpha()` | 700ms 呼吸 | 通知骨架、搜索骨架（此前通知页是死灰块） |
-| 列表增删 | `Modifier.animateItem()` | 默认 | 通知列表、任务列表、Issue 时间线、分支对比提交列表 |
-| 文本长度变化 | `Modifier.animateContentSize()` | 默认 | Issue 长评论展开 / 收起（不再让整条时间线弹跳） |
-
-气泡类弹层（个人页 More 菜单、侧边气泡导航）按同一套规格实现：
-`Popup` + 锚点定位（气泡底边贴着手柄顶边）+ `bubbleEnter/bubbleExit`（**从锚点角落缩放**，
-而不是 Material 菜单那种「从上边缘往下长」），容器用 `Primer.BackgroundPrimary` 白底 +
-`Primer.Border` 描边 + 16dp 圆角 + 阴影；条目按用途取 `Primer` 池内语义色
-（星标 `Orange500` / 项目 `Purple500` / 任务 `Blue500` / 设置 `IconPrimary` / 登出 `Red500`）
-并逐条错峰入场。
-
-取舍：元素级**都不用 spring（回弹）** —— 这类元素在列表里反复出现，
-回弹第一次看是「活泼」、第十次就是「拖沓」；tween 的稳定节奏更适合高频交互。
-动画值尽量在 `graphicsLayer {}` 里读（只在绘制阶段消费），避免每帧重组。
-
-## 🌗 深色主题
-
-### 架构：色板 + 角色，而不是「一堆写死的颜色」
-
-| 层 | 文件 | 职责 |
-|----|------|------|
-| 色板 | `ui/theme/ThemePalette.kt` | `PrimerPalette`（语义**角色**）+ `LightPrimerPalette` / `DarkPrimerPalette` |
-| 门面 | `ui/theme/Color.kt` | `Primer.XXX` = 读当前色板的 `@Composable get()`，**调用点一行不用改** |
-| 主题 | `ui/theme/Theme.kt` | `ThemeMode`（跟随系统/浅色/深色）+ `BranchbaseTheme(mode)` + M3 角色映射 + 状态栏/窗口底色 |
-| 运行时 | `ui/theme/ThemeRuntime.kt` | 进程内 StateFlow：任何页面都能切主题，不必层层传参 |
-| 开关 | `LoginScreens.ThemeModeSwitch` / 设置 → 外观 | 太阳 / 月亮 / 自动 三态图标 |
-
-关键点：**`Primer.XXX` 的调用点完全没动**（1254 处）就跟着主题切换；
-真正需要改的只有 105 处「非 Composable 上下文」（顶层颜色表、`remember` 里取色、
-Canvas 绘制 lambda），它们改用 `TintRole` 角色表 / 在 composable 里pre-取色 / 参数传入。
-
-改造前项目里有 **282 处硬编码颜色**（`Color(0xFF…)` / `Color.White`），是「未声明的第二套色板」：
-在浅色页面上很自然，放进深色页面就是刺眼亮斑。现按三条规则收敛：
-彩色底 → `Primer.SuccessSurface` 等角色；白色面 → `Primer.BackgroundPrimary`；
-深色品牌小字 → `Primer.SuccessText` 等。
-
-### 第二轮收敛：架构落地时漏掉的那些
-
-架构那一轮只搬走了「成体系的」硬编码，页面上还留着 20 余处零散的。这一轮的判据是
-**深色下到底读不读得出来**，而不是「有没有写 Color(0x…)」：
-
-| 类 | 现场 | 例子 |
-|----|------|------|
-| 读不出来 | 写死的深色字压在**主题**深底上 | 差异行未变更正文 `#24292F`（底是 `Transparent`）；`预发布` 徽章 `#0A4E9B` 压 `InfoSurfaceSoft`；`StatusChip` 的 A / D 两个分支；安全警报横幅里的 `TextPrimary` 压在死粉底上 |
-| 读不出来 | 反过来：**主题**亮字压在死浅底上 | `WarningText` 压 `#FFF8E5` / `#FFF8C5`；`Green500` 压 `#EAF9F0` |
-| 浅色补丁 | 前景与底色**都**写死浅色系 | 账户状态胶囊、工作区提示条；深色下仍可读，只是页面上多一块亮斑 |
-| 状态色照抄浅色色板 | 写的就是浅色色板的 `success` / `danger` / `warning` | 工作流的 `runStatusColor`、搜索页的 PR 徽章 |
-
-顺带统一了一件事：**胶囊描边一律走 `Primer.Border`**（与「配色与弹层」一节的约定一致），
-不再按状态各配一条浅色边。
-
-收敛后 `ui/theme/` 之外只剩三类写死色，且都是**有意为之**（见「已知取舍」）。
-`ThemeConvergenceTest` 钉住两条源码级约束：
-
-1. **浅色专属取值只允许出现在色板定义里**（`ui/theme/` 之外一律不许再写）；
-2. **不许 6 位十六进制** —— `Color(0xEAF9F0)` 这种写法 Compose 按 ARGB 解释，少一位 alpha 就是
-   alpha 0 = **完全透明**：「颜色写了，但屏幕上没有」，比写错颜色更隐蔽。本轮就抓到一处
-   （决策卡片的「推荐」标签，它的透明底一直被旁边的「危险」标签衬得很奇怪）。
-
-### 文字色 ≠ 填充色（WCAG 对比度）
-
-色板里有一组**成对**的角色：品牌填充色（`Green500` / `Red500` / `Orange500` / `Blue500`）
-与对应的**文字**色（`SuccessText` / `SuccessTextStrong` / `DangerText` / `WarningTextStrong` /
-`AccentText`）。两者不可互换：
-
-| 场景 | 用哪个 | 反例 |
-|------|--------|------|
-| 填充（按钮底、圆点、进度条、图标 `tint`） | `Green500` / `Red500` / … | — |
-| **文字**（标签、状态文案、链接） | `SuccessText*` / `DangerText` / `WarningText*` / `AccentText` | 拿 `Red500` 当文字：压 `DangerSurface` 只有 **4.00**（AA 要求 4.5） |
-
-「文字色」在浅色下必须比对应填充色**更深**（深色下则按约定塌回品牌填充色，两者同值）。
-色板此前漏了 `dangerText`，导致红色文字无处可取、只能退化成 `Red500` ——
-浅色下账户状态胶囊 6.95→4.00、安全警报标题 5.10→3.61，都掉到 AA 以下。
-现在补齐为浅 `#9E1C24` / 深 `#F85149`（浅色取值就是收敛前那个值，等于把原观感拿回来）。
-
-`ThemeContrastTest` 钉住三条：色板必须提供 `DangerText`；**浅色下文字角色必须比对应填充色更深**；
-以及具体几个页面的文字不得回退成填充色。
-
-### 图标去灰：`iconPrimary` 取纯黑 / 纯白
-
-常态图标（`Primer.IconPrimary`）浅色下是 `#000000`、深色下是 `#FFFFFF`，比正文
-（`#050505` / `#E6EDF3`）更极端。图标是**图形**不是长文本，21:1 的对比不构成阅读负担，
-而原来的中灰 `#525560` / `#B1BAC4` 在浅色下有种「发灰、像没加载出颜色」的观感。
-
-**只有常态图标换**，边界是刻意的：
-
-| 不动的 | 为什么 |
-|--------|--------|
-| `iconSecondary`（次要 / 禁用图标） | 变黑会与常态图标合并，丢掉「未选中 / 禁用」这层语义 |
-| 正文与次级文字 | `textSecondary` / `textTertiary` 的「灰」就是层次本身，全塌成纯黑会让长列表发糊 |
-| `border` 描边 | 浅 `#BFC1C9` 1.80:1 / 深 `#30363D` 1.55:1 是刻意做弱的；拉到纯黑/纯白会让浅色退回 wireframe、深色出现一屏「发光矩形」 |
-| 灰底填充 | 高对比硬边是成套风格，单独拉黑会导致硬线与软面互相打架 |
-
-改动只落在两份色板的 `iconPrimary` 各一行，52 处 `Primer.IconPrimary` 调用点一行未改
-（这是色板 + 角色架构的前提）。
-
-### 深色下必须一起换的部分（Compose 管不到的）
-
-- **状态栏 / 导航栏图标明暗 + 窗口底色**：`BranchbaseTheme` 的 `SideEffect` 里跟着主题设置，
-  否则深色页面顶部会压一条白条；
-- **正文页的 WebView**：`github-markdown-light.css` 是浅色主题，深色时额外注入 `README_DARK_CSS`；
-- **沉浸式翻译的页面脚本**：`translate.css` 增加 `body.bb-dark` 段（译文卡片 / 悬浮球 / 工具面板 / 提示），
-  `dark` 标记随设置注入给 `window.__bbTranslate`；
-- **代码高亮 / 贡献图**：`CodeSyntax` 与 `ProfileColors` 也是角色化的（深色用 GitHub dark 的语法色）；
-- **代码视图的正文色**：文件页只读预览此前硬编码 `Color(0xFF24292F)`（浅色主题的取值），
-  深色下就是「深灰字压深色底」—— 与同一页的编辑态（`:editor` 的代码编辑器，跟随主题）完全不一致。
-  现在这个视图改用 `Primer.TextPrimary`（与搜索页代码块同一约定），`FileViewerThemeTest` 钉住本页不得再出现该硬编码。
-
-### 已知取舍
-
-- 启动瞬间（Compose 首帧前）窗口底色仍是系统主题，深色用户可能看到一帧浅色 —— 要彻底消除需要
-  在 `values-night` 里再放一份主题，代价是「用户手动锁浅色而系统是深色」时会反过来闪一下；
-- `LogScreen`（应用内日志查看器）的「原始日志」卡片是**固定深色**的：浅色主题下它是一块黑卡片，
-  这是有意的终端观感，未纳入角色化；
-- 语言品牌色（`LanguageColors`）主题无关（GitHub 两种主题用的是同一套），所以写死是对的；
-  但**真源有三份** —— `Color.kt` 的 `LanguageColors.of()` 与 `SearchScreen` / `HomeScreen`
-  里的两份副本。这属于「单一真源」问题，尚未收敛；
-- **主按钮白字压在深色 `accent`（`#1F6FEB`）上 = 4.08**，低于 AA 的 4.5。这是**全站既有特性**
-  （`background(Primer.Blue500)` + `Color.White` 到处都是，GitHub 网页版深色主按钮同样如此），
-  不是某一页引入的。要严格达标可改用色板里已有、但**目前零调用**的高强调组合
-  `Primer.Gray900` + `Primer.OnEmphasis`（浅色深底白字 / 深色浅底深字，两端都在 16 以上）；
-- 全项目仍有约 30 处 `color = Primer.Red500`（拿填充色当文字）。其中绝大多数压在 canvas 上
-  （浅色 4.57 / 深色 5.65，**达标**），属于「语义不够准但不影响可读」；收敛只处理了
-  压在 `*Surface` 浅底上、对比度低于 AA 的那几处。下一轮可用「文字不得用填充色角色」这条
-  规则统一扫一遍；
-- 另外两条测试是**黑名单**（`ThemeConvergenceTest` 只拦 29 个已知浅色取值 + 6 位十六进制），
-  **全新的写死色值拦不住**；`ThemeContrastTest` 也只钉住具体几处。真正的白名单化
-  （任何 `Color(0x…)` 都必须落在显式许可清单里）成本更高，暂未做。
-
-## 🎨 配色与弹层（单一真源）
-
-所有颜色来自 `ui/theme/Color.kt` 的 `Primer` 色板（对齐 GitHub Primer），**不在调用处写死色值**。
-
-早期只覆盖了 M3 的少数颜色角色，导致弹层类组件读到的仍是 **Material 基线色**（带紫调）：
-
-| 组件 | 读的角色 |
-|------|---------|
-| `DropdownMenu`（搜索的类型/排序、反应选择器…） | `surfaceContainer` |
-| `AlertDialog`（各页确认框） | `surfaceContainerHigh` |
-| `ModalBottomSheet`（筛选手板 / 通知面板 / 工作流操作） | `surfaceContainerLow`，拖拽把手用 `surfaceVariant` |
-| `NavigationBarItem` 选中胶囊 | `secondaryContainer` |
-
-现在 `Theme.kt` 把这些角色一次性对齐到设计色板：**容器一律标准白底**，
-`surfaceContainerHighest`/`surfaceVariant` 用 `Gray150`/`Gray200` 作为「白底上再垫一层」的灰，
-描边统一 `Primer.Border`，底部导航选中胶囊 = 主色 12% 蓝。约定：
-
-- 弹层统一 **白底（`Primer.BackgroundPrimary`）+ 1dp `Primer.Border` 描边 + 阴影 + 16dp 圆角**
-  （气泡弹层的做法见 `ui/navigation/PageTransitions.kt` 的 `bubbleEnter` 与个人页 More 气泡）；
-- **白底容器里不要再放白底元素** —— 需要垫一层时用 `Gray150`（如筛选手板里的输入框、+/− 圆点），
-  否则容器改白之后它们会直接「消失」；
-- 新组件不要依赖 M3 默认容器色；确实需要特殊底色时才在调用处显式传 `containerColor`。
-
-单行状态位（设置项右侧的值 / 页面副标题 / 编辑器底栏 / toast）**只放短名**：
-`CommitMode` 这类有多档状态的枚举要区分 `label`（短名，给状态位）与 `title`（完整说明，给整行卡片）。
-行高固定的行（如 `SettingsItem` 的 48dp）里换行会被直接裁掉，所以名称与值都必须单行省略，
-且**由值负责省略、不许挤压名称**。
-
-## 📨 消息（通知收件箱）卡片流与多选
-
-消息页的列表是「卡片流」：一条通知 = 一张卡。卡片布局与多选语义在 `ui/notification/`。
-
-### 卡片布局：固定「识别槽」
-
-```
-┌ Card ──────────────────────────────────────────────┐
-│▍ ┌──────┐  仓库 #号 · 原因 · 时间                     │
-│▍ │ 识别 │  标题（最多 2 行）                          │
-│▍ │ 槽位 │  评论预览（作者：正文）                      │
-│▍ └──────┘                                          │
-└────────────────────────────────────────────────────┘
- ▍ = 未读竖条（overlay 绘制，不占布局宽度）
-```
-
-| 约束 | 为什么 |
-|------|--------|
-| 行首**恒为 32dp 识别槽**（普通态类型图标 / 多选态 20dp 方框） | 上一版多选态把 32dp 图标换成 24dp 的 `Checkbox`，标题左边界会跳 8dp；M3 Checkbox 按「独立控件」设计（内部 `wrapContentSize` + `requiredSize` + 最小触摸目标），在 `size(...)`/`padding(...)` 组合下会按自身约束重新落位、画出槽位压到标题上 |
-| 复选方框**自绘** 20dp（`SelectionCheckbox`） | 只需要「未选 / 已选 / 半选」三态；自绘后尺寸与落位完全可控，也不会和整行的选择语义重复播报 |
-| 未读竖条用 `matchParentSize` + `drawBehind` **overlay 绘制** | 作为 flex 子项时未读行比已读行少 3dp 正文宽度，同一标题会换行到不同位置 |
-| **信息顺序**：元信息行（仓库 #号 · 原因 · 时间）在**最上**，标题居中，评论预览在下 | 排布对齐 [DioHub - Dev](https://github.com/namanshergill/diohub)（`basic_notification_card.dart` 把仓库名 + 日期放标题上方、最新动态放卡片底部）：「哪来的、什么时候」是定位坐标，先给坐标再读标题，扫一眼就能决定要不要点进去；预览仍是「要不要点进去」的关键依据，但标题必须是第一眼看到的那一行。骨架屏的占位条顺序同步跟着换（先短后长） |
-
-### 多选交互（按官方文档实现）
-
-| 位置 | 做法 | 依据 |
-|------|------|------|
-| 整行 | 多选态用 `Modifier.selectable(selected, role = Role.Checkbox)`（普通态才是 `combinedClickable`） | 选择状态必须由语义提供，读屏才会播报「已选中 / 未选中」；只画方框等于无障碍用户看不到选择状态 —— [Compose 语义](https://developer.android.com/develop/ui/compose/accessibility/semantics) |
-| 列表容器 | 多选态 `Modifier.selectableGroup()` | 让读屏把行播报成「第 x 项，共 y 项」，否则每行都是孤立控件 —— [`androidx.compose.foundation.selection`](https://developer.android.com/reference/kotlin/androidx/compose/foundation/selection/package-summary) |
-| 分组头 | `Modifier.triStateToggleable(ToggleableState)` + `Role.Checkbox` | 三态（全选 / 未选 / 半选）有专门的 API，半选必须被播报，否则用户无法判断点下去是补齐全组还是清空 —— [triStateToggleable](https://developer.android.com/reference/kotlin/androidx/compose/foundation/selection/triStateToggleable.modifier) |
-| 长按刷选 | 拖动开始补 `HapticFeedbackType.LongPress` | 多选态行内没有长按菜单，没有触觉就无法判断长按是否生效 |
-| 触摸目标 | 行整体是目标（Material 列表选择规范），方框自身不带点击 | [Material 3 复选框](https://m3.material.io/components/checkbox/overview) · [Material 3 列表](https://m3.material.io/components/lists/overview) |
-| 「取消全选」 | 图标用 `Deselect`（不用 `Close`） | `✕` 在同一屏已是「退出多选」，两个不同动作共用一个图标会点错 |
-
-### 长按状态机：单条动作面板 → 多选
-
-长按**不是**「进入多选」，而是弹出单条动作面板（标记已读 / 未读 / 完成 / 静音 / 复制链接 /
-在浏览器打开 / 分享），多选是面板末尾的一个显式选项。理由是「只想把这一条标成已读」的场景：
-先长按进多选再点「已读」多一步，而且列表结构已经变了。
-
-| 手势 | 普通态 | 多选态 |
-|------|--------|--------|
-| 点击 | 打开（未读时顺带标已读并打远端） | 切换选中，不跳转 |
-| 长按 | **快捷动作面板**（单条动作） | 容器接管：从锚点整段选中 / 按住划过刷选 |
-| 左滑 / 右滑 | 两个方向同效 → 标记已读（仅未读行） | 一律禁用（批量选择中误触会把行标成已读） |
-
-> 滑动两个方向都放开（对齐 DioHub - Dev：左右滑都是 Mark as read）。只放开单方向时，
-> 「从哪一侧滑」纯粹是握持习惯 —— 左滑在单手 / 手小的场景下更顺手，没有理由拒绝。
-> 背景提示按方向贴边：M3 1.4 的 `backgroundContent` 签名是 `@Composable RowScope.() -> Unit`，
-> **不带方向参数**，方向从 `SwipeToDismissBoxState.dismissDirection` 读 —— 从左往右滑时内容右移、
-> 露出的是左边缘，提示就该靠左。
-
-> 这里曾有一处**接线缺陷**：`NotificationList(onLongClick = { enterSelection(it) })` 一直写成
-> 「进多选」，而 `sheetTarget` 只有多选条上的「更多」会赋值 —— 于是面板的**非多选分支从引入起
-> 就没显示过**（死代码），长按退化成「进多选」，与本节（以及
-> [`docs/specs/prototypes/messages-redesign.md`](docs/specs/prototypes/messages-redesign.md) 原型
-> 的 ② 手势状态机）描述的行为不一致。修好接线后又暴露出第二个问题：面板里的单条「标记完成」
-> 只写本地、从不调 `RustBridge.markNotificationDone`（该接口此前只在批量路径里用过），
-> 刷新后条目会原样回来。两者一起修好，并抽出 `markDoneRemote`（本地乐观归档 → 远端 DELETE → 失败按 id 回滚）。
-
-### 批量失败：**只回滚失败的条目**
-
-批量是「本地乐观更新 → 远端逐条串行写（每条间隔 120ms 防二级限流）」。中途失败的条目要回滚，
-但**成功的不能一起回滚**：
-
-| 做法 | 结果 |
-|------|------|
-| 整批回滚（旧） | 10 条里 3 条失败 → 本地 10 条全退回未读，而远端 7 条已读。用户看到「批量失败」，下拉刷新后其中 7 条又自己变已读 —— 本地与远端在这段窗口里并不一致，而「回滚是为了跟远端一致」恰恰是整批回滚的理由 |
-| 只回滚失败项（现） | 本地状态与远端一致；失败项**保留选中**，用户直接再点一次即可重试，不用重新一条条勾 |
-
-静音（`BulkOp.MUTE`）不改动任何本地可见状态，没有可回滚的东西 —— 回滚它反而会顺带重写
-`NotifArchive`，把期间用户从别的入口产生的归档改动覆盖掉；因此它既不回滚，也不提供「撤销」
-（按下去什么都不变的撤销比不给更糟）。规则抽成纯函数 `bulkRollbackTargets`，有单测
-（`NotificationBulkRollbackTest`）。
-
-另外，退出多选**不再重置** `bulkRunning`：批量是仍在跑的远端长任务，退出多选只是收起选择 UI。
-旧实现把两者绑在一起，退出后能再触发一批，两批并发打远端（120ms 间隔的限流保护形同虚设），
-且旧批次收尾时的 `exitSelection()` 会把用户新选的一批一起清掉。现在收尾只在「本批仍是最新一批
-（`bulkSeq`）且用户没动过选择」时才收拾多选态。
-
-### 工作流通知：点击落到「这一次」运行
-
-工作流通知（`CheckSuite` / `CheckRun` / `WorkflowRun`）点进去曾经只落到仓库的「工作流」tab，
-到不了这次 run 的详情页。根因是 **GitHub 不在通知里给 run id**：
-
-| 来源 | 能不能拿到 run id |
-|------|------------------|
-| `subject.url`（CheckSuite） | 常常**直接是 `null`** —— [社区讨论 #158253](https://github.com/orgs/community/discussions/158253)「Missing subject URL field for CheckSuite Notification type」 |
-| `subject.url`（有值时） | 形态是 `.../check-suites/<id>` / `.../check-runs/<id>`，是 **check 域的编号**，当 run id 用会打开一个编号巧合的无关 run（1.0.29 修过一次） |
-| `subject.title` | **唯一能用的**：`"<workflow> workflow run[, Attempt #N] <status> for <branch> branch"` |
-
-所以点击时补一次解析：从标题抠出「工作流名 + 分支（+ attempt / 结论）」，
-`GET /repos/{owner}/{repo}/actions/runs?branch=…` 拿到候选后用**时间最近**收口
-（run 的 `updated_at` 就是它结束、通知发出的那一刻）。
-
-- 标题格式与 [gitify](https://github.com/gitify-app/gitify)（成熟的三方通知客户端）从真实报文
-  反推出的正则一致；它的注释写明「目前没有干净的办法用 API 直接拿 CheckSuite / WorkflowRun 状态」，
-  因此那边只退回带筛选的 Actions 列表页 —— 本应用多做一步配对，能真正落到 run 详情。
-- **配不上就退回工作流列表**，并 Toast 说明原因：一个都匹配不上、或最好的候选与通知时间
-  偏差超过 24h 时一律不猜（与上面「宁可放不对，不要放错」同一条原则）。
-- 三个纯函数（`parseCheckSuiteTitle` / `parseRunCandidates` / `pickRunId`）有单测
-  （`NotificationWorkflowDeepLinkTest`，覆盖各类误配：名字、分支、attempt、结论、时间偏差）。
-
-### 选中集合必须与可见集合收敛
-
-`selectedIds` 是「用户点过的 id」，而可见列表会因换分类 / 类型 / 时间范围、下拉刷新、
-「完成」归档而变。对外一律用 `effectiveSelection(selectedIds, visibleIds)`（交集），
-否则「全选」判断会失真（`size >=` 在混入不可见 id 时判反），批量已读 / 完成 / 静音 / 复制链接
-会作用到屏幕上根本看不到的条目。三个纯函数（`effectiveSelection` / `isAllVisibleSelected` /
-`toggledAllSelection`）都有单测（`NotificationSelectionTest`）。
-
 ## 🔧 构建
 
 ### 环境要求
@@ -1118,7 +369,8 @@ cargo build --release       # 生成 libbranchbase_core.so
 
 ## 🔖 版本号规范
 
-采用「工程版本号 + 标准版本号」双轨制（原设计文档未入库，规则以本节为准）：
+采用「工程版本号 + 标准版本号」双轨制（完整命名体系见
+[`docs/specs/BUILD-NOTES.md`](docs/specs/BUILD-NOTES.md) §二）：
 
 ```
 标准版本号 = 工程版本号-年月日-时分-七位哈希
@@ -1127,6 +379,8 @@ cargo build --release       # 生成 libbranchbase_core.so
 
 - 工程版本号：`version.properties` 手动维护（semver）
 - 标准版本号：构建时注入 `BuildConfig`（时间 + `git rev-parse --short=7`）
+- **逐版变更说明**（每一版改了什么、为什么这么改）：[`docs/specs/VERSION-NOTES.md`](docs/specs/VERSION-NOTES.md)
+  —— `version.properties` 只留格式契约 + 3 个写法样板，新增一版先去那份文档加条目
 
 ## 🤖 CI/CD（三步骤流水线）
 

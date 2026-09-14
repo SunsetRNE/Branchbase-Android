@@ -1,8 +1,11 @@
-<!-- 入库副本：正文与 design/release-redesign/README.md 一致，未做删改，仅加本段头。 -->
+<!-- 入库副本：正文与 design/release-redesign/README.md 一致，未做删改，仅加本段头 + 三处失效的 `README.md:804-821` / `:795-798` 引用改指新文档（见下）。 -->
 > **来源**：`design/release-redesign/README.md`（原型本体 `index.html` / `style.css` / `app.js` / `smoke.js` 在 `/design/release-redesign/` 下，按仓库约定**不入库**；DSH 侧边栏「原型预览」面板可直接打开）
 > **为什么只把文档抽进来**：原型 HTML 是一次性草图，跟具体实现绑死、很快过期；
 > 而这份文档里的**现状测绘、取舍论证与落地清单**是跨时间有效的设计结论，代码注释会引用它。
 > **维护**：原型再改时请把这份副本一并更新，别让两边分叉；文中提到的文件名相对原始目录。
+> **路径重写（2026-09）**：根 `README.md` 拆分后，正文里三处按行号钉住 README 的引用已失效
+> （`README.md:804-821` → [`docs/specs/screens-design.md` §3](../screens-design.md)；
+> `README.md:795-798` → [`docs/specs/ui-design.md` §1](../ui-design.md)），仅此三处与原始草稿不同。
 
 # 发布页重设计原型 · 说明与落实方案（第二轮）
 
@@ -85,7 +88,7 @@
 | 附件行 | 24dp 类型图标（APK / zip / txt 三种底，圆角 6） | 文件名（等宽 12sp）+ `大小 · 状态点 · 状态` + 一个主动作 + ✕ |
 | 更新内容 | **40dp 行号槽**（标记列 12 + 数字列） | 正文（无框，自动增高） |
 
-「槽宽恒定 → 内容左边界永不跳」在仓库里有成文规范：`README.md:804-821`（消息卡片「行首恒为 32dp 识别槽」+ 三条硬约束）。
+「槽宽恒定 → 内容左边界永不跳」在仓库里有成文规范：`docs/specs/screens-design.md` §3（消息卡片「行首恒为 32dp 识别槽」+ 三条硬约束）。
 本页把这条约束用在三种槽上，**并且行号槽内部也遵守**：标记列定宽，`+` 出现/消失时数字轴不动。
 
 第二轮补的十二处细节（「精细」的那一半）：
@@ -117,7 +120,7 @@
 | 当前行整行底色 | 浅 `0x0D000000` / 深 `0x14FFFFFF`，且**不覆盖行号槽** | `EditorPalette.kt:225` / `:262`（`currentLine`）；编辑器里槽底色后绘（`EditorRenderer.java:595`） |
 | 底色 | **透明**（取消 `Gray100` + 1dp 描边） | 现状见 `ReleaseScreens.kt:631-636`；仓库里另三处行号列也都是「无框 + 整页底 `CodeSyntax.CodeBg`」 |
 
-同一套「窄槽 + 无框内容」的用法在本页有三处：表单 46dp / 附件图标 24dp / 行号 40dp，**槽宽恒定 → 内容左边界永不跳**（成文规范：`README.md:804-821`）。
+同一套「窄槽 + 无框内容」的用法在本页有三处：表单 46dp / 附件图标 24dp / 行号 40dp，**槽宽恒定 → 内容左边界永不跳**（成文规范：`docs/specs/screens-design.md` §3）。
 
 两处**有意偏离**编辑器，落地时可自行取舍：
 
@@ -232,7 +235,7 @@ app/.../core/RustBridge.kt + suspend fun uploadReleaseAsset(...): String?
    那就得走 `:downloader` 的 Service 模型 —— 但那是**下载**语义，需要新服务或扩展现有服务）；
 4. **标签不存在时**：GitHub 会自动按 `target_commitish` 建 tag，生成说明要求 tag 已存在（现状 `generate()` 的报错文案保持）；
 5. **合并行的标签宽度**：标签 chip 里的输入框定宽 68px（放 `v1.0.39` 这类短 tag 刚好）。真机上建议按
-   `TextMeasurer` 量出内容宽度自适应，超长 tag 时把标题输入挤窄而不是裁 tag（对齐 README.md:795-798
+   `TextMeasurer` 量出内容宽度自适应，超长 tag 时把标题输入挤窄而不是裁 tag（对齐 `docs/specs/ui-design.md` §1
    「由值负责省略、不许挤压名称」的同一条原则）；
 6. **自动保存**：改字段 900ms 防抖落草稿，与「返回/发布」时的显式保存共用同一份 JSON；
    频繁写盘要放在 IO 线程，且只在内容真的变了才写（原型里没做 diff，真机加一个 `equals` 比较）。

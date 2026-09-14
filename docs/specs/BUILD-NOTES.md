@@ -60,6 +60,11 @@ versionName=1.0.3   # 工程版本号（semver：主.次.修订）
 versionCode=103      # 工程版本码（整数，每次发布递增）
 ```
 
+> **逐版变更说明在 [`VERSION-NOTES.md`](VERSION-NOTES.md)**（每个 `versionName` / `versionCode` 的来龙去脉都在那里）。
+> `version.properties` 本体只留格式契约 + 3 个写法样板，**不再堆变更记录**；新增一版时先去那份文档加条目。
+> 文件里除 `versionName=` / `versionCode=` 两行外都是 `#` 注释 —— `app/build.gradle.kts` 用
+> `Properties.load()`、`tools/build/assemble.sh` 用 `grep '^versionName='`，两者都只看键值行。
+
 ### 2. 标准版本号（构建时自动生成）
 
 在 `app/build.gradle.kts` 中计算，注入 `BuildConfig`：

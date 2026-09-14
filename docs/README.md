@@ -18,16 +18,26 @@
     ├── NAVIGATION-NOTES.md       ← 返回键与导航（反复踩坑后定下的两条硬规则）
     ├── BUILD-NOTES.md            ← 构建环境、AGP 9.0 API、版本号体系
     ├── settings-design.md        ← **设置页设计规范**（信息架构 / 6 种行型 / 控件选型 / 用语表 / 危险操作）
+    ├── modules-design.md         ← **功能模块族**（沉浸式翻译 / 内建下载 / 图片查看器 / 编辑器 / 作业日志与运行轮询）
+    ├── ui-design.md              ← **界面规格**（配色与弹层（单一真源）/ 深色主题 / 动效）
+    ├── screens-design.md         ← **页面重绘**（运行详情卡片流 / 发布三档性质 / 消息卡片流与多选）
+    ├── VERSION-NOTES.md          ← **版本变更记录**（逐版 versionName 说明 + versionCode 流水；新增一版先改这里）
     └── prototypes/               ← 原型**说明文档**的入库副本（原型本体不在这里）
         ├── log-redesign.md
         ├── messages-redesign.md
         ├── workflow-redesign.md
+        ├── release-redesign.md
         ├── settings-redesign.md
         └── theme-neutral-preview.md
 
 /design/<原型名>/                  ← 原型**草图本体**（HTML/CSS/JS）：**永久不入库**
-README.md                          ← 项目门面 + 主设计记录，留在根目录别挪
+README.md                          ← 项目门面 + 功能概览 + 文档指针，留在根目录别挪
 ```
+
+> **从根 README 迁出的正文**（2026-09：`modules-design.md` / `ui-design.md` / `screens-design.md`）
+> 同样属于结论类。头部都标了来源与「正文未删改」，区别只有三点：标题去 emoji、加**章节编号**；
+> 空行规整（合并多余空行）；正文里的**仓库根相对链接改成相对本文件的链接**。迁出后 README 只留结论摘要 + 指向，
+> 别把正文再抄回去 —— 两处各写一份，迟早分叉。
 
 ## 二、存什么 / 不存什么
 
@@ -85,7 +95,8 @@ README.md                          ← 项目门面 + 主设计记录，留在�
 4. **被代码引用时**：注释里写**仓库相对路径**（如 `docs/specs/html-parser-design.md §3`）。
    引用到**章节号**的，重排章节时必须回头改注释 —— `matcher.rs` 钉着 §3、
    `ReadmeWebView.kt` 钉着 §5.1，就是既有的两个锚点。
-5. **顺手做**：在 §一的索引里加一行，并在 `README.md` 的项目结构块里确认没写反。
+5. **顺手做**：在 §五 的索引里加一行，并同步 `README.md` 的「📚 文档导航」表与项目结构块
+   （两处都别写反）。
 
 ## 五、索引
 
@@ -94,6 +105,11 @@ README.md                          ← 项目门面 + 主设计记录，留在�
 | [`specs/html-parser-design.md`](specs/html-parser-design.md) | 链接如何归一化成跳转目标：§3 规则表、§5.1 末尾斜杠判目录、§6 已知边界 | `core/src/html/mod.rs`、`matcher.rs`、`ReadmeWebView.kt` |
 | [`specs/NAVIGATION-NOTES.md`](specs/NAVIGATION-NOTES.md) | 返回键只有一条链路：`PageBackHandler` + 两个切换器都下发 `LocalPageActive` | `README.md` 功能特性、`ui/navigation/` 各页 |
 | [`specs/BUILD-NOTES.md`](specs/BUILD-NOTES.md) | AGP 9.0 的 `VariantOutputImpl` 坑 + 版本号体系 + JNI 签名与 locale | `README.md` 构建一节 |
+| [`specs/VERSION-NOTES.md`](specs/VERSION-NOTES.md) | **版本变更记录**：§二 `versionName` 逐版说明（每版改了什么、为什么这么改）/ §三 `versionCode` 流水 + 新增一版的写法约定 | `version.properties`（只留 3 个样板并指向它）、`BUILD-NOTES.md` §二 |
+| [`specs/modules-design.md`](specs/modules-design.md) | **功能模块族**：§1 沉浸式翻译 / §2 内建下载 / §3 图片查看器 / §4 代码编辑器 / §5 作业日志 / §6 运行中的工作流轮询，各带「已知边界」 | `README.md` 功能模块、`ui/repository/JobLogWiring.kt`、`RunPollPolicy.kt` |
+| [`specs/ui-design.md`](specs/ui-design.md) | **界面规格**：§1 配色与弹层（单一真源）/ §2 深色主题（色板 + 角色、对比度、已知取舍）/ §3 动效（页面级 + 元素级） | `ui/theme/*`、`ui/navigation/PageTransitions.kt`、`README.md` 界面规格 |
+| [`specs/screens-design.md`](specs/screens-design.md) | **页面重绘**：§1 运行详情卡片流 / §2 发布（三档性质 + 三个页面）/ §3 消息卡片流与多选 | `ReleaseNotesEditor.kt`、`ReleaseEditParts.kt`、`NotificationScreen.kt`、`WorkflowRunDetailScreen.kt` |
+| [`specs/prototypes/release-redesign.md`](specs/prototypes/release-redesign.md) | 发布三页重绘原型：三档性质 / 垂直预算 694→360dp / 生成说明不覆盖手写行 | `specs/screens-design.md` §2、`ReleaseScreens.kt` |
 | [`specs/prototypes/messages-redesign.md`](specs/prototypes/messages-redesign.md) | 消息页重做：右下弹窗面板 / 长按状态机 / 预渲染 / Issue 单消息页 | `NotificationScreen.kt` |
 | [`specs/prototypes/workflow-redesign.md`](specs/prototypes/workflow-redesign.md) | Run 详情卡片流 + 作业日志页合并 | `WorkflowRunDetailScreen.kt`、`JobLogScreen.kt` |
 | [`specs/prototypes/theme-neutral-preview.md`](specs/prototypes/theme-neutral-preview.md) | 中性色「去灰」三个方案的取值与结论 | `ThemePalette.kt` |
