@@ -55,4 +55,37 @@ class LogRotationTest {
             root.deleteRecursively()
         }
     }
+
+    @Test
+    fun `旧版留在根下的日志被清掉，没有就跳过`() {
+        val root = File.createTempFile("bb-legacy", "").let { it.delete(); it.mkdirs(); it }
+        try {
+            // 1.0.40 及以前：日志直接躺在 files/ 根下，不带轮转
+            val legacy = File(root, "branchbase.log")
+            legacy.writeText("旧版留下的历史日志\n")
+
+            assertTrue("旧版遗留文件该被删掉", cleanupLegacyLogFile(root))
+            assertFalse("删完就该不在了", legacy.exists())
+            // 兼容处理：第二次调用（文件已经不在了）必须安静跳过，不能抛
+            assertFalse("没有旧文件时应该跳过", cleanupLegacyLogFile(root))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `清理旧版遗留文件不影响当天的日志`() {
+        val root = File.createTempFile("bb-legacy2", "").let { it.delete(); it.mkdirs(); it }
+        try {
+            val today = logFileFor(root, "2026-09-14")
+            today.parentFile?.mkdirs()
+            today.writeText("今天的日志\n")
+
+            assertFalse("今天没有旧版遗留文件", cleanupLegacyLogFile(root))
+            assertTrue("当天的日志必须还在", today.exists())
+            assertEquals("今天的日志\n", today.readText())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
 }

@@ -101,3 +101,47 @@ body.bb-dark[data-bb-style="underline"] .bb-tr {
 body.bb-dark[data-bb-style="plain"] .bb-tr {
   color: #8b949e;
 }
+
+/* ── 标题里的译文（h1–h6 走「插进元素内部」，见 02-dom.js 的 INSERT_INSIDE）──
+   标题不该套「翻译卡片」：蓝条 + 灰底在标题里会被读成引用块，而且 markdown 的 h1/h2 自带
+   `border-bottom`，卡片落在横线之外时会跟标题脱开（真机截图正是这样）。
+   这里改成「跟随标题的一行小字」：字号按标题层级缩一档、去掉边距与底色，
+   横线（标题块末尾）留在译文之后。
+
+   选择器一律带 `body[data-bb-style]`：上面三种译文样式（card / underline / plain）都比
+   `h1 > .bb-tr` 的权重高，不带这一层就压不过它们。 */
+body[data-bb-style] h1 > .bb-tr,
+body[data-bb-style] h2 > .bb-tr,
+body[data-bb-style] h3 > .bb-tr,
+body[data-bb-style] h4 > .bb-tr,
+body[data-bb-style] h5 > .bb-tr,
+body[data-bb-style] h6 > .bb-tr {
+  display: block;
+  margin: .15em 0 0;
+  padding: 0;
+  border-left: none;
+  border-radius: 0;
+  background: transparent;
+  font-weight: 400;
+  line-height: 1.45;
+  text-decoration: none;
+}
+
+/* 相对字号：h1 是 2em、h2 是 1.5em（见 app 的 github-markdown-*.css）→ 缩到正文大小附近 */
+body[data-bb-style] h1 > .bb-tr { font-size: .5em; }
+body[data-bb-style] h2 > .bb-tr { font-size: .62em; }
+body[data-bb-style] h3 > .bb-tr { font-size: .75em; }
+body[data-bb-style] h4 > .bb-tr,
+body[data-bb-style] h5 > .bb-tr,
+body[data-bb-style] h6 > .bb-tr { font-size: .85em; }
+
+/* 深色主题下标题译文沿用 .bb-dark 的文字色，只把字号/边距规则再钉一次 */
+body.bb-dark h1 > .bb-tr,
+body.bb-dark h2 > .bb-tr,
+body.bb-dark h3 > .bb-tr,
+body.bb-dark h4 > .bb-tr,
+body.bb-dark h5 > .bb-tr,
+body.bb-dark h6 > .bb-tr {
+  background: transparent;
+  border-left: none;
+}

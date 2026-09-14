@@ -153,6 +153,21 @@ internal fun cleanupOldLogDays(logsRoot: File, keep: String): Int {
 }
 
 /**
+ * 清掉 1.0.41 之前留在 `files/` 根下的那份日志。
+ *
+ * 旧版本不带轮转（`FileAppender` 一直往 `<root>/branchbase.log` 追加），所以从旧版升上来的
+ * 机器上会留着一个**孤儿文件** —— 新路径是 `logs/<日期>/branchbase.log`，而启动时的清理只扫
+ * `logs/` 下的目录，扫不到它，于是它既不会被轮转也不会被清掉（用户说的「旧版历史日志」）。
+ *
+ * 兼容处理：**不在就跳过**（新装的机器从来不会有它）；删除失败也不抛 —— 那只是几 KB 的
+ * 孤儿文件，下次启动还会再试一次，绝不该因此影响启动。
+ */
+internal fun cleanupLegacyLogFile(root: File): Boolean {
+    val legacy = File(root, "branchbase.log")
+    return legacy.isFile && legacy.delete()
+}
+
+/**
  * 以**追加**方式打开日志文件。
  *
  * 必须是 append 而不是截断写：`file.bufferedWriter()` 走的是 `File.outputStream()`，
@@ -211,11 +226,16 @@ private class FileAppender(private val root: File) {
         file = logFileFor(root, today)
         file.parentFile?.mkdirs()
         // 启动就清历史：需求是「只留当天」，所以昨天以前的一律丢弃
-        val removed = cleanupOldLogDays(File(root, LOG_ROOT), today)
-        if (removed > 0) {
+        val removedDays = cleanupOldLogDays(File(root, LOG_ROOT), today)
+        // 旧版（1.0.40 及以前）把日志直接写在 files/ 根下，不带轮转：升上来的机器上会留一个
+        // 孤儿文件。它不在 logs/ 下，上面的清理扫不到，所以单独清一次（没有就跳过）。
+        val removedLegacy = cleanupLegacyLogFile(root)
+        if (removedDays > 0 || removedLegacy) {
             LogManager.log(
                 LogCategory.LOCAL_TASK, LogLevel.INFO, "日志",
-                "清理历史日志目录 $removed 天（只保留当天 $today）",
+                "清理历史日志：目录 $removedDays 天" +
+                    (if (removedLegacy) " + 旧版遗留文件 1 个" else "") +
+                    "（只保留当天 $today）",
             )
         }
         Thread(::drainLoop, "bb-log-writer").apply {

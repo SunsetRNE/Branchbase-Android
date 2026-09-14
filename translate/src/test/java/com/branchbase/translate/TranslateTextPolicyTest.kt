@@ -35,6 +35,29 @@ class TranslateTextPolicyTest {
         assertFalse(TranslateTextPolicy.needsTranslation("This is already English.", LANG_EN))
     }
 
+    /**
+     * 语言切换行（`English | 中文`）不翻。
+     *
+     * 真机截图里就有这么一条：README 顶部的语言切换被翻成了「英文| 中文」——它是**导航**，
+     * 翻了只会多一行四不像。规则同时要放行普通的英文句子（别把 `English | 中文` 这种形状
+     * 之外的东西也吞掉）。
+     */
+    @Test
+    fun `语言切换行不翻`() {
+        assertFalse(
+            "English | 中文 是语言切换行，不该翻",
+            TranslateTextPolicy.needsTranslation("English | 中文", LANG_ZH),
+        )
+        assertFalse(
+            "带空格的变体同样不翻",
+            TranslateTextPolicy.needsTranslation("  Japanese / English  ", LANG_ZH),
+        )
+        assertTrue(
+            "普通英文句子照翻",
+            TranslateTextPolicy.needsTranslation("English is the language of this paragraph.", LANG_ZH),
+        )
+    }
+
     @Test
     fun `零宽字符段落视为空`() {
         assertFalse(TranslateTextPolicy.needsTranslation("\u200B\u200B\uFEFF", LANG_ZH))

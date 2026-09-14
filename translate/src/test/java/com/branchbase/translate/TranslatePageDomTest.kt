@@ -27,13 +27,36 @@ class TranslatePageDomTest {
     @Test
     fun `列表项与表格单元格必须内部插入`() {
         val js = domScript()
-        // 规则表：这三个标签走「插到元素内部」
-        assertTrue("li / td / th 必须在 INSERT_INSIDE 里", js.contains("var INSERT_INSIDE = { LI: 1, TD: 1, TH: 1 };"))
+        // 规则表：这六个标签走「插到元素内部」（li/td/th 是结构合法性问题，
+        // h1–h6 是排版归属问题 —— 见下一条测试）
+        assertTrue(
+            "li / td / th 必须在 INSERT_INSIDE 里",
+            js.contains("var INSERT_INSIDE = { LI: 1, TD: 1, TH: 1, H1: 1, H2: 1, H3: 1, H4: 1, H5: 1, H6: 1 };"),
+        )
         // 插入入口必须先判规则表
         assertTrue("insert() 要先判 INSERT_INSIDE", js.contains("if (INSERT_INSIDE[el.tagName])"))
         // 内部插入时原文要被包进包裹层（仅译文模式靠它只藏原文，而不是藏掉整个单元格）
         assertTrue("内部插入要包 .bb-tr-src 包裹层", js.contains("src.className = 'bb-tr-src'"))
         assertTrue("包裹层要能被清空时识别", js.contains("setAttribute('data-bb-wrap', '1')"))
+    }
+
+    /**
+     * 标题的译文必须**插进标题内部**。
+     *
+     * 真机现象：h1「DeepSeek Harness」的译文被插成兄弟节点，落在 markdown 的
+     * `h1 { border-bottom }` **下面**，看起来像「引用了下一段」的卡片，跟标题脱开了。
+     * 顺带钉住「标题里用 `<span>`」：`<h1>` 只接受短语内容，塞 `<div>` 与往 `<ul>` 里塞
+     * `<div>` 是同一类非法结构。
+     */
+    @Test
+    fun `标题译文插进标题内部且用 span`() {
+        val js = domScript()
+        listOf("H1", "H2", "H3", "H4", "H5", "H6").forEach {
+            assertTrue("$it 必须在 INSERT_INSIDE 里（否则译文落到标题下边框之外）", js.contains("$it: 1"))
+        }
+        assertTrue("标题里的译文要用 span（h1 只接受短语内容）", js.contains("/^H[1-6]$/.test(el.tagName)"))
+        assertTrue("容器构造要支持 span 分支", js.contains("createElement(inline ? 'span' : 'div')"))
+        assertTrue("兄弟节点的普通块仍然用 div", js.contains("makeTranslation(translated, false)"))
     }
 
     @Test

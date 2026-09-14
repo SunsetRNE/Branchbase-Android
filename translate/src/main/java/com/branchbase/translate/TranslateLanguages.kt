@@ -108,7 +108,32 @@ data class PageRules(
 
     companion object {
 
-        /** 网页版沉浸式翻译 `isNeedToTranslate` 的六条跳过规则，按 GitHub 正文场景裁剪。 */
+        /**
+         * 语言切换行：**语言名 ×2 + 一个分隔符**，整行只由这些组成。
+         *
+         * 语言名写成 `[Ee]nglish` 这种首字母双写，而不是给正则加 `(?i)`：这条规则要**同时**
+         * 在 Kotlin（`Regex`）和页面脚本（`new RegExp(源码)`，不带 flags）里跑，
+         * 而 JS 不支持内联标志位 —— 加了 `(?i)` 在 JS 侧是「正则编译失败、这条规则静默失效」。
+         */
+        val LANGUAGE_SWITCH_PATTERN: String = run {
+            val names = listOf(
+                "English", "Chinese", "Japanese", "Korean", "Spanish", "French",
+                "German", "Italian", "Portuguese", "Russian",
+                "中文", "简体中文", "繁體中文", "日本語", "한국어",
+            )
+            val any = names.joinToString("|") { n ->
+                if (n[0].code < 128) {
+                    "[" + n[0].lowercaseChar() + n[0].uppercaseChar() + "]" + n.substring(1)
+                } else {
+                    n
+                }
+            }
+            "^($any)\\s*[|｜/·]\\s*($any)$"
+        }
+
+        /** 网页版沉浸式翻译 `isNeedToTranslate` 的六条跳过规则（按 GitHub 正文场景裁剪）
+         * + 一条「语言切换行」——后者要**先**声明：Kotlin 伴生对象的属性按书写顺序初始化，
+         * 写在后面的话前者会读到 null（编译不报错，规则静默失效）。 */
         val DEFAULT_SKIP_PATTERNS: List<String> = listOf(
             // 纯数字（含千分位、小数、百分比、区间）
             "^[0-9\\s.,%+\\-~/×]+$",
@@ -120,6 +145,9 @@ data class PageRules(
             "^[@#][A-Za-z0-9_-]{1,40}$",
             // HTML 标签残留（GitHub 偶尔把 <style>/<script> 片段塞进正文）
             "<\\s*/?\\s*(script|style|link)\\b",
+            // 语言切换行（`English | 中文`、`日本語 / English`）：它是**导航**不是正文，
+            // 翻出来只会得到「英文| 中文」这种四不像（真机截图里就有一条）。
+            LANGUAGE_SWITCH_PATTERN,
         )
 
         val DEFAULT: PageRules = PageRules()

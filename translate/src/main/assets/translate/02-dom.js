@@ -26,11 +26,15 @@
 
   // 译文**必须插进元素内部**的标签。
   //
-  // 这些标签的父节点只允许特定子元素（`<ul>/<ol>` 里只能放 `<li>`、`<tr>` 里只能放
-  // `<td>/<th>`），把译文当兄弟节点插进去就是**非法结构**：浏览器把它当匿名内容处理，
-  // 表现为「列表的缩进/编号乱掉」「表格被撑开、列错位」——「拼接在不同结构上的
-  // 兼容性问题」主要就出在这两处。插到元素内部则天然合法。
-  var INSERT_INSIDE = { LI: 1, TD: 1, TH: 1 };
+  // 前三个（列表项 / 表格单元格）是**结构合法性**问题：`<ul>/<ol>` 里只允许 `<li>`、
+  // `<tr>` 里只允许 `<td>/<th>`，把译文当兄弟节点插进去就是非法 HTML，浏览器按匿名内容
+  // 处理，表现为「列表的缩进/编号乱掉」「表格被撑开、列错位」。
+  //
+  // 标题（h1–h6）是**排版归属**问题：markdown 的 h1/h2 带 `border-bottom`
+  // （见 app 的 `assets/github-markdown-*.css`），译文插成兄弟节点会落到那条横线**下面**，
+  // 看起来像「引用下一段」的卡片，跟它本该跟随的标题脱开了。插进标题内部则与原文同属一个
+  // 标题块，横线（标题块末尾）留在译文之后。
+  var INSERT_INSIDE = { LI: 1, TD: 1, TH: 1, H1: 1, H2: 1, H3: 1, H4: 1, H5: 1, H6: 1 };
 
   // 命中即不翻：代码块、行内代码、语法高亮、已插入的译文、标题锚点、显式排除
   // （.blob-code / table.diff 是 GitHub 文件页与 diff 的代码容器，属于「误翻重灾区」）
@@ -95,12 +99,19 @@
 
   /* ───────────── 译文插入 ───────────── */
 
-  function makeTranslation(translated) {
-    var div = document.createElement('div');
-    div.className = 'bb-tr';
-    div.setAttribute('lang', state.to);
-    div.textContent = translated;
-    return div;
+  /**
+   * 译文容器。
+   *
+   * @param inline true = 用 `<span>`：**标题只接受短语内容**，往里塞 `<div>` 和往 `<ul>` 里
+   *   塞 `<div>` 是同一类错误（浏览器按匿名内容处理）。`.bb-tr` 自带 `display: block`，
+   *   所以 span 的排版与 div 完全一致，不需要额外的定位样式。
+   */
+  function makeTranslation(translated, inline) {
+    var el = document.createElement(inline ? 'span' : 'div');
+    el.className = 'bb-tr';
+    el.setAttribute('lang', state.to);
+    el.textContent = translated;
+    return el;
   }
 
   /**
@@ -123,7 +134,7 @@
     }
     // 标记源元素：仅译文模式下由 CSS 隐藏它（切回对照只需去掉 body 上的类）
     if (el.classList) el.classList.add('bb-tr-src');
-    if (el.parentNode) el.parentNode.insertBefore(makeTranslation(translated), el.nextSibling);
+    if (el.parentNode) el.parentNode.insertBefore(makeTranslation(translated, false), el.nextSibling);
   }
 
   /**
@@ -143,7 +154,8 @@
       while (el.firstChild) src.appendChild(el.firstChild);
       el.appendChild(src);
     }
-    el.appendChild(makeTranslation(translated));
+    // 标题只能用短语内容（span），其余内部插入（li / td / th）用 div
+    el.appendChild(makeTranslation(translated, /^H[1-6]$/.test(el.tagName)));
   }
 
   /* ───────────── 视口优先 ───────────── */
