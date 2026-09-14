@@ -3,7 +3,9 @@
 pub mod client;
 pub mod github;
 pub mod graphql;
+pub mod web;
 
 pub use client::ApiClient;
 pub use github::GitHubApi;
 pub use graphql::GraphQLApi;
+pub use web::WebSession;

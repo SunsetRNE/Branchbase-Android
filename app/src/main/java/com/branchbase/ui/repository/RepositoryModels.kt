@@ -28,6 +28,17 @@ data class RepoInfo(
     val ownerType: String? = null,
     /** 当前登录用户是否有 issue 分诊权限（`permissions.triage`）—— 决定关闭/重开按钮。 */
     val canTriage: Boolean = false,
+    /**
+     * 是否允许复刻（`allow_forking`）。
+     *
+     * 组织可以整体关闭复刻，此时网页版的复刻按钮是禁用态；判定见
+     * [RepoRelationRules.forkDecision]。默认 `true`：字段缺失（老缓存）时不能把按钮误判成禁用。
+     */
+    val allowForking: Boolean = true,
+    /** 本仓库自身是否是一个复刻（`fork`）。 */
+    val isFork: Boolean = false,
+    /** 复刻来源的 `owner/name`（`parent.full_name`），非复刻为 null。 */
+    val parentFullName: String? = null,
 )
 
 // ── 链接跳转目标（对齐 matcher 输出） ──
@@ -84,6 +95,13 @@ fun parseRepoInfo(json: String): RepoInfo? = runCatching {
         canPull = o.optJSONObject("permissions")?.optBoolean("pull", true) ?: true,
         isPrivate = o.optBoolean("private", false),
         ownerType = o.optJSONObject("owner")?.optString("type")?.takeIf { it.isNotBlank() },
+        // 复刻能力：这三个字段一直就在响应里，此前被整段丢掉 —— 于是复刻按钮
+        // 只能靠一次额外请求（或干脆不判）决定形态。默认 true / false 是「不误判禁用」。
+        allowForking = if (o.has("allow_forking")) o.optBoolean("allow_forking", true) else true,
+        isFork = o.optBoolean("fork", false),
+        parentFullName = o.optJSONObject("parent")
+            ?.optString("full_name")
+            ?.takeIf { it.isNotBlank() },
     )
 }.getOrNull()
 

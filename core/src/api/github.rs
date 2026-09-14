@@ -575,6 +575,20 @@ impl GitHubApi {
         self.client.patch_json(path, body).await
     }
 
+    /// 通用 PUT。
+    ///
+    /// `body` 为空串时发**空体**：星标端点（`PUT /user/starred/{o}/{r}`）官方明确要求
+    /// `Content-Length: 0`，带一个 `{}` 体是不必要的偏离；关注订阅则要 JSON
+    /// （`{"subscribed":true,"ignored":false}`）。两种形态合成一个入口，
+    /// 免得 Kotlin 侧为「空体还是 JSON」再分一次支。
+    pub async fn put_json_or_empty(&self, path: &str, body: &str) -> Result<String> {
+        if body.trim().is_empty() {
+            self.client.put_empty(path).await
+        } else {
+            self.client.put_json(path, body).await
+        }
+    }
+
     /// 通用 DELETE：用于「取消反应」这类需要撤回的操作（`DELETE /reactions/{id}`）。
     /// 没有它就只能加反应不能撤，误触无法挽回。
     pub async fn delete_json(&self, path: &str) -> Result<String> {

@@ -2,6 +2,7 @@ package com.branchbase.ui.repository
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,7 +25,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.CallSplit
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -60,6 +63,17 @@ import org.json.JSONObject
  * 结构：
  * 仓库头（owner/名/描述）→ 星标/复刻/关注 → README → 许可证 → 贡献者 → 语言比例条。
  * 数据源：getRepoInfo / readmeHtml+parseHtml / getRepoLanguages / getRepoContributors。
+ *
+ * ## 仓库信息为什么由外部传入
+ *
+ * 这一页与 [RepositoryScreen] 都要 `GET /repos/{o}/{r}`（前者画头部与三个计数，
+ * 后者取默认分支与 `permissions.push`）。原先两处各发一次，首次进入必然重复 ——
+ * 两个同内容的请求互相竞争，按钮上的计数就卡在这轮往返上。现在统一由
+ * [RepositoryScreen] 取一次，这里只消费 [sharedInfo]。
+ *
+ * @param relation 当前用户与仓库的关系（星标双向态 / 关注档位 / 复刻能力的判定输入）
+ * @param starCount 星标数的显示值（已经算进乐观更新的增量）
+ * @param forkDecision 复刻按钮的形态（见 [RepoRelationRules.forkDecision]）
  */
 @Composable
 fun RepositoryOverviewContent(
@@ -68,8 +82,17 @@ fun RepositoryOverviewContent(
     repo: String,
     branch: String? = null,
     refreshTick: Int = 0,
+    sharedInfo: RepoInfo? = null,
+    relation: RepoViewerRelation? = null,
+    starCount: Long? = null,
+    forkDecision: ForkDecision = ForkDecision(ForkMode.DIALOG),
+    starBusy: Boolean = false,
     onLinkClick: (Destination) -> Unit,
-    onActionClick: (String) -> Unit,
+    onStarClick: () -> Unit = {},
+    onStarLongClick: () -> Unit = {},
+    onWatchClick: () -> Unit = {},
+    onWatchLongClick: () -> Unit = {},
+    onForkClick: () -> Unit = {},
 ) {
     val session = remember(sessionJson) { runCatching { JSONObject(sessionJson) }.getOrNull() }
     val host = session?.optString("host", "github.com") ?: "github.com"
@@ -77,7 +100,7 @@ fun RepositoryOverviewContent(
     val login = session?.optJSONObject("user")?.optString("login").orEmpty()
     val context = LocalContext.current
 
-    var repoInfo by remember { mutableStateOf<RepoInfo?>(null) }
+    var repoInfo by remember { mutableStateOf<RepoInfo?>(sharedInfo) }
     var readmeHtml by remember { mutableStateOf<String?>(null) }
     var effectiveBranch by remember { mutableStateOf("main") }
     var languages by remember { mutableStateOf<List<LanguageStat>>(emptyList()) }
@@ -85,25 +108,36 @@ fun RepositoryOverviewContent(
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     // 分区加载态：缓存直出后仍可能有一两块在回源，避免显示成「暂无…」
-    var infoLoading by remember { mutableStateOf(true) }
+    var infoLoading by remember { mutableStateOf(sharedInfo == null) }
     var readmeLoading by remember { mutableStateOf(true) }
     var langLoading by remember { mutableStateOf(true) }
     var contribLoading by remember { mutableStateOf(true) }
 
+    // 外部（RepositoryScreen）拿到仓库信息后补进来 —— 它同时解决了默认分支的判定
+    LaunchedEffect(sharedInfo) {
+        if (sharedInfo != null) {
+            repoInfo = sharedInfo
+            infoLoading = false
+            if (branch == null && effectiveBranch == "main") effectiveBranch = sharedInfo.defaultBranch
+        }
+    }
+
     /**
      * 加载仓库页数据。
      *
-     * 三段式（本轮优化）：
+     * 三段式：
      * 1. **缓存直出**：先读（可过期的）整页缓存 —— 有就立刻渲染，不转圈；
-     * 2. **并行回源**：仓库信息 / 语言 / 贡献者三个请求并发；README 依赖默认分支，
-     *    在拿到分支后立刻与它们并行（原来是 4 个请求串行，一次冷连接握手就要 390ms）；
+     * 2. **并行回源**：语言 / 贡献者两个请求并发；README 依赖默认分支，
+     *    在拿到分支后立刻与它们并行；
      * 3. **按块收敛**：每块数据到达即单独落地，先到的先显示。
+     *
+     * 仓库信息不在这里回源（见上面的类注释），只吃缓存直出 + 外部传入。
      */
     LaunchedEffect(owner, repo, branch, refreshTick) {
         val cacheManager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
         val force = refreshTick > 0
         error = null
-        infoLoading = true
+        infoLoading = repoInfo == null
         readmeLoading = true
         langLoading = true
         contribLoading = true
@@ -111,10 +145,11 @@ fun RepositoryOverviewContent(
         // ── ① 缓存直出（含过期数据）：命中即先渲染 ──
         if (!force) {
             val staleInfo = cacheManager.getStale(PreloadStore.infoKey(owner, repo), PreloadStore.TYPE_INFO)
-            val staleBranch = branch ?: defaultBranchOf(staleInfo) ?: "main"
+            val staleBranch = branch ?: defaultBranchOf(staleInfo) ?: repoInfo?.defaultBranch ?: "main"
             val bundle = PreloadStore.readStaleBundle(cacheManager, owner, repo, staleBranch)
             if (bundle.usable) {
-                bundle.info?.let { parseRepoInfo(it) }?.let { repoInfo = it }
+                // 外部传入的值更新（它来自同一个请求，但可能比缓存新）
+                bundle.info?.let { parseRepoInfo(it) }?.let { if (repoInfo == null) repoInfo = it }
                 effectiveBranch = staleBranch
                 bundle.readme?.let { readmeHtml = it; readmeLoading = false }
                 bundle.languages?.let { languages = parseLanguages(it); langLoading = false }
@@ -123,16 +158,8 @@ fun RepositoryOverviewContent(
             }
         }
 
-        // ── ② 并行回源 ──
+        // ── ② 并行回源（仓库信息由外部提供，这里只发剩下两个） ──
         coroutineScope {
-            val infoJob = async {
-                val key = PreloadStore.infoKey(owner, repo)
-                val cached = if (force) null else cacheManager.get(key, PreloadStore.TYPE_INFO)
-                val json = cached ?: RustBridge.getRepoInfo(host, token, owner, repo)
-                    ?.takeIf { !it.startsWith("ERROR:") }
-                    ?.also { cacheManager.put(key, PreloadStore.TYPE_INFO, it) }
-                json?.let { parseRepoInfo(it) }
-            }
             val langJob = async {
                 val key = PreloadStore.langKey(owner, repo)
                 val cached = if (force) null else cacheManager.get(key, PreloadStore.TYPE_LANG)
@@ -150,12 +177,10 @@ fun RepositoryOverviewContent(
                 json?.let { parseContributors(it) }
             }
 
-            val info = infoJob.await()
-            if (info != null) repoInfo = info
             // 实际分支：用户选择 ?: 仓库默认分支 ?: 上一次的值 ?: main
-            effectiveBranch = branch ?: info?.defaultBranch ?: effectiveBranch
-            infoLoading = false
-            if (info == null && repoInfo == null) error = "仓库不存在或无权访问"
+            effectiveBranch = branch ?: repoInfo?.defaultBranch ?: effectiveBranch
+            infoLoading = repoInfo == null
+            if (repoInfo == null && !loading) error = "仓库不存在或无权访问"
 
             // README 依赖默认分支 → 拿到分支后立刻与上面两个请求并行
             val readmeJob = async {
@@ -190,7 +215,21 @@ fun RepositoryOverviewContent(
             error != null && repoInfo == null -> ErrorState(error!!)
             else -> LazyColumn(Modifier.fillMaxSize()) {
                 item { RepoHeader(repoInfo) }
-                item { ActionRow(repoInfo, onActionClick) }
+                item {
+                    ActionRow(
+                        stars = starCount ?: repoInfo?.stars,
+                        forks = repoInfo?.forks,
+                        watchers = repoInfo?.watchers,
+                        relation = relation,
+                        forkDecision = forkDecision,
+                        busy = starBusy,
+                        onStarClick = onStarClick,
+                        onStarLongClick = onStarLongClick,
+                        onWatchClick = onWatchClick,
+                        onWatchLongClick = onWatchLongClick,
+                        onForkClick = onForkClick,
+                    )
+                }
                 // 分支同步入口不在这里：它是写操作、又占掉首屏一整行，已收进底部栏 ⋮ 气泡
                 // （见 RepositoryScreen 的 bubbleEntries，按 canPush 门控）。
 
@@ -254,35 +293,107 @@ private fun RepoHeader(info: RepoInfo?) {
     }
 }
 
+/**
+ * 星标 / 复刻 / 关注三连按钮。
+ *
+ * 三个按钮的**形态**都由判定结果决定，而不是固定文案：
+ * - 星标：`relation.starred` 决定实心/空心与文案（收藏 ↔ 取消收藏的双向态）；
+ * - 关注：`relation.subscription == IGNORE` 时换成「已忽略」的图标，避免看着像在关注；
+ * - 复刻：`forkDecision.mode == DISABLED` 才置灰 —— 自己的仓库不是禁用，是「只能看复刻列表」。
+ *
+ * 长按与点击分开（网页版也有这两层）：长按看列表，点击做动作。
+ */
 @Composable
-private fun ActionRow(info: RepoInfo?, onActionClick: (String) -> Unit) {
+private fun ActionRow(
+    stars: Long?,
+    forks: Long?,
+    watchers: Long?,
+    relation: RepoViewerRelation?,
+    forkDecision: ForkDecision,
+    busy: Boolean,
+    onStarClick: () -> Unit,
+    onStarLongClick: () -> Unit,
+    onWatchClick: () -> Unit,
+    onWatchLongClick: () -> Unit,
+    onForkClick: () -> Unit,
+) {
+    val starred = relation?.starred == true
+    val ignoring = relation?.subscription == WatchLevel.IGNORE
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        ActionButton(Icons.Filled.Star, "星标", info?.stars) { onActionClick("star") }
-        ActionButton(Icons.AutoMirrored.Filled.CallSplit, "复刻", info?.forks) { onActionClick("fork") }
-        ActionButton(Icons.Filled.Visibility, "关注", info?.watchers) { onActionClick("watch") }
+        ActionButton(
+            icon = if (starred) Icons.Filled.Star else Icons.Filled.StarBorder,
+            label = if (starred) "已星标" else "星标",
+            count = stars,
+            selected = starred,
+            enabled = !busy,
+            onClick = onStarClick,
+            onLongClick = onStarLongClick,
+        )
+        ActionButton(
+            icon = Icons.AutoMirrored.Filled.CallSplit,
+            label = "复刻",
+            count = forks,
+            enabled = forkDecision.mode != ForkMode.DISABLED,
+            onClick = onForkClick,
+        )
+        ActionButton(
+            icon = if (ignoring) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+            label = if (ignoring) "已忽略" else "关注",
+            count = watchers,
+            selected = ignoring,
+            onClick = onWatchClick,
+            onLongClick = onWatchLongClick,
+        )
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun RowScope.ActionButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, count: Long?, onClick: () -> Unit) {
+private fun RowScope.ActionButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    count: Long?,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+    selected: Boolean = false,
+    enabled: Boolean = true,
+) {
     Row(
         modifier = Modifier
             .weight(1f)
             .clip(RoundedCornerShape(6.dp))
-            .background(Primer.Gray150)
-            .clickable { onClick() }
+            .background(if (selected) Primer.SelectedRow else Primer.Gray150)
+            // clip 必须在点击节点之前：否则水波纹是方的（与 iconTap 同一约定）
+            .combinedClickable(
+                enabled = enabled,
+                onClick = onClick,
+                onLongClick = onLongClick,
+            )
             .padding(vertical = 6.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = label, tint = Primer.IconPrimary, modifier = Modifier.size(14.dp))
+        Icon(
+            icon,
+            contentDescription = label,
+            tint = when {
+                !enabled -> Primer.TextTertiary
+                selected -> Primer.Blue500
+                else -> Primer.IconPrimary
+            },
+            modifier = Modifier.size(14.dp),
+        )
         Spacer(Modifier.width(5.dp))
-        Text(label, fontSize = 12.sp, color = Primer.TextSecondary)
+        Text(
+            label,
+            fontSize = 12.sp,
+            color = if (selected) Primer.Blue500 else Primer.TextSecondary,
+        )
         count?.let {
             Spacer(Modifier.width(4.dp))
             Text(formatCount(it), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)

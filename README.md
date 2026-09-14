@@ -627,6 +627,54 @@ PATCH 的默认值是 `legacy`（= 不动归属），所以编辑标题/正文�
 `快进 main → beta` / `覆盖 beta（丢弃 2 个提交）`，取代原来笼统的「同步 main → beta」。
 换了分支对之后，原先选中的模式若已被禁用会**自动退回「合并」**，不会留下「高亮的那一项是灰的、点不动」。
 
+## ⭐ 星标 / 关注 / 复刻：判定规则收在纯函数里
+
+这三个按钮此前**没有任何判定**：三个都无条件跳同一个列表页（星标者 / 复刻 / 关注者），
+既没有「已星标」的双向态，也不区分仓库是不是自己的。现在：
+
+| 按钮 | 点击 | 长按 |
+|---|---|---|
+| 星标 | 收藏 ↔ 取消收藏（`PUT`/`DELETE /user/starred/{o}/{r}`，乐观更新 + 失败回滚） | 星标者列表 |
+| 关注 | Watch 控制面板：Participating and @mentions / All Activity / Ignore / Custom + Watch settings | 关注者列表 |
+| 复刻 | **自己的仓库** → 复刻列表；**他人仓库** → 网页版复刻流程（账户 / 命名 / 重名校验 / 只复刻默认分支）；被组织禁用 → 置灰并说明原因 | — |
+
+判定全部收在 `RepoRelationRules`（`RepoRelation.kt`，**纯函数 + 22 条单测**），
+因为每一处误判都有真实后果：复刻判错会对别人的仓库弹「不能复刻自己的仓库」，
+星标判错则是点一下**给别人的仓库取消了收藏**。
+
+### 判定输入有三个来源，精度不同
+
+| 来源 | 拿到什么 | 代价 |
+|---|---|---|
+| 网页 `react-app.embeddedData` | `viewerHasStarred` / `canFork` / `forkabilityError` / `subscriptionType` / **Custom 的可勾选项** | 一次页面抓取（需网页会话） |
+| GraphQL | `viewerHasStarred` / `viewerSubscription` / `forkingAllowed` | 一次查询 |
+| 本地 `owner == login` | 「是不是自己的仓库」——复刻按钮形态的关键分支 | **零网络** |
+
+本地判定放在最前面有意为之：它不需要等任何请求，所以**自持仓库的按钮不会先错后改**。
+另外仓库信息原先在 `RepositoryScreen` 与概览页各取一次（同一进入动作发两个一模一样的
+`GET /repos/{o}/{r}`），按钮上的计数就卡在这轮重复往返上 —— 现在统一由前者取、后者消费。
+
+### Custom 通知：唯一需要网页会话的能力
+
+仓库级「自定义通知」**没有公开 API**：REST 的 `PUT /repos/{o}/{r}/subscription` 只有
+`subscribed` / `ignored` 两个布尔，GraphQL 的 `SubscriptionState` 只有三态，都表达不了
+「只收 Issues + Releases」。网页版走的是内部端点
+`POST /{owner}/{repo}/notifications/subscribe`（`do=custom` + `thread_types[]`）。
+
+而 OAuth token **到不了那里** —— 实测 github.com 的 HTML 与内部端点只认浏览器会话 Cookie，
+带 `Authorization: token/bearer` 或 Basic 一律 302 到 `/login`。所以：内嵌 WebView 登录一次
+（`GithubWebLoginScreen`），导出 Cookie 存本机（`GithubWebSession`），之后的网页请求由 Rust 侧发，
+并照搬网页版的防伪头（`X-Fetch-Nonce` 每次页面加载都变，所以每次写入前先取一次页面）。
+
+其余能力一律走官方 API，不打扰用户：**只有点 Custom 且没有会话时，才会引导登录。**
+
+### 列表：失败不再伪装成「空」
+
+星标者 / 关注者列表原先把 403 / 404 / 限流 / 真没人一律折叠成 `null`，界面统一显示「暂无内容」。
+2026-07 起 GitHub 已把 `/stargazers`、`/subscribers` 限制为**管理员与协作者**可见
+（非协作者拿 403 或空响应），这个歧义从理论问题变成了常态 —— 现在按状态码分别给话，
+并补上 `per_page=100`（此前默认 30 条且没有翻页入口）。
+
 ## ⚙️ 设置页：一份规范 + 一次重绘
 
 设置页是「**唯一一个每个功能都要来挂一行的地方**」，所以它天然会变成拼接现场。

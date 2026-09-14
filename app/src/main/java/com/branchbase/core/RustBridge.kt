@@ -119,6 +119,28 @@ object RustBridge {
     /** 通用 PATCH：编辑评论正文 / 勾选任务清单等。 */
     private external fun nativePatchJson(host: String, token: String, path: String, body: String): String
 
+    /**
+     * 通用 PUT（空 body = 发空体）。
+     *
+     * 星标与关注都只有 PUT/DELETE，没有 POST —— 这是本函数存在的唯一原因。
+     */
+    private external fun nativePutJson(host: String, token: String, path: String, body: String): String
+
+    /**
+     * 取仓库页的判定数据（`react-app.embeddedData` 的 JSON，网页版关系态的唯一真源）。
+     * cookie 来自内嵌 WebView 的登录会话；未登录时网页只会给 `not_logged_in`。
+     */
+    private external fun nativeWebRepoEmbedded(host: String, cookie: String, owner: String, repo: String): String
+
+    /** 调网页内部 POST 端点（`formJson` 为 `[[k,v],…]`，支持同名多值）。 */
+    private external fun nativeWebPostForm(
+        host: String,
+        cookie: String,
+        pagePath: String,
+        postPath: String,
+        formJson: String,
+    ): String
+
     /** 通用 DELETE：取消反应等撤回操作。 */
     private external fun nativeDeleteJson(host: String, token: String, path: String): String
 
@@ -483,6 +505,72 @@ object RustBridge {
         withContext(Dispatchers.IO) {
             nativePatchJson(host, token, path, bodyJson).ifBlank { null }
         }
+
+    /**
+     * 通用 PUT（null = 成功，非 null = 失败原因）。
+     *
+     * [bodyJson] 传空串会发**空体**（星标端点要求 `Content-Length: 0`）；
+     * 关注订阅则传 `{"subscribed":…,"ignored":…}`。
+     */
+    suspend fun putJson(
+        host: String,
+        token: String,
+        path: String,
+        bodyJson: String = "",
+    ): String? = withContext(Dispatchers.IO) {
+        try {
+            err(nativePutJson(host, token, path, bodyJson))
+        } catch (e: Throwable) {
+            "引擎不可用"
+        }
+    }
+
+    /**
+     * 仓库页判定数据（`react-app.embeddedData` 的 JSON；null = 拉取失败）。
+     *
+     * 这是**网页版关系态的唯一真源**：星标 / 复刻 / 关注三者的真实状态、
+     * 复刻被禁的具体原因（`forkabilityError`）、Custom 通知的可选项都在里面。
+     * 没有网页会话（[cookie] 为空）时只会拿到未登录数据，调用方应回退到 API 判定。
+     */
+    suspend fun webRepoEmbedded(host: String, cookie: String, owner: String, repo: String): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                nativeWebRepoEmbedded(host, cookie, owner, repo)
+                    .takeIf { it.isNotBlank() && !it.startsWith("ERROR:") }
+            } catch (e: Throwable) {
+                null // .so 未重编译时优雅降级
+            }
+        }
+
+    /**
+     * 调网页内部端点，返回**原始响应体**（空 = 无响应；失败时是 `ERROR:` 开头的串）。
+     *
+     * 为什么不像其它写操作那样折叠成「null = 成功」：网页端点的成败写在响应体里
+     * （`{"ok":true}` / `{"error":"limit_exceeded"}`），HTTP 状态两种都是 200 ——
+     * 折叠掉 body 就没法区分「写成功」与「被限制」了。解析放调用方（见 `RepoActions`）。
+     *
+     * 仅用于公开 API 覆盖不到的能力（当前是仓库级「自定义通知」）：
+     * 必须带**已登录**的浏览器会话 cookie，`X-Fetch-Nonce` 等防伪头由 Rust 侧
+     * 从 [pagePath] 现场抓取（每次页面加载都变，不能缓存）。
+     *
+     * @param fields `[[k,v],…]`：同名多值（`thread_types[]`）靠数组顺序表达
+     */
+    suspend fun webPostForm(
+        host: String,
+        cookie: String,
+        pagePath: String,
+        postPath: String,
+        fields: List<Pair<String, String>>,
+    ): String? = withContext(Dispatchers.IO) {
+        try {
+            val json = org.json.JSONArray().apply {
+                fields.forEach { (k, v) -> put(org.json.JSONArray().put(k).put(v)) }
+            }.toString()
+            nativeWebPostForm(host, cookie, pagePath, postPath, json).ifBlank { null }
+        } catch (e: Throwable) {
+            "引擎不可用"
+        }
+    }
 
     /**
      * 编辑 issue 评论正文（null = 成功，非 null = 错误消息）。

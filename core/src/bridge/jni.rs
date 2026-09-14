@@ -2072,3 +2072,84 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeDispatchWorkflo
     });
     into_jstring(&mut env, result)
 }
+
+// ── 仓库关系（星标 / 关注 / 复刻）的写入与网页通道 ──
+
+/// 通用 PUT（JSON body；空串 = 发空体）
+/// 参数：host, token, path, body
+///
+/// 星标是 `PUT /user/starred/{o}/{r}`（空体，官方要求 `Content-Length: 0`），
+/// 关注是 `PUT /repos/{o}/{r}/subscription`（JSON）。两者共用这一个入口。
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativePutJson<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+    path: JString<'local>,
+    body: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+    let path = jstr(&mut env, &path);
+    let body = jstr(&mut env, &body);
+    let result: crate::error::Result<String> = block_on(async move {
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client).put_json_or_empty(&path, &body).await
+    });
+    into_jstring(&mut env, result)
+}
+
+/// 取仓库页的判定数据（`react-app.embeddedData`，网页版的唯一真源）
+/// 参数：host, cookie, owner, repo
+///
+/// 返回的是**已剥离出来的小 JSON**（几 KB），不是 230KB 的整页 HTML ——
+/// 调用方要解析 `payload.sidebarAbout` 里的 star / fork / watch。
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeWebRepoEmbedded<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    cookie: JString<'local>,
+    owner: JString<'local>,
+    repo: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let cookie = jstr(&mut env, &cookie);
+    let owner = jstr(&mut env, &owner);
+    let repo = jstr(&mut env, &repo);
+    let result: crate::error::Result<String> = block_on(async move {
+        crate::api::WebSession::new(host, cookie).repo_embedded(&owner, &repo).await
+    });
+    into_jstring(&mut env, result)
+}
+
+/// 调网页内部端点（POST 表单）
+/// 参数：host, cookie, pagePath, postPath, formJson
+///
+/// `formJson` 是 `[[key, value], …]` —— 用数组而不是对象，是因为
+/// `thread_types[]` 需要**同名多值**，JSON 对象表达不了。
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeWebPostForm<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    cookie: JString<'local>,
+    page_path: JString<'local>,
+    post_path: JString<'local>,
+    form_json: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let cookie = jstr(&mut env, &cookie);
+    let page_path = jstr(&mut env, &page_path);
+    let post_path = jstr(&mut env, &post_path);
+    let form_json = jstr(&mut env, &form_json);
+    let result: crate::error::Result<String> = block_on(async move {
+        let pairs: Vec<(String, String)> = serde_json::from_str(&form_json)
+            .map_err(|e| crate::error::CoreError::InvalidArgument(format!("表单字段不是 [[k,v],…]：{e}")))?;
+        crate::api::WebSession::new(host, cookie)
+            .post_form(&page_path, &post_path, &pairs)
+            .await
+    });
+    into_jstring(&mut env, result)
+}

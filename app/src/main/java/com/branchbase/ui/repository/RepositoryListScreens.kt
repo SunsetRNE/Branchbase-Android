@@ -785,18 +785,30 @@ fun PeopleListScreen(
     var users by remember { mutableStateOf<List<UserItem>>(emptyList()) }
     var forks by remember { mutableStateOf<List<ForkItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var tick by remember { mutableStateOf(0) }
 
     val title = when (type) { "star" -> "星标者"; "fork" -> "复刻"; else -> "关注者" }
+    // per_page=100：GitHub 默认只给 30 条，而这一页没有翻页入口 —— 不写就是
+    // 「第 31 个人永远看不到」且界面毫无提示（与 /user/starred 同一处理）。
     val path = when (type) {
-        "star" -> "/repos/$owner/$repo/stargazers"
-        "fork" -> "/repos/$owner/$repo/forks"
-        else -> "/repos/$owner/$repo/subscribers"
+        "star" -> "/repos/$owner/$repo/stargazers?per_page=100"
+        "fork" -> "/repos/$owner/$repo/forks?per_page=100&sort=newest"
+        else -> "/repos/$owner/$repo/subscribers?per_page=100"
     }
 
-    LaunchedEffect(owner, repo, type) {
+    LaunchedEffect(owner, repo, type, tick) {
         loading = true
-        RustBridge.getJson(host, token, path)?.takeIf { !it.startsWith("ERROR:") }?.let { json ->
-            if (type == "fork") forks = parseForks(json) else users = parseUsers(json)
+        error = null
+        val raw = RustBridge.getJson(host, token, path)
+        when {
+            raw == null -> error = "没有拿到数据，请稍后重试。"
+            // 失败与「真的没有人」必须分开：2026-07 起 GitHub 已把
+            // `/stargazers`、`/subscribers` 限制为管理员与协作者可见，
+            // 非协作者拿到的是 403 —— 再显示「暂无内容」就是在骗用户
+            raw.startsWith("ERROR:") -> error = peopleListErrorText(type, raw)
+            type == "fork" -> forks = parseForks(raw)
+            else -> users = parseUsers(raw)
         }
         loading = false
     }
@@ -819,11 +831,37 @@ fun PeopleListScreen(
         }
         when {
             loading -> ListLoading()
+            error != null -> ListError(error!!, onRetry = { tick++ })
             type == "fork" && forks.isEmpty() -> ListEmpty("暂无复刻")
             type != "fork" && users.isEmpty() -> ListEmpty("暂无内容")
             type == "fork" -> LazyColumn(Modifier.fillMaxSize()) { items(forks) { ForkRow(it) } }
             else -> LazyColumn(Modifier.fillMaxSize()) { items(users) { UserRow(it) } }
         }
+    }
+}
+
+/**
+ * 星标者 / 关注者 / 复刻列表的失败文案（纯函数，便于单测）。
+ *
+ * 存在的理由：这三个列表原先把一切失败都折叠成 null，界面统一显示「暂无内容」——
+ * 403（GitHub 限制）、404（仓库没了）、429（限流）与「真的没有人」在用户眼里一模一样。
+ * 2026 年 7 月起 `/stargazers`、`/subscribers` 已限制为**管理员与协作者**可见，
+ * 这个歧义从「理论问题」变成了常态。
+ */
+internal fun peopleListErrorText(type: String, rawError: String): String {
+    val subject = when (type) {
+        "star" -> "星标者"
+        "fork" -> "复刻列表"
+        else -> "关注者"
+    }
+    val code = Regex("HTTP (\\d{3})").find(rawError)?.groupValues?.get(1)
+    return when {
+        rawError.contains("403") || code == "403" ->
+            "GitHub 已把$subject 列表限制为仓库协作者可见，你没有权限查看。"
+        rawError.contains("404") || code == "404" -> "仓库不存在或无权访问。"
+        rawError.contains("429") || rawError.contains("rate limit", ignoreCase = true) ->
+            "触发 GitHub 限流，请稍后再试。"
+        else -> "$subject 加载失败：${rawError.removePrefix("ERROR:").take(120)}"
     }
 }
 

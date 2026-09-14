@@ -20,11 +20,28 @@ object PreloadStore {
     const val TYPE_CONTRIB = "仓库贡献者"
     const val TYPE_BRANCH = "分支"
 
+    /**
+     * 当前用户与仓库的关系（星标双向态 / Watch 档位 / 复刻能力）。
+     *
+     * **刻意不进 [RepoPrefetcher] 的预取包**：页面进入时会自己判定一次，预取同一个东西
+     * 只会把它变成两次请求；这里的缓存是为了「返回上一层再进来」不再重复判定。
+     */
+    const val TYPE_RELATION = "仓库关系"
+
     // ── 缓存键（唯一来源，禁止在别处手拼） ──
     fun infoKey(owner: String, repo: String) = "repo-info:$owner/$repo"
     fun langKey(owner: String, repo: String) = "repo-lang:$owner/$repo"
     fun contribKey(owner: String, repo: String) = "repo-contrib:$owner/$repo"
     fun branchKey(owner: String, repo: String) = "$owner/$repo"
+
+    /**
+     * 关系态缓存键。
+     *
+     * **必须带账号**：同一台设备可以挂多个 GitHub 账号（见 `AccountStore`），
+     * 星标/关注是「谁在看」的属性 —— 不带 login 的话，切换账号后会把上一个账号的
+     * 「已星标」显示在新账号上，点一下还会真的改错账号的状态。
+     */
+    fun relationKey(account: String, owner: String, repo: String) = "repo-relation:$account:$owner/$repo"
 
     /**
      * README 的缓存键**必须**带解析后的真实分支（而不是调用方传进来的 null/空串），

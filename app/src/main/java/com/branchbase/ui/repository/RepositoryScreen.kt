@@ -3,6 +3,7 @@ package com.branchbase.ui.repository
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -72,6 +73,7 @@ import com.branchbase.cache.PrefetchReason
 import com.branchbase.cache.RepoPrefetcher
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
+import com.branchbase.core.GithubWebSession
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.navigation.NavigationShell
@@ -162,6 +164,19 @@ fun RepositoryScreen(
     var releaseEditTarget by remember { mutableStateOf<ReleaseItem?>(null) }
     var showReleaseEdit by remember { mutableStateOf(false) }
     var repoCanPush by remember { mutableStateOf(false) }
+    // 仓库信息的完整对象：项目页头部与三个计数都用它，**不再让项目页自己再取一次**
+    var repoInfo by remember { mutableStateOf<RepoInfo?>(null) }
+    // ── 星标 / 关注 / 复刻（三个按钮的判定与交互状态） ──
+    // relation = 当前用户与仓库的关系（星标双向态 / Watch 档位 / 复刻能力）
+    var relation by remember { mutableStateOf<RepoViewerRelation?>(null) }
+    // 网页会话变化后要重新判定（登录成功 / 会话失效都会走这里）
+    var webSessionTick by remember { mutableStateOf(0) }
+    var starBusy by remember { mutableStateOf(false) }
+    // 乐观更新：请求发出前先改界面，失败回滚。这里记的是相对服务端计数的增量
+    var starDelta by remember { mutableStateOf(0L) }
+    var showWatchPanel by remember { mutableStateOf(false) }
+    var showForkDialog by remember { mutableStateOf(false) }
+    var showWebLogin by remember { mutableStateOf(false) }
     // 分支管理 / 分支对比 / 本地分支同步（全屏页）
     var showBranchManage by remember { mutableStateOf(false) }
     var comparePair by remember { mutableStateOf<Pair<String, String>?>(null) }
@@ -232,6 +247,7 @@ fun RepositoryScreen(
             infoJob.await()?.let { info ->
                 if (branch == null) branch = info.defaultBranch
                 repoCanPush = info.canPush
+                repoInfo = info
             }
         }
 
@@ -245,6 +261,85 @@ fun RepositoryScreen(
             repo = repo,
             branch = branch,
         )
+    }
+
+    // ── 星标 / 关注 / 复刻：判定与动作 ──
+    //
+    // 判定规则全部收在 [RepoRelationRules]（纯函数），这里只做「取数 → 落地状态 → 反馈」。
+    // token 复用上面已解好的 sessionToken（本地 git 动作也要它）
+    val sessionHost = remember(sessionJson) { sessionInfo(sessionJson).first }
+    val sessionLogin = remember(sessionJson) { sessionInfo(sessionJson).third }
+    fun toast(text: String) = Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
+
+    /**
+     * 关系态与仓库信息**并行**取。
+     *
+     * 判定输入越早到，按钮越早显示正确形态；它同时提供复刻的 `forkabilityError`
+     * 与 Custom 的当前勾选（两样都是 API 拿不到的，见 [RepoActions.loadRelation]）。
+     */
+    LaunchedEffect(owner, repo, webSessionTick) {
+        relation = RepoActions.loadRelation(context, sessionHost, sessionToken, owner, repo, sessionLogin)
+    }
+    // 刷新后服务端计数会重来一遍，乐观增量必须归零，否则数字会越刷越离谱
+    LaunchedEffect(owner, repo, refreshTick) { starDelta = 0L }
+
+    val forkDecision = RepoRelationRules.forkDecision(relation, repoInfo, owner, sessionLogin)
+
+    /** 星标：收藏 ↔ 取消收藏（双向态）。乐观更新 + 失败回滚。 */
+    fun toggleStar() {
+        if (sessionToken.isBlank()) {
+            toast("请先登录")
+            return
+        }
+        if (starBusy) return
+        val target = RepoRelationRules.starredAfterToggle(relation?.starred == true)
+        relation = (relation ?: RepoViewerRelation()).copy(starred = target)
+        starDelta += RepoRelationRules.starDelta(target)
+        starBusy = true
+        scope.launch {
+            val error = RepoActions.setStar(sessionHost, sessionToken, owner, repo, target)
+            starBusy = false
+            if (error != null) {
+                relation = (relation ?: RepoViewerRelation()).copy(starred = !target)
+                starDelta -= RepoRelationRules.starDelta(target)
+                toast(error)
+            } else {
+                // 写回缓存：否则 5 分钟内再进这个仓库，按钮又变回切换前的样子
+                relation?.let { RepoActions.cacheRelation(context, owner, repo, sessionLogin, it) }
+            }
+        }
+    }
+
+    /** 关注：写入档位。有网页会话时四档都走网页端点（Custom 只有它有）。 */
+    fun applyWatch(level: WatchLevel, threads: List<String>) {
+        showWatchPanel = false
+        scope.launch {
+            val error = RepoActions.setWatch(
+                context = context,
+                host = sessionHost,
+                token = sessionToken,
+                owner = owner,
+                repo = repo,
+                relation = relation,
+                level = level,
+                threadTypes = threads,
+            )
+            if (error == null) {
+                relation = (relation ?: RepoViewerRelation()).copy(subscription = level)
+                relation?.let { RepoActions.cacheRelation(context, owner, repo, sessionLogin, it) }
+            } else {
+                toast(error)
+            }
+        }
+    }
+
+    /** 复刻：按持有者分流 —— 自己的仓库进列表，他人走网页版流程，被禁用则明说。 */
+    fun onForkClick() {
+        when (forkDecision.mode) {
+            ForkMode.LIST_ONLY -> peoplePage = "fork"
+            ForkMode.DISABLED -> toast(forkDecision.reason ?: "该仓库已关闭复刻")
+            ForkMode.DIALOG -> showForkDialog = true
+        }
     }
 
     // 工作流操作抽屉（长按工作流 / 运行历史右上角按钮召唤）。
@@ -281,6 +376,7 @@ fun RepositoryScreen(
     val route: RepoRoute = when {
         showReleaseEdit -> RepoRoute.ReleaseEdit(releaseEditTarget)
         releaseDetail != null -> RepoRoute.ReleaseDetail(releaseDetail!!)
+        showWebLogin -> RepoRoute.WebLogin
         showBranchSync -> RepoRoute.BranchSync
         showBranchManage -> RepoRoute.BranchManage
         comparePair != null -> RepoRoute.BranchCompare(comparePair!!)
@@ -453,6 +549,22 @@ fun RepositoryScreen(
                         )
                     }
 
+                    // 网页会话登录（只有自定义通知需要）。
+                    // 返回键由登录页自己处理（先在网页里后退，退不动才离开本页），
+                    // 这里不再注册第二个 BackHandler，免得两处抢同一次返回。
+                    RepoRoute.WebLogin -> {
+                        GithubWebLoginScreen(
+                            host = sessionHost,
+                            repoPath = "/$owner/$repo",
+                            onBack = { showWebLogin = false },
+                            onLoggedIn = { login ->
+                                showWebLogin = false
+                                webSessionTick++ // 触发关系态重判：网页版能给出最准的判定
+                                toast("已登录网页会话：$login")
+                            },
+                        )
+                    }
+
                     // 文件查看页（全屏）
                     is RepoRoute.File -> {
                         val file = r.page
@@ -618,8 +730,18 @@ fun RepositoryScreen(
                                     when (p) {
                                         RepoPage.Overview -> RepositoryOverviewContent(
                                             sessionJson = sessionJson, owner = owner, repo = repo, branch = branch, refreshTick = refreshTick,
+                                            sharedInfo = repoInfo,
+                                            relation = relation,
+                                            starCount = repoInfo?.stars?.plus(starDelta),
+                                            forkDecision = forkDecision,
+                                            starBusy = starBusy,
                                             onLinkClick = { dest -> handleLink(dest, context, onOpenRepo, { path, lines -> filePage = path to lines }) { page = it } },
-                                            onActionClick = { action -> peoplePage = action },
+                                            // 点击做动作、长按看列表（与网页版的两层交互一致）
+                                            onStarClick = { toggleStar() },
+                                            onStarLongClick = { peoplePage = "star" },
+                                            onWatchClick = { showWatchPanel = true },
+                                            onWatchLongClick = { peoplePage = "watch" },
+                                            onForkClick = { onForkClick() },
                                             // 分支同步入口在底部栏 ⋮ 气泡里（见 bubbleEntries）
                                         )
                                         RepoPage.Code -> RepositoryCodeContent(sessionJson, owner, repo, branch, refreshTick, onOpenFile = { filePage = it to null })
@@ -671,9 +793,67 @@ fun RepositoryScreen(
         }
     }
 
+    // Watch 控制面板（点击「关注」）——四档 + Watch settings，与网页版下拉一一对应
+    if (showWatchPanel) {
+        WatchPanelSheet(
+            current = relation?.subscription ?: WatchLevel.PARTICIPATING,
+            watchersCount = relation?.watchersCount ?: repoInfo?.watchers,
+            hasWebSession = GithubWebSession.has(context, sessionHost),
+            threadTypes = relation?.threadTypes.orEmpty(),
+            onLoadThreadTypes = { RepoActions.loadWatchThreadTypes(context, sessionHost, owner, repo) },
+            onSelect = { level, threads -> applyWatch(level, threads) },
+            onOpenSettings = {
+                showWatchPanel = false
+                runCatching {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(RepoActions.watchSettingsUrl(sessionHost))))
+                }
+            },
+            onLoginWeb = {
+                showWatchPanel = false
+                showWebLogin = true
+            },
+            onDismiss = { showWatchPanel = false },
+        )
+    }
+
+    // 复刻对话框（他人仓库才进这里；自己的仓库走的是「复刻列表」）
+    if (showForkDialog) {
+        ForkSheet(
+            sourceOwner = owner,
+            repoName = repo,
+            login = sessionLogin,
+            // 分支数直接用已经加载好的分支列表，不再为弹窗多发一个请求
+            branchCount = branches.size.takeIf { it > 0 },
+            defaultBranch = branch ?: repoInfo?.defaultBranch ?: "main",
+            onLoadTargets = { RepoActions.forkTargets(sessionHost, sessionToken, sessionLogin) },
+            onCheckExists = { target, name -> RepoActions.repoExists(sessionHost, sessionToken, target, name) },
+            onCreate = { organization, name, defaultBranchOnly ->
+                RepoActions.createFork(
+                    host = sessionHost,
+                    token = sessionToken,
+                    owner = owner,
+                    repo = repo,
+                    organization = organization,
+                    name = name,
+                    defaultBranchOnly = defaultBranchOnly,
+                )
+            },
+            onCreated = { full ->
+                showForkDialog = false
+                if (full.isBlank()) {
+                    toast("复刻已提交（GitHub 异步创建，稍后可用）")
+                } else {
+                    toast("已复刻到 $full")
+                    val (newOwner, newRepo) = full.split("/", limit = 2).let { it.first() to it.getOrElse(1) { repo } }
+                    onOpenRepo(newOwner, newRepo)
+                }
+            },
+            onDismiss = { showForkDialog = false },
+        )
+    }
+
     // 分支切换弹窗（顶部栏分支胶囊触发）
-    if (showBranchDialog) {
-        BranchSwitchDialog(
+    if (showBranchDialog) {        BranchSwitchDialog(
             branches = branches,
             current = branch,
             cached = branchCached,
@@ -732,6 +912,16 @@ private sealed interface RepoRoute : PageLevel {
     }
 
     data object LocalSync : RepoRoute {
+        override val depth: Int get() = 1
+    }
+
+    /**
+     * GitHub 网页会话登录页。
+     *
+     * 只有「自定义通知」需要它 —— 这类能力只有网页端有，而网页端只认浏览器 Cookie
+     * （OAuth token 会被 302 到登录页）。其余能力一律走官方 API，不打扰用户。
+     */
+    data object WebLogin : RepoRoute {
         override val depth: Int get() = 1
     }
 
