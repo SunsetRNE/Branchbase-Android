@@ -25,7 +25,26 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.50 → 1.0.22）
+## 二、`versionName` 流水（1.0.51 → 1.0.22）
+
+### 1.0.51
+
+修 1.0.49 顺手引入的一处**静默版式回退**：动态页「概览」三张统计卡不再等宽铺满。
+
+① 现场（代码层复现，尚未上真机）：1.0.49 把概览卡包进 `RegionSwap` 之后，`Modifier.weight(1f)`
+加在了 Crossfade 的**外层容器**上，而 Crossfade 的内容装在一层 **wrap-content** 的内层 `Box` 里 ——
+卡片自己不声明撑满，就各自缩到「文字宽」（「7」/「近 7 天」那种）并靠左排，
+三张卡从「三等分」退化成「三段左对齐的小盒子」。此前 weight 是直接加在 `StatCard` 上的，
+所以这个回退是**改加载态时才引进来的**，不报错、不崩溃，只有看图才发现。
+
+② 改法：`StatCardSkeleton` 与 `StatCard` 都显式传 `Modifier.fillMaxWidth()`
+（weight 仍留在 Crossfade 上负责三等分，卡片负责在自己的槽位里撑满），
+并把「为什么必须显式声明」写进注释 —— 下次再往 Crossfade / AnimatedContent 里塞带 weight 的卡片，
+会踩同一个坑，而这类坑不会有任何编译或运行期提示。
+
+③ 逐条核对过另外三处 `RegionSwap`（类型分布 / 活动热力 / 最近活动）：骨架与内容本来就
+`fillMaxWidth`（`TypeBar` 靠内层 Row 撑满、`ActivityHeatmap` 与 `EventRow` 自身 fillMaxWidth），
+所以只有概览卡这一处需要显式声明。
 
 ### 1.0.50
 
@@ -478,11 +497,13 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（152 → 129）
+## 三、`versionCode` 流水（153 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **153**：修概览三卡因包进 Crossfade 而失去 weight 撑满的静默版式回退（一次提交，故 +1）
 
 - **152**：修 events 接口顺序不可信导致的乱序显示与折叠被切段（解析出口 + 分页拼接后按时间倒序）（一次提交，故 +1）
 

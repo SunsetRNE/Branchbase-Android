@@ -915,8 +915,12 @@ private fun ProfileActivity(
                     RegionSwap(
                         loading = calLoading,
                         modifier = Modifier.weight(1f),
-                        skeleton = { StatCardSkeleton() },
-                        content = { StatCard(label, values[i]?.toString() ?: "—") },
+                        // 卡片必须自己 fillMaxWidth：Crossfade 的内容装在一层 **wrap-content** 的
+                        // 内层 Box 里，weight 只加在外层容器上 —— 卡片不声明撑满的话，
+                        // 三张卡会各自缩到「文字宽」并左对齐（此前 weight 直接加在 StatCard 上，
+                        // 不存在这个问题；包进 Crossfade 后必须显式声明，否则是静默的版式回退）。
+                        skeleton = { StatCardSkeleton(Modifier.fillMaxWidth()) },
+                        content = { StatCard(label, values[i]?.toString() ?: "—", Modifier.fillMaxWidth()) },
                     )
                 }
             }
