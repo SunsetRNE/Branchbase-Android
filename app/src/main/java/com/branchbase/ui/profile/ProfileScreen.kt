@@ -50,6 +50,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -102,9 +103,11 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import com.branchbase.ui.theme.ElementMotion
+import com.branchbase.ui.theme.ProvideShimmer
 import com.branchbase.ui.theme.bubbleEnter
 import com.branchbase.ui.theme.bubbleExit
 import com.branchbase.ui.theme.rememberPressFeedback
+import com.branchbase.ui.theme.skeletonBlock
 import com.branchbase.ui.theme.ProfileColors
 import org.json.JSONArray
 import org.json.JSONObject
@@ -434,7 +437,12 @@ private fun ProfileOverview(
             SectionTitle("热门仓库", "自定义置顶")
             Column(Modifier.padding(horizontal = 16.dp)) {
                 if (loading) {
-                    Text("加载中…", fontSize = 13.sp, color = Primer.TextTertiary)
+                    // 骨架屏：结构和尺寸与 [RepoCard] 一一对应（同 6dp 圆角 / 同边框 / 同 12dp 内边距）。
+                    // 原先是「加载中…」一行灰字：卡片的真实高度要等数据回来才知道，内容到达时整段往下跳一次。
+                    // ProvideShimmer 只包一层 —— 三张卡共用一条微光动画（见 ui/theme/Motion.kt）。
+                    ProvideShimmer {
+                        repeat(PROFILE_REPO_SKELETON_COUNT) { RepoCardSkeleton() }
+                    }
                 } else if (pinnedRepos.isEmpty()) {
                     Text("暂无置顶仓库", fontSize = 13.sp, color = Primer.TextTertiary)
                 } else {
@@ -480,8 +488,12 @@ private fun ProfileRepositories(repos: List<RepoItem>, loading: Boolean, onOpenR
         }
         Spacer(Modifier.height(12.dp))
         if (loading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("加载中…", color = Primer.TextTertiary)
+            // 骨架屏：搜索框与语言筛选是**不依赖数据**的静态结构，照常渲染（用户能先看清这页有什么）；
+            // 只把下面的列表换成与 [RepoCard] 同构的占位卡，数据到达时列表在原位长出来。
+            ProvideShimmer {
+                LazyColumn {
+                    items(PROFILE_REPO_SKELETON_COUNT) { RepoCardSkeleton() }
+                }
             }
         } else {
             LazyColumn {
@@ -733,9 +745,7 @@ private fun ProfileActivity(host: String, token: String, login: String) {
     }
 
     when {
-        loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("加载中…", fontSize = 13.sp, color = Primer.TextTertiary)
-        }
+        loading -> ProfileActivitySkeleton()
         error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(error!!, fontSize = 13.sp, color = Primer.TextTertiary)
         }
@@ -795,6 +805,126 @@ private fun ProfileActivity(host: String, token: String, login: String) {
                 events.take(30).forEach { e -> EventRow(e) }
             }
             Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+// ───────────────────────── 骨架屏 ─────────────────────────
+
+/**
+ * 动态页骨架：**结构与真实内容的顺序、尺寸一一对应**（概览三卡 → 贡献墙 → 活动热力 → 最近活动）。
+ *
+ * 原先这一屏只有居中一行「加载中…」：动态页首屏要等 /user/events 最多 3 页 + GraphQL 日历回来，
+ * 是三个页面里等待最久的那个，静态文字看起来就是「卡住了」。
+ *
+ * 刻意**不含「活动类型分布」**：那一段依赖事件数据的类型分布，非空才渲染；
+ * 放进骨架等于先给用户一个必然会消失的区块。
+ *
+ * ProvideShimmer 只包一层 —— 整屏骨架共用一条微光动画；占位块一律用 [skeletonBlock]（绘制期读 alpha）。
+ */
+@Composable
+private fun ProfileActivitySkeleton() {
+    ProvideShimmer {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            // 概览统计
+            SectionTitle("动态概览")
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                repeat(3) { StatCardSkeleton(Modifier.weight(1f)) }
+            }
+
+            // 贡献墙（标题与 [ContributionWall] 一致：16dp 横向内边距 + 12dp 纵向、右侧「过去一年」）
+            SectionTitle("贡献墙", "过去一年")
+            Column(Modifier.padding(horizontal = 16.dp)) {
+                SkeletonGrid(cols = 13, cellHeight = 10.dp)
+                Spacer(Modifier.height(8.dp))
+                Box(Modifier.fillMaxWidth(0.55f).height(12.dp).skeletonBlock())
+            }
+
+            // 活动热力（带 10dp 圆角 + 边框的面板，与 [ActivityHeatmap] 同构）
+            SectionTitle("活动热力", "过去 90 天")
+            Column(Modifier.padding(horizontal = 16.dp)) {
+                SkeletonPanel {
+                    SkeletonGrid(cols = 13, cellHeight = 14.dp)
+                    Spacer(Modifier.height(8.dp))
+                    Box(Modifier.fillMaxWidth(0.6f).height(12.dp).skeletonBlock())
+                }
+            }
+
+            // 时间线
+            SectionTitle("最近活动")
+            Column(Modifier.padding(horizontal = 16.dp)) {
+                repeat(6) { EventRowSkeleton() }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+/**
+ * 三张概览统计卡之一的骨架，尺寸对齐 [StatCard]
+ * （8dp 圆角 + 1dp 边框 + 上下 12dp 内边距；数值 20sp、标签 11sp）。
+ */
+@Composable
+private fun StatCardSkeleton(modifier: Modifier = Modifier) {
+    Column(
+        modifier
+            .clip(RoundedCornerShape(8.dp))
+            .border(1.dp, Primer.Border, RoundedCornerShape(8.dp))
+            .padding(vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(Modifier.width(44.dp).height(24.dp).skeletonBlock())
+        Spacer(Modifier.height(2.dp))
+        Box(Modifier.width(56.dp).height(14.dp).skeletonBlock())
+    }
+}
+
+/**
+ * 骨架网格：7 行 × [cols] 列的小方块（贡献墙 10dp 格 / 活动热力 14dp 行高）。
+ *
+ * 真实网格的列宽是「按可用宽度自适应」的，这里同样用 `weight(1f)` 均分，
+ * 所以换屏宽 / 换字体缩放时骨架与内容的列数、行高都对得上。
+ */
+@Composable
+private fun SkeletonGrid(cols: Int, cellHeight: Dp) {
+    Column(Modifier.fillMaxWidth()) {
+        repeat(7) { row ->
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = if (row < 6) 2.dp else 0.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                repeat(cols) {
+                    Box(Modifier.weight(1f).height(cellHeight).skeletonBlock(cornerRadius = 2.dp))
+                }
+            }
+        }
+    }
+}
+
+/** 给骨架网格套一层与 [ActivityHeatmap] 相同的面板（10dp 圆角 + 1dp 边框 + 10dp 内边距）。 */
+@Composable
+private fun SkeletonPanel(content: @Composable () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .border(1.dp, Primer.Border, RoundedCornerShape(10.dp))
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+    ) { content() }
+}
+
+/** 动态事件行骨架：对齐 [EventRow]（24dp 圆形图标 + 10dp 间隔 + 两行文字 18dp / 15dp）。 */
+@Composable
+private fun EventRowSkeleton() {
+    Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.Top) {
+        Box(Modifier.size(24.dp).skeletonBlock(cornerRadius = 12.dp))
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Box(Modifier.fillMaxWidth(0.8f).height(18.dp).skeletonBlock())
+            Spacer(Modifier.height(3.dp))
+            Box(Modifier.fillMaxWidth(0.3f).height(15.dp).skeletonBlock())
         }
     }
 }
@@ -1315,6 +1445,44 @@ private fun ProfileNavItem(
 }
 
 // ───────────────────────── 通用仓库卡片 & 数据模型 ─────────────────────────
+
+/**
+ * 骨架屏占位卡数量。
+ *
+ * 取 3 而不是「按屏高铺满」：热门仓库区最多 4 张卡，仓库页首屏也远不到 5 张 ——
+ * 占位数量多于内容会出现「骨架比内容还长，数据回来页面缩短」的反向跳动。
+ */
+private const val PROFILE_REPO_SKELETON_COUNT = 3
+
+/**
+ * 仓库卡骨架：**结构与尺寸都与 [RepoCard] 一一对应**
+ * （同 6dp 圆角 / 同 1dp 边框 / 同 12dp 内边距 / 同 10dp 底距；名称行 16dp + 描述行 12dp + 语言行 12dp）。
+ *
+ * 热门仓库区与「仓库」页共用这一份：两处的真实卡片本来就是同一个 [RepoCard]，
+ * 骨架各写一份的话，改卡片尺寸时只会改到其中一处，另一处就开始「数据到达时跳一下」。
+ */
+@Composable
+private fun RepoCardSkeleton() {
+    Column(
+        Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(6.dp))
+            .border(1.dp, Primer.Border, RoundedCornerShape(6.dp)).padding(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // 仓库名（左，可伸缩）与星数（右，固定宽度）—— 对齐 RepoCard 的 weight(1f) + 尾部计数
+            Box(Modifier.fillMaxWidth(0.45f).height(16.dp).skeletonBlock())
+            Spacer(Modifier.weight(1f))
+            Box(Modifier.width(34.dp).height(14.dp).skeletonBlock())
+        }
+        Spacer(Modifier.height(4.dp))
+        Box(Modifier.fillMaxWidth(0.85f).height(12.dp).skeletonBlock())
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(10.dp).skeletonBlock(cornerRadius = 5.dp))
+            Spacer(Modifier.width(4.dp))
+            Box(Modifier.width(48.dp).height(12.dp).skeletonBlock())
+        }
+    }
+}
 
 @Composable
 private fun RepoCard(repo: RepoItem, onClick: () -> Unit) {
