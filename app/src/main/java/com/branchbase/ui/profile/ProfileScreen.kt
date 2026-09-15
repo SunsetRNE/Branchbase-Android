@@ -25,12 +25,25 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.CallMerge
+import androidx.compose.material.icons.automirrored.filled.CallSplit
+import androidx.compose.material.icons.automirrored.filled.Comment
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Commit
 import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.RateReview
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Timeline
@@ -50,6 +63,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -84,6 +98,7 @@ import com.branchbase.ui.theme.LanguageColors
 import com.branchbase.ui.theme.Avatar
 import com.branchbase.ui.theme.Primer
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -283,7 +298,7 @@ fun ProfileScreen(
                                 when (t) {
                                     ProfileTab.Overview -> ProfileOverview(login, name, avatarUrl, bio, followers, following, publicRepos, repos, reposLoading, onOpenRepo, onEdit = { subPage = SubPage.EditProfile })
                                     ProfileTab.Repositories -> ProfileRepositories(repos, reposLoading, onOpenRepo)
-                                    ProfileTab.Activity -> ProfileActivity(host, token, login)
+                                    ProfileTab.Activity -> ProfileActivity(host, token, login, onOpenRepo)
                                 }
                             }
                         }
@@ -524,15 +539,47 @@ private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
 
 // ───────────────────────── Activity 页（真实事件数据） ─────────────────────────
 
-/** 动态事件（由 /users/{login}/received_events 解析）。 */
+/**
+ * 动态事件（由 `/user/events`、`/users/{login}/events` 解析）。
+ *
+ * ## 为什么是这些字段（而不是「四个字段拼一句话」）
+ *
+ * 原先只有 type / repo / detail / createdAt，`detail` 是**解析期就拼好的一句中文**。
+ * 后果是行渲染里没有任何**真实对象**可用：头像、PR / issue / 发布的标题、
+ * 折叠后的次数与最新 sha 全在解析层就被丢掉了。
+ * 于是真机上的观感是「不像真实数据」——最近 30 条里 28 条是 PushEvent，
+ * 而 events 接口把 PushEvent 的 payload 裁剪到只剩 `ref` / `head` / `before`
+ * （没有提交数、没有提交信息），逐条渲染必然是一屏几乎一样的「推送到 main · <sha>」。
+ *
+ * 现在把显示真正需要的东西从 payload 里取出来：谁做的（[actor] / [actorAvatar]）、
+ * 真实对象标题（[title]）、推送折叠用的分支与短 sha（[branch] / [head]）。
+ */
 internal data class ActivityEvent(
     val type: String,
     val repo: String,
     val detail: String,
     val createdAt: Long,
+    /** 触发者登录名（`actor.login`）——「哪个仓库」之外，活动流还要能读出「谁做的」。 */
+    val actor: String = "",
+    /** 触发者头像（`actor.avatar_url`），直接交给统一头像组件。 */
+    val actorAvatar: String? = null,
+    /** 真实对象标题：PR / issue / 评论所属 issue / 发布 / 复刻目标 / 协作者 / wiki 页面。 */
+    val title: String? = null,
+    /** 推送分支（`payload.ref` 去掉 `refs/heads/`），折叠判定与文案都用它。 */
+    val branch: String? = null,
+    /** 推送的短 sha（`payload.head` 前 7 位）。 */
+    val head: String? = null,
+    /** 连续同类推送被 [collapsePushes] 折叠后的条数（1 = 未折叠）。 */
+    val pushCount: Int = 1,
 )
 
-private fun parseEvents(json: String?): List<ActivityEvent> {
+/**
+ * 解析事件流。
+ *
+ * `internal` 是为了单测能钉住 payload → 字段的映射：payload 是**外部契约**
+ * （字段被 GitHub 裁剪过，见 [ActivityEvent] 的说明），映射错一处就是整块显示错。
+ */
+internal fun parseEvents(json: String?): List<ActivityEvent> {
     if (json.isNullOrBlank() || json.startsWith("ERROR:")) return emptyList()
     return runCatching {
         val arr = JSONArray(json)
@@ -546,20 +593,16 @@ private fun parseEvents(json: String?): List<ActivityEvent> {
                 val type = o.optString("type")
                 val repo = o.optJSONObject("repo")?.optString("name").orEmpty()
                 val payload = o.optJSONObject("payload")
+                val actor = o.optJSONObject("actor")
+                // events API 的 PushEvent payload 被裁剪：只有 ref/head/before，
+                // 没有 size / commits（旧实现读 size 恒为 0，显示「推送了 0 个提交」）
+                val branch = payload?.optString("ref").orEmpty()
+                    .removePrefix("refs/heads/")
+                    .removePrefix("refs/tags/")
+                    .takeIf { it.isNotBlank() }
+                val head = payload?.optString("head").orEmpty().take(7).takeIf { it.isNotBlank() }
                 val detail = when (type) {
-                    // events API 的 PushEvent payload 被裁剪，只有 ref/head/before，
-                    // 没有 size / commits（旧实现读 size 恒为 0，显示「推送了 0 个提交」）
-                    "PushEvent" -> {
-                        val ref = payload?.optString("ref").orEmpty()
-                            .removePrefix("refs/heads/")
-                            .removePrefix("refs/tags/")
-                        val head = payload?.optString("head").orEmpty().take(7)
-                        when {
-                            ref.isNotBlank() && head.isNotBlank() -> "推送到 $ref · $head"
-                            ref.isNotBlank() -> "推送到 $ref"
-                            else -> "推送了代码"
-                        }
-                    }
+                    "PushEvent" -> pushDetail(branch, 1, head)
                     "CreateEvent" -> {
                         val kind = when (payload?.optString("ref_type").orEmpty()) {
                             "branch" -> "分支"
@@ -585,26 +628,124 @@ private fun parseEvents(json: String?): List<ActivityEvent> {
                     // 编号在 payload 顶层（payload.pull_request.number 未必存在）
                     "PullRequestEvent" -> {
                         val n = payload?.optInt("number") ?: payload?.optJSONObject("pull_request")?.optInt("number") ?: 0
-                        val action = when (payload?.optString("action").orEmpty()) {
-                            "opened" -> "打开"
-                            "closed" -> "关闭"
-                            "reopened" -> "重新打开"
-                            else -> payload?.optString("action").orEmpty()
-                        }
-                        "拉取请求 $action #$n"
+                        "${eventAction(payload?.optString("action").orEmpty())}拉取请求 #$n"
                     }
-                    "PullRequestReviewEvent" -> "审查了拉取请求"
+                    "PullRequestReviewEvent" -> {
+                        val n = payload?.optJSONObject("pull_request")?.optInt("number") ?: 0
+                        if (n > 0) "审查了拉取请求 #$n" else "审查了拉取请求"
+                    }
                     "ReleaseEvent" -> "发布了 ${payload?.optJSONObject("release")?.optString("tag_name").orEmpty()}"
                     "PublicEvent" -> "公开了仓库"
-                    "IssuesEvent" -> "issue ${payload?.optString("action").orEmpty()}"
+                    "IssuesEvent" -> {
+                        val n = payload?.optJSONObject("issue")?.optInt("number") ?: 0
+                        val action = eventAction(payload?.optString("action").orEmpty())
+                        if (n > 0) "$action issue #$n" else "$action issue"
+                    }
                     "MemberEvent" -> "添加了协作者"
                     "GollumEvent" -> "更新了 wiki"
                     else -> type.removeSuffix("Event")
                 }
-                add(ActivityEvent(type, repo, detail, parseIsoTime(o.optString("created_at"))))
+                add(
+                    ActivityEvent(
+                        type = type,
+                        repo = repo,
+                        detail = detail,
+                        createdAt = parseIsoTime(o.optString("created_at")),
+                        actor = actor?.optString("login").orEmpty(),
+                        actorAvatar = actor?.optString("avatar_url")?.takeIf { it.isNotBlank() },
+                        title = eventTitle(type, payload),
+                        branch = branch,
+                        head = head,
+                    ),
+                )
             }
         }
     }.getOrDefault(emptyList())
+}
+
+/** 事件动作的中文说法（原先直接把 `opened` / `closed` 原样拼进句子）。 */
+private fun eventAction(action: String): String = when (action) {
+    "opened" -> "打开"
+    "closed" -> "关闭"
+    "reopened" -> "重新打开"
+    "merged" -> "合并"
+    "labeled" -> "标记"
+    "assigned" -> "指派"
+    "" -> ""
+    else -> action
+}
+
+/**
+ * 真实对象标题（拿不到就返回 null —— 行里不空占一行）。
+ *
+ * 这些字段都在 payload 里真实存在（见 `ActivityEvent` 的说明），
+ * 原先被解析层丢掉了，所以行里只剩一句通用文案。
+ */
+private fun eventTitle(type: String, payload: JSONObject?): String? {
+    val raw = when (type) {
+        "IssueCommentEvent", "IssuesEvent" -> payload?.optJSONObject("issue")?.optString("title")
+        "PullRequestEvent", "PullRequestReviewEvent" ->
+            payload?.optJSONObject("pull_request")?.optString("title")
+        "ReleaseEvent" -> payload?.optJSONObject("release")?.optString("name")
+            ?.takeIf { it.isNotBlank() }
+            ?: payload?.optJSONObject("release")?.optString("tag_name")
+        "ForkEvent" -> payload?.optJSONObject("forkee")?.optString("full_name")
+        "MemberEvent" -> payload?.optJSONObject("member")?.optString("login")
+        "GollumEvent" -> payload?.optJSONArray("pages")?.optJSONObject(0)?.optString("page_name")
+        else -> null
+    }
+    return raw?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+}
+
+/**
+ * 折叠连续推送：**同仓库 + 同分支 + 同一天（本地时区）**的相邻 `PushEvent` 合并成一行。
+ *
+ * 为什么必须折叠：events 接口按时间倒序返回，而日常几乎全是推送 ——
+ * 真机上最近 30 条里 28 条是 `PushEvent`，且同仓库同分支（`refs/heads/main`）。
+ * 逐条渲染就是一屏「推送到 main · <sha>」的重复行：读不出「今天做了多少事」，
+ * 也不像活动流（GitHub 自己的 feed 同样合并：「pushed 3 commits to main」）。
+ *
+ * 只在**相邻**条目之间折叠，不跨其它事件、不跨天：跨天合并会把
+ * 「今天 3 次 + 昨天 5 次」写成「8 次」，那是在编造事实。组内保留**最新一次**的 sha ——
+ * 它是这一组里唯一有定位价值的东西（按时间倒序，所以是组内首条）。
+ *
+ * 纯函数，钉子见 `ActivityFeedTest`。
+ */
+internal fun collapsePushes(events: List<ActivityEvent>): List<ActivityEvent> {
+    val out = ArrayList<ActivityEvent>(events.size)
+    events.forEach { e ->
+        val last = out.lastOrNull()
+        val sameRun = last != null &&
+            last.type == "PushEvent" && e.type == "PushEvent" &&
+            last.repo == e.repo && last.branch == e.branch &&
+            localDay(last.createdAt) == localDay(e.createdAt)
+        if (sameRun) {
+            val count = last.pushCount + 1
+            out[out.lastIndex] = last.copy(
+                pushCount = count,
+                detail = pushDetail(last.branch, count, last.head),
+            )
+        } else {
+            out += e
+        }
+    }
+    return out
+}
+
+/** 推送行文案（单条与折叠后共用一处，避免两处拼法分家）。 */
+private fun pushDetail(branch: String?, count: Int, head: String?): String = when {
+    branch.isNullOrBlank() -> if (count > 1) "推送了 $count 次" else "推送了代码"
+    count > 1 && head != null -> "推送到 $branch · $count 次推送 · 最新 $head"
+    count > 1 -> "推送到 $branch · $count 次推送"
+    head != null -> "推送到 $branch · $head"
+    else -> "推送到 $branch"
+}
+
+/** 本地时区的「日」键（判定「同一天的连续推送」用；跨时区不会把两天误判成一天）。 */
+private fun localDay(ms: Long): Long {
+    val c = java.util.Calendar.getInstance()
+    c.timeInMillis = ms
+    return c.get(java.util.Calendar.YEAR) * 1000L + c.get(java.util.Calendar.DAY_OF_YEAR)
 }
 
 private fun parseIsoTime(s: String): Long = runCatching {
@@ -612,18 +753,6 @@ private fun parseIsoTime(s: String): Long = runCatching {
         timeZone = java.util.TimeZone.getTimeZone("UTC")
     }.parse(s)?.time ?: 0L
 }.getOrDefault(0L)
-
-private fun eventIcon(type: String) = when (type) {
-    "PushEvent" -> "⇧"
-    "CreateEvent" -> "＋"
-    "DeleteEvent" -> "−"
-    "WatchEvent" -> "★"
-    "ForkEvent" -> "⑂"
-    "IssueCommentEvent", "IssuesEvent" -> "◉"
-    "PullRequestEvent", "PullRequestReviewEvent" -> "⇄"
-    "ReleaseEvent" -> "◆"
-    else -> "•"
-}
 
 private fun relativeTime(ms: Long): String {
     if (ms <= 0) return ""
@@ -639,7 +768,13 @@ private fun relativeTime(ms: Long): String {
 }
 
 @Composable
-private fun ProfileActivity(host: String, token: String, login: String) {
+private fun ProfileActivity(
+    host: String,
+    token: String,
+    login: String,
+    // 「最近活动」整行可点 → 进对应仓库（这一页此前只读不跳，「看得到去不了」）
+    onOpenRepo: (String) -> Unit,
+) {
     val context = LocalContext.current
     // 动态页专属缓存管理器（活动的每页 + 贡献日历，TTL 10 分钟）
     val cacheManager = remember(context) {
@@ -744,30 +879,37 @@ private fun ProfileActivity(host: String, token: String, login: String) {
         }
     }
 
-    when {
-        loading -> ProfileActivitySkeleton()
-        error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(error!!, fontSize = 13.sp, color = Primer.TextTertiary)
-        }
-        events.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("暂无公开动态", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
-                Spacer(Modifier.height(4.dp))
-                Text("推送、星标、开 PR 等活动会显示在这里", fontSize = 12.sp, color = Primer.TextTertiary)
-            }
-        }
-        else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            // 概览统计：用 GraphQL 贡献日历（精确到天）。
-            // 事件流有 100/300 条上限，用它统计「近 7 天 / 30 天」会明显偏小。
+    // ── 渲染：**没有整页 loading 门** ──
+    //
+    // 原先 `loading -> ProfileActivitySkeleton()` 是「整页骨架 →（事件到齐）→ 整页内容」。
+    // 问题是两块数据不是一起到的：贡献日历走 GraphQL，比事件流慢，于是整页骨架刚让位，
+    // ContributionWall 又渲染一次「加载中…」——用户看到的是
+    // 「骨架 → 还有一层加载文字 → 内容」，两层加载态叠着，这就是「闪」。
+    // 现在每一区按**自己的**数据就绪度在原地由骨架淡入内容，全屏只有一层加载态。
+    //
+    // ProvideShimmer 仍然只包一层：整页所有骨架区块共用一条微光动画
+    // （每个区块各挂一条无限动画是 Motion.kt 点名的坑）。
+    ProvideShimmer {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            // ── ① 概览统计（数据源：贡献日历 GraphQL）──
+            // 未就绪时给骨架值条，**不给 0**：0 也是「内容」，用户会先读到它，
+            // 再从 0 跳到真实值 —— 这是这一屏第三处小闪。失败（stats == null）时给「—」而不是 0。
             val stats = remember(calendar) { contributionStats(calendar) }
             SectionTitle("动态概览", if (stats != null) "按贡献日历" else null)
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                StatCard("近 7 天", "${stats?.week ?: 0}", Modifier.weight(1f))
-                StatCard("近 30 天", "${stats?.month ?: 0}", Modifier.weight(1f))
-                StatCard("近一年", "${stats?.year ?: 0}", Modifier.weight(1f))
+                val labels = listOf("近 7 天", "近 30 天", "近一年")
+                val values = listOf(stats?.week, stats?.month, stats?.year)
+                labels.forEachIndexed { i, label ->
+                    RegionSwap(
+                        loading = calLoading,
+                        modifier = Modifier.weight(1f),
+                        skeleton = { StatCardSkeleton() },
+                        content = { StatCard(label, values[i]?.toString() ?: "—") },
+                    )
+                }
             }
 
-            // 贡献墙（52 周；GraphQL 优先，失败降级为事件近似）
+            // ── ② 贡献墙（自带 loading：骨架网格 → 网格，见 ContributionWall.kt）──
             ContributionWall(
                 calendar = calendar,
                 loading = calLoading,
@@ -780,86 +922,124 @@ private fun ProfileActivity(host: String, token: String, login: String) {
                 ContributionDayDetail(day)
             }
 
-            // 类型分布（Top 5）
-            val byType = events.groupingBy { it.type.removeSuffix("Event") }.eachCount()
-                .entries.sortedByDescending { it.value }.take(5)
-            if (byType.isNotEmpty()) {
-                SectionTitle("活动类型分布")
-                Column(Modifier.padding(horizontal = 16.dp)) {
-                    val max = byType.first().value.coerceAtLeast(1)
-                    byType.forEach { (label, count) ->
-                        TypeBar(label, count, (count * 100 / max).coerceIn(4, 100))
+            // ── ③ 活动区（数据源：事件流）──
+            // 两层过渡，各管各的：
+            //   外层 Crossfade —— 「有活动区」↔「空 / 失败说明」是整块换，淡入淡出；
+            //   内层 RegionSwap —— 加载中的三块（类型分布 / 热力 / 时间线）各自就地填成内容。
+            // 只有一层 loading 门会退回原来的问题（事件到了、日历没到就又冒一层加载态），
+            // 没有内层就地填充则会整块溶解、版式跟着跳。
+            val hasActivity = loading || events.isNotEmpty()
+            Crossfade(
+                targetState = hasActivity,
+                animationSpec = tween(ElementMotion.REVEAL_MS),
+                label = "activity-area",
+            ) { show ->
+                if (!show) {
+                    ActivityEmptyState(error)
+                } else {
+                    val collapsed = remember(events) { collapsePushes(events) }
+                    // 类型分布（Top 5）
+                    SectionTitle("活动类型分布")
+                    Column(Modifier.padding(horizontal = 16.dp)) {
+                        RegionSwap(
+                            loading = loading,
+                            skeleton = { repeat(3) { TypeBarSkeleton() } },
+                            content = {
+                                // 有事件就一定有分布（byType 从 events 派生），空分支不可达，只为类型完整
+                                val byType = events.groupingBy { it.type.removeSuffix("Event") }.eachCount()
+                                    .entries.sortedByDescending { it.value }.take(5)
+                                val max = (byType.firstOrNull()?.value ?: 1).coerceAtLeast(1)
+                                byType.forEach { (label, count) ->
+                                    TypeBar(label, count, (count * 100 / max).coerceIn(4, 100))
+                                }
+                            },
+                        )
+                    }
+
+                    // 活动热力（按天聚合，13 周 = events API 的 90 天上限）
+                    SectionTitle("活动热力", "过去 90 天")
+                    Column(Modifier.padding(horizontal = 16.dp)) {
+                        RegionSwap(
+                            loading = loading,
+                            skeleton = { HeatmapSkeleton() },
+                            content = { ActivityHeatmap(events) },
+                        )
+                    }
+
+                    // 时间线：连续推送先折叠（同仓库 + 同分支 + 同一天），再截前 30 条
+                    SectionTitle("最近活动")
+                    Column(Modifier.padding(horizontal = 16.dp)) {
+                        RegionSwap(
+                            loading = loading,
+                            skeleton = { repeat(4) { EventRowSkeleton() } },
+                            content = {
+                                collapsed.take(30).forEach { e ->
+                                    EventRow(e, onClick = { if (e.repo.isNotBlank()) onOpenRepo(e.repo) })
+                                }
+                            },
+                        )
                     }
                 }
-            }
-
-            // 活动热力（按天聚合，13 周 = events API 的 90 天上限）
-            SectionTitle("活动热力", "过去 90 天")
-            Column(Modifier.padding(horizontal = 16.dp)) {
-                ActivityHeatmap(events)
-            }
-
-            // 时间线
-            SectionTitle("最近活动")
-            Column(Modifier.padding(horizontal = 16.dp)) {
-                events.take(30).forEach { e -> EventRow(e) }
             }
             Spacer(Modifier.height(16.dp))
         }
     }
 }
 
-// ───────────────────────── 骨架屏 ─────────────────────────
-
 /**
- * 动态页骨架：**结构与真实内容的顺序、尺寸一一对应**（概览三卡 → 贡献墙 → 活动热力 → 最近活动）。
+ * 「最近活动」空态 / 失败态。
  *
- * 原先这一屏只有居中一行「加载中…」：动态页首屏要等 /user/events 最多 3 页 + GraphQL 日历回来，
- * 是三个页面里等待最久的那个，静态文字看起来就是「卡住了」。
- *
- * 刻意**不含「活动类型分布」**：那一段依赖事件数据的类型分布，非空才渲染；
- * 放进骨架等于先给用户一个必然会消失的区块。
- *
- * ProvideShimmer 只包一层 —— 整屏骨架共用一条微光动画；占位块一律用 [skeletonBlock]（绘制期读 alpha）。
+ * 原先是**整页**居中提示（`loading` 之外的两个分支），但那时概览与贡献墙也一起让位了 ——
+ * 日历明明已经拿到，却因为事件流为空而整屏报错。现在它只占活动区那三块的位置。
  */
 @Composable
-private fun ProfileActivitySkeleton() {
-    ProvideShimmer {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            // 概览统计
-            SectionTitle("动态概览")
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                repeat(3) { StatCardSkeleton(Modifier.weight(1f)) }
-            }
+private fun ActivityEmptyState(error: String?) {
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            if (error != null) "动态加载失败" else "暂无公开动态",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Primer.TextSecondary,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            error ?: "推送、星标、开 PR 等活动会显示在这里",
+            fontSize = 12.sp,
+            color = Primer.TextTertiary,
+        )
+    }
+}
 
-            // 贡献墙（标题与 [ContributionWall] 一致：16dp 横向内边距 + 12dp 纵向、右侧「过去一年」）
-            SectionTitle("贡献墙", "过去一年")
-            Column(Modifier.padding(horizontal = 16.dp)) {
-                SkeletonGrid(cols = 13, cellHeight = 10.dp)
-                Spacer(Modifier.height(8.dp))
-                Box(Modifier.fillMaxWidth(0.55f).height(12.dp).skeletonBlock())
-            }
+// ───────────────────────── 骨架屏 / 分区过渡 ─────────────────────────
 
-            // 活动热力（带 10dp 圆角 + 边框的面板，与 [ActivityHeatmap] 同构）
-            SectionTitle("活动热力", "过去 90 天")
-            Column(Modifier.padding(horizontal = 16.dp)) {
-                SkeletonPanel {
-                    SkeletonGrid(cols = 13, cellHeight = 14.dp)
-                    Spacer(Modifier.height(8.dp))
-                    Box(Modifier.fillMaxWidth(0.6f).height(12.dp).skeletonBlock())
-                }
-            }
-
-            // 时间线
-            SectionTitle("最近活动")
-            Column(Modifier.padding(horizontal = 16.dp)) {
-                repeat(6) { EventRowSkeleton() }
-            }
-            Spacer(Modifier.height(16.dp))
-        }
+/**
+ * 区块级的「骨架 → 内容」过渡：数据未就绪时画 [skeleton]，就绪后淡入 [content]。
+ *
+ * 为什么不是 `if (loading) 骨架 else 内容` 硬切：两者的形状本来就不同（灰块 → 文字 / 网格），
+ * 一帧之内整块换掉，眼睛读到的是「跳」而不是「加载完成」。
+ * 时长复用元素级动效里「出现 / 消失」的规格 [ElementMotion.REVEAL_MS]（220ms），
+ * 与折叠区、横幅等既有元素同一个节奏。
+ *
+ * [skeleton] 与 [content] 必须**同尺寸**（骨架的规矩：结构与尺寸与真实内容一一对应），
+ * 否则淡入的同时还会叠一层位移。
+ */
+@Composable
+private fun RegionSwap(
+    loading: Boolean,
+    skeleton: @Composable () -> Unit,
+    content: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Crossfade(
+        targetState = loading,
+        modifier = modifier,
+        animationSpec = tween(ElementMotion.REVEAL_MS),
+        label = "region-swap",
+    ) { isLoading ->
+        if (isLoading) skeleton() else content()
     }
 }
 
@@ -887,9 +1067,12 @@ private fun StatCardSkeleton(modifier: Modifier = Modifier) {
  *
  * 真实网格的列宽是「按可用宽度自适应」的，这里同样用 `weight(1f)` 均分，
  * 所以换屏宽 / 换字体缩放时骨架与内容的列数、行高都对得上。
+ *
+ * `internal` 而非 `private`：贡献墙骨架（`ContributionWall.kt`）用的是同一份网格 ——
+ * 两处各写一份的话，改格子尺寸只会改到其中一处。
  */
 @Composable
-private fun SkeletonGrid(cols: Int, cellHeight: Dp) {
+internal fun SkeletonGrid(cols: Int, cellHeight: Dp) {
     Column(Modifier.fillMaxWidth()) {
         repeat(7) { row ->
             Row(
@@ -915,16 +1098,48 @@ private fun SkeletonPanel(content: @Composable () -> Unit) {
     ) { content() }
 }
 
-/** 动态事件行骨架：对齐 [EventRow]（24dp 圆形图标 + 10dp 间隔 + 两行文字 18dp / 15dp）。 */
+/** 活动热力骨架：与 [ActivityHeatmap] 同构（带边框面板 + 7×13 网格 + 汇总条）。 */
+@Composable
+private fun HeatmapSkeleton() {
+    SkeletonPanel {
+        SkeletonGrid(cols = 13, cellHeight = 14.dp)
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.fillMaxWidth(0.6f).height(12.dp).skeletonBlock())
+    }
+}
+
+/** 类型分布骨架：对齐 [TypeBar]（标签行 12.5sp + 4dp 间隔 + 7dp 进度条 + 10dp 底距）。 */
+@Composable
+private fun TypeBarSkeleton() {
+    Column(Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Box(Modifier.width(64.dp).height(14.dp).skeletonBlock())
+            Box(Modifier.width(32.dp).height(13.dp).skeletonBlock())
+        }
+        Spacer(Modifier.height(4.dp))
+        Box(Modifier.fillMaxWidth(0.6f).height(7.dp).skeletonBlock(cornerRadius = 4.dp))
+    }
+}
+
+/**
+ * 动态事件行骨架：对齐 [EventRow]（26dp 圆形头像 + 10dp 间隔 + 两行：仓库名 17dp / 描述 17dp）。
+ *
+ * 刻意**不给真实对象标题留第三行**：标题只有 PR / issue / 发布等类型才有，
+ * 而常见的是推送（没有标题）—— 留了就是「骨架比内容高一截」。
+ */
 @Composable
 private fun EventRowSkeleton() {
-    Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.Top) {
-        Box(Modifier.size(24.dp).skeletonBlock(cornerRadius = 12.dp))
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.Top) {
+        Box(Modifier.size(26.dp).skeletonBlock(cornerRadius = 13.dp))
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Box(Modifier.fillMaxWidth(0.8f).height(18.dp).skeletonBlock())
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.fillMaxWidth(0.55f).height(17.dp).skeletonBlock())
+                Spacer(Modifier.weight(1f))
+                Box(Modifier.width(40.dp).height(14.dp).skeletonBlock())
+            }
             Spacer(Modifier.height(3.dp))
-            Box(Modifier.fillMaxWidth(0.3f).height(15.dp).skeletonBlock())
+            Box(Modifier.fillMaxWidth(0.7f).height(17.dp).skeletonBlock())
         }
     }
 }
@@ -1086,22 +1301,108 @@ private fun ActivityHeatmap(events: List<ActivityEvent>) {
     }
 }
 
+/**
+ * 事件类型 → 图标 + 语义色。
+ *
+ * 常量表存**角色**而不是 `Color`（主题色只能在 composable 里读，表要能留在顶层常量区），
+ * 颜色在渲染点 `.color()` 解析 —— 这套约定见 `ui/theme/TintRole.kt`。
+ * 换掉原先的 emoji 字形（`⇧ ＋ − ★ ⑂ ◉ ⇄ ◆`）：那些字形在不同字体下粗细、基线都不一致，
+ * 且全是灰的 —— 一屏「推送到 main」看不出类型差别，「谁做了什么」只能靠读文字。
+ */
+private data class EventVisual(val icon: ImageVector, val tint: TintRole)
+
+private val EVENT_VISUALS: Map<String, EventVisual> = mapOf(
+    "PushEvent" to EventVisual(Icons.Filled.Commit, TintRole.ACCENT),
+    "CreateEvent" to EventVisual(Icons.Filled.Add, TintRole.SUCCESS),
+    "DeleteEvent" to EventVisual(Icons.Filled.Delete, TintRole.DANGER),
+    "WatchEvent" to EventVisual(Icons.Filled.Star, TintRole.WARNING),
+    "ForkEvent" to EventVisual(Icons.AutoMirrored.Filled.CallSplit, TintRole.DONE),
+    "IssueCommentEvent" to EventVisual(Icons.AutoMirrored.Filled.Comment, TintRole.NEUTRAL_SUBTLE),
+    "IssuesEvent" to EventVisual(Icons.Filled.ErrorOutline, TintRole.SUCCESS),
+    "PullRequestEvent" to EventVisual(Icons.AutoMirrored.Filled.CallMerge, TintRole.DONE),
+    "PullRequestReviewEvent" to EventVisual(Icons.Filled.RateReview, TintRole.NEUTRAL_SUBTLE),
+    "ReleaseEvent" to EventVisual(Icons.Filled.LocalOffer, TintRole.WARNING),
+    "PublicEvent" to EventVisual(Icons.Filled.Public, TintRole.ACCENT),
+    "MemberEvent" to EventVisual(Icons.Filled.PersonAdd, TintRole.SUCCESS),
+    "GollumEvent" to EventVisual(Icons.AutoMirrored.Filled.Article, TintRole.NEUTRAL_SUBTLE),
+)
+
+/** 表里没有的类型（GitHub 会新增事件类型）用中性图标兜底，不显示成「未知」。 */
+private val EVENT_VISUAL_FALLBACK = EventVisual(Icons.Filled.History, TintRole.NEUTRAL_SUBTLE)
+
+/**
+ * 动态事件行（真实对象 + 类型 + 触发者）。
+ *
+ * 布局：
+ * ```
+ * [触发者头像 26dp，右下角事件类型角标] 仓库名（粗体）        相对时间
+ *                                      事件描述（含折叠后的次数与最新 sha）
+ *                                      真实对象标题（PR / issue / 发布…，有才显示）
+ * ```
+ *
+ * 与旧版的差别（旧版是「灰底 emoji 字形 + `仓库 · 描述` 一行 + 时间一行」）：
+ * ① 头像接的是 `actor.avatar_url`，能看出「谁做的」（星标别人的仓库时不再是灰圈）；
+ * ② 事件类型用类型色图标角标，一眼分得出推送 / 星标 / PR；
+ * ③ PR / issue / 发布的**真实标题**排第三行；
+ * ④ 整行可点 → 进对应仓库（原先点不动，「最近活动」看得到去不了）。
+ */
 @Composable
-private fun EventRow(e: ActivityEvent) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.Top) {
-        Box(
-            Modifier.size(24.dp).clip(CircleShape).background(Primer.Gray150),
-            contentAlignment = Alignment.Center,
-        ) { Text(eventIcon(e.type), fontSize = 12.sp, color = Primer.TextSecondary) }
+private fun EventRow(e: ActivityEvent, onClick: () -> Unit) {
+    val visual = EVENT_VISUALS[e.type] ?: EVENT_VISUAL_FALLBACK
+    Row(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(6.dp))
+            .clickable(enabled = e.repo.isNotBlank()) { onClick() }
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Box(Modifier.size(26.dp)) {
+            Avatar(
+                url = e.actorAvatar,
+                login = e.actor.ifBlank { e.repo.substringBefore('/') },
+                size = 26.dp,
+            )
+            // 角标：先铺一块底色「挖空」头像边缘，再画类型图标 —— 否则两色叠在一起发糊
+            Box(
+                Modifier.align(Alignment.BottomEnd).size(14.dp).clip(CircleShape).background(Primer.BackgroundPrimary),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    visual.icon,
+                    contentDescription = null,
+                    tint = visual.tint.color(),
+                    modifier = Modifier.size(11.dp),
+                )
+            }
+        }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(
-                "${e.repo.ifBlank { "（未知仓库）" }} · ${e.detail}",
-                fontSize = 13.sp,
-                color = Primer.TextPrimary,
-                lineHeight = 18.sp,
-            )
-            Text(relativeTime(e.createdAt), fontSize = 11.5.sp, color = Primer.TextTertiary)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    e.repo.ifBlank { "（未知仓库）" },
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Primer.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(relativeTime(e.createdAt), fontSize = 11.5.sp, color = Primer.TextTertiary)
+            }
+            Spacer(Modifier.height(2.dp))
+            Text(e.detail, fontSize = 12.5.sp, color = Primer.TextSecondary, lineHeight = 17.sp)
+            if (e.title != null) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    e.title,
+                    fontSize = 12.sp,
+                    color = Primer.TextTertiary,
+                    lineHeight = 17.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
