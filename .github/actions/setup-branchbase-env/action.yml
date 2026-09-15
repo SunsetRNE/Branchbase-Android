@@ -7,33 +7,51 @@ inputs:
 runs:
   using: composite
   steps:
+    # 每个步骤都带 id + continue-on-error，最后由「自检」一步统一报失败清单。
+    #
+    # 为什么这么做：复合动作在 Actions 的 jobs API 里只显示成一个步骤，
+    # 失败时**根本看不出是哪一个子步骤**；而作业日志要仓库管理权限才下载得到。
+    # 这里把失败步骤名做成 annotation —— 无需任何额外权限即可通过 check-runs API 定位
+    # （与 build-beta.yml / build-core.yml 里 assemble、cargo test 的报错方式同一套）。
     - name: Setup Java
-      uses: actions/setup-java@v4
+      id: java
+      continue-on-error: true
+      uses: actions/setup-java@v5
       with:
         distribution: temurin
         java-version: '17'
 
     - name: Setup Gradle (build cache + dependency cache)
+      id: gradle
+      continue-on-error: true
       uses: gradle/actions/setup-gradle@v4
       with:
         cache-read-only: ${{ inputs.gradle-cache-read-only }}
 
     - name: Setup Rust (aarch64-linux-android)
+      id: rust
+      continue-on-error: true
       uses: dtolnay/rust-toolchain@stable
       with:
         targets: aarch64-linux-android
 
     - name: Install cargo-ndk (锁定 4.1.2，预编译下载)
+      id: cargo_ndk
+      continue-on-error: true
       uses: taiki-e/install-action@v2
       with:
         tool: cargo-ndk@4.1.2
 
     - name: Install sccache (Rust 编译缓存，预编译下载)
+      id: sccache
+      continue-on-error: true
       uses: taiki-e/install-action@v2
       with:
         tool: sccache
 
     - name: Cache sccache
+      id: cache_sccache
+      continue-on-error: true
       uses: actions/cache@v4
       with:
         path: ~/.cache/sccache
@@ -42,12 +60,16 @@ runs:
           ${{ runner.os }}-sccache-
 
     - name: Configure sccache
+      id: configure_sccache
+      continue-on-error: true
       shell: bash
       run: |
         echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
         echo "SCCACHE_CACHE_SIZE=2G" >> "$GITHUB_ENV"
 
     - name: Cache Android SDK/NDK
+      id: cache_android_sdk
+      continue-on-error: true
       uses: actions/cache@v4
       with:
         path: ~/android-sdk
@@ -56,9 +78,21 @@ runs:
           ${{ runner.os }}-android-sdk-
 
     - name: Setup Android SDK/NDK
+      id: setup_android_sdk
+      continue-on-error: true
       uses: android-actions/setup-android@v3
+      with:
+        # **不要用它的默认值 `tools platform-tools`**：`tools`（旧版 Android SDK Tools 包）
+        # 已从 SDK 仓库下线，cmdline-tools 16.0 上会直接
+        # `Warning: Failed to find package 'tools'` → `sdkmanager` exit 1 →
+        # 整个 prepare 阶段失败，build / publish 全被 skip（2026-09-15 的 e00b6a6 / 77d563e 两次都是）。
+        # 只装 platform-tools；platforms / build-tools 由 AGP 按 compileSdk 自动补，
+        # 许可证在上一步 `accept-android-sdk-licenses` 已经接受。
+        packages: 'platform-tools'
 
     - name: Cache Gradle distribution (tools/gradle 预存·命中)
+      id: cache_gradle_dist
+      continue-on-error: true
       uses: actions/cache@v4
       with:
         path: tools/gradle
@@ -67,6 +101,8 @@ runs:
           ${{ runner.os }}-gradle-dist-
 
     - name: Cache Cargo registry
+      id: cache_cargo_registry
+      continue-on-error: true
       uses: actions/cache@v4
       with:
         path: ~/.cargo/registry
@@ -75,9 +111,43 @@ runs:
           ${{ runner.os }}-cargo-registry-
 
     - name: Cache Cargo build
+      id: cache_cargo_target
+      continue-on-error: true
       uses: actions/cache@v4
       with:
         path: core/target
         key: ${{ runner.os }}-cargo-target-${{ hashFiles('core/Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-cargo-target-
+
+    # 所有子步骤都跑完后统一判定：任一失败 → annotation 列出步骤名 + 让复合动作失败。
+    - name: 环境准备自检（失败步骤 → annotation）
+      if: always()
+      shell: bash
+      run: |
+        failed=""
+        for entry in \
+          "Setup Java|${{ steps.java.outcome }}" \
+          "Setup Gradle|${{ steps.gradle.outcome }}" \
+          "Setup Rust|${{ steps.rust.outcome }}" \
+          "Install cargo-ndk|${{ steps.cargo_ndk.outcome }}" \
+          "Install sccache|${{ steps.sccache.outcome }}" \
+          "Cache sccache|${{ steps.cache_sccache.outcome }}" \
+          "Configure sccache|${{ steps.configure_sccache.outcome }}" \
+          "Cache Android SDK/NDK|${{ steps.cache_android_sdk.outcome }}" \
+          "Setup Android SDK/NDK|${{ steps.setup_android_sdk.outcome }}" \
+          "Cache Gradle distribution|${{ steps.cache_gradle_dist.outcome }}" \
+          "Cache Cargo registry|${{ steps.cache_cargo_registry.outcome }}" \
+          "Cache Cargo build|${{ steps.cache_cargo_target.outcome }}" \
+        ; do
+          name="${entry%%|*}"
+          outcome="${entry##*|}"
+          if [ "$outcome" = "failure" ]; then
+            failed="$failed、$name"
+          fi
+        done
+        if [ -n "$failed" ]; then
+          echo "::error title=env::环境准备失败步骤：${failed#、}"
+          exit 1
+        fi
+        echo "环境准备全部步骤通过"
