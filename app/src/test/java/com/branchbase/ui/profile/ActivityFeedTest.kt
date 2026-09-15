@@ -137,6 +137,50 @@ class ActivityFeedTest {
         assertEquals("推送了 2 次", out[0].detail)
     }
 
+    // ── 顺序 ──────────────────────────────────────────────────────────────
+
+    /**
+     * 真机上抓到的顺序（`/users/{login}/events/public` 前三条）：06:38 / 06:31 / 06:43 ——
+     * 接口按事件 id 而非 `created_at` 返回。**乱序是显示层两个问题的共同根因**：
+     * 相对时间忽大忽小（「4 小时前」下面跟「1 天前」），以及折叠在错误的相邻项上分组。
+     */
+    private val outOfOrderJson = """
+        [
+          {"id": "a", "type": "PushEvent", "actor": {"login": "SunsetRNE"},
+           "repo": {"name": "SunsetRNE/Branchbase-Android"},
+           "payload": {"ref": "refs/heads/main", "head": "77d563edee7ec82a10d9d2f0320bc5b5da840a7f"},
+           "created_at": "2026-09-15T06:38:39Z"},
+          {"id": "b", "type": "PushEvent", "actor": {"login": "SunsetRNE"},
+           "repo": {"name": "SunsetRNE/Branchbase-Android"},
+           "payload": {"ref": "refs/heads/main", "head": "e00b6a63432d474ea69a9ca6c6450514975641a8"},
+           "created_at": "2026-09-15T06:31:37Z"},
+          {"id": "c", "type": "PushEvent", "actor": {"login": "SunsetRNE"},
+           "repo": {"name": "SunsetRNE/Branchbase-Android"},
+           "payload": {"ref": "refs/heads/main", "head": "85dc7f98b15e4f67d231e4219c3959175166bc13"},
+           "created_at": "2026-09-15T06:43:34Z"}
+        ]
+    """.trimIndent()
+
+    @Test
+    fun `解析后按时间倒序_不沿用接口顺序`() {
+        val out = parseEvents(outOfOrderJson)
+        assertEquals(listOf("85dc7f9", "77d563e", "e00b6a6"), out.map { it.head })
+        assertTrue(
+            "时间必须单调不增",
+            out.zipWithNext().all { (a, b) -> a.createdAt >= b.createdAt },
+        )
+    }
+
+    @Test
+    fun `乱序的事件流折叠后仍聚成一串`() {
+        // 不排序的话，这三条会各自成行（乱序相邻项不满足「同一天」以外的全部条件时更碎）
+        val out = collapsePushes(parseEvents(outOfOrderJson))
+        assertEquals(1, out.size)
+        assertEquals(3, out[0].pushCount)
+        assertEquals("最新一条（06:43）的 sha 要留在组内", "85dc7f9", out[0].head)
+        assertEquals("推送到 main · 3 次推送 · 最新 85dc7f9", out[0].detail)
+    }
+
     // ── payload 映射 ──────────────────────────────────────────────────────
 
     @Test

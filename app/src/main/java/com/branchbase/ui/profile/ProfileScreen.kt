@@ -661,6 +661,15 @@ internal fun parseEvents(json: String?): List<ActivityEvent> {
             }
         }
     }.getOrDefault(emptyList())
+        // 接口顺序**不可信**：`created_at` 才是时间真值，而 events 接口返回的是「按事件 id 倒序」——
+        // 实测同一页里出现 06:38 / 06:31 / 06:43 这样的顺序（真机截图的前三行就是
+        // 77d563e / e00b6a6 / 85dc7f9，与实测一致）。乱序的后果都在显示层：
+        //   ① 相对时间忽大忽小（「4 小时前」下面跟着「1 天前」，再跟回「4 小时前」）——
+        //      看起来就不像真实数据；
+        //   ② [collapsePushes] 按**相邻**条目折叠，乱序时会把同一天的推送拆成好几段。
+        // 所以在解析出口统一按时间倒序排一次（稳定排序：同一时间保持接口原序）；
+        // 调用方拿到的一定是有序列表，不需要再排。
+        .sortedByDescending { it.createdAt }
 }
 
 /** 事件动作的中文说法（原先直接把 `opened` / `closed` 原样拼进句子）。 */
@@ -810,7 +819,10 @@ private fun ProfileActivity(
             all += batch
             if (batch.size < 100) break
         }
-        return all
+        // 分页拼接后**整体再排一次**：单页排序盖不住分页边界上的乱序
+        // （接口本身不按时间返回，见 [parseEvents] 的说明），
+        // 而 [collapsePushes] 的口径是「相邻条目」——顺序错了，折叠就会把同一天切成好几段。
+        return all.sortedByDescending { it.createdAt }
     }
 
     LaunchedEffect(login) {
