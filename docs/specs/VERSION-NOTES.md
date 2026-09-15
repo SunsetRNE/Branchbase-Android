@@ -25,7 +25,28 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.52 → 1.0.22）
+## 二、`versionName` 流水（1.0.53 → 1.0.22）
+
+### 1.0.53
+
+把 1.0.52 那类 bug 钉成**源码级钉子**：`Crossfade` 的 lambda 体必须是一个 `Column`。
+
+① 为什么必须钉在源码上：`Crossfade` 的实现是 `Box { 每个状态各一层 }`，子元素是否重叠是**布局期**的事；
+JVM 单测没有 Compose 运行时（渲染不了布局），当时 14 条单测 + `assembleDebug` 全绿，
+只有真机截图看得出来 —— 这类规则和 `BackConsumptionTest`（返回键）、`PageTransitionsTest`（切换器）
+一样，只能钉形状。
+
+② 做法：新增 `CrossfadeLayoutTest` —— 扫 `src/main/java` 下所有 `.kt`，对每个 `Crossfade(` 调用点断言
+「lambda 箭头之后的第一行代码是 `Column(`」（跳过空行与 `//` 注释行，并放行 `) { x -> Column(…) {` 同行写法）；
+另有一条**覆盖性**断言（当前全项目 3 处调用点：`RegionSwap`、动态页活动区、贡献墙），
+防止规则写错后恰好一条都不匹配而「假绿」。
+
+③ 顺带统一形状：动态页活动区的 Crossfade 原先只把 `Column` 套在 `else` 分支里
+（结构上安全 —— `if/else` 是单个语句，但形状与另两处不一致），现在套在最外层，
+规则才能用一条覆盖所有调用点。这条也是新钉子自己抓出来的第一处。
+
+④ 边界：若将来把 Crossfade 换成别的切换器（例如 `AnimatedContent`），钉子会报
+「Crossfade 之后 12 行内没有 lambda 箭头」并提示同步更新，而不是静默失效。
 
 ### 1.0.52
 
@@ -519,11 +540,13 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（154 → 129）
+## 三、`versionCode` 流水（155 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **155**：新增 `CrossfadeLayoutTest`（Crossfade 的 lambda 体必须是 Column）+ 统一活动区形状（一次提交，故 +1）
 
 - **154**：修 Crossfade（Box）多子元素互叠导致的动态页错版（三处各套一层 Column）（一次提交，故 +1）
 

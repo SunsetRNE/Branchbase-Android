@@ -950,12 +950,14 @@ private fun ProfileActivity(
                 animationSpec = tween(ElementMotion.REVEAL_MS),
                 label = "activity-area",
             ) { show ->
-                if (!show) {
-                    ActivityEmptyState(error)
-                } else {
-                    // ⚠️ Crossfade 的内容在 Box 里：**多子元素会互相叠加**，必须自己套一层 Column
-                    // （这一条是真机截图抓到的：六段内容全叠在同一位置，整页看起来像错版）。
-                    Column(Modifier.fillMaxWidth()) {
+                // ⚠️ Crossfade 的内容在 Box 里：**多子元素会互相叠加**，必须自己套一层 Column
+                // （这一条是真机截图抓到的：六段内容全叠在同一位置，整页看起来像错版）。
+                // 套在**最外层**（而不是只套 else 分支）也是刻意的：lambda 体保持「就是一个 Column」，
+                // CrossfadeLayoutTest 这条源码级钉子才能用一条规则覆盖所有调用点。
+                Column(Modifier.fillMaxWidth()) {
+                    if (!show) {
+                        ActivityEmptyState(error)
+                    } else {
                         val collapsed = remember(events) { collapsePushes(events) }
                         // 类型分布（Top 5）
                         SectionTitle("活动类型分布")
