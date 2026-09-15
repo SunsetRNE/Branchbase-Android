@@ -83,59 +83,69 @@ jobs:
         with:
           name: release-artifacts
 
+      # 改动记录：锚定上一个**正式版**标签（排除 beta），逐条列出提交 + 完整对比链接。
+      # 原实现是 `git log -10`：没有链接、固定 10 条、且不知道上次发的是哪个版本。
+      - name: 生成改动记录（锚定上一个正式版标签）
+        id: notes
+        run: |
+          # 正文只含两个引用区；版本信息由最后一步追加到整页末尾
+          bash tools/build/release-notes.sh \
+            --repo "${{ github.repository }}" \
+            --tag "v${{ needs.build.outputs.versionName }}" \
+            --previous-pattern 'v*' \
+            --exclude-substring '-beta' \
+            --exclude-author 'github-actions[bot]' \
+            --previous-out previous-tag.txt >> release-body.md
+          echo "previous=$(cat previous-tag.txt)" >> "$GITHUB_OUTPUT"
+          cat release-body.md
+
       - name: Generate signature file
         run: |
           echo "variant=release" > signature.txt
           echo "version=${{ needs.build.outputs.versionName }}" >> signature.txt
           echo "fingerprint=B3:72:AB:52:EE:47:A0:8E:45:26:6F:1C:11:E0:75:6D:86:E3:83:A0:74:BE:EB:A3:77:FD:3E:BA:7C:F7:99:94" >> signature.txt
 
-      # 不建 tag：上一次正式版是哪个提交，记在 release 分支的 RELEASED_COMMIT 里。
-      # 分支每次 force 更新（没有历史可查），所以锚点只能写进文件；
-      # 用 raw 直链读它，避免为了一个小文件把 28MB 的 APK 一起 fetch 下来。
-      - name: 读取上一次正式版的提交（发布记录锚点）
-        id: prev
-        run: |
-          PREV=$(curl -fsSL "https://raw.githubusercontent.com/${{ github.repository }}/release/RELEASED_COMMIT" 2>/dev/null | tr -d '[:space:]' || true)
-          echo "commit=$PREV" >> "$GITHUB_OUTPUT"
-          echo "上一个正式版提交：${PREV:-（读不到，退回标签锚定）}"
-
-      # 改动记录：不建 tag 时用「上一次发布的提交 → 本次提交」这段区间；
-      # 读不到锚点（首次 / 仓库转私有导致 raw 不可匿名访问）时退回按标签锚定。
-      - name: 生成改动记录
-        run: |
-          if [ -n "${{ steps.prev.outputs.commit }}" ]; then
-            bash tools/build/release-notes.sh \
-              --repo "${{ github.repository }}" \
-              --tag "v${{ needs.build.outputs.versionName }}" \
-              --from "${{ steps.prev.outputs.commit }}" \
-              --to "$(git rev-parse HEAD)" \
-              --exclude-author 'github-actions[bot]' > RELEASE-NOTES.md
-          else
-            bash tools/build/release-notes.sh \
-              --repo "${{ github.repository }}" \
-              --tag "v${{ needs.build.outputs.versionName }}" \
-              --previous-pattern 'v*' \
-              --exclude-substring '-beta' \
-              --exclude-author 'github-actions[bot]' > RELEASE-NOTES.md
-          fi
-          cat RELEASE-NOTES.md
-
       - name: 代码变更整合（生成源码包）
         run: git archive --format=tar.gz -o "source-${{ needs.build.outputs.versionName }}.tar.gz" HEAD
 
-      # 产物分发走 release 分支的 raw 直链：**不建 tag、不发 GitHub Release**。
-      # 直链形如
-      #   https://github.com/<owner>/<repo>/raw/release/<文件名>
-      # 每次 force 更新 → 分支上只有一次发布的内容，仓库不会被历次 APK 撑大。
-      - name: 发布产物到 release 分支（不建 tag / 不发 Release）
+      - name: 类型判定发布（正式 Release）
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.build.outputs.versionName }}
+          name: 正式版 v${{ needs.build.outputs.versionName }}
+          body_path: release-body.md
+          # 官方自动生成说明（合并的 PR + 贡献者 + 完整变更链接），分类见 .github/release.yml
+          generate_release_notes: true
+          previous_tag: ${{ steps.notes.outputs.previous }}
+          files: |
+            *.apk
+            signature.txt
+            source-${{ needs.build.outputs.versionName }}.tar.gz
+          prerelease: false
+          draft: false
+          # 正式版设为 latest（Beta 是 pre-release，不会抢占）
+          make_latest: true
+
+      # 版本信息排到整页末尾（在官方自动说明之后）
+      - name: 追加版本信息到发布页末尾
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          # 记下本次发布的提交，供下一次发布当锚点
-          git rev-parse HEAD > RELEASED_COMMIT
-          git checkout -B release
-          # 产物被 .gitignore 挡着，-f 强制入库
-          git add -f *.apk signature.txt source-*.tar.gz RELEASE-NOTES.md RELEASED_COMMIT
-          git commit -m "release: v${{ needs.build.outputs.versionName }} (${{ needs.build.outputs.gitHash }})" || echo "无变更"
-          git push origin release --force
-          echo "✅ 已推送到 release 分支（未创建 tag）" 
+          TAG="v${{ needs.build.outputs.versionName }}"
+          BODY=$(gh release view "$TAG" --repo "${{ github.repository }}" --json body -q .body)
+          {
+            printf '%s\n\n' "$BODY"
+            echo "---"
+            echo ""
+            echo "### 版本信息"
+            echo ""
+            echo "| 项 | 值 |"
+            echo "| --- | --- |"
+            echo "| 版本 | \`$TAG\` |"
+            echo "| 版本码 | \`${{ needs.build.outputs.versionCode }}\` |"
+            echo "| 提交 | \`${{ needs.build.outputs.gitHash }}\` |"
+            echo "| 构建时间 | ${{ needs.build.outputs.buildTime }} |"
+            echo "| 签名 | Release 签名 |"
+          } > final-body.md
+          gh release edit "$TAG" --repo "${{ github.repository }}" --notes-file final-body.md
+          echo "✅ 版本信息已追加到发布页末尾" 

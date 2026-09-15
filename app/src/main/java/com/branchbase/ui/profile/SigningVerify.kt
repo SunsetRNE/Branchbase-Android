@@ -190,41 +190,8 @@ fun fetchRemoteSignature(owner: String, repo: String, branch: String, path: Stri
     null
 }
 
-/** 正式版产物所在的分支：发布流程不建 tag，产物直接推到它上面（见 build-release.yml）。 */
-private const val RELEASE_BRANCH = "release"
-
-/**
- * 拉取正式版校验文件（`signature.txt`）。
- *
- * 正式版发布流程**不建 tag、不发 GitHub Release**（产物推到 `release` 分支走 raw 直链分发），
- * 所以 `releases/latest` 不再是可靠入口 —— beta 都是 prerelease 会被排除，一查就是 404。
- *
- * 先走分支直链，失败再退回 API：兼容历史上已经发过的正式版 Release。
- */
-fun fetchLatestReleaseSignature(owner: String, repo: String): String? =
-    fetchSignatureFromReleaseBranch(owner, repo) ?: fetchSignatureFromLatestRelease(owner, repo)
-
-/** 从 release 分支的 raw 直链读 `signature.txt`（仓库公开时不需要鉴权）。 */
-private fun fetchSignatureFromReleaseBranch(owner: String, repo: String): String? = try {
-    val conn = URL("https://raw.githubusercontent.com/$owner/$repo/$RELEASE_BRANCH/signature.txt")
-        .openConnection() as HttpURLConnection
-    conn.connectTimeout = 10_000
-    conn.readTimeout = 10_000
-    conn.requestMethod = "GET"
-    conn.setRequestProperty("User-Agent", "Branchbase")
-    if (conn.responseCode == 200) {
-        Logger.remote("拉取 release 分支 signature.txt → 200", "SigningVerify")
-        conn.inputStream.bufferedReader().use { it.readText() }
-    } else {
-        null
-    }
-} catch (e: Exception) {
-    Logger.warn(LogCategory.REMOTE_EXEC, "SigningVerify", "拉取 release 分支校验文件异常：$e")
-    null
-}
-
 /** 拉取 latest release 的 signature.txt 附件内容（GitHub API），失败返回 null。 */
-private fun fetchSignatureFromLatestRelease(owner: String, repo: String): String? = try {
+fun fetchLatestReleaseSignature(owner: String, repo: String): String? = try {
     // 1. 拉 latest release JSON，找 signature.txt 的 browser_download_url
     val apiUrl = URL("https://api.github.com/repos/$owner/$repo/releases/latest")
     val apiConn = apiUrl.openConnection() as HttpURLConnection
