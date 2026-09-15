@@ -953,47 +953,51 @@ private fun ProfileActivity(
                 if (!show) {
                     ActivityEmptyState(error)
                 } else {
-                    val collapsed = remember(events) { collapsePushes(events) }
-                    // 类型分布（Top 5）
-                    SectionTitle("活动类型分布")
-                    Column(Modifier.padding(horizontal = 16.dp)) {
-                        RegionSwap(
-                            loading = loading,
-                            skeleton = { repeat(3) { TypeBarSkeleton() } },
-                            content = {
-                                // 有事件就一定有分布（byType 从 events 派生），空分支不可达，只为类型完整
-                                val byType = events.groupingBy { it.type.removeSuffix("Event") }.eachCount()
-                                    .entries.sortedByDescending { it.value }.take(5)
-                                val max = (byType.firstOrNull()?.value ?: 1).coerceAtLeast(1)
-                                byType.forEach { (label, count) ->
-                                    TypeBar(label, count, (count * 100 / max).coerceIn(4, 100))
-                                }
-                            },
-                        )
-                    }
+                    // ⚠️ Crossfade 的内容在 Box 里：**多子元素会互相叠加**，必须自己套一层 Column
+                    // （这一条是真机截图抓到的：六段内容全叠在同一位置，整页看起来像错版）。
+                    Column(Modifier.fillMaxWidth()) {
+                        val collapsed = remember(events) { collapsePushes(events) }
+                        // 类型分布（Top 5）
+                        SectionTitle("活动类型分布")
+                        Column(Modifier.padding(horizontal = 16.dp)) {
+                            RegionSwap(
+                                loading = loading,
+                                skeleton = { repeat(3) { TypeBarSkeleton() } },
+                                content = {
+                                    // 有事件就一定有分布（byType 从 events 派生），空分支不可达，只为类型完整
+                                    val byType = events.groupingBy { it.type.removeSuffix("Event") }.eachCount()
+                                        .entries.sortedByDescending { it.value }.take(5)
+                                    val max = (byType.firstOrNull()?.value ?: 1).coerceAtLeast(1)
+                                    byType.forEach { (label, count) ->
+                                        TypeBar(label, count, (count * 100 / max).coerceIn(4, 100))
+                                    }
+                                },
+                            )
+                        }
 
-                    // 活动热力（按天聚合，13 周 = events API 的 90 天上限）
-                    SectionTitle("活动热力", "过去 90 天")
-                    Column(Modifier.padding(horizontal = 16.dp)) {
-                        RegionSwap(
-                            loading = loading,
-                            skeleton = { HeatmapSkeleton() },
-                            content = { ActivityHeatmap(events) },
-                        )
-                    }
+                        // 活动热力（按天聚合，13 周 = events API 的 90 天上限）
+                        SectionTitle("活动热力", "过去 90 天")
+                        Column(Modifier.padding(horizontal = 16.dp)) {
+                            RegionSwap(
+                                loading = loading,
+                                skeleton = { HeatmapSkeleton() },
+                                content = { ActivityHeatmap(events) },
+                            )
+                        }
 
-                    // 时间线：连续推送先折叠（同仓库 + 同分支 + 同一天），再截前 30 条
-                    SectionTitle("最近活动")
-                    Column(Modifier.padding(horizontal = 16.dp)) {
-                        RegionSwap(
-                            loading = loading,
-                            skeleton = { repeat(4) { EventRowSkeleton() } },
-                            content = {
-                                collapsed.take(30).forEach { e ->
-                                    EventRow(e, onClick = { if (e.repo.isNotBlank()) onOpenRepo(e.repo) })
-                                }
-                            },
-                        )
+                        // 时间线：连续推送先折叠（同仓库 + 同分支 + 同一天），再截前 30 条
+                        SectionTitle("最近活动")
+                        Column(Modifier.padding(horizontal = 16.dp)) {
+                            RegionSwap(
+                                loading = loading,
+                                skeleton = { repeat(4) { EventRowSkeleton() } },
+                                content = {
+                                    collapsed.take(30).forEach { e ->
+                                        EventRow(e, onClick = { if (e.repo.isNotBlank()) onOpenRepo(e.repo) })
+                                    }
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -1041,6 +1045,14 @@ private fun ActivityEmptyState(error: String?) {
  *
  * [skeleton] 与 [content] 必须**同尺寸**（骨架的规矩：结构与尺寸与真实内容一一对应），
  * 否则淡入的同时还会叠一层位移。
+ *
+ * ## 为什么里面还要套一层 [Column]（不是多余的）
+ *
+ * `Crossfade` 的内容落在**一个 `Box`** 里：调用方交给它的多个子元素会**叠在一起**，不会纵向排列
+ * （真机上就踩过：骨架 `repeat(4) { EventRowSkeleton() }` 四行叠成一坨，
+ * 内容 `forEach { EventRow(...) }` 三十行同样叠成一坨）。
+ * 这里统一套一层 Column，把「多子元素」这件事在**这一处**收口，
+ * 调用方不必知道 Crossfade 是 Box 而不是 Column。
  */
 @Composable
 private fun RegionSwap(
@@ -1055,7 +1067,9 @@ private fun RegionSwap(
         animationSpec = tween(ElementMotion.REVEAL_MS),
         label = "region-swap",
     ) { isLoading ->
-        if (isLoading) skeleton() else content()
+        Column(Modifier.fillMaxWidth()) {
+            if (isLoading) skeleton() else content()
+        }
     }
 }
 
