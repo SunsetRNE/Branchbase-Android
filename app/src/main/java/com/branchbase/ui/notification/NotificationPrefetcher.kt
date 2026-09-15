@@ -59,6 +59,18 @@ object NotificationPrefetcher {
     private const val PREVIEW_LIMIT = 8
 
     /**
+     * 清掉去重窗口（网络路径变了时由 `NetworkWatch` 调用）。
+     *
+     * 与 [RepoPrefetcher.forgetDedupe] 同一个理由：窗口在发起时就记账，失败那次也占着它，
+     * 不重新打开窗口的话，VPN 刚连上也不会补取消息首屏。
+     *
+     * 不动 [inFlight]：真的还在跑的那一批不该被叠上第二批。
+     */
+    fun forgetDedupe() {
+        lastAtMs = 0L
+    }
+
+    /**
      * fire-and-forget 版本：给首页/启动路径用，立即返回、不阻塞渲染。
      */
     fun warmUpAsync(context: Context, host: String, token: String) {

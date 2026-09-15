@@ -15,6 +15,7 @@ import com.branchbase.ui.translate.TranslateBubble
 import com.branchbase.ui.translate.TranslateBubbleHost
 import com.branchbase.ui.theme.ThemeRuntime
 import com.branchbase.core.RustBridge
+import com.branchbase.core.NetworkWatch
 import com.branchbase.ui.auth.LoginFlow
 import com.branchbase.ui.log.FrameWatch
 import com.branchbase.ui.log.LogManager
@@ -101,6 +102,17 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * 回到前台补一次远端可达性复核。
+     *
+     * 正常路径由 `NetworkWatch` 的网络回调覆盖；这里兜的是「回调没投到（后台冻结 / 平台差异）」
+     * 的情况 —— 否则用户从 VPN 客户端切回来时，App 还带着接入前的结论。
+     */
+    override fun onResume() {
+        super.onResume()
+        NetworkWatch.refresh(applicationContext)
     }
 
     /** 解析 branchbase://oauth/callback 深链，提取 code */

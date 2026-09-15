@@ -226,6 +226,9 @@ object RustBridge {
 
     private external fun nativeSetGitProxy(dir: String, proxy: String): String
 
+    /** 丢弃共享 HTTP 连接池（返回空串=成功）。网络路径变化后调用，见 [NetworkWatch]。 */
+    private external fun nativeResetHttpClient(): String
+
     private external fun nativeUpdateProfile(host: String, token: String, body: String): String
 
     // ── 协作与仓库管理（PR 一条龙 / 合并 / 仓库设置执行层） ──
@@ -1301,6 +1304,21 @@ object RustBridge {
      */
     fun setGitProxy(dir: String, proxy: String): Boolean = try {
         !nativeSetGitProxy(dir, proxy).startsWith("ERROR:")
+    } catch (e: Throwable) {
+        false
+    }
+
+    /**
+     * 丢弃进程内共享的 HTTP 客户端（连接池 / TLS 会话随之释放），下一次请求重建。
+     *
+     * 两份都丢（共享 + 上传专用）：网络路径变了才需要（VPN 接入 / 断开、换网）——
+     * 池里的连接是在**切换前的网络**上握手完成的，新路径上复用它们只会一路超时。
+     * 判定与调用时机见 [NetworkWatch]。
+     *
+     * 在途请求不受影响 —— 它们各自持有客户端的引用计数，这里丢的是「以后新建请求要用的那一份」。
+     */
+    fun resetHttpClient(): Boolean = try {
+        !nativeResetHttpClient().startsWith("ERROR:")
     } catch (e: Throwable) {
         false
     }

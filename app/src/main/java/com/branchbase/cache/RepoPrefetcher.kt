@@ -50,6 +50,18 @@ object RepoPrefetcher {
     fun metered(context: Context): Boolean = networkMetered(context)
 
     /**
+     * 清掉「最近预取过」的记账（网络路径变了时由 `NetworkWatch` 调用）。
+     *
+     * 为什么必须清：窗口是在**发起预取时**记的，失败的预取同样占着它 —— 没开 VPN 时
+     * 那次失败会让同一仓库在 60s 内被拒绝重试，表现就是「连上梯子了，页面还是空的」。
+     *
+     * 不动 [inFlight]：那些是真的还在跑，清掉会让同一仓库并发两份。
+     */
+    fun forgetDedupe() {
+        recent.clear()
+    }
+
+    /**
      * 按场景触发预加载（立即返回，不阻塞调用方）。
      */
     fun prefetch(

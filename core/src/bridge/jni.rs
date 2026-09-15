@@ -2008,6 +2008,20 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeSetGitProxy<'lo
     into_jstring(&mut env, result)
 }
 
+/// 丢弃进程内共享的 HTTP 客户端（含上传专用那一份），让下一次请求重建连接池（返回空串=成功）。
+///
+/// 网络路径变化后调用（VPN 接入 / 断开、换网）：池里的连接是在切换前的网络上握手完成的，
+/// 新路径上复用它们只会一路超时。判定与调用时机在 Kotlin 侧 `NetworkWatch`。
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeResetHttpClient<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> jstring {
+    crate::api::client::reset_http_client();
+    let result: crate::error::Result<String> = Ok(String::new());
+    into_jstring(&mut env, result)
+}
+
 /// 更新当前用户资料（PATCH /user，返回空串=成功）
 /// 参数：host, token, body（JSON 字符串）
 #[no_mangle]

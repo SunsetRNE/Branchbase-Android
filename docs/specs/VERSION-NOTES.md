@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只留格式契约 + 写法样板（3 个经典示例）；
-**每一版改了什么、为什么这么改**都在这份文档里 —— 25 个 `versionName` 条目（1.0.22 → 1.0.46）
-与 20 条 `versionCode` 流水（129 → 148）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— 26 个 `versionName` 条目（1.0.22 → 1.0.47）
+与 21 条 `versionCode` 流水（129 → 149）。
 
 ---
 
@@ -25,7 +25,42 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.46 → 1.0.22）
+## 二、`versionName` 流水（1.0.47 → 1.0.22）
+
+### 1.0.47
+
+远端可达性判定的完善 —— 「先没开 VPN 打开 App、之后再接入 VPN，远端还是打不开」的修复。
+① 症状与两条独立成因（各自都能单独造成这个症状）：**连接池绑在切换前的网络上** ——
+Rust 侧 `shared_http()` 此前是进程级 `OnceLock<Client>`（换不掉），池里的连接是在旧网络
+（没梯子时那张）上握手完成的，默认网络换成 VPN 后它们既不可用也不会自己消失，后续请求继续
+复用、一路超时；
+以及**启动那次的负面结论被记账** —— 账号健康检查只在 `MainActivity` 启动时跑一次，没有 VPN 时
+判出 `UNREACHABLE` 写进本地账号状态后无人复检，两个预取器（通知 45s / 仓库 60s）也把失败那次
+记进了去重窗口。
+② 判定口径（三档 + 四种跃迁）：`NetworkKind` 取 `OFFLINE / DIRECT / VPN`，档位按固定优先级算 ——
+非 VPN 网络用 `NET_CAPABILITY_VALIDATED` 判「出得了网」而不是「有没有网」（Android 的「已连接」
+只说明链路在），**VPN 网络则不看 VALIDATED**：真机 `dumpsys connectivity` 取证（OnePlus / Android 16，
+FlClash：`NetworkInfo ni{VPN CONNECTED}` + `Transports: CELLULAR|VPN Capabilities: …&VALIDATED` +
+`InterfaceName: tun0`）显示它的 VALIDATED 继承自底层网络，刚建链那一小段可能还没写上，
+据此判离线会漏掉最该抓的 `VPN_UP`。
+只有**网络恢复 / VPN 接入 / VPN 断开 / 换了一张网**四种跃迁才重探，同网的带宽与计费抖动一律忽略
+（否则弱网下会反复重置连接池、反复打 `/user`）。VPN 优先于「换网」：挂 VPN 时网络句柄也会变，
+原因记错会把「到底走没走 VPN」这条唯一的排障线索埋掉。
+③ 改法：跃迁时做三件事 —— 丢共享连接池（新增 `nativeResetHttpClient` → Rust
+`reset_http_client()`，两份进程级客户端 —— 共享 + 上传专用 —— 都从 `OnceLock` 改成可丢弃的
+`RwLock<Option<Client>>`；在途请求各自持有引用计数，不会被掐断）、清两个预取去重窗口
+（窗口在发起时记账，失败那次同样占着它）、重探账号。
+监听用 `registerDefaultNetworkCallback`（含 `onCapabilitiesChanged`），350ms 防抖躲开 VPN 建链期
+「旧网已断、新网还没 VALIDATED」的中间态，`MainActivity.onResume` 再兜一次（后台回调没投到时不该
+带着旧结论）。只用已声明的 `ACCESS_NETWORK_STATE`，不新增权限。
+④ 钉子：`ReachabilityPolicyTest`（15 条，逐条锁死四种跃迁与三类不该触发的形状）、
+`core/src/api/client.rs` 的两条 Rust 单测（重置后确实重建 / 重建出来的客户端仍能发请求，走回环
+服务）、`JniSignatureTest` 自动把新增的原生函数与 Kotlin 声明钉在一起。
+⑤ 边界：直连的大陆网络本身是 `VALIDATED` 的（能上国内站点），「这张网到不了 GitHub」没有任何
+本地系统事实能表达 —— 所以 `DIRECT` ≠ 远端可达，真正的可达性仍由 `GET /user` 给出，本机制保证的
+是**换了路径就重新判定**。设计记录见 `docs/specs/reachability-design.md`。
+**未做真机安装验证**（debug 包与已装正式包签名不同），待用真机复验：没开梯子启动 → 接入梯子 →
+远端应在一个探测周期内恢复。
 
 ### 1.0.46
 
@@ -350,11 +385,13 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（148 → 129）
+## 三、`versionCode` 流水（149 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **149**：远端可达性判定完善（共享连接池可丢弃 + VPN 接入 / 断开与换网跃迁重探）（一次提交，故 +1）
 
 - **148**：README 高度上限 20k→200k（长文被截断的修复）（一次提交，故 +1）
 

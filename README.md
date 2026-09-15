@@ -78,6 +78,7 @@ Branchbase/
 | [`docs/specs/settings-design.md`](docs/specs/settings-design.md) | **设置页设计规范**：两级 IA / 6 种行型 / 控件选型 / 用语表 / 危险操作 |
 | [`docs/specs/NAVIGATION-NOTES.md`](docs/specs/NAVIGATION-NOTES.md) | 返回键与导航的两条硬规则（顶层双击退出、页面内逐层消费） |
 | [`docs/specs/html-parser-design.md`](docs/specs/html-parser-design.md) | 正文链接如何归一化成跳转目标：§3 规则表、§6 已知边界 |
+| [`docs/specs/reachability-design.md`](docs/specs/reachability-design.md) | **远端可达性判定**：离线 / 直连 / VPN 三档、四种跃迁才重探、跃迁时三件事（丢连接池 / 清去重窗口 / 重探账号） |
 | [`docs/specs/BUILD-NOTES.md`](docs/specs/BUILD-NOTES.md) | AGP 9.0 的 `VariantOutputImpl` 坑 + 版本号体系 + JNI 签名与 locale |
 | [`docs/specs/VERSION-NOTES.md`](docs/specs/VERSION-NOTES.md) | **版本变更记录**：逐版改了什么、为什么这么改 + `versionCode` 流水 + 新增一版的写法约定 |
 | [`docs/specs/prototypes/`](docs/specs/prototypes/) | 原型**说明文档**的入库副本（原型本体在 `/design/`，不入库） |
