@@ -9,6 +9,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -42,7 +43,6 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -61,6 +61,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -78,6 +79,10 @@ import com.branchbase.ui.repository.RepoRelation
 import com.branchbase.ui.repository.repoRelationOf
 import com.branchbase.ui.theme.ProvideShimmer
 import com.branchbase.ui.theme.skeletonBlock
+import com.branchbase.ui.theme.morph.AnimatedMorphIcon
+import com.branchbase.ui.theme.morph.MorphIcons
+import com.branchbase.ui.theme.rememberPressFeedback
+import com.branchbase.ui.theme.selectionColor
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
@@ -393,15 +398,31 @@ fun SearchScreen(
         ) {
             // 类型下拉
             Box(Modifier.weight(1f)) {
+                // 按钮动效补帧：展开态底色过渡（180ms）+ 按压缩放（120ms）+
+                // 箭头 ↓⇄↑ 的**路径插值形变**（中间帧由顶点对应关系算出来，而不是两帧硬切）。
+                // 三者都是既有规格里的原语，参数不在这里定，见 ui/theme/Motion.kt 与 ui/theme/morph/。
+                val press = rememberPressFeedback()
                 Row(
                     modifier = Modifier
                         .fillMaxWidth().height(40.dp)
-                        .clip(RoundedCornerShape(8.dp)).background(Primer.BackgroundSecondary)
-                        .clickable { typeMenu = true }.padding(horizontal = 12.dp),
+                        // graphicsLayer 必须在 clip/background **之前**，否则只缩内容不缩底
+                        .graphicsLayer {
+                            scaleX = press.scale.value
+                            scaleY = press.scale.value
+                        }
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(selectionColor(typeMenu, on = Primer.Gray150, off = Primer.BackgroundSecondary))
+                        .clickable(interactionSource = press.interaction, indication = LocalIndication.current) { typeMenu = true }
+                        .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(type, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, modifier = Modifier.weight(1f))
-                    Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = Primer.IconSecondary, modifier = Modifier.size(18.dp))
+                    AnimatedMorphIcon(
+                        pair = MorphIcons.ChevronDownUp,
+                        target = typeMenu,
+                        tint = Primer.IconSecondary,
+                        modifier = Modifier.size(18.dp),
+                    )
                 }
                 // 白底 + Primer 描边：主题已把容器角色统一成标准白底，
                 // 这里再补一道描边，与 App 其它弹层（气泡 / 手板）的「白底 + 描边 + 阴影」一致
@@ -422,16 +443,28 @@ fun SearchScreen(
             // 排序下拉（仅仓库搜索支持排序，其余类型隐藏）
             if (type == "仓库") {
                 Box {
+                    val sortPress = rememberPressFeedback()
                     Row(
                         modifier = Modifier
                             .height(40.dp)
-                            .clip(RoundedCornerShape(8.dp)).background(Primer.BackgroundSecondary)
-                            .clickable { sortMenu = true }.padding(horizontal = 12.dp),
+                            .graphicsLayer {
+                                scaleX = sortPress.scale.value
+                                scaleY = sortPress.scale.value
+                            }
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(selectionColor(sortMenu, on = Primer.Gray150, off = Primer.BackgroundSecondary))
+                            .clickable(interactionSource = sortPress.interaction, indication = LocalIndication.current) { sortMenu = true }
+                            .padding(horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(sort, fontSize = 12.sp, color = Primer.TextSecondary)
                         Spacer(Modifier.width(2.dp))
-                        Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = Primer.IconSecondary, modifier = Modifier.size(16.dp))
+                        AnimatedMorphIcon(
+                            pair = MorphIcons.ChevronDownUp,
+                            target = sortMenu,
+                            tint = Primer.IconSecondary,
+                            modifier = Modifier.size(16.dp),
+                        )
                     }
                     DropdownMenu(
                         expanded = sortMenu,
@@ -452,15 +485,30 @@ fun SearchScreen(
                 }
             }
             // 过滤按钮
+            val filterPress = rememberPressFeedback()
             Box(
                 modifier = Modifier
                     .size(40.dp)
+                    .graphicsLayer {
+                        scaleX = filterPress.scale.value
+                        scaleY = filterPress.scale.value
+                    }
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Primer.BackgroundSecondary)
-                    .clickable { showFilter = true },
+                    .background(selectionColor(showFilter, on = Primer.Gray150, off = Primer.BackgroundSecondary))
+                    .clickable(interactionSource = filterPress.interaction, indication = LocalIndication.current) { showFilter = true },
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Filled.Tune, contentDescription = "过滤", tint = Primer.IconPrimary, modifier = Modifier.size(20.dp))
+                // Tune ⇄ Close **结构差异大**（6 条子路径 vs 1 条），门控判它不做形变、
+                // 就地降级成 200ms 交叉过渡 —— 这是「极端组合清单」在真实调用处的落点：
+                // 调用方不需要知道能不能形变，照常写 `target = ...` 即可。
+                // 说明：手板是模态的，按钮在遮罩之下，这个状态主要在遮罩进退时可见。
+                AnimatedMorphIcon(
+                    pair = MorphIcons.FilterOpen,
+                    target = showFilter,
+                    tint = Primer.IconPrimary,
+                    contentDescription = "过滤",
+                    modifier = Modifier.size(20.dp),
+                )
             }
         }
 
@@ -1102,7 +1150,14 @@ private fun FilterSheet(
                                 .background(Primer.Gray150),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(if (expanded) "−" else "+", fontSize = 14.sp, color = Primer.IconSecondary)
+                            // 原来是「+ / −」两个字符硬切：字形不同、基线也略有差异，切换时是「跳一下」。
+                            // 换成加号⇄减号的路径插值形变：竖杠逐帧收短，横杠始终在，是同一支笔写出来的感觉。
+                            AnimatedMorphIcon(
+                                pair = MorphIcons.PlusMinus,
+                                target = expanded,
+                                tint = Primer.IconSecondary,
+                                modifier = Modifier.size(16.dp),
+                            )
                         }
                         Spacer(Modifier.width(8.dp))
                         Text(
@@ -1467,17 +1522,25 @@ private fun SearchPagingFooter(
                 Text("加载中…", fontSize = 12.5.sp, color = Primer.TextTertiary)
             }
 
-            PagingState(page = 1, total = total, shown = shown).hasMore -> Text(
-                loadMoreText(shown, total),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Primer.Blue500,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Primer.InfoSurface)
-                    .clickable(onClick = onLoadMore)
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-            )
+            PagingState(page = 1, total = total, shown = shown).hasMore -> {
+                // 按下反馈：原来只有水波纹，按下去的那 100ms 里按钮本身是死的（没有中间帧）。
+                val press = rememberPressFeedback()
+                Text(
+                    loadMoreText(shown, total),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Primer.Blue500,
+                    modifier = Modifier
+                        .graphicsLayer {
+                            scaleX = press.scale.value
+                            scaleY = press.scale.value
+                        }
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Primer.InfoSurface)
+                        .clickable(interactionSource = press.interaction, indication = LocalIndication.current, onClick = onLoadMore)
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                )
+            }
 
             else -> Text("已到底", fontSize = 12.sp, color = Primer.TextTertiary)
         }
