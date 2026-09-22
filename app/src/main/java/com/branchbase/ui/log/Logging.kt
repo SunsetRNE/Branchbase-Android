@@ -24,14 +24,32 @@ enum class LogLevel {
     DEBUG, INFO, WARN, ERROR,
 }
 
-/** 单条日志 */
+/**
+ * 单条日志。
+ *
+ * [seq] 是**进程内单调递增**的序号，只为一件事存在：给列表当 key。
+ * 时间戳不能当 key —— 同一毫秒落两条**同文案**的日志是常态（缓存直出那几行成串地打，
+ * 例如 `L1 直出（含过期）repo-info:…` 同一毫秒两条），而 `LazyColumn` 的 key 重复会直接崩：
+ * `IllegalArgumentException: Key "…" was already used`。日志越多越容易撞上，
+ * 表现出来就是「日志页加载的日志一多就闪退」（2026-09-23 真机反馈）。
+ */
 data class LogEntry(
+    val seq: Long,
     val time: Long,
     val category: LogCategory,
     val level: LogLevel,
     val tag: String,
     val message: String,
 )
+
+/**
+ * 日志列表的 item key（纯函数，便于单测）。
+ *
+ * 只用 [LogEntry.seq]：时间戳 + 文案在「同一毫秒 + 同一条文案」时会撞车，
+ * 而那正是缓存日志的常态。改成序号之后 key 在**进程内**唯一（重启会从 1 重新开始，
+ * 但列表也一起重建了，不会同屏出现两代）。
+ */
+internal fun logItemKey(e: LogEntry): Long = e.seq
 
 /**
  * 日志管理器：内存环形缓冲（最近 N 条），线程安全。
@@ -61,8 +79,11 @@ object LogManager {
         }
     }
 
+    /** 进程内单调递增的序号（[LogEntry.seq]）：列表 key 靠它保证唯一。 */
+    private val seq = java.util.concurrent.atomic.AtomicLong(0)
+
     fun log(category: LogCategory, level: LogLevel, tag: String, message: String) {
-        val entry = LogEntry(System.currentTimeMillis(), category, level, tag, message)
+        val entry = LogEntry(seq.incrementAndGet(), System.currentTimeMillis(), category, level, tag, message)
         synchronized(buffer) {
             buffer.addFirst(entry)
             while (buffer.size > MAX) buffer.removeLast()

@@ -278,7 +278,7 @@ fun LogScreen(onBack: () -> Unit) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("（无匹配日志）", color = Primer.TextTertiary, fontSize = 13.sp) }
             } else {
                 LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-                    items(filtered, key = { it.time.toString() + it.message }) { e ->
+                    items(filtered, key = ::logItemKey) { e ->
                         LogStreamItem(e, onClick = { clipboard.setText(AnnotatedString(logLine(e))) })
                     }
                 }
@@ -302,7 +302,7 @@ fun LogScreen(onBack: () -> Unit) {
                     )
                 } else {
                     LazyColumn(Modifier.fillMaxSize().padding(vertical = 8.dp)) {
-                        items(filtered, key = { it.time.toString() + it.message }) { e ->
+                        items(filtered, key = ::logItemKey) { e ->
                             Text(
                                 logLine(e),
                                 fontSize = 12.sp,

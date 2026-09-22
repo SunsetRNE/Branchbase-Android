@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只留格式契约 + 写法样板（3 个经典示例）；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.70**）
-与 §三 `versionCode` 流水（129 → **172**）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.71**）
+与 §三 `versionCode` 流水（129 → **173**）。
 
 ---
 
@@ -25,7 +25,42 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.70 → 1.0.22）
+## 二、`versionName` 流水（1.0.71 → 1.0.22）
+
+### 1.0.71
+
+**日志页闪退（用户反馈「加载太多日志会闪退」）** —— `LazyColumn` 的 key 撞车，实锤在设备的 crash buffer 里。
+
+① **根因**：日志页两个档位（时间流 / 原始日志）的 item key 都是
+`it.time.toString() + it.message`，而**同一毫秒落两条同文案的日志是常态** ——
+缓存那几行成串地打，`L1 直出（含过期）repo-info:…` 一次进入仓库页就会打两遍、经常落在同一毫秒。
+`LazyColumn` 的 key 必须唯一，撞了就直接抛：
+
+```
+java.lang.IllegalArgumentException: Key "1790084432978L1 直出（含过期）repo-info:SunsetRNE/Branchbase-Android"
+  was already used. If you are using LazyColumn/Row please make sure you provide a unique key for each item.
+  at androidx.compose.ui.layout.LayoutNodeSubcompositionsState.subcompose(SubcomposeLayout.kt:1591)
+  at androidx.compose.foundation.lazy.layout.LazyLayoutMeasureScopeImpl.compose(LazyLayoutMeasureScope.kt:94)
+```
+
+崩溃发生在**滚到那一项、它被测量组合的那一刻**（外层栈是 fling / overscroll），不在进页面时 ——
+所以表现是「日志越攒越多，翻着翻着就闪退」。同一份 crash buffer 里 **09-22 21:45:20**
+还有一次一模一样的（那时是 1.0.64），这个 key 从 1.0.42（`1e69c93`，日志页惰性化那一版）就埋下了。
+
+② **修法**：`LogEntry` 加一个**进程内单调递增的序号** `seq`（`LogManager.log` 用 `AtomicLong` 发号），
+列表 key 改用它（`items(filtered, key = ::logItemKey)`，两个档位都换）。
+时间戳不再参与 key —— 它不唯一，用它就是把这个崩溃请回来。
+序号只服务列表身份，不进日志文件、不影响导出格式。
+
+③ **顺带把全仓的列表 key 过了一遍**：其余 20 处都是 id / sha / number / login / name 这类天然唯一值
+（`NotificationScreen` 用 `it.id`、`RepositoryListScreens` 用 `number`/`sha`、贡献者用 `login`…），
+没有第二处拿时间戳或文案拼 key 的。
+
+**钉子**：`LogListKeyTest` 3 条。第一条是**确定性**的对抗输入 —— 按字面造出「同毫秒 + 同文案、
+只有 seq 不同」的两条，钉住 key 必须不同（不依赖「两次取时间戳恰好同毫秒」，那会偶发红）；
+另两条钉「序号单调递增、列表最新在前也能当 key」与「key 就是序号本身」。
+**把 key 换回旧写法跑一遍，这两条确实变红**（改动前后都验过）。
+app+translate 671 条全绿。versionCode 172 → 173（一次提交 +1）。
 
 ### 1.0.70
 
@@ -1117,11 +1152,13 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（172 → 129）
+## 三、`versionCode` 流水（173 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **173**：修日志页闪退 —— LazyColumn 的 key 用了 `时间戳 + 文案`（同毫秒同文案即撞车 ⇒ `IllegalArgumentException: Key … was already used`，自 1.0.42 起），改用 `LogEntry.seq`（进程内单调递增）（一次提交，故 +1）
 
 - **172**：系统返回键的消费改成「默认」—— `PageSwitcher(onBack = …)` 必填 + 每格自动注册兜底，宿主一条穷尽 `when`（仓库页 15 个分支收成 1 个函数，顺带补上漏登记的网页登录页）（一次提交，故 +1）
 
