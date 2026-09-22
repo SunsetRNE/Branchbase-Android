@@ -84,8 +84,11 @@ class CrossfadeLayoutTest {
 
     @Test
     fun `钉子确实覆盖到了已知的 Crossfade 调用点`() {
-        // 防止「规则写错了但恰好没匹配到任何调用点」这种假绿：
-        // 目前全项目 3 处（RegionSwap、动态页活动区、贡献墙）。
+        // 防止「规则写错了但恰好没匹配到任何调用点」这种假绿。
+        //
+        // 调用点从 3 处降到 1 处（1.0.54）：「骨架 → 内容」的两处（分区替换、贡献墙）
+        // 改走元素级的 `PlaceholderSwap` —— 它的内容同样落在 Box 里，但**由原语自己套 Column**，
+        // 调用方不必记得；剩下的这一处是动态页「活动区 ↔ 空/失败说明」的整块换。
         val count = File("src/main/java")
             .walkTopDown()
             .filter { it.isFile && it.extension == "kt" }
@@ -95,6 +98,6 @@ class CrossfadeLayoutTest {
                     !t.startsWith("*") && !t.startsWith("//") && t.contains("Crossfade(")
                 }
             }
-        assertTrue("Crossfade 调用点数量意外（当前应有 3 处，实际 $count）—— 规则可能已失效", count >= 3)
+        assertTrue("Crossfade 调用点数量意外（当前应有 1 处，实际 $count）—— 规则可能已失效", count >= 1)
     }
 }

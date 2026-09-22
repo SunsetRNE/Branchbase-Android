@@ -1,7 +1,5 @@
 package com.branchbase.ui.profile
 
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -32,7 +30,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.branchbase.ui.theme.ElementMotion
+import com.branchbase.ui.theme.PlaceholderSwap
 import com.branchbase.ui.theme.Primer
 import com.branchbase.ui.theme.ProfileColors
 import com.branchbase.ui.theme.skeletonBlock
@@ -92,134 +90,129 @@ fun ContributionWall(
             )
         }
 
-        // 区块级过渡：**骨架 → 内容是淡入，不是硬切**。
+        // 区块级过渡：**骨架 → 内容走元素级的 [PlaceholderSwap]**（延迟现身 + 骨架先退 /
+        // 内容再进 + 尺寸动画），不是 `Crossfade`。
         //
         // 这一处是动态页「闪」的第二个来源：整页骨架在**事件流**到齐时就让位了，
         // 而贡献日历走 GraphQL，通常还在路上 —— 于是用户看到的是
         // 「整页骨架 → 又一层「加载中…」文字 → 内容」两层加载态。
-        // 现在加载态本身就是同尺寸骨架，数据到了在原地淡入（时长与元素级「出现/消失」同一规格）。
+        // 现在加载态本身就是同尺寸骨架，数据到了在原地替换。
         //
-        // ⚠️ Crossfade 的内容落在**一个 Box** 里：多个子元素会叠在一起而不是纵向排列。
-        // 非加载分支有「网格 Row + 图例 Row」两段，必须自己套 Column ——
-        // 真机截图里这两段正好压在同一位置（图例文字盖在网格上）。
-        Crossfade(
-            targetState = loading,
-            animationSpec = tween(ElementMotion.REVEAL_MS),
-            label = "contribution-wall",
-        ) { isLoading ->
-            Column(Modifier.fillMaxWidth()) {
-                if (isLoading) {
-                    ContributionWallSkeleton()
-                } else when {
-                    error != null -> Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
-                        Text(error, fontSize = 12.5.sp, color = Primer.TextTertiary)
-                    }
+        // 内容分支有「网格 Row + 图例 Row」两段 —— [PlaceholderSwap] 内部已经套了一层 Column，
+        // 所以这里不必再套（历史上少了那层时，图例文字盖在网格上，是真机截图抓到的）。
+        PlaceholderSwap(
+            loading = loading,
+            skeleton = { ContributionWallSkeleton() },
+        ) {
+            when {
+                error != null -> Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
+                    Text(error, fontSize = 12.5.sp, color = Primer.TextTertiary)
+                }
 
-                    weeks.isEmpty() -> Box(Modifier.fillMaxWidth().height(90.dp), contentAlignment = Alignment.Center) {
-                        Text("暂无贡献数据", fontSize = 12.5.sp, color = Primer.TextTertiary)
-                    }
+                weeks.isEmpty() -> Box(Modifier.fillMaxWidth().height(90.dp), contentAlignment = Alignment.Center) {
+                    Text("暂无贡献数据", fontSize = 12.5.sp, color = Primer.TextTertiary)
+                }
 
-                    else -> {
-                        val monthLabels = remember(calendar) { monthLabelsOf(weeks) }
-                        // Canvas 的绘制 lambda 不是 composable 上下文，主题色必须在这里先取好
-                        val levels = contributionLevels()
-                        val selectedColor = Primer.TextPrimary
-                        Row(Modifier.padding(horizontal = 16.dp)) {
-                            // 星期标签（固定列，不随网格滚动）
-                            Column(Modifier.padding(top = 16.dp)) {
-                                listOf("", "一", "", "三", "", "五", "").forEach { label ->
+                else -> {
+                    val monthLabels = remember(calendar) { monthLabelsOf(weeks) }
+                    // Canvas 的绘制 lambda 不是 composable 上下文，主题色必须在这里先取好
+                    val levels = contributionLevels()
+                    val selectedColor = Primer.TextPrimary
+                    Row(Modifier.padding(horizontal = 16.dp)) {
+                        // 星期标签（固定列，不随网格滚动）
+                        Column(Modifier.padding(top = 16.dp)) {
+                            listOf("", "一", "", "三", "", "五", "").forEach { label ->
+                                Text(
+                                    label,
+                                    fontSize = 9.sp,
+                                    color = Primer.TextTertiary,
+                                    modifier = Modifier.height(COL_STEP),
+                                )
+                            }
+                        }
+                        Spacer(Modifier.width(4.dp))
+                        Column(Modifier.horizontalScroll(scroll)) {
+                            // 月份标签（与网格同步滚动）
+                            Row(Modifier.height(16.dp)) {
+                                monthLabels.forEachIndexed { idx, (label, startWeek) ->
+                                    val endWeek = monthLabels.getOrNull(idx + 1)?.second ?: weeks.size
                                     Text(
                                         label,
-                                        fontSize = 9.sp,
+                                        fontSize = 9.5.sp,
                                         color = Primer.TextTertiary,
-                                        modifier = Modifier.height(COL_STEP),
+                                        modifier = Modifier.width((COL_STEP * (endWeek - startWeek).coerceAtLeast(1))),
                                     )
                                 }
                             }
-                            Spacer(Modifier.width(4.dp))
-                            Column(Modifier.horizontalScroll(scroll)) {
-                                // 月份标签（与网格同步滚动）
-                                Row(Modifier.height(16.dp)) {
-                                    monthLabels.forEachIndexed { idx, (label, startWeek) ->
-                                        val endWeek = monthLabels.getOrNull(idx + 1)?.second ?: weeks.size
-                                        Text(
-                                            label,
-                                            fontSize = 9.5.sp,
-                                            color = Primer.TextTertiary,
-                                            modifier = Modifier.width((COL_STEP * (endWeek - startWeek).coerceAtLeast(1))),
+                            // 网格
+                            Canvas(
+                                Modifier
+                                    .width(COL_STEP * weeks.size)
+                                    .height(COL_STEP * 7)
+                                    .pointerInput(calendar) {
+                                        detectTapGestures { offset ->
+                                            val step = CELL.toPx() + GAP.toPx()
+                                            val col = (offset.x / step).toInt()
+                                            val row = (offset.y / step).toInt()
+                                            weeks.getOrNull(col)?.getOrNull(row)?.let(onDaySelected)
+                                        }
+                                    },
+                            ) {
+                                val c = CELL.toPx()
+                                val g = GAP.toPx()
+                                val radius = CornerRadius(2.dp.toPx())
+                                weeks.forEachIndexed { wi, week ->
+                                    week.forEachIndexed { di, day ->
+                                        val topLeft = Offset(wi * (c + g), di * (c + g))
+                                        drawRoundRect(
+                                            color = levels[levelOf(day.count, max)],
+                                            topLeft = topLeft,
+                                            size = Size(c, c),
+                                            cornerRadius = radius,
                                         )
-                                    }
-                                }
-                                // 网格
-                                Canvas(
-                                    Modifier
-                                        .width(COL_STEP * weeks.size)
-                                        .height(COL_STEP * 7)
-                                        .pointerInput(calendar) {
-                                            detectTapGestures { offset ->
-                                                val step = CELL.toPx() + GAP.toPx()
-                                                val col = (offset.x / step).toInt()
-                                                val row = (offset.y / step).toInt()
-                                                weeks.getOrNull(col)?.getOrNull(row)?.let(onDaySelected)
-                                            }
-                                        },
-                                ) {
-                                    val c = CELL.toPx()
-                                    val g = GAP.toPx()
-                                    val radius = CornerRadius(2.dp.toPx())
-                                    weeks.forEachIndexed { wi, week ->
-                                        week.forEachIndexed { di, day ->
-                                            val topLeft = Offset(wi * (c + g), di * (c + g))
+                                        if (selectedDate != null && day.date == selectedDate) {
                                             drawRoundRect(
-                                                color = levels[levelOf(day.count, max)],
+                                                color = selectedColor,
                                                 topLeft = topLeft,
                                                 size = Size(c, c),
                                                 cornerRadius = radius,
+                                                style = Stroke(width = 1.5.dp.toPx()),
                                             )
-                                            if (selectedDate != null && day.date == selectedDate) {
-                                                drawRoundRect(
-                                                    color = selectedColor,
-                                                    topLeft = topLeft,
-                                                    size = Size(c, c),
-                                                    cornerRadius = radius,
-                                                    style = Stroke(width = 1.5.dp.toPx()),
-                                                )
-                                            }
                                         }
                                     }
                                 }
                             }
                         }
+                    }
 
-                        LaunchedEffect(weeks.size) {
-                            // 默认滚到最右（最近一周）
-                            scroll.scrollTo(scroll.maxValue)
-                        }
+                    LaunchedEffect(weeks.size) {
+                        // 默认滚到最右（最近一周）
+                        scroll.scrollTo(scroll.maxValue)
+                    }
 
-                        // 图例 + 汇总
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            val cal = calendar
-                            Text(
-                                buildString {
-                                    append("共 ${cal?.total ?: 0} 次贡献")
-                                    if (cal != null && cal.activeDays > 0) append(" · 活跃 ${cal.activeDays} 天")
-                                    if (cal != null && cal.maxCount > 0) append(" · 最深 ${cal.maxCount} 次/天")
-                                },
-                                fontSize = 11.5.sp,
-                                color = Primer.TextTertiary,
-                            )
-                            Spacer(Modifier.weight(1f))
-                            Text("少", fontSize = 9.5.sp, color = Primer.TextTertiary)
-                            contributionLevels().forEach { c ->
-                                Spacer(Modifier.width(3.dp))
-                                Box(Modifier.width(10.dp).height(10.dp).clip(RoundedCornerShape(2.dp)).background(c))
-                            }
+                    // 图例 + 汇总
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        val cal = calendar
+                        Text(
+                            buildString {
+                                append("共 ${cal?.total ?: 0} 次贡献")
+                                if (cal != null && cal.activeDays > 0) append(" · 活跃 ${cal.activeDays} 天")
+                                if (cal != null && cal.maxCount > 0) append(" · 最深 ${cal.maxCount} 次/天")
+                            },
+                            fontSize = 11.5.sp,
+                            color = Primer.TextTertiary,
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Text("少", fontSize = 9.5.sp, color = Primer.TextTertiary)
+                        contributionLevels().forEach { c ->
                             Spacer(Modifier.width(3.dp))
-                            Text("多", fontSize = 9.5.sp, color = Primer.TextTertiary)
+                            Box(Modifier.width(10.dp).height(10.dp).clip(RoundedCornerShape(2.dp)).background(c))
                         }
+                        Spacer(Modifier.width(3.dp))
+                        Text("多", fontSize = 9.5.sp, color = Primer.TextTertiary)
                     }
                 }
             }

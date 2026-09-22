@@ -118,6 +118,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import com.branchbase.ui.theme.ElementMotion
+import com.branchbase.ui.theme.PlaceholderSwap
 import com.branchbase.ui.theme.ProvideShimmer
 import com.branchbase.ui.theme.bubbleEnter
 import com.branchbase.ui.theme.bubbleExit
@@ -920,7 +921,7 @@ private fun ProfileActivity(
                 val labels = listOf("近 7 天", "近 30 天", "近一年")
                 val values = listOf(stats?.week, stats?.month, stats?.year)
                 labels.forEachIndexed { i, label ->
-                    RegionSwap(
+                    PlaceholderSwap(
                         loading = calLoading,
                         modifier = Modifier.weight(1f),
                         // 卡片必须自己 fillMaxWidth：Crossfade 的内容装在一层 **wrap-content** 的
@@ -949,7 +950,7 @@ private fun ProfileActivity(
             // ── ③ 活动区（数据源：事件流）──
             // 两层过渡，各管各的：
             //   外层 Crossfade —— 「有活动区」↔「空 / 失败说明」是整块换，淡入淡出；
-            //   内层 RegionSwap —— 加载中的三块（类型分布 / 热力 / 时间线）各自就地填成内容。
+            //   内层 PlaceholderSwap —— 加载中的三块（类型分布 / 热力 / 时间线）各自就地填成内容。
             // 只有一层 loading 门会退回原来的问题（事件到了、日历没到就又冒一层加载态），
             // 没有内层就地填充则会整块溶解、版式跟着跳。
             val hasActivity = loading || events.isNotEmpty()
@@ -970,7 +971,7 @@ private fun ProfileActivity(
                         // 类型分布（Top 5）
                         SectionTitle("活动类型分布")
                         Column(Modifier.padding(horizontal = 16.dp)) {
-                            RegionSwap(
+                            PlaceholderSwap(
                                 loading = loading,
                                 skeleton = { repeat(3) { TypeBarSkeleton() } },
                                 content = {
@@ -988,7 +989,7 @@ private fun ProfileActivity(
                         // 活动热力（按天聚合，13 周 = events API 的 90 天上限）
                         SectionTitle("活动热力", "过去 90 天")
                         Column(Modifier.padding(horizontal = 16.dp)) {
-                            RegionSwap(
+                            PlaceholderSwap(
                                 loading = loading,
                                 skeleton = { HeatmapSkeleton() },
                                 content = { ActivityHeatmap(events) },
@@ -998,7 +999,7 @@ private fun ProfileActivity(
                         // 时间线：连续推送先折叠（同仓库 + 同分支 + 同一天），再截前 30 条
                         SectionTitle("最近活动")
                         Column(Modifier.padding(horizontal = 16.dp)) {
-                            RegionSwap(
+                            PlaceholderSwap(
                                 loading = loading,
                                 skeleton = { repeat(4) { EventRowSkeleton() } },
                                 content = {
@@ -1043,45 +1044,12 @@ private fun ActivityEmptyState(error: String?) {
     }
 }
 
-// ───────────────────────── 骨架屏 / 分区过渡 ─────────────────────────
-
-/**
- * 区块级的「骨架 → 内容」过渡：数据未就绪时画 [skeleton]，就绪后淡入 [content]。
- *
- * 为什么不是 `if (loading) 骨架 else 内容` 硬切：两者的形状本来就不同（灰块 → 文字 / 网格），
- * 一帧之内整块换掉，眼睛读到的是「跳」而不是「加载完成」。
- * 时长复用元素级动效里「出现 / 消失」的规格 [ElementMotion.REVEAL_MS]（220ms），
- * 与折叠区、横幅等既有元素同一个节奏。
- *
- * [skeleton] 与 [content] 必须**同尺寸**（骨架的规矩：结构与尺寸与真实内容一一对应），
- * 否则淡入的同时还会叠一层位移。
- *
- * ## 为什么里面还要套一层 [Column]（不是多余的）
- *
- * `Crossfade` 的内容落在**一个 `Box`** 里：调用方交给它的多个子元素会**叠在一起**，不会纵向排列
- * （真机上就踩过：骨架 `repeat(4) { EventRowSkeleton() }` 四行叠成一坨，
- * 内容 `forEach { EventRow(...) }` 三十行同样叠成一坨）。
- * 这里统一套一层 Column，把「多子元素」这件事在**这一处**收口，
- * 调用方不必知道 Crossfade 是 Box 而不是 Column。
- */
-@Composable
-private fun RegionSwap(
-    loading: Boolean,
-    skeleton: @Composable () -> Unit,
-    content: @Composable () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Crossfade(
-        targetState = loading,
-        modifier = modifier,
-        animationSpec = tween(ElementMotion.REVEAL_MS),
-        label = "region-swap",
-    ) { isLoading ->
-        Column(Modifier.fillMaxWidth()) {
-            if (isLoading) skeleton() else content()
-        }
-    }
-}
+// ───────────────────────── 骨架屏 ─────────────────────────
+//
+// 「骨架 → 内容」的分区替换统一走元素级的 [PlaceholderSwap]（`ui/theme/Motion.kt`）：
+// 延迟现身（缓存秒回时不闪灰块）+ 骨架先退 / 内容再进（中段不糊）+ 尺寸动画（下方不被顶下去）。
+// 这里曾经有一份本地实现 `RegionSwap`（`Crossfade(220ms)`），它有两个固有毛病 ——
+// 容器尺寸当帧取两态最大值、两态同时半透明 —— 真机上就是「内容落地那一刻跳一下 + 糊一下」。
 
 /**
  * 三张概览统计卡之一的骨架，尺寸对齐 [StatCard]

@@ -2,6 +2,9 @@ package com.branchbase.ui.theme
 
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -25,9 +28,11 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.State
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
@@ -35,10 +40,12 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 
 /**
  * 元素级动效规格（与页面级的 `ui/navigation/PageTransitions.kt` 分工不同）。
@@ -51,13 +58,14 @@ import androidx.compose.ui.unit.dp
  * ## 为什么元素级也要收成一处
  *
  * 元素级动效最容易变成「每人一套时长」：有的 150ms、有的 spring 弹一下、有的干脆没有，
- * 页面上就会同时存在好几种节奏。这里给出四个场景的唯一规格，调用方只挑语义、不定参数：
+ * 页面上就会同时存在好几种节奏。这里给出五个场景的唯一规格，调用方只挑语义、不定参数：
  *
  * | 场景 | 时长 | 做法 | 用在哪 |
  * |------|------|------|--------|
  * | [selectionColor] 选中态 | 180ms | 颜色渐变 | 导航栏选中项、筛选 chip、开关式按钮 |
  * | [revealEnter] 出现/消失 | 220ms | 纵向展开 + 淡入 | 多选工具栏、撤销条、折叠区、底部操作条 |
  * | [AnimatedStateIcon] 图标切换 | 200ms | 交叉淡入 + 缩放 | 筛选 ↔ 关闭、全选 ↔ 取消、手柄 ↔ 关闭 |
+ * | [PlaceholderSwap] 骨架 → 内容 | 延迟 120ms + 骨架 120ms 退 / 内容 160ms 进 | 就地替换 + 尺寸动画（**不是** `Crossfade`，理由见那个函数的注释） | 整页 / 分区骨架、贡献墙 |
  * | `CountBadge` 徽标 | 220ms | 缩放淡入 | 底部导航未读数（见 `ui/navigation/NavigationBar.kt`） |
  *
  * 取舍：**都不做回弹（spring）**。这类元素在列表里反复出现，回弹在第一次看是「活泼」，
@@ -97,6 +105,23 @@ object ElementMotion {
 
     /** 按下反馈时长（要跟手，所以短）。 */
     const val PRESS_MS = 120
+
+    /**
+     * 「骨架 → 内容」替换：骨架**延迟**这么久才现身（见 [PlaceholderSwap]）。
+     *
+     * 缓存命中的页面常在 1~3 帧内就拿到数据；这段时间里闪一块灰再立刻换掉，
+     * 读到的不是「加载完成」而是「闪了一下」—— 短于此值的加载干脆不显示骨架。
+     */
+    const val PLACEHOLDER_DELAY_MS = 120L
+
+    /** 骨架自己淡入 / 淡出的时长（延迟期过后才用到）。 */
+    const val PLACEHOLDER_FADE_MS = 140
+
+    /** 替换时**骨架先退**的时长（短）：两态同时半透明会让灰块与文字糊在一起。 */
+    const val PLACEHOLDER_OUT_MS = 120
+
+    /** 替换时**内容再进**的时长（在骨架退干净之后起）。 */
+    const val PLACEHOLDER_IN_MS = 160
 }
 
 /**
@@ -196,6 +221,77 @@ fun revealEnter(): EnterTransition =
 /** 与 [revealEnter] 配对的退场。 */
 fun revealExit(): ExitTransition =
     shrinkVertically(tween(ElementMotion.REVEAL_MS)) + fadeOut(tween(ElementMotion.REVEAL_MS))
+
+/**
+ * 「骨架 → 内容」的**就地替换**（整页骨架、分区骨架、贡献墙都用这一个）。
+ *
+ * ## 为什么要单独做一个原语，而不是继续用 `Crossfade`
+ *
+ * `Crossfade` 在这件事上有两个固有行为，真机上都会读成「不舒服」，而且都不是曲线能调的：
+ *
+ * 1. **容器尺寸在两态之间直接取大者** —— 内容一落地，容器高度**当帧**变成内容高度，
+ *    下方内容被瞬间顶下去（骨架 4 行、内容 30 行的分区尤其明显）。
+ *    这里改用 `AnimatedContent`：它自带 `sizeTransform`，高度变化是**动画**而不是跳变；
+ * 2. **两态同时半透明、重叠着淡** —— 中段会看到「灰块与文字糊在一起」。
+ *    这里让**骨架先退干净（[ElementMotion.PLACEHOLDER_OUT_MS]）、内容随后再进**
+ *    （[ElementMotion.PLACEHOLDER_IN_MS]，延迟一个 OUT）—— 与页面级「退场淡出早收」同一个思路。
+ *
+ * 另外还有第三件事：**骨架延迟现身**（[ElementMotion.PLACEHOLDER_DELAY_MS]）。
+ * 缓存命中常在 1~3 帧内就拿到数据，此时闪一块灰再立刻换掉，读到的是「闪了一下」而不是
+ * 「加载完成」；短于此值的加载干脆不显示骨架（占位仍占着高度，所以版式不会塌一下再撑开）。
+ *
+ * [skeleton] 与 [content] 仍应尽量同尺寸（骨架的既有规矩）；不同尺寸也不会跳，只是会看到
+ * 一段高度动画 —— 那是兜底，不是许可证。
+ */
+@Composable
+fun PlaceholderSwap(
+    loading: Boolean,
+    modifier: Modifier = Modifier,
+    skeleton: @Composable () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    // 骨架延迟现身：加载很快就结束时，它一辈子都是透明的
+    var skeletonVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(loading) {
+        if (loading) {
+            delay(ElementMotion.PLACEHOLDER_DELAY_MS)
+            skeletonVisible = true
+        } else {
+            skeletonVisible = false
+        }
+    }
+    val skeletonAlpha by animateFloatAsState(
+        targetValue = if (skeletonVisible) 1f else 0f,
+        animationSpec = tween(ElementMotion.PLACEHOLDER_FADE_MS),
+        label = "placeholder-alpha",
+    )
+
+    AnimatedContent(
+        targetState = loading,
+        modifier = modifier,
+        transitionSpec = {
+            fadeIn(
+                tween(
+                    ElementMotion.PLACEHOLDER_IN_MS,
+                    delayMillis = ElementMotion.PLACEHOLDER_OUT_MS,
+                    easing = FastOutSlowInEasing,
+                ),
+            ) togetherWith fadeOut(tween(ElementMotion.PLACEHOLDER_OUT_MS))
+        },
+        label = "placeholder-swap",
+    ) { isLoading ->
+        // ⚠️ `AnimatedContent` 的内容也在 Box 里：多子元素会互叠，所以统一套一层 Column
+        // （与 `CrossfadeLayoutTest` 钉住的那条同一个坑，调用方不必自己记得）。
+        Column(Modifier.fillMaxWidth()) {
+            if (isLoading) {
+                // 值在**绘制期**读（graphicsLayer），延迟窗口内它每帧变一次也不会触发重组
+                Box(Modifier.graphicsLayer { alpha = skeletonAlpha }) { skeleton() }
+            } else {
+                content()
+            }
+        }
+    }
+}
 
 /**
  * 气泡弹层进场：**从锚点角落**缩放 + 淡入。
