@@ -28,9 +28,14 @@ interface SearchCacheDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entity: SearchCacheEntity)
 
-    /** 删除已过期的缓存 */
+    /**
+     * 删除已过期的缓存，返回删掉的条数。
+     *
+     * 返回条数是给调用方记日志用的（「清理过期条目 N 条」）—— 只返回 Unit 的话，
+     * 清理这条路径在日志里就是不可见的，出了问题只能靠猜。
+     */
     @Query("DELETE FROM search_cache WHERE expireAt <= :now")
-    suspend fun deleteExpired(now: Long)
+    suspend fun deleteExpired(now: Long): Int
 
     /** 缓存条目数 */
     @Query("SELECT COUNT(*) FROM search_cache")
