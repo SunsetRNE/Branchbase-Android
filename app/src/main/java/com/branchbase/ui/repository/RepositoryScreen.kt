@@ -278,7 +278,13 @@ fun RepositoryScreen(
      * 与 Custom 的当前勾选（两样都是 API 拿不到的，见 [RepoActions.loadRelation]）。
      */
     LaunchedEffect(owner, repo, webSessionTick) {
-        relation = RepoActions.loadRelation(context, sessionHost, sessionToken, owner, repo, sessionLogin)
+        // ① 先直出（含过期）：星标 / Watch 的形态当帧就位。判定本身要走
+        //    「网页会话 → GraphQL」两条腿，冷的一次实测 ~800ms（真机日志 22:52:52.519 → 53.320），
+        //    这段时间按钮此前一直是空的 —— 页面先渲染一遍、结论到了再重画一遍。
+        RepoActions.cachedRelation(context, owner, repo, sessionLogin)?.let { relation = it }
+        // ② 再回源复核：拿到新值覆盖；拿不到就保留旧值（总比空着强）
+        RepoActions.loadRelation(context, sessionHost, sessionToken, owner, repo, sessionLogin)
+            ?.let { relation = it }
     }
     // 刷新后服务端计数会重来一遍，乐观增量必须归零，否则数字会越刷越离谱
     LaunchedEffect(owner, repo, refreshTick) { starDelta = 0L }

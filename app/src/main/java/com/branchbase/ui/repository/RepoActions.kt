@@ -77,6 +77,30 @@ object RepoActions {
         return fresh
     }
 
+    /**
+     * 只读关系态缓存（**含过期**）：进仓库页时先直出，别让按钮空着等一次往返。
+     *
+     * 现场（真机日志 2026-09-22，v1.0.65）：进仓库页 → `未命中 repo-relation` →
+     * 「网页会话不可用或已过期，改用 GraphQL 判定」→ **~800ms 之后**才拿到结论
+     * （`22:52:52.519 进入` → `22:52:53.320 判定`）。这段时间里星标 / Watch 的形态是空的，
+     * 用户看到的就是「页面先渲染一遍、再重画一遍」。
+     *
+     * 为什么可以直出：这个键的 TTL 只有 5 分钟（见 `SearchCacheManager.ttlFor`），
+     * 过期不代表错得离谱；调用方**紧接着会回源复核**并用新值覆盖（旧值只在复核失败时留下），
+     * 所以「旧到把已星标显示成未星标」这个风险被压在「一次往返」之内 —— 与
+     * 「宁可多显示一次旧值，也不要空着等半秒」是同一个取舍。
+     */
+    suspend fun cachedRelation(
+        context: Context,
+        owner: String,
+        repo: String,
+        account: String = "",
+    ): RepoViewerRelation? {
+        val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+        return manager.getStale(PreloadStore.relationKey(account, owner, repo), PreloadStore.TYPE_RELATION)
+            ?.let { RepoViewerRelation.fromCache(it) }
+    }
+
     /** 写回关系态缓存：切换星标 / 关注后调用，保证界面状态与缓存状态一致。 */
     suspend fun cacheRelation(
         context: Context,
