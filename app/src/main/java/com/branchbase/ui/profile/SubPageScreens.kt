@@ -477,7 +477,10 @@ fun SettingsScreen(
     val context = LocalContext.current
 
     // 提交模式决定「本地仓库」那一行是导航行还是禁用态（规范 §6.3）
-    val mode = commitMode(context)
+    // 进 remember：`commitMode` 是读 SharedPreferences 的，裸调会在**每次重组**都读一遍
+    // （设置页首帧那一帧里整棵树要重组好几次，见 2026-09-22 的设置页首帧绘制归因）。
+    // 本页不进保活（PageSwitcher 每次进入重建），所以 remember 的时效性等价于「每次进入读一次」。
+    val mode = remember { commitMode(context) }
     val themeMode by ThemeRuntime.mode.collectAsState()
     val notificationPermission = rememberSystemNotificationState()
     val account = remember { AccountStore.current(context) }
@@ -489,6 +492,9 @@ fun SettingsScreen(
 
     // 错误数只取一次快照：设置页不做高频重组，没必要给「日志」行挂订阅
     val logErrors = remember { LogManager.all().count { it.level == LogLevel.ERROR } }
+    // 网络代理的显示值：同理进 remember —— 它原来写在 item 的组合体里，
+    // 每次这一项被滚回来组合一次就要读一次 prefs
+    val proxyValue = remember { displayGitProxy(gitProxy(context)).ifEmpty { "未设置" } }
 
     LazyColumn(
         // 惰性化：设置页有 8 组卡片、二十多行，`Column + verticalScroll` 会在**首帧**
@@ -614,7 +620,7 @@ fun SettingsScreen(
                     icon = Icons.Filled.Language,
                     name = "Git 代理",
                     // 值列只显示 host:port，凭据不进列表（规范 §6.5）
-                    value = displayGitProxy(gitProxy(context)).ifEmpty { "未设置" },
+                    value = proxyValue,
                     sub = "仅作用于本地仓库的 clone / pull / push。",
                     onClick = onOpenGitProxy,
                     divider = false,

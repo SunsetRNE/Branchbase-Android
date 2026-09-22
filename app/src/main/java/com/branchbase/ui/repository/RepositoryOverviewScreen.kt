@@ -32,6 +32,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -112,6 +113,20 @@ fun RepositoryOverviewContent(
     var readmeLoading by remember { mutableStateOf(true) }
     var langLoading by remember { mutableStateOf(true) }
     var contribLoading by remember { mutableStateOf(true) }
+
+    /**
+     * 自述文件的 WebView 持有者：**作用域在这一页，不在 LazyColumn 的 item 里**。
+     *
+     * 自述文件是列表里一项 4~6 万 dp 高的 item，滚到页面底部就会被 LazyColumn 回收；
+     * item 一没，`remember` 出来的 WebView 与测量高度就一起没了 —— 往回滚时重新组合，
+     * 用户看到的是「自述文件重新加载，然后跳回整篇描述的最顶部」（2026-09-22 真机反馈）。
+     * 放到页面级之后，回收只是把它摘下来，挂回去还是同一个 WebView、同一份文档、同一个高度。
+     * 机制见 [ReadmeViewHolder]。
+     */
+    val readmeHolder = remember { ReadmeViewHolder() }
+    DisposableEffect(readmeHolder) {
+        onDispose { readmeHolder.release() }
+    }
 
     // 外部（RepositoryScreen）拿到仓库信息后补进来 —— 它同时解决了默认分支的判定
     LaunchedEffect(sharedInfo) {
@@ -264,6 +279,8 @@ fun RepositoryOverviewContent(
                             login = login,
                             token = token,
                             onLinkClick = onLinkClick,
+                            // 页面级持有：滚到底再往回滚不重建、不跳回顶部（见 [ReadmeViewHolder]）
+                            holder = readmeHolder,
                         )
                     }
                 }

@@ -1,5 +1,8 @@
 package com.branchbase.cache
 
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+
 /**
  * 页面级缓存契约（详情页 / 文件内容 / 通知 / 个人主页）。
  *
@@ -105,4 +108,35 @@ object PageCache {
     suspend fun put(manager: SearchCacheManager, key: String, type: String, json: String) {
         manager.put(key, type, json)
     }
+
+    /**
+     * 回源刷新，但**页面提前离开也不作废**（暖缓存）。
+     *
+     * 与 [refresh] 的唯一差别：整段跑在 [NonCancellable] 里。
+     *
+     * ## 为什么「取消」在这里是反的
+     *
+     * 页面级取数都挂在 `LaunchedEffect` 上，离开页面即取消 —— 对**渲染**是对的
+     * （结果没用了），但对**缓存**是错的：用户离开不代表这份数据不要了，
+     * 它恰恰是下一次进页面最该直接直出的那份。
+     *
+     * 现场（真机日志 2026-09-22，v1.0.64）：进个人主页 → `/user/repos` 开始回源
+     * → 用户 2 秒内点进某个仓库 → `LaunchedEffect` 取消 → `put` 从没执行。
+     * 日志里 6 次 `未命中 profile:…:repos` 有 **2 次之后没有任何结果行**
+     * （连 `loadRepos` 自己那句 `GET /user/repos → …` 都没有，因为它在取消点之后）。
+     * 代价是「进主页 → 立刻点仓库」这条最常见的路径**永远暖不了缓存**。
+     *
+     * ## 边界
+     *
+     * - 只盖住「取数 + 落缓存」，耗时上限就是这一次请求（[fetch] 自己该挂超时）；
+     * - 返回值仍可能因为调用方已取消而在下一个挂起点被丢掉 —— 那没关系，
+     *   缓存已经写进去了，**这一趟的目的就是它**。
+     */
+    suspend fun refreshDetached(
+        manager: SearchCacheManager,
+        key: String,
+        type: String,
+        force: Boolean = false,
+        fetch: suspend () -> String?,
+    ): String? = withContext(NonCancellable) { refresh(manager, key, type, force, fetch) }
 }

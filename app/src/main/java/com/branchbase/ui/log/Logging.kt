@@ -43,7 +43,21 @@ object LogManager {
 
     fun init(context: Context) {
         if (appender == null) synchronized(this) {
-            if (appender == null) appender = FileAppender(context.getExternalFilesDir(null) ?: context.filesDir)
+            if (appender == null) {
+                val created = FileAppender(context.getExternalFilesDir(null) ?: context.filesDir)
+                appender = created
+                // 落盘边界之前打过的日志补写一遍。
+                //
+                // 起因（2026-09-22 真机日志）：`init` 原本在 `MainActivity.onCreate` 里，而
+                // `Application.onCreate` 阶段的日志**只进内存环形缓冲**（那时 `appender` 还是 null），
+                // 导出走的是「文件优先」，于是那些行等于从没存在过 —— 铁证是 `NetworkWatch.install`
+                // 每次启动都打一行基线，而整份 907 行日志里 `[Reach]` 只出现过 1 次
+                // （那是 init 之后的网络跃迁）。`FileAppender` 构造函数里那句「清理历史日志」
+                // 同样打在自己被赋值之前，一起丢。
+                //
+                // 缓冲本来就是「最新在前」（`addFirst`），倒过来写才是时间顺序。
+                synchronized(buffer) { buffer.toList().asReversed() }.forEach { created.append(it) }
+            }
         }
     }
 

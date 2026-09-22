@@ -29,13 +29,17 @@ interface SearchCacheDao {
     suspend fun insert(entity: SearchCacheEntity)
 
     /**
-     * 删除已过期的缓存，返回删掉的条数。
+     * 删除 `expireAt <= before` 的缓存，返回删掉的条数。
+     *
+     * ⚠️ 调用方传的是**过期宽限之后的时刻**（`now - STALE_GRACE_MS`），不是 `now`：
+     * 直接按 `now` 删会把「过期但仍要直出」的行（[getStale] 的 stale-while-revalidate）
+     * 一起删掉，两条机制互相抵消。口径见 `SearchCacheManager.STALE_GRACE_MS`。
      *
      * 返回条数是给调用方记日志用的（「清理过期条目 N 条」）—— 只返回 Unit 的话，
      * 清理这条路径在日志里就是不可见的，出了问题只能靠猜。
      */
-    @Query("DELETE FROM search_cache WHERE expireAt <= :now")
-    suspend fun deleteExpired(now: Long): Int
+    @Query("DELETE FROM search_cache WHERE expireAt <= :before")
+    suspend fun deleteExpired(before: Long): Int
 
     /** 缓存条目数 */
     @Query("SELECT COUNT(*) FROM search_cache")

@@ -65,6 +65,7 @@ import com.branchbase.ui.theme.Primer
 import com.branchbase.cache.RepoPrefetcher
 import com.branchbase.ui.notification.NotificationPrefetcher
 import com.branchbase.ui.navigation.rememberPageResumeTick
+import com.branchbase.ui.log.Logger
 import org.json.JSONObject
 
 /**
@@ -165,6 +166,9 @@ fun HomeScreen(
     // （每个计数各自走 PageCache：TTL 内直接命中，不联网）。
     val resumeTick = rememberPageResumeTick()
     LaunchedEffect(resumeTick) {
+        // 阶段标记：首帧取数这一段（L2 缓存冷开 + 星标 13.8KB / 通知归档 12.3KB 的 JSON 解析）
+        // 与启动慢帧的「等待」段同刻发生，但此前在日志里完全看不见（见 frame-perf-design.md §9）。
+        Logger.ui("启动 ▸ 首页首帧取数（L2 缓存 + 星标/通知解析）", "启动")
         // 5 个互不依赖的请求并行（原来是串行：星标 → 活动 → 通知 → 评审 → 指派）
         coroutineScope {
             launch { loadStarred(false) }

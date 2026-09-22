@@ -1,12 +1,16 @@
 package com.branchbase.cache
 
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 缓存契约单测：键的唯一性 + 类型 TTL 必须显式登记。
+ * 缓存契约单测：键的唯一性 + 类型 TTL 必须显式登记 + 回源的取消语义。
  *
  * 这两件事出错都不会崩溃，只会「静默变慢」或「静默串数据」，所以必须用测试锁住：
  * - 键少带参数（曾发生：README key 漏拼分支）→ 永远命中不到，每次都联网；
@@ -94,5 +98,58 @@ class PageCacheTest {
     fun `预加载容量足够覆盖多个仓库`() {
         // 每个仓库最多 5 条（信息/README/语言/贡献者/分支），预加载必须容纳多个仓库
         assertTrue("LRU 上限需 ≥ 100", SearchCacheManager.MAX_ENTRIES >= 100)
+    }
+
+    /**
+     * [PageCache.refreshDetached] 与 [PageCache.refresh] 的差别只有一条：
+     * **调用方被取消时，前者仍然把结果落进缓存**。
+     *
+     * 现场（真机日志 2026-09-22，v1.0.64）：进个人主页 → `/user/repos` 开始回源 →
+     * 用户 2 秒内点进某个仓库 → `LaunchedEffect` 取消 → `put` 从没执行。
+     * 日志里 6 次 `未命中 profile:…:repos` 有 2 次**之后没有任何结果行**。
+     * 于是「进主页 → 立刻点仓库」这条最常见的路径永远暖不了缓存。
+     *
+     * 两条用例成对写：单看「落盘了」证明不了是 `refreshDetached` 的功劳 ——
+     * 必须同时钉住「普通 refresh 在被取消时确实什么都不写」。
+     */
+    @Test
+    fun detachedRefreshSurvivesCancellation() = runBlocking {
+        val dao = FakeSearchCacheDao()
+        val mgr = SearchCacheManager(dao, MemoryCache())
+        val job = launch {
+            PageCache.refreshDetached(mgr, "profile:x:repos", PageCache.TYPE_PROFILE) {
+                delay(50)
+                """[{"name":"a"}]"""
+            }
+        }
+        delay(10)
+        job.cancel()
+        job.join()
+
+        assertEquals(
+            "页面离开也要落缓存（否则「进主页→立刻点仓库」永远暖不起来）",
+            """[{"name":"a"}]""",
+            mgr.get("profile:x:repos", PageCache.TYPE_PROFILE),
+        )
+    }
+
+    @Test
+    fun plainRefreshIsDroppedOnCancellation() = runBlocking {
+        val dao = FakeSearchCacheDao()
+        val mgr = SearchCacheManager(dao, MemoryCache())
+        val job = launch {
+            PageCache.refresh(mgr, "profile:x:repos", PageCache.TYPE_PROFILE) {
+                delay(50)
+                """[{"name":"a"}]"""
+            }
+        }
+        delay(10)
+        job.cancel()
+        job.join()
+
+        assertNull(
+            "对照：普通 refresh 取消后什么都不该写（这条用例是上一条的对照组）",
+            mgr.get("profile:x:repos", PageCache.TYPE_PROFILE),
+        )
     }
 }

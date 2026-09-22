@@ -180,6 +180,10 @@ fun ProfileScreen(
      *
      * 保持原来的**单次请求**（不翻页）：翻页会让首次进入从 1 次请求变成最多 5 次，
      * 与「加缓存是为了更快」相悖。这里只做「先直出缓存 → 再回源」。
+     *
+     * 回源走 [PageCache.refreshDetached]（不是 [PageCache.refresh]）：这一页最常见的动作是
+     * 「进来一眼就点进某个仓库」，而那样会在结果回来之前就离开、取消掉整个 effect ——
+     * 旧写法下这一趟**既没写缓存也没打日志**，于是下一次进主页还是冷启动。
      */
     suspend fun loadRepos() {
         val key = if (login.isBlank()) null else PageCache.profileKey(login, "repos")
@@ -194,9 +198,9 @@ fun ProfileScreen(
             }
         }
 
-        // ② 回源并写回
+        // ② 回源并写回（页面离开也照样落缓存，见 refreshDetached 的注释）
         val json = if (key != null) {
-            PageCache.refresh(cacheManager, key, PageCache.TYPE_PROFILE) {
+            PageCache.refreshDetached(cacheManager, key, PageCache.TYPE_PROFILE) {
                 RustBridge.getMyRepos(host, token)
             }
         } else {
@@ -777,6 +781,30 @@ private fun parseIsoTime(s: String): Long = runCatching {
     }.parse(s)?.time ?: 0L
 }.getOrDefault(0L)
 
+/**
+ * 一次事件源抓取的结论。
+ *
+ * **为什么要把「失败」与「成功但空」分开**：调用方据此决定要不要把这条腿记进
+ * [EventSourceMemory]（记了就 5 分钟不再试）。旧实现只看 `isEmpty()` ——
+ * 一次网络抖动、或用户这段时间真的没有公开活动，都会被记成「这个源坏了」；
+ * 而「坏了」这个结论在日志里又没有依据（失败原因当时是静默的）。
+ */
+internal data class EventFetchResult(val events: List<ActivityEvent>, val failed: Boolean)
+
+/**
+ * 事件源抓取失败时写进日志的正文（纯函数，便于单测）。
+ *
+ * 三种失败在日志里必须能分开，否则「这条腿为什么总是不走」还是只能靠猜：
+ * - 没拿到任何响应（[RustBridge.getJson] 返回 null：断网、被代理挡下、请求没发出去）；
+ * - 拿到空响应（`refresh` 会把它也归成 null）；
+ * - 拿到 `ERROR:` 串（HTTP 4xx/5xx —— **401/404 的区别就在这里**）。
+ */
+internal fun eventFetchFailure(raw: String?): String = when {
+    raw == null -> "无响应（未联网 / 请求未发出）"
+    raw.isBlank() -> "空响应"
+    else -> raw.take(140)
+}
+
 private fun relativeTime(ms: Long): String {
     if (ms <= 0) return ""
     val diff = System.currentTimeMillis() - ms
@@ -820,17 +848,22 @@ private fun ProfileActivity(
      * 权限不同、结果不同，不能共用一份缓存），类型 TYPE_PROFILE（TTL 10 分钟）；
      * 未加载过的页没有缓存 → 照旧回源，不做预取。
      */
-    suspend fun fetchEventPages(path: String): List<ActivityEvent> {
+    suspend fun fetchEventPages(path: String): EventFetchResult {
         val all = mutableListOf<ActivityEvent>()
         for (page in 1..3) {
             val key = PageCache.profileKey(login, "events:$path:$page")
+            // 失败原因要留痕。**别指望 refresh 把 `ERROR:` 串交回来**：它按契约把错误响应
+            // 吞成 null（见 [PageCache.refresh]），所以「`?: break` + 事后判 `ERROR:` 前缀」
+            // 是一段**永远到不了的死代码**，失败全程静默 —— 真机日志里 3 次
+            // 「跳过刚失败过的事件源 /user/events」、0 次失败原因，就是这么来的。
+            // 现在把原始响应截下来，null 时补记一行（2026-09-22 修）。
+            var raw: String? = null
             val pageJson = PageCache.refresh(cacheManager, key, PageCache.TYPE_PROFILE) {
-                RustBridge.getJson(host, token, "$path?per_page=100&page=$page")
-            } ?: break
-            if (pageJson.startsWith("ERROR:")) {
-                // 失败原因要留痕：不然「这条腿为什么总是不走」只能靠猜（原先这里直接 break，什么都不记）
-                Logger.net("事件源 $path 第 $page 页失败：${pageJson.take(140)}", "GitHubAPI")
-                break
+                RustBridge.getJson(host, token, "$path?per_page=100&page=$page").also { raw = it }
+            }
+            if (pageJson == null) {
+                Logger.net("事件源 $path 第 $page 页失败：${eventFetchFailure(raw)}", "GitHubAPI")
+                return EventFetchResult(all.sortedByDescending { it.createdAt }, failed = true)
             }
             val batch = parseEvents(pageJson)
             if (batch.isEmpty()) break
@@ -840,7 +873,7 @@ private fun ProfileActivity(
         // 分页拼接后**整体再排一次**：单页排序盖不住分页边界上的乱序
         // （接口本身不按时间返回，见 [parseEvents] 的说明），
         // 而 [collapsePushes] 的口径是「相邻条目」——顺序错了，折叠就会把同一天切成好几段。
-        return all.sortedByDescending { it.createdAt }
+        return EventFetchResult(all.sortedByDescending { it.createdAt }, failed = false)
     }
 
     // Tab 保活 ⇒ 这两个 effect 不会因为「切回动态页」重跑；挂上「重新可见」的 tick 做重新校验。
@@ -863,21 +896,28 @@ private fun ProfileActivity(
         var source = if (isSelf) "/user/events" else "/users/$login/events"
         // 失败的源 5 分钟内不再重试（见 [EventSourceMemory]）：否则每次进动态页都要先等一次
         // 注定失败的请求，才回退到已经有缓存的那条腿。
+        // **判据是「一条都没拿到 + 抓取失败」**，不是单独的 `isEmpty()`：
+        // 源是好的、只是这段时间没数据，不该被拉黑 5 分钟；翻到第 2 页才断也一样
+        // （拿到部分数据说明源是通的）。旧实现只看 `isEmpty()`，把这两种都算成了「源坏了」。
         val sourceKey = "$login|$source"
-        var parsed = if (eventSourceMemory.isDead(sourceKey)) {
+        val fetched = if (eventSourceMemory.isDead(sourceKey)) {
             Logger.debug(LogCategory.NETWORK, "动态", "跳过刚失败过的事件源 $source")
-            emptyList()
+            EventFetchResult(emptyList(), failed = false)
         } else {
-            fetchEventPages(source).also { if (it.isEmpty()) eventSourceMemory.markDead(sourceKey) }
+            fetchEventPages(source)
         }
+        if (fetched.failed && fetched.events.isEmpty()) eventSourceMemory.markDead(sourceKey)
+        var parsed = fetched.events
         if (parsed.isNotEmpty()) eventSourceMemory.clear(sourceKey)
         if (parsed.isEmpty()) {
             // 当前用户端点没数据时回退到公开事件端点
             val fallback = if (isSelf) "/users/$login/events" else "/user/events"
+            val fallbackKey = "$login|$fallback"
             val retry = fetchEventPages(fallback)
-            if (retry.isNotEmpty()) {
+            if (retry.failed && retry.events.isEmpty()) eventSourceMemory.markDead(fallbackKey)
+            if (retry.events.isNotEmpty()) {
                 source = fallback
-                parsed = retry
+                parsed = retry.events
             }
         }
         if (parsed.isEmpty()) {

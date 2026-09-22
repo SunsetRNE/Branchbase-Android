@@ -146,11 +146,22 @@ object FrameWatch {
     internal fun shouldLogFrame(totalMs: Double, nowMs: Long, lastAtMs: Long, lastTotalMs: Double): Boolean =
         totalMs >= SLOW_MS && (nowMs - lastAtMs >= MIN_GAP_MS || totalMs > lastTotalMs)
 
+    /** 单帧明细与阶段标记共用的 category；tag 见 [TAG] 与 [STARTUP_TAG]。 */
+    private const val STARTUP_TAG = "启动"
+
     private fun onFrame(metrics: FrameMetrics, dropped: Int) {
         if (!enabled) return
 
-        // 首帧（窗口第一次绘制）的 TOTAL_DURATION 含建窗时间，天然是慢帧，不算
-        if (metrics.getMetric(FrameMetrics.FIRST_DRAW_FRAME) == 1L) return
+        // 首帧（窗口第一次绘制）的 TOTAL_DURATION 含建窗时间，天然是慢帧，不算。
+        // 但它是**启动段的收尾标记**，必须记：启动阶段那几条「启动 ▸ …」注脚是「只粘住不下线」的
+        // （注脚 = 最近一条 UI 类日志），没有这一行的话，之后的交互段慢帧会继续挂着启动标记。
+        // 真机现场：14 次启动的慢帧注脚 14/14 都是「git TLS 证书初始化完成」，而那只是**启动过程中**
+        // 打的一条日志 —— 它后面整整 1.2~2.9 秒的帧全被归到了它头上。
+        if (metrics.getMetric(FrameMetrics.FIRST_DRAW_FRAME) == 1L) {
+            val cost = metrics.getMetric(FrameMetrics.TOTAL_DURATION) / 1_000_000.0
+            Logger.ui("启动 ■ 首帧已上屏（含建窗 ${ms(cost)}ms）", STARTUP_TAG)
+            return
+        }
 
         val parts = DoubleArray(METRICS.size)
         for (i in METRICS.indices) parts[i] = metrics.getMetric(METRICS[i]) / 1_000_000.0

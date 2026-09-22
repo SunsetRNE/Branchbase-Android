@@ -39,6 +39,7 @@ class SettingsSpecTest {
     )
 
     private val rowComponentsPath = "src/main/java/com/branchbase/ui/settings/SettingsRow.kt"
+    private val settingsPagePath = "src/main/java/com/branchbase/ui/profile/SubPageScreens.kt"
 
     /**
      * 设置主页 + 通知页那一段（不含同一文件里的关于页 / 本地仓库页）。
@@ -316,6 +317,69 @@ class SettingsSpecTest {
         assertTrue(
             "设置页必须把 account.avatarUrl 传给 AccountRow，否则账户卡只剩字母占位（圈选处曾如此）",
             settingsRegion().contains("avatar = account?.avatarUrl"),
+        )
+    }
+
+    // ── ⑫ 首帧绘制量与组合期读盘（2026-09-22 设置页首帧绘制归因） ──────────
+
+    /**
+     * 「进入设置页」是慢帧里**绘制段**最集中的一处：22 条慢帧、绘制累计 893ms，其中 16 条
+     * 「进入那一刻的首帧」就占了 734.6ms（单帧 22~82ms，均值 45.9ms/次）；同期的等待段只有
+     * 33ms —— 不是主线程被占，是这一帧真在录大量绘制命令。
+     *
+     * 那些毫秒里，`Modifier.alpha` 与 `Modifier.clip` 各要**新建一层 RenderNode**
+     * （`AlphaKt` / `ClipKt` 都直接落到 `graphicsLayer`）。钉两条机械可判定的：
+     *
+     * 1. 禁用态的淡出乘进颜色（`.copy(alpha = …)`），不许挂整层 `Modifier.alpha`；
+     * 2. **纯装饰**的圆角交给 `background(color, shape)`（走 outline、不建层）——
+     *    状态胶囊是全树里唯一「有圆角背景、但没有 clickable」的地方，`clip` 在那里纯属白建层。
+     *
+     * ⚠️ 边界：带水波纹的行**必须**留着 `clip`（它还负责把水波纹裁进圆角），
+     * 所以第 2 条只钉胶囊这一处，不是「全树不许出现 clip」。
+     */
+    @Test
+    fun `禁用行的半透明乘进颜色而不是整层 alpha`() {
+        settingsTree.forEach { path ->
+            assertFalse(
+                "$path 里出现了 Modifier.alpha —— 它是 graphicsLayer，只为了调淡实色文字/图标不值一层 RenderNode",
+                source(path).contains("Modifier.alpha("),
+            )
+        }
+        assertTrue(
+            "禁用态的半透明要乘进颜色（DisabledAlpha）",
+            source(rowComponentsPath).contains(".copy(alpha = DisabledAlpha)"),
+        )
+    }
+
+    @Test
+    fun `状态胶囊的圆角走 background 而不是 clip`() {
+        val row = source(rowComponentsPath)
+        assertFalse(
+            "状态胶囊没有 clickable，不需要 clip 把水波纹裁进圆角 —— 那层 RenderNode 是白建的",
+            row.contains(".clip(RoundedCornerShape(999.dp))"),
+        )
+        assertTrue(
+            "圆角应该交给 background(color, shape)（outline 绘制，不建图层）",
+            row.contains(".background(bg, RoundedCornerShape(999.dp))"),
+        )
+    }
+
+    /**
+     * 组合期读 SharedPreferences = 每次重组都读一遍（首次读盘之后虽然命中内存，
+     * 但设置页首帧那一帧里整棵树要重组好几次）。这两处原先都是裸调：
+     * `commitMode(context)` 直接写在函数体里、`gitProxy(context)` 写在 `item {}` 的组合体里
+     * （后者每次这一项被滚回来都会再读一次）。同文件里 `frameWatchEnabled` / `TranslateSettings.read`
+     * 本来就在 `remember` 里 —— 这条钉子只是把已经写下来的约定补齐。
+     */
+    @Test
+    fun `设置页的组合期读盘都要进 remember`() {
+        val page = source(settingsPagePath)
+        assertTrue("提交模式要进 remember", page.contains("remember { commitMode(context) }"))
+        assertFalse("不许裸调 commitMode（每次重组读一次 prefs）", page.contains("val mode = commitMode(context)"))
+        assertTrue("代理值要进 remember", page.contains("remember { displayGitProxy(gitProxy(context))"))
+        assertFalse(
+            "不许把 displayGitProxy(gitProxy(…)) 直接当参数写进 item 的组合体（每次滚回来读一次 prefs）",
+            page.contains("value = displayGitProxy("),
         )
     }
 }
