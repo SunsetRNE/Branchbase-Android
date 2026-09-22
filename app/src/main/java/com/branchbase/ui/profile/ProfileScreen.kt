@@ -889,13 +889,21 @@ private fun ProfileActivity(
             loading = false
             return@LaunchedEffect
         }
-        // 数据源：`/user/events` 是「认证用户自己的活动」（含私有仓库），
-        // `/users/{login}/events` 是「该用户的公开活动」。
+        // 数据源**只有一条腿**：`/users/{login}/events`。
+        //
+        // 这里原来先试 `/user/events`（注释写着「认证用户自己的活动（含私有仓库）」），空了再回退，
+        // 而回退方向在「看别人的主页」时还写反了（会去取**你自己**的活动）。
+        // 1.0.65 把失败留痕修好之后（`?: break` 静默 → 记原始响应），真机日志立刻给出了答案：
+        //
+        //     23:21:43.053 事件源 /user/events 第 1 页失败：ERROR:未知错误: HTTP 404 Not Found
+        //
+        // **GitHub 没有这个端点** —— 文档里「List events for the authenticated user」指的
+        // 就是 `/users/{username}/events`（认证成该用户时返回里才含私有活动，
+        // 见 https://docs.github.com/en/rest/activity/events ）。所以那条腿不但注定失败，
+        // 每次进动态页都要先白等一次往返；而正确答案本来就在回退的那条腿上。
         // 注意不要用 received_events —— 那是「你关注的人的活动」feed，通常为空。
-        val isSelf = login == AccountStore.currentLogin(context)
-        var source = if (isSelf) "/user/events" else "/users/$login/events"
-        // 失败的源 5 分钟内不再重试（见 [EventSourceMemory]）：否则每次进动态页都要先等一次
-        // 注定失败的请求，才回退到已经有缓存的那条腿。
+        val source = "/users/$login/events"
+        // 失败的源 5 分钟内不再重试（见 [EventSourceMemory]）：网络抖动时别每次都先白等一次。
         // **判据是「一条都没拿到 + 抓取失败」**，不是单独的 `isEmpty()`：
         // 源是好的、只是这段时间没数据，不该被拉黑 5 分钟；翻到第 2 页才断也一样
         // （拿到部分数据说明源是通的）。旧实现只看 `isEmpty()`，把这两种都算成了「源坏了」。
@@ -907,19 +915,8 @@ private fun ProfileActivity(
             fetchEventPages(source)
         }
         if (fetched.failed && fetched.events.isEmpty()) eventSourceMemory.markDead(sourceKey)
-        var parsed = fetched.events
+        val parsed = fetched.events
         if (parsed.isNotEmpty()) eventSourceMemory.clear(sourceKey)
-        if (parsed.isEmpty()) {
-            // 当前用户端点没数据时回退到公开事件端点
-            val fallback = if (isSelf) "/users/$login/events" else "/user/events"
-            val fallbackKey = "$login|$fallback"
-            val retry = fetchEventPages(fallback)
-            if (retry.failed && retry.events.isEmpty()) eventSourceMemory.markDead(fallbackKey)
-            if (retry.events.isNotEmpty()) {
-                source = fallback
-                parsed = retry.events
-            }
-        }
         if (parsed.isEmpty()) {
             error = "无法加载动态（网络或权限受限）"
         } else {

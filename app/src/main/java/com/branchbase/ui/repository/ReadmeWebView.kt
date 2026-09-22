@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.branchbase.core.RustBridge
 import com.branchbase.imageviewer.ImageViewerDialog
+import com.branchbase.ui.log.Logger
 import com.branchbase.ui.theme.LocalIsDarkTheme
 import com.branchbase.translate.TranslateBridge
 import com.branchbase.translate.TranslatePage
@@ -195,16 +196,27 @@ fun ReadmeWebView(
     val webView = remember {
         // 持有者里已经有一个（上一次组合被 LazyColumn 回收时摘下来的那个）→ 接着用：
         // 文档、滚动、翻译状态、测量高度全都还在，用户看不到任何「重建」。
-        holder?.webView ?: WebView(context).apply {
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
-            settings.allowFileAccess = false
-            settings.allowContentAccess = false
-            settings.cacheMode = WebSettings.LOAD_DEFAULT
-            setBackgroundColor(android.graphics.Color.TRANSPARENT)
-            addJavascriptInterface(heightBridge, "BBReadme")
-            addJavascriptInterface(imageBridge, "BBImage")
-        }.also { if (holder != null) holder.webView = it }
+        holder?.webView ?: run {
+            // 首次创建 WebView = 把 Chromium 拉起来（进程级一次性成本），而且**必须在主线程**。
+            // 真机日志（2026-09-22，v1.0.65）里进程内第一次进仓库页出现
+            // `慢帧 272.8ms（等待 254.2*）` —— 等待段最大的一条非启动帧，怀疑就是它，
+            // 但日志里没有任何一行能证实。这行用**本地类目**记耗时（不是 UI 类目，
+            // 否则它会顶掉慢帧的页面注脚），下次取到日志就能证实或证伪。
+            val t0 = System.nanoTime()
+            val created = WebView(context).apply {
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                settings.allowFileAccess = false
+                settings.allowContentAccess = false
+                settings.cacheMode = WebSettings.LOAD_DEFAULT
+                setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                addJavascriptInterface(heightBridge, "BBReadme")
+                addJavascriptInterface(imageBridge, "BBImage")
+            }
+            Logger.local("WebView 首次创建 ${(System.nanoTime() - t0) / 1_000_000}ms（主线程）", "正文")
+            if (holder != null) holder.webView = created
+            created
+        }
     }
 
     // 桥必须在页面脚本执行前注册（脚本里会调用 window.BBTranslate.request）

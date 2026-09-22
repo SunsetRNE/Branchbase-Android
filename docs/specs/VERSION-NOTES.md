@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只留格式契约 + 写法样板（3 个经典示例）；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.66**）
-与 §三 `versionCode` 流水（129 → **168**）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.67**）
+与 §三 `versionCode` 流水（129 → **169**）。
 
 ---
 
@@ -25,7 +25,41 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.66 → 1.0.22）
+## 二、`versionName` 流水（1.0.67 → 1.0.22）
+
+### 1.0.67
+
+**1.0.65 的失败留痕，上线一小时就答了一个拖了三版的问题** —— 外加修掉 1.0.65 自己引入的一处假标记。
+
+① **`/user/events` 是 404，这个端点根本不存在**。1.0.65 把 `?: break` 的静默失败改成记原始响应之后，
+第二次会话立刻打出：
+
+```
+23:21:43.053 事件源 /user/events 第 1 页失败：ERROR:未知错误: HTTP 404 Not Found: {"message":"Not Found",…}
+```
+
+GitHub 的活动端点里，所谓「List events for the authenticated user」就是
+`GET /users/{username}/events`（[认证成该用户时返回里才含私有活动](https://docs.github.com/en/rest/activity/events)），
+**没有 `/user/events`**。旧实现是「先试 `/user/events`，空了再回退到 `/users/{login}/events`」——
+那条腿不但注定失败（每次进动态页先白等一次往返），回退方向在「看别人的主页」时还写反了
+（会去取**你自己**的活动显示在别人的动态里）。现在只留 `/users/{login}/events` 一条腿，
+`EventSourceMemory`（网络抖动时 5 分钟内不重复踩）保留。这也解释了 1.0.58 那条
+「`/user/events:1` 连续三次未命中」的旧日志：不是权限、不是代理，是端点不存在。
+
+② **修掉 1.0.65 自己引入的假标记**。`HomeScreen` 的「启动 ▸ 首页首帧取数」打在了
+`LaunchedEffect(resumeTick)` 里，而 `resumeTick` 每次「切回首页」都会 +1（初值就是 1）——
+于是它变成一条常驻标记：第二次会话 28 条慢帧里有 **7 条**挂着它（+20s / +22s / +27s 的切 Tab），
+而 `frame-baseline.py` 新增的 `^启动` 桶会把这些帧算成启动帧：**报表看着正常，桶是错的**。
+现在门控在 `resumeTick == 1`（首次组合）。启动阶段的标记只该属于启动。
+
+③ **给「WebView 首次创建」加一行可归因的计时**（本地类目，不进慢帧注脚池）。
+同一份日志里，进程内第一次进仓库页出现 `慢帧 272.8ms（等待 254.2*）` —— 是本次会话里
+最大的非启动帧，怀疑是首次创建 WebView（把 Chromium 拉起来，必须主线程），
+但日志里没有任何一行能证实。这行不是修性能，是**让下一次日志能回答它**。
+
+**钉子**：`EventFetchFailureTest` +1（源码级：ProfileScreen 里不许再出现 `/user/events`，
+唯一的源必须是 `/users/{login}/events`）、`StartupMarkerTest` +1（首页阶段标记必须门控在
+`resumeTick == 1`）。app+translate 656 条全绿。versionCode 168 → 169（一次提交 +1）。
 
 ### 1.0.66
 
@@ -981,11 +1015,13 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（168 → 129）
+## 三、`versionCode` 流水（169 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **169**：`/user/events` 是 404（端点不存在）⇒ 事件源只留 `/users/{login}/events` 一条腿 + 修 1.0.65 自己引入的假启动标记（首页标记门控在 `resumeTick == 1`）+ WebView 首次创建计时可归因（一次提交，故 +1）
 
 - **168**：修仓库页「一次进入跑三遍」（加载 effect 的键带了分支 ⇒ 数据发 3 次、骨架闪 3 次）+ 关系态先直出再复核（判定冷启 ~800ms 期间按钮不再空着）（一次提交，故 +1）
 

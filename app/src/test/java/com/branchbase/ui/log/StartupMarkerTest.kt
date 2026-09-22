@@ -78,6 +78,24 @@ class StartupMarkerTest {
         assertTrue("「帧」是慢帧自己的 tag，不能混用", tag != "帧")
     }
 
+    /**
+     * 首页那条阶段标记必须**只在真正的启动那一次**打。
+     *
+     * `HomeScreen` 的取数 effect 键是 `resumeTick`，而它每次「切回首页」都会 +1
+     * （`rememberPageResumeTick` 的初值就是 1）。无条件打的话它会变成一条常驻的假标记：
+     * 真机日志（1.0.65）里它在 +20s / +22s / +27s 各出现一次，还把那几帧的慢帧注脚全改成了
+     * 「启动 ▸ …」—— 于是 `frame-baseline.py` 新增的 `^启动` 桶会把切 Tab 的帧算成启动帧。
+     * 报表看起来一切正常，数字是错的（这正是「场景桶」这类设施最坏的失败方式）。
+     */
+    @Test
+    fun `首页阶段标记只在启动那一次打`() {
+        val code = source(home)
+        assertTrue(
+            "首页取数标记要门控在 resumeTick == 1（首次组合），否则切回首页会重复打",
+            code.contains("if (resumeTick == 1) Logger.ui(\"启动 ▸ 首页首帧取数"),
+        )
+    }
+
     @Test
     fun `启动标记不许撞上其它场景桶的前缀`() {
         // 与 frame-baseline.py 的 SCENARIO_RULES 保持一致（下面那条用例会校验脚本本身）

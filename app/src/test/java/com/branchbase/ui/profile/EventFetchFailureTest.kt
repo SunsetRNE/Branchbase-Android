@@ -1,5 +1,6 @@
 package com.branchbase.ui.profile
 
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -56,5 +57,36 @@ class EventFetchFailureTest {
     fun `超长响应要截断_别把一行日志撑成散文`() {
         val msg = eventFetchFailure("ERROR:" + "x".repeat(1000))
         assertEquals("截断到 140 字符", 140, msg.length)
+    }
+
+    /**
+     * 失败留痕修好之后，**第一个被它抓出来的结论**：`/user/events` 根本不存在。
+     *
+     * ```
+     * 23:21:43.053 事件源 /user/events 第 1 页失败：ERROR:未知错误: HTTP 404 Not Found
+     * ```
+     *
+     * GitHub 的活动端点里，所谓「List events for the authenticated user」就是
+     * `/users/{username}/events`（认证成该用户时返回里才含私有活动），**没有 `/user/events`**
+     * （<https://docs.github.com/en/rest/activity/events>）。而旧代码是「先试 `/user/events`，
+     * 空了再回退」——每次进动态页都要先白等一次注定 404 的往返；更糟的是回退方向在
+     * 「看别人的主页」时写反了（会去取**你自己**的活动，显示在别人的动态里）。
+     *
+     * 这条钉子钉住「那条腿不许回来」：只要 ProfileScreen 里再出现 `/user/events`，
+     * 就说明有人又把「认证用户自己的活动」当成一个独立端点写了。
+     */
+    @Test
+    fun `事件源只留 users 那一条腿`() {
+        val file = File("src/main/java/com/branchbase/ui/profile/ProfileScreen.kt")
+        assertTrue("找不到源文件：${file.absolutePath}", file.exists())
+        val src = file.readText()
+        assertFalse(
+            "`/user/events` 是 404 端点（真机实测）：不许再当成一条可用的腿去试",
+            src.contains("\"/user/events\""),
+        )
+        assertTrue(
+            "唯一的源应该是 /users/{login}/events",
+            src.contains("val source = \"/users/\$login/events\""),
+        )
     }
 }
