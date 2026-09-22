@@ -92,6 +92,7 @@ import com.branchbase.ui.navigation.rememberPageResumeTick
 import kotlinx.coroutines.launch
 import com.branchbase.core.AccountStore
 import com.branchbase.core.RustBridge
+import com.branchbase.ui.log.LogCategory
 import com.branchbase.ui.log.LogScreen
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.theme.iconTap
@@ -826,7 +827,11 @@ private fun ProfileActivity(
             val pageJson = PageCache.refresh(cacheManager, key, PageCache.TYPE_PROFILE) {
                 RustBridge.getJson(host, token, "$path?per_page=100&page=$page")
             } ?: break
-            if (pageJson.startsWith("ERROR:")) break
+            if (pageJson.startsWith("ERROR:")) {
+                // 失败原因要留痕：不然「这条腿为什么总是不走」只能靠猜（原先这里直接 break，什么都不记）
+                Logger.net("事件源 $path 第 $page 页失败：${pageJson.take(140)}", "GitHubAPI")
+                break
+            }
             val batch = parseEvents(pageJson)
             if (batch.isEmpty()) break
             all += batch
@@ -856,7 +861,16 @@ private fun ProfileActivity(
         // 注意不要用 received_events —— 那是「你关注的人的活动」feed，通常为空。
         val isSelf = login == AccountStore.currentLogin(context)
         var source = if (isSelf) "/user/events" else "/users/$login/events"
-        var parsed = fetchEventPages(source)
+        // 失败的源 5 分钟内不再重试（见 [EventSourceMemory]）：否则每次进动态页都要先等一次
+        // 注定失败的请求，才回退到已经有缓存的那条腿。
+        val sourceKey = "$login|$source"
+        var parsed = if (eventSourceMemory.isDead(sourceKey)) {
+            Logger.debug(LogCategory.NETWORK, "动态", "跳过刚失败过的事件源 $source")
+            emptyList()
+        } else {
+            fetchEventPages(source).also { if (it.isEmpty()) eventSourceMemory.markDead(sourceKey) }
+        }
+        if (parsed.isNotEmpty()) eventSourceMemory.clear(sourceKey)
         if (parsed.isEmpty()) {
             // 当前用户端点没数据时回退到公开事件端点
             val fallback = if (isSelf) "/users/$login/events" else "/user/events"
@@ -1182,12 +1196,30 @@ private fun contributionStats(calendar: ContributionCalendar?): ContributionStat
     return ContributionStats(week, month, calendar.total)
 }
 
-/** 贡献日历查询区间（近一年，ISO8601 UTC）。 */
-private fun contributionRange(): Pair<String, String> {
+/**
+ * 贡献日历查询区间（近一年，ISO8601 UTC）。
+ *
+ * ## 必须按 **UTC 天**取整（1.0.58 修的真实 bug）
+ *
+ * 原实现是 `[now - 364 天, now]`，`now` 精确到秒 —— 而这个区间**同时是缓存键的一部分**
+ * （`profileKey(login, "calendar:$from:$to")`），于是键每次都不同、缓存**永远不可能命中**：
+ * 每进一次动态页都要打一遍 GraphQL，贡献墙只能等网络，回来再画一遍（真机 77ms 的绘制帧）。
+ * 真机日志里三次进页面拿到的键分别是 `…07:04:22Z` / `…07:04:24Z` / `…07:04:29Z`。
+ *
+ * 取整到天之后：同一天内键稳定 → L1/L2 都能命中（TTL 10 分钟）→ 过期才回源；
+ * 跨 UTC 零点换上一天的键，自然滚动。**结束点取「明天 00:00Z」**（不是今天 00:00Z）——
+ * 否则今天那一格会被排除在区间外，墙上的「今天」永远是空的。
+ *
+ * 区间同时是缓存键与查询参数：查询本身能接受任意时刻，取整只是为了键稳定，
+ * 所以这里不需要动 GraphQL 那边。
+ */
+internal fun contributionRange(nowMs: Long = System.currentTimeMillis()): Pair<String, String> {
+    val day = 24L * 60 * 60 * 1000
+    val endMs = (nowMs / day + 1) * day
+    val startMs = endMs - 365 * day
     val fmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US)
     fmt.timeZone = java.util.TimeZone.getTimeZone("UTC")
-    val now = System.currentTimeMillis()
-    return fmt.format(java.util.Date(now - 364L * 24 * 60 * 60 * 1000)) to fmt.format(java.util.Date(now))
+    return fmt.format(java.util.Date(startMs)) to fmt.format(java.util.Date(endMs))
 }
 
 /** 贡献墙点选后的当天明细卡。 */
