@@ -56,6 +56,20 @@ data class TranslateConfig(
     val ready: Boolean get() = !providerKind.requiresKey || apiKey.isNotBlank()
 
     /**
+     * **译文缓存变体指纹**（进缓存键，见 `TranslateCache` 的类注释）。
+     *
+     * 组成：后端 + 模型 + 接入地址。这三样任一变化都会改变译文，所以必须换键 ——
+     * 否则换到 DeepSeek 之后命中的还是 MyMemory 的旧译文，用户看到的是「换了没效果」。
+     *
+     * **刻意不含 API Key**：同一后端 + 同一模型/地址，换 Key 不改变译文（Key 只是通行证），
+     * 把它算进去会让「换 Key」= 「整库缓存作废」，白白重烧一遍额度。
+     *
+     * 也不含 `style` / `dual`：那两项只影响页面表现（CSS 与插入方式），同一份译文照用 ——
+     * 这正是「对照 / 仅译文」「三种样式」切换不重翻的原因（见类注释第一组字段）。
+     */
+    fun cacheVariant(): String = "${providerKind.code}|$model|$baseUrl"
+
+    /**
      * 传给 Rust 后端的选项 JSON（`core/src/translate/mod.rs::Options`）。
      *
      * 与 [TranslateSettings.pageConfigJson] 严格分开：那份会**注入到 WebView 页面**里，

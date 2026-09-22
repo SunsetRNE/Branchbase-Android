@@ -47,11 +47,14 @@ object TranslateRuntime {
      *
      * @param engine :app 提供的后端（Rust 实现），或测试用的假实现
      * @param diskCache 自定义磁盘缓存（单测传临时文件；默认用 `filesDir/translate/cache.tsv`）
+     * @param log 每批翻译的一行汇总（命中 / 未命中 / 变体）。**:app 传日志器进来** ——
+     *   这个模块不依赖 :app，所以只能由调用方注入；默认不记。
      */
     fun install(
         context: Context,
         engine: TranslateEngine,
         diskCache: TranslateDiskCache? = null,
+        log: (String) -> Unit = {},
     ): Translator {
         val app = context.applicationContext
         val disk = diskCache ?: TranslateDiskCache(File(app.filesDir, "translate/cache.tsv"), DISK_ENTRIES)
@@ -63,6 +66,10 @@ object TranslateRuntime {
             engine = engine,
             cache = cache,
             protectTokens = { TranslateSettings.read(app).protect },
+            // 变体每次读取：换后端 / 换模型 / 换网关之后，下一页就是新的键空间，
+            // 不会拿旧后端的译文献数（改完设置不需要重启 App）
+            engineVariant = { TranslateSettings.read(app).cacheVariant() },
+            log = log,
         )
         instance = translator
         return translator

@@ -106,4 +106,44 @@ class TranslateCacheTest {
         assertEquals("你好", cache.get("en", LANG_ZH, "hello"))
         assertEquals(0, cache.diskCount())
     }
+
+    // ── 变体维度（1.0.58 补的键维度） ──
+
+    @Test
+    fun `变体不同不能互相命中_换后端不许拿旧译文冒充`() = runBlocking {
+        val disk = TranslateDiskCache(tmp.newFile("cache6.tsv"), maxEntries = 8)
+        val cache = TranslateCache(memoryEntries = 8) { disk }
+        cache.put("en", LANG_ZH, "hello", "MyMemory 的译文", variant = "mymemory||")
+        cache.put("en", LANG_ZH, "hello", "DeepSeek 的译文", variant = "deepseek|deepseek-chat|")
+
+        assertEquals("MyMemory 的译文", cache.get("en", LANG_ZH, "hello", "mymemory||"))
+        assertEquals("DeepSeek 的译文", cache.get("en", LANG_ZH, "hello", "deepseek|deepseek-chat|"))
+        // 换回旧后端仍然命中（键空间并存，不是「换一次就全清」）
+        assertEquals("MyMemory 的译文", cache.get("en", LANG_ZH, "hello", "mymemory||"))
+        assertNull("没翻过的变体不能命中", cache.get("en", LANG_ZH, "hello", "openai|gpt|x"))
+    }
+
+    @Test
+    fun `变体相同则跨进程命中_磁盘也按变体隔离`() = runBlocking {
+        val disk = TranslateDiskCache(tmp.newFile("cache7.tsv"), maxEntries = 8)
+        TranslateCache(memoryEntries = 8) { disk }
+            .put("en", LANG_ZH, "hello", "你好", variant = "mymemory||")
+
+        val fresh = TranslateCache(memoryEntries = 8) { disk }   // 模拟新进程
+        assertEquals("你好", fresh.get("en", LANG_ZH, "hello", "mymemory||"))
+        assertNull("别的变体不命中", fresh.get("en", LANG_ZH, "hello", "deepseek|chat|"))
+    }
+
+    @Test
+    fun `长度前缀拼接_原文里的分隔符不会造成撞键`() = runBlocking {
+        // 朴素拼接 "from|to|variant|text" 下，这两组会拼出同一个字符串：
+        //   (variant="a", text="b|c") 与 (variant="a|b", text="c")
+        // 撞键的后果是**返回另一段的译文**（不是慢，是错），所以必须钉住。
+        val cache = TranslateCache(memoryEntries = 8) { null }
+        cache.put("en", LANG_ZH, "b|c", "第一段", variant = "a")
+        cache.put("en", LANG_ZH, "c", "第二段", variant = "a|b")
+
+        assertEquals("第一段", cache.get("en", LANG_ZH, "b|c", "a"))
+        assertEquals("第二段", cache.get("en", LANG_ZH, "c", "a|b"))
+    }
 }

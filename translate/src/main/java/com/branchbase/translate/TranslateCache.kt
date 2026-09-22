@@ -205,6 +205,21 @@ class TranslateDiskCache(
  * 读路径：内存 → 磁盘（命中后回填内存）；写路径：两边都写。
  * 磁盘是否启用由外部传入（设置页的「本地缓存」开关），关掉后 `disk()` 返回 null，
  * 已落盘的数据不动 —— 用户重新打开开关即恢复命中。
+ *
+ * ## 键 = (源语言, 目标语言, **变体**, 原文)（1.0.58 补上变体）
+ *
+ * 变体（[variant]）是「**谁翻的 + 怎么翻的**」的指纹：后端 / 模型 / 接入地址 / 占位符保护开关。
+ * 少了它，用户在设置页把后端从 MyMemory 换成 DeepSeek（或换模型、换网关）之后，
+ * **旧后端的译文会继续命中** —— 新后端一次都不会被调用，用户看到的是「换了没效果」。
+ * 这与「缓存键里带了会变的时间戳」是同一类错误，方向相反：一个是永远 miss、一个是错命中。
+ *
+ * 变体**不含 API Key**：同一后端 + 同一模型/地址，换 Key 不改变译文（Key 只是通行证）。
+ *
+ * ## 为什么不设 TTL
+ *
+ * 这是**内容寻址**缓存：同一段原文 + 同一变体，译文不会随时间改变。
+ * 设 TTL 只会让「昨天翻过的今天重翻」白烧额度（MyMemory 约 5000 词/天）。
+ * 失效只有两条路径：变体变了（键自然不同）或用户手动清空。
  */
 class TranslateCache(
     memoryEntries: Int = 512,
@@ -213,18 +228,24 @@ class TranslateCache(
 
     private val memory = LruCache<String, String>(memoryEntries)
 
-    suspend fun get(from: String, to: String, text: String): String? {
-        val key = memoryKey(from, to, text)
+    suspend fun get(from: String, to: String, text: String, variant: String = ""): String? {
+        val key = memoryKey(from, to, variant, text)
         memory.get(key)?.let { return it }
-        val hit = disk()?.get(diskKey(from, to, text)) ?: return null
+        val hit = disk()?.get(diskKey(from, to, variant, text)) ?: return null
         memory.put(key, hit)
         return hit
     }
 
-    suspend fun put(from: String, to: String, text: String, translated: String) {
+    suspend fun put(
+        from: String,
+        to: String,
+        text: String,
+        translated: String,
+        variant: String = "",
+    ) {
         if (translated.isBlank()) return
-        memory.put(memoryKey(from, to, text), translated)
-        disk()?.put(diskKey(from, to, text), translated)
+        memory.put(memoryKey(from, to, variant, text), translated)
+        disk()?.put(diskKey(from, to, variant, text), translated)
     }
 
     fun memoryCount(): Int = memory.size()
@@ -236,11 +257,26 @@ class TranslateCache(
         disk()?.clear()
     }
 
-    /** 内存键直接用原文（可读、便于调试；内存只放 512 条，容量可控）。 */
-    private fun memoryKey(from: String, to: String, text: String) = "$from|$to|$text"
+    /** 内存键直接拼原文（可读、便于调试；内存只放 512 条，容量可控）。 */
+    private fun memoryKey(from: String, to: String, variant: String, text: String) =
+        join(from, to, variant, text)
 
     /** 磁盘键用 SHA-1（定长、避免原文里的制表符/换行污染行格式）。 */
-    private fun diskKey(from: String, to: String, text: String): String = sha1("$from|$to|$text")
+    private fun diskKey(from: String, to: String, variant: String, text: String): String =
+        sha1(join(from, to, variant, text))
+
+    /**
+     * **长度前缀**拼接：`3:en|2:zh|8:mymemory|5:hello|`。
+     *
+     * 不用裸 `|` 拼接 —— 原文里出现 `|` 时，两段不同的 (文本, 变体) 组合可能拼出同一个字符串，
+     * 而缓存撞键的后果是**直接返回另一段的译文**（不是慢，是错）。
+     * 长度前缀让每个字段的边界无歧义，代价只有几个字符。
+     */
+    private fun join(vararg parts: String): String = buildString {
+        for (p in parts) {
+            append(p.length).append(':').append(p).append('|')
+        }
+    }
 
     private fun sha1(s: String): String =
         MessageDigest.getInstance("SHA-1").digest(s.toByteArray(Charsets.UTF_8))

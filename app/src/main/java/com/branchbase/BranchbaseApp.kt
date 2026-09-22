@@ -13,6 +13,7 @@ import com.branchbase.downloader.DownloaderConfig
 import com.branchbase.downloader.DownloaderRuntime
 import com.branchbase.downloader.VendorIslandExtensions
 import com.branchbase.translate.TranslateRuntime
+import com.branchbase.ui.log.Logger
 import com.branchbase.translate.TranslateSettings
 
 /**
@@ -49,6 +50,10 @@ class BranchbaseApp : Application(), ImageLoaderFactory {
         TranslateRuntime.install(
             this,
             RustTranslateEngine { TranslateSettings.read(this) },
+            // 每批一行汇总（命中 / 未命中 / 变体）：翻译缓存「有没有在干活」此前完全不可见 ——
+            // 命中率低说明键对不上（后端 / 模型 / 保护开关变了，或原文归一化不一致），
+            // 而不是「缓存没生效」。按批记一行，不按段落刷屏。
+            log = { Logger.net(it, "翻译") },
         )
         // 内建下载：注入「凭据」与「通知小图标」两样 App 侧才知道的东西。
         DownloaderRuntime.install(
