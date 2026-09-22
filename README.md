@@ -74,6 +74,7 @@ Branchbase/
 |---|---|
 | [`docs/specs/modules-design.md`](docs/specs/modules-design.md) | **功能模块族**：沉浸式翻译 / 内建下载 / 图片查看器 / 代码编辑器 / 作业日志与运行轮询 |
 | [`docs/specs/ui-design.md`](docs/specs/ui-design.md) | **界面规格**：配色与弹层（单一真源）/ 深色主题 / 动效（页面级 + 元素级） |
+| [`docs/specs/frame-perf-design.md`](docs/specs/frame-perf-design.md) | **帧率基线（页面重建）**：取数只走 `FrameWatch`（dumpsys 被守护拦）/ 口径与四类归因 / 基线与验收清单 |
 | [`docs/specs/screens-design.md`](docs/specs/screens-design.md) | **页面重绘**：运行详情卡片流 / 发布（三档性质 + 三个页面）/ 消息卡片流与多选 |
 | [`docs/specs/settings-design.md`](docs/specs/settings-design.md) | **设置页设计规范**：两级 IA / 6 种行型 / 控件选型 / 用语表 / 危险操作 |
 | [`docs/specs/NAVIGATION-NOTES.md`](docs/specs/NAVIGATION-NOTES.md) | 返回键与导航的两条硬规则（顶层双击退出、页面内逐层消费） |
@@ -165,13 +166,16 @@ Branchbase/
   真正要改的只有「非 Composable 上下文」那 105 处；文字色 ≠ 填充色（WCAG 对比度由 `ThemeContrastTest`
   钉住），常态图标取纯黑 / 纯白，Compose 管不到的（状态栏、WebView CSS、翻译页面脚本）另行跟随。
   启动瞬间的一帧浅色、约 30 处「拿填充色当文字」等**已知取舍**也记在文档里。
-- **动效**：三层规格各一处真源 —— 页面级 `ui/navigation/PageTransitions.kt`（层级推进用方向、
-  同级切换用淡入）、元素级 `ui/theme/Motion.kt`（原语表：选中态 / 出现消失 / 气泡 / 按下 / 徽标 / 微光）、
+- **动效**：三层规格各一处真源 —— 页面级 `ui/navigation/PageTransitions.kt`（层级推进 = **只让一页动**
+  （新页滑入 + 淡入、旧页原地淡出）、同级与**首帧重的页** = fade-through 不重叠；重页按台账降级）、
+  元素级 `ui/theme/Motion.kt`（原语表：选中态 / 出现消失 / 气泡 / 按下 / 徽标 / 微光）、
   图标形态级 `ui/theme/morph/`（**路径插值形变**：端点逐点恒等、中间帧由顶点对应关系算出，
   结构差异大的配对按台账降级成交叉过渡）。
-  真正起作用的三条：进出场曲线不对称、退场淡出早收、切 Tab 存住原位置；元素级一律不用 spring
-  （唯一的弹簧是形变进度，默认 ζ=1.00 不过冲，为的是**可打断**）。术语、六步管线与验收清单见
-  [`docs/specs/morph-design.md`](docs/specs/morph-design.md)。
+  真正起作用的四条：**曲线两端速度连续**（起步不弹射、收尾不砸停 —— 抖动就是速度突变）、
+  只让一页动、切 Tab 存住原位置、参数与形态按真机基线收敛过两轮（位移 1/4 → 1/10 屏、同级 fade-through）；
+  元素级一律不用 spring（唯一的弹簧是形变进度，默认 ζ=1.00 不过冲，为的是**可打断**）。
+  术语、六步管线与验收清单见 [`docs/specs/morph-design.md`](docs/specs/morph-design.md)，
+  **帧率口径与基线**见 [`docs/specs/frame-perf-design.md`](docs/specs/frame-perf-design.md)。
 
 ## 🖥 页面重绘（运行详情 / 发布 / 消息）
 

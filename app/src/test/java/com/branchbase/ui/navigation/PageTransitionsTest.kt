@@ -82,4 +82,40 @@ class PageTransitionsTest {
             .findAll(source).count()
         assertEquals("PageSwitcher 与 TabSwitcher 都要下发「是不是当前页」", 2, dispatched)
     }
+
+    // ── 过渡选择（重页降级） ──
+
+    @Test
+    fun `轻页按层级差选方向`() {
+        assertEquals(TransitionKind.Forward, transitionKindFor(heavy = false, initialDepth = 0, targetDepth = 2))
+        assertEquals(TransitionKind.Back, transitionKindFor(heavy = false, initialDepth = 2, targetDepth = 0))
+        assertEquals(TransitionKind.Light, transitionKindFor(heavy = false, initialDepth = 1, targetDepth = 1))
+    }
+
+    @Test
+    fun `重页优先降级_方向判定必须让位`() {
+        // 顺序反了的话，重页在「推进」时照样拿到位移动画 —— 位移每帧重新 place + 重叠期多画一页，
+        // 正好压在最重的那一帧上。真机现象只是「那几个页面还是卡」，很难反查到是这里。
+        assertEquals(TransitionKind.Light, transitionKindFor(heavy = true, initialDepth = 0, targetDepth = 2))
+        assertEquals(TransitionKind.Light, transitionKindFor(heavy = true, initialDepth = 2, targetDepth = 0))
+        assertEquals(TransitionKind.Light, transitionKindFor(heavy = true, initialDepth = 0, targetDepth = 0))
+    }
+
+    @Test
+    fun `PageLevel 默认不标重页`() {
+        // 默认 false 是台账的闸门：不加 `heavyFirstFrame` 的路由不该被降级（否则全站都没方向感了）
+        assertFalse("默认不能是重页", PlainPageLevel(1).heavyFirstFrame)
+    }
 }
+
+/**
+ * 只实现 [PageLevel] 的最小路由：钉住「默认不标重页」这条闸门。
+ *
+ * ⚠️ **必须是文件级类，不能写成测试函数里的匿名对象 / 局部类**：Kotlin 会把外层函数名编进类名
+ * （`PageTransitionsTest$PageLevel 默认不标重页$plain$1.class`），而反引号里的方法是中文 ——
+ * 在 locale 不是 UTF-8 的机器上，编译器写这个 class 文件时直接
+ * `java.nio.file.InvalidPathException: Malformed input or input contains unmappable characters`
+ * （本机就踩到了，报出来是「Internal compiler error」，真因在 `e:` 那一行）。
+ * 反引号中文方法名本身没问题，**别在它里面声明类**。
+ */
+private class PlainPageLevel(override val depth: Int) : PageLevel

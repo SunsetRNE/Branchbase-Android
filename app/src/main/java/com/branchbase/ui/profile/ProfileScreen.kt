@@ -230,8 +230,8 @@ fun ProfileScreen(
     PageBackHandler(subPage != null) { subPage = profileBackTarget(subPage) }
 
     // 底部气泡导航栏由 [NavigationShell] 持有（**不在**下面的 PageSwitcher 里）：
-    // 放进切换器里的话，切 Tab 会被同级动效（淡入淡出 + 2% 垂直位移）连着整条栏一起播 ——
-    // 旧栏上移、新栏上浮、两栏错位叠着，就是「切页面时导航栏上下跳」。
+    // 放进切换器里的话，切 Tab 会被同级动效连着整条栏一起播（2026-09 之前那 2% 垂直位移就是这样
+    // 把「切页面时导航栏上下跳」带出来的：旧栏上移、新栏上浮、两栏错位叠着）。
     NavigationShell(
         bar = {
             // 气泡导航栏（基础形态 ④）：3 主项 + 右侧手柄弹出 More 菜单
@@ -331,6 +331,14 @@ private sealed interface ProfileRoute : PageLevel {
 
     data class Sub(val page: SubPage) : ProfileRoute {
         override val depth: Int get() = subPageDepth(page)
+
+        /**
+         * 首帧重页：设置页一轮里出了 **7 条慢帧**（最慢 118.2ms，主段**绘制**）——
+         * 八组卡片 + 二十多行；LazyColumn 已经压过一轮首帧，剩下的靠过渡降级省
+         * （不给位移、只做短淡化）。判据与台账见 [PageLevel.heavyFirstFrame]；
+         * 其余子页先不标 —— 基线上都不到 3 条。
+         */
+        override val heavyFirstFrame: Boolean get() = page == SubPage.Settings
     }
 }
 

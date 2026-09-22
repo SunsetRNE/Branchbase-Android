@@ -20,6 +20,7 @@
     ├── settings-design.md        ← **设置页设计规范**（信息架构 / 6 种行型 / 控件选型 / 用语表 / 危险操作）
     ├── modules-design.md         ← **功能模块族**（沉浸式翻译 / 内建下载 / 图片查看器 / 编辑器 / 作业日志与运行轮询）
     ├── ui-design.md              ← **界面规格**（配色与弹层（单一真源）/ 深色主题 / 动效）
+    ├── frame-perf-design.md      ← **帧率基线**（页面重建：口径 / 取数通道 / 归因四类 / 验收清单）
     ├── morph-design.md           ← **图标形变规格**（术语表 / 六步管线与失真点 / 六类成因 / 验收清单 / 极端组合台账）
     ├── screens-design.md         ← **页面重绘**（运行详情卡片流 / 发布三档性质 / 消息卡片流与多选）
     ├── reachability-design.md    ← **远端可达性判定**（三档口径 / 四种跃迁 / 跃迁时丢连接池并重探）
@@ -110,6 +111,7 @@ README.md                          ← 项目门面 + 功能概览 + 文档指�
 | [`specs/VERSION-NOTES.md`](specs/VERSION-NOTES.md) | **版本变更记录**：§二 `versionName` 逐版说明（每版改了什么、为什么这么改）/ §三 `versionCode` 流水 + 新增一版的写法约定 | `version.properties`（只留 3 个样板并指向它）、`BUILD-NOTES.md` §二 |
 | [`specs/modules-design.md`](specs/modules-design.md) | **功能模块族**：§1 沉浸式翻译 / §2 内建下载 / §3 图片查看器 / §4 代码编辑器 / §5 作业日志 / §6 运行中的工作流轮询，各带「已知边界」 | `README.md` 功能模块、`ui/repository/JobLogWiring.kt`、`RunPollPolicy.kt` |
 | [`specs/ui-design.md`](specs/ui-design.md) | **界面规格**：§1 配色与弹层（单一真源）/ §2 深色主题（色板 + 角色、对比度、已知取舍）/ §3 动效（页面级 + 元素级） | `ui/theme/*`、`ui/navigation/PageTransitions.kt`、`README.md` 界面规格 |
+| [`specs/frame-perf-design.md`](specs/frame-perf-design.md) | **帧率基线（页面重建）**：为什么只能走 `FrameWatch`（dumpsys 被守护拦）/ 口径（32ms 慢帧、16ms 预算、8 分段）/ 四类归因（等待·动画·绘制·下发）/ v1.0.53 基线与验收清单 | `ui/log/FrameWatch.kt`、`tools/perf/frame-baseline.py`、`specs/ui-design.md` §3 |
 | [`specs/screens-design.md`](specs/screens-design.md) | **页面重绘**：§1 运行详情卡片流 / §2 发布（三档性质 + 三个页面）/ §3 消息卡片流与多选 | `ReleaseNotesEditor.kt`、`ReleaseEditParts.kt`、`NotificationScreen.kt`、`WorkflowRunDetailScreen.kt` |
 | [`specs/reachability-design.md`](specs/reachability-design.md) | **远端可达性判定**：三档（离线 / 直连 / VPN）、四种跃迁才重探、跃迁时三件事（丢连接池 / 清去重窗口 / 重探账号），含已知边界 | `core/NetworkWatch.kt`、`core/ReachabilityPolicy.kt`、`RustBridge.resetHttpClient` |
 | [`specs/prototypes/release-redesign.md`](specs/prototypes/release-redesign.md) | 发布三页重绘原型：三档性质 / 垂直预算 694→360dp / 生成说明不覆盖手写行 | `specs/screens-design.md` §2、`ReleaseScreens.kt` |

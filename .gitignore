@@ -46,6 +46,12 @@ local.properties
 # CI 产物收集临时目录（upload-artifact 前统一收集，不入库）
 /dist/
 
+# 帧率基线的取数产物（原始日志切片 + 生成的 .md/.json，都是「某一次采集」的数据，不入库）
+# 结论与口径写在 docs/specs/frame-perf-design.md 里；这里只放 tools/perf/frame-baseline.py 跑出来的东西
+/tools/perf/reports/
+__pycache__/
+*.pyc
+
 # 原型设计草图（HTML 草图，永久不入库）
 # 草图本体（index.html / app.js / style.css…）留在 /design/<原型名>/，DSH 侧边栏「原型预览」能扫到；
 # 但同一件事的「说明与落实方案」（现状测绘 / 取舍论证 / 落地清单）是结论，抽一份进

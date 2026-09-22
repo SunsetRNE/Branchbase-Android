@@ -112,9 +112,10 @@ fun MainScreen(
     }
 
     // 底部导航栏由 [NavigationShell] 持有（**不在**下面的 PageSwitcher 里）。
-    // 放进切换器里的话，切 Tab 会被同级动效（淡入淡出 + 2% 垂直位移）连着整条栏一起播 ——
-    // 旧栏上移、新栏上浮、两栏错位叠着，就是「切页面时导航栏上下跳」。
-    // 现在栏只在「该出现」时进出（进子页自己收起），页面切换只动页面。
+    // 放进切换器里的话，切 Tab 会被同级动效连着整条栏一起播（2026-09 之前那 2% 垂直位移就是这样
+    // 把「切页面时导航栏上下跳」带出来的：旧栏上移、新栏上浮、两栏错位叠着）；
+    // 现在同级已是纯淡化，这条规则仍不变 —— 页面切换只动页面。
+    // 栏只在「该出现」时进出（进子页自己收起）。
     NavigationShell(
         bar = {
             BranchbaseNavigationBar(
@@ -261,6 +262,12 @@ private sealed interface MainRoute : PageLevel {
 
     data class Repo(val link: RepoDeepLink) : MainRoute {
         override val depth: Int get() = 2
+
+        /**
+         * 首帧重页：进仓库详情那一帧真机测到 **244ms**，其中 181.8ms 在「动画」段（= 这一帧的重组）。
+         * 标上它 = 放弃方向位移、只做短淡化（判据见 [PageLevel.heavyFirstFrame]）。
+         */
+        override val heavyFirstFrame: Boolean get() = true
     }
 
     data class Security(val target: NotifTarget.Security) : MainRoute {

@@ -6,16 +6,13 @@ import androidx.compose.animation.AnimatedContentScope
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
-import androidx.compose.animation.core.FastOutLinearInEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -32,70 +29,130 @@ import androidx.compose.ui.Modifier
  * 仓库页里十几个全屏子页、个人页的设置子页……全都是「状态一变内容直接换掉」，
  * 观感上就是「点一下，画面硬切」。这里把动效收成一处，页面只声明「我在第几层」。
  *
- * ## 两种动效，按语义选（不是按好看选）
+ * ## 两类动效，按语义选（不是按好看选）
  *
  * | 场景 | 动效 | 为什么 |
  * |------|------|--------|
- * | 有层级的推进 / 返回（[PageSwitcher]） | 水平滑动 1/4 屏 + 淡入淡出 | 子页有前后关系：前进从右进、返回向右出，符合 Android「打开 / 关闭」的心智 |
- * | 同级切换（[TabSwitcher]） | 淡入淡出 + 轻微上浮 | 同级之间没有前后关系，横向滑动会暗示错误的层级（「我是不是进了下一页？」） |
+ * | 有层级的推进 / 返回（[PageSwitcher]） | **只让一页动**：新页滑入 1/10 屏 + 淡入（220ms，两端零速 S 曲线，延迟 33ms 起播）；旧页**原地**淡出（100ms，线性） | 子页有前后关系，所以新页要有方向感；但**两个运动体同时动**（旧页反向滑出、曲线还一进一退）会让相对速度一直在变，眼睛读成「画面在晃」—— 现在屏幕上只有一个运动体 |
+ * | 同级切换（[TabSwitcher]）与**首帧重的页**（[PageLevel.heavyFirstFrame]） | **fade-through**：旧页 110ms 淡净 → 新页延迟 110ms、180ms 淡入（两段**不重叠**） | 同级之间没有前后关系，横向滑动会暗示错误的层级；不重叠则是为了**同一时刻只有一页在画**（重叠期正是基线上最贵的那一笔） |
  *
- * ## 参数取舍
+ * ## 曲线（抖动的根源在这里，不在时长）
  *
- * - **位移只用 1/4 屏**：整屏推进要重绘整块内容，长列表和 WebView 正文页会明显掉帧；
- *   1/4 屏已经足够表达方向，代价接近纯淡入；
- * - **进场 300ms / 退场 220ms**：Material 3 的常用区间；退场更快一点，让「返回」更跟手；
- * - **两条曲线不一样，这是「丝滑」的主要来源**：进场用减速曲线（[PageMotion.EnterEasing]，
- *   起步快、收尾缓），退场用加速曲线（[PageMotion.ExitEasing]，越走越快）。
- *   两段都用同一条对称曲线（`tween` 的默认 `FastOutSlowInEasing`）时，动画**起步**那一拍是慢的，
- *   手指已经离开屏幕、画面却「黏」着不动，观感就是不够跟手 —— 而这正是页面切换最常见的抱怨。
- *   这套「进减速 / 出加速」与设计稿里的 `cubic-bezier(0.2, 0.8, 0.2, 1)` 同一个取向
- *   （见 `design/messages-redesign/style.css` 的 `--ease`）；
- * - **退场的「淡出」比「滑动」早收**：滑动走满 [PageMotion.EXIT_MS]，
- *   但透明度在 [PageMotion.EXIT_FADE_MS] 内就到 0。两个页面在这段重叠期如果各是半透明，
- *   中段会叠成一张「两张都看得见、又都看不清」的糊图（长列表页尤其明显）；
- *   让旧页先退干净，重叠期就只剩新页在动，画面始终是清楚的；
+ * **抖动的物理定义是速度突变（急动度）**，所以曲线只看一件事：**两端的速度连不连续**。
+ *
+ * | 曲线 | 起步速度 | 收尾速度 | 观感 |
+ * |------|----------|----------|------|
+ * | `LinearOutSlowInEasing`（`0, 0, 0.2, 1`，原先的进场） | **平均速度的 5 倍**（t=0 弹射） | 0 | 位移一短就像「抽一下」—— 用户说的「过度抖动感」 |
+ * | `FastOutLinearInEasing`（`0.4, 0, 1, 1`，原先的退场） | 0 | **最大**（末帧还在加速） | 收尾砸停；用在透明度上就是「闪一下」 |
+ * | [PageMotion.EnterEasing]（`0.25, 0, 0.15, 1`，现在） | 0 | 0 | 起步不弹射、收尾不砸停，中段比标准 S 曲线更早发力（不黏） |
+ *
+ * 另外两条与曲线配套的：
+ * **① 起播门控 [PageMotion.ENTER_DELAY_MS]** —— 把目标页首帧的重活挪到动画开始之前，
+ * 免得动画「刚动一下 → 定住 → 猛地跳过去」（那也是抖，但不是曲线的锅）；
+ * **② 位移收到 1/10 屏** —— 位移越短，端点速度不连续越显眼（同样的曲线，1/4 屏像滑动、1/10 屏像抽搐）。
+ *
+ * ## 参数取舍（2026-09 按真机基线收敛过两轮）
+ *
+ * 基线见 [`docs/specs/frame-perf-design.md`](../../../../../../docs/specs/frame-perf-design.md)：
+ * 一轮场景里慢帧 27 条、最慢 244ms，其中「动画」段最大 181.8ms、「绘制」段最大 70.4ms ——
+ * 这两笔都是**重叠期两页同时在组合 / 绘制**的代价。
+ *
+ * - **进场 220ms / 退场淡出 100ms**：Material 3 的常用区间；退场更快，让「返回」更跟手；
+ * - **退场只做淡化、不做位移**：见上表 —— 拿掉第二个运动体是这一版最有效的一步；
+ * - **同级用 fade-through 而不是交叉淡化**：中段会有一瞬空白，这是有意的取舍 ——
+ *   「一段明确的呼吸」比「两张半透明整页叠着」既清楚又便宜（同一时刻只有一页在画）。
+ *   它也是 [NavigationShell] 能把导航栏放在切换器外面的前提；
+ * - **重页降级成 fade-through，是「方向感换不卡」的显式取舍**：位移每帧要重新 place，
+ *   重叠期还要多画一页，而重页的首帧本来就重（真机：进仓库详情 244ms 里 181.8ms 在重组）。
+ *   台账判据（别凭感觉加）：**该路由在基线上 ≥3 条慢帧，且主段是「动画」或「绘制」**；
+ *   「等待」型不标 —— 那是主线程被占，换过渡形式没有用（见 frame-perf-design.md §6）；
  * - **不自定义 sizeTransform**：两个页面都是全屏、尺寸不变，动画里没有内容可插值。
+ *
+ * ## 试过又退回去的（别再走一遍）
+ *
+ * **缩放 + 视差**（2026-09 中间那一版）：新页 94%→100%、旧页缩到 96% 且只走 60% 的距离。
+ * 想法是做出「新页盖上来」的纵深，实际观感更晃 —— 全屏内容在位移中缩放会重采样（文字发虚、边缘游移），
+ * 而两页速度不同又让相对运动更不稳定。**结论：整页位移期间不要叠加缩放。**
  */
 object PageMotion {
 
     /** 子页进场时长：方向滑动 + 淡入。 */
-    const val ENTER_MS = 300
-
-    /** 子页退场时长（滑动走满这段）：比进场快，返回时更跟手。 */
-    const val EXIT_MS = 220
+    const val ENTER_MS = 220
 
     /**
-     * 退场**淡出**单独早收（比 [EXIT_MS] 短）。
+     * 退场**淡出**时长。
      *
-     * 滑动与淡出不必同长：让旧页先淡干净、再慢慢滑出去，重叠期就不会出现两张半透明页面叠着的糊图。
+     * 旧页现在是**原地淡出**（零位移，见 [pageTransform]），所以只需要这一段：
+     * 淡干净就结束，不再陪着新页滑 —— 「只让一页动」是拿掉抖动感的关键一条。
      */
-    const val EXIT_FADE_MS = 130
-
-    /** 位移距离 = 容器宽度的 1/4（见类注释里的取舍）。 */
-    const val SLIDE_FRACTION = 0.25f
-
-    /** 同级（Tab）切换时长。 */
-    const val TAB_MS = 220
-
-    /** 同级切换的退场淡出时长（同样比滑动早收，理由见 [EXIT_FADE_MS]）。 */
-    const val TAB_FADE_OUT_MS = 140
-
-    /** 同级切换时新内容的起始上浮距离（容器高度的比例）。 */
-    const val TAB_RISE_FRACTION = 0.02f
+    const val EXIT_FADE_MS = 100
 
     /**
-     * 进场曲线：**减速**（起步快、收尾缓）。
+     * 位移距离 = 容器宽度的 1/10（见类注释里的取舍）。
      *
-     * 页面「进来」是把用户的意图落到实处，起步就要跟上手指；用对称曲线会在起步处黏一拍。
+     * 2026-09 从 1/4 → 1/8 → 1/10 收了两轮：位移每帧都要重新 place 整页，
+     * 而它要表达的只是「新页从右边盖上来」这一个意思 —— 越短越不容易被看成「画面在晃」。
      */
-    val EnterEasing: Easing = LinearOutSlowInEasing
+    const val SLIDE_FRACTION = 0.1f
 
     /**
-     * 退场曲线：**加速**（起步慢、越走越快）。
+     * **起播门控**：进场动画延迟这么久才起（2 帧 @60Hz）。
      *
-     * 页面「离开」是让位，越走越快才像干脆地退开；用减速曲线尾巴会拖。
+     * 为什么需要它 —— 状态一变，`AnimatedContent` 立刻开始播进场，而**目标页的首次组合正好压在同一帧**：
+     * 真机上那一帧能到 100~240ms（见 frame-perf-design.md §5），表现就是「动画刚动一下，画面定住，
+     * 然后猛地跳过去」—— 用户对它的描述是**抖**。
+     *
+     * 加一个两帧的延迟，等于把这段时间挪到动画**开始之前**：目标页先把首帧组合完，
+     * 动画一起步就是连续帧。延迟本身低于可感知阈值（2 帧 ≈ 33ms），代价只有 33ms 的起播等待。
+     *
+     * ⚠️ **进出两段都要加这个延迟**（只门进场的话，头两帧会看到「旧页先暗一下、新页才动」）——
+     * 门控要门的是整段过渡。
+     *
+     * ⚠️ 延迟只能盖住「一两帧」级别的首帧开销；像仓库详情那种 200ms+ 的首帧，得靠页面**首帧瘦身**
+     * （骨架先上、内容延后）或数据预取 —— 门控不是万能药，它是把抖动换成一段静止。
      */
-    val ExitEasing: Easing = FastOutLinearInEasing
+    const val ENTER_DELAY_MS = 33
+
+    /**
+     * 同级（Tab）/ 重页（fade-through）的**前半段**：旧页淡净的时长。
+     *
+     * 这两档刻意**不做交叉淡化**（不让两页各半透明地同时在屏）：同一时刻只有一页在画，
+     * 是「切 Tab / 进重页」最省的过渡形态。代价是中段有一瞬空白 —— 与 Material 3 的
+     * fade through 同款做法：用「一段明确的呼吸」换掉「两张半透明整页叠着的糊图」。
+     */
+    const val FADE_OUT_MS = 110
+
+    /** fade-through 的**后半段**：新页淡入时长，**延迟 [FADE_OUT_MS] 起** —— 与旧页不重叠。 */
+    const val FADE_IN_MS = 180
+
+    /**
+     * 进场曲线：**两端零速的 S 曲线，中段比标准曲线更早到半程**。
+     *
+     * ## 为什么换掉 `LinearOutSlowInEasing`（cubic-bezier `0, 0, 0.2, 1`）
+     *
+     * 那条曲线的**起步速度是平均速度的 5 倍** —— 位移一短（1/10 屏），它看起来不是「滑进来」
+     * 而是「抽一下」。用户的原话是「有种过度抖动感」，而抖动的物理定义就是**速度突变**（急动度）：
+     * 端点速度不连续，眼睛就会读成「顿一下 / 抖一下」，与曲线好不好看无关。
+     *
+     * 这条曲线（cubic-bezier `0.25, 0, 0.15, 1`）的两端速度都是 **0**，中间段比
+     * `FastOutSlowInEasing`（`0.4, 0, 0.2, 1`）更早发力 —— 既没有起步弹射，也不会「黏一拍」。
+     *
+     * 调参只有两个方向：**起手段**（第一个控制点的 x，越小越早发力）与**收尾段**
+     * （第二个控制点的 x，越小越早收住）。改完必须真机看一遍，别只看数字。
+     */
+    val EnterEasing: Easing = CubicBezierEasing(0.25f, 0f, 0.15f, 1f)
+
+    /**
+     * 退场曲线：**线性**。
+     *
+     * 旧页现在只做一件事 —— 原地淡出。而透明度是**没有速度感**的量：
+     * 用加速曲线（原先是 `FastOutLinearInEasing`）只会让最后可见的那一两帧掉得特别快，
+     * 看起来像「闪一下」；线性最稳，也最容易解释「为什么这里不需要缓动」。
+     *
+     * 注意：这条曲线**只用于淡化**。真要让某个元素位移着退场（如未来的特殊页面），
+     * 它需要的是和 [EnterEasing] 同源的两端零速 S 曲线，而不是这一条。
+     */
+    val ExitEasing: Easing = LinearEasing
 }
 
 /**
@@ -107,6 +164,21 @@ object PageMotion {
  */
 interface PageLevel {
     val depth: Int
+
+    /**
+     * 这一页的**首帧重不重**：重页不给方向位移，只做短淡化（见 [transitionKindFor]）。
+     *
+     * 为什么标在路由上、而不是集中一张「重型页清单」：三个路由（`MainRoute` / `RepoRoute` /
+     * `ProfileRoute`）都是各自文件里的 `private sealed interface`，集中清单既拿不到类型、
+     * 又会随重构悄悄失效；标在路由上则**改路由的人一定会看到它**。
+     *
+     * ## 什么时候标（判据，别凭感觉）
+     *
+     * 该路由在真机基线上 **≥3 条慢帧，且主段是「动画」或「绘制」**（见
+     * `docs/specs/frame-perf-design.md` §6）。「等待」型**不标** —— 那是主线程被占，
+     * 换过渡形式一点用都没有。当前台账：仓库详情（244ms，动画主导）、设置页（7 条，绘制主导）。
+     */
+    val heavyFirstFrame: Boolean get() = false
 }
 
 /**
@@ -153,11 +225,12 @@ fun <S : PageLevel> PageSwitcher(
         modifier = modifier,
         transitionSpec = {
             // 方向只由层级差决定；**同级不是「推进」**（例如仓库页里切 Tab），
-            // 同级还做水平滑动会让人误以为进了下一页
-            when (pageDirection(initialState.depth, targetState.depth)) {
-                1 -> pageTransform(1)
-                -1 -> pageTransform(-1)
-                else -> levelTransform()
+            // 同级还做水平滑动会让人误以为进了下一页。
+            // 重页优先降级为淡化（[PageLevel.heavyFirstFrame]）—— 这条判定要先于方向。
+            when (transitionKindFor(targetState.heavyFirstFrame, initialState.depth, targetState.depth)) {
+                TransitionKind.Forward -> pageTransform(1)
+                TransitionKind.Back -> pageTransform(-1)
+                TransitionKind.Light -> lightTransform()
             }
         },
         contentKey = contentKey,
@@ -180,6 +253,30 @@ internal fun pageDirection(initialDepth: Int, targetDepth: Int): Int = when {
     targetDepth < initialDepth -> -1
     else -> 0
 }
+
+/** 这一格该播哪套过渡。 */
+internal enum class TransitionKind { Forward, Back, Light }
+
+/**
+ * 选过渡：**重页优先降级，其次才看方向**（纯函数，便于单测）。
+ *
+ * 顺序不能反。反了的话，重页（[PageLevel.heavyFirstFrame]）在「推进」时照样会拿到位移动画 ——
+ * 而那正是要避免的组合：位移每帧重新 place + 重叠期多画一页，压在最重的那一帧上。
+ *
+ * 抽成纯函数而不是写在 `transitionSpec` 里：`transitionSpec` 是 `@Composable` 作用域内的 lambda，
+ * 没法直接单测；而「重页必须降级」这条一旦失守，观感上只会表现为「那几个页面还是卡」，
+ * 很难反查到是这里。
+ */
+internal fun transitionKindFor(heavy: Boolean, initialDepth: Int, targetDepth: Int): TransitionKind =
+    if (heavy) {
+        TransitionKind.Light
+    } else {
+        when (pageDirection(initialDepth, targetDepth)) {
+            1 -> TransitionKind.Forward
+            -1 -> TransitionKind.Back
+            else -> TransitionKind.Light
+        }
+    }
 
 /**
  * 这一格内容**是不是当前页**（由 [PageSwitcher] / [TabSwitcher] 自动下发）。
@@ -236,7 +333,7 @@ enum class BackDisposition { ClosePage, ExitApp }
 fun backDisposition(depth: Int): BackDisposition =
     if (depth <= 0) BackDisposition.ExitApp else BackDisposition.ClosePage
 
-/** 同级切换（底部 Tab / 同层页）：没有方向，只做淡入淡出 + 轻微上浮。 */
+/** 同级切换（底部 Tab / 同层页）：没有方向，只做**纯交叉淡化**（2026-09 去掉了 2% 上浮）。 */
 @Composable
 fun <S> TabSwitcher(
     state: S,
@@ -257,7 +354,7 @@ fun <S> TabSwitcher(
     AnimatedContent(
         targetState = state,
         modifier = modifier,
-        transitionSpec = { levelTransform() },
+        transitionSpec = { lightTransform() },
         contentKey = contentKey,
         label = label,
     ) { target ->
@@ -270,50 +367,82 @@ fun <S> TabSwitcher(
 }
 
 /**
- * 同级切换的进出组合（Tab 与 [PageSwitcher] 的同层分支共用）。
+ * 轻过渡：**fade-through**（旧页淡净 → 新页再进，两段不重叠）。
  *
- * 进出两段共用 [PageMotion.EnterEasing]：同级切换没有「方向」，只有一个「内容被换掉了」的
- * 提示，这里要的是**稳定的一次呼吸**，不该出现「新内容比旧内容先到位」的时序差。
- * 退场淡出同样早收（[PageMotion.TAB_FADE_OUT_MS]），避免两张半透明的整页叠在中段。
+ * 同级切换与重页降级共用这一套。它比交叉淡化多花一点时间（[PageMotion.FADE_OUT_MS] +
+ * [PageMotion.FADE_IN_MS]），换来的是**同一时刻只有一页在画** —— 这正是基线上最贵的那笔开销
+ * （重叠期两页同时在组合 / 绘制，见 `docs/specs/frame-perf-design.md` §5）。
+ * 中段那一瞬空白是有意的：它比「两张都看得见、又都看不清」的糊图清楚得多。
+ *
+ * 2026-09 的形态变更：从「交叉淡化 + 2% 上浮」改成 fade-through ——
+ * 上浮那 2% 每帧要重新 place 整页，而它想表达的语义（「内容被换掉了」）现在由时序表达。
  */
-private fun levelTransform(): ContentTransform {
-    val rise = { h: Int -> (h * PageMotion.TAB_RISE_FRACTION).toInt() }
-    val enter = fadeIn(tween(PageMotion.TAB_MS, easing = PageMotion.EnterEasing)) +
-        slideInVertically(tween(PageMotion.TAB_MS, easing = PageMotion.EnterEasing)) { rise(it) }
-    val exit = fadeOut(tween(PageMotion.TAB_FADE_OUT_MS, easing = PageMotion.ExitEasing)) +
-        slideOutVertically(tween(PageMotion.TAB_MS, easing = PageMotion.ExitEasing)) { -rise(it) }
+private fun lightTransform(): ContentTransform {
+    val enter = fadeIn(
+        tween(
+            PageMotion.FADE_IN_MS,
+            delayMillis = PageMotion.FADE_OUT_MS,
+            easing = PageMotion.EnterEasing,
+        ),
+    )
+    val exit = fadeOut(tween(PageMotion.FADE_OUT_MS, easing = PageMotion.ExitEasing))
     return enter togetherWith exit
 }
 
 /**
- * 子页切换的进出组合。
+ * 子页切换的进出组合：**只让一页动** —— 新页滑入 + 淡入，旧页**原地**淡出。
  *
- * @param dir `+1` = 前进（新内容从右进、旧内容向左退）；`-1` = 返回（反过来）
+ * ## 为什么旧页不再位移（2026-09 改）
+ *
+ * 原先是两页一起动（旧页反向滑出）。两页同时动、曲线还一进一退时，**相对速度一直在变**，
+ * 眼睛读到的不是「一页推进」而是「画面在晃」—— 用户的原话是「有种过度抖动感」。
+ * 现在旧页零位移：屏幕上只有一个运动体，抖动感失去了来源。
+ * 代价是它不再有「两层错开」的纵深（那一版试过视差 + 缩放，反而更晃，见 frame-perf-design.md §6.1）。
+ *
+ * ## 曲线是这一版的主角（见 [PageMotion.EnterEasing]）
+ *
+ * 进场曲线两端速度都是 0：起步不弹射、收尾不砸停。抖动的物理定义就是速度突变，
+ * 而旧曲线的起步速度是平均速度的 5 倍 —— 位移收到 1/10 屏之后，那一下看起来就是「抽」。
+ *
+ * [PageMotion.ENTER_DELAY_MS] 是配套的**起播门控**：把目标页首帧的重活挪到动画开始之前。
+ *
+ * @param dir `+1` = 前进（新内容从右进）；`-1` = 返回（从左侧回来）
  */
 private fun pageTransform(dir: Int): ContentTransform {
-    val enter = slideInHorizontally(tween(PageMotion.ENTER_MS, easing = PageMotion.EnterEasing)) { w ->
+    // ⚠️ 三处 `tween(...)` 都**就地内联**、不提取成 val：位移要 `FiniteAnimationSpec<IntOffset>`，
+    // 透明度要 `FiniteAnimationSpec<Float>` —— 提取成一个 val 就只能二选一，另一处报类型不匹配；
+    // 就地写则各自按形参类型推断，不需要显式泛型。
+    val enter = slideInHorizontally(
+        tween(PageMotion.ENTER_MS, delayMillis = PageMotion.ENTER_DELAY_MS, easing = PageMotion.EnterEasing),
+    ) { w ->
         dir * (w * PageMotion.SLIDE_FRACTION).toInt()
-    } + fadeIn(tween(PageMotion.ENTER_MS, easing = PageMotion.EnterEasing))
+    } + fadeIn(
+        tween(PageMotion.ENTER_MS, delayMillis = PageMotion.ENTER_DELAY_MS, easing = PageMotion.EnterEasing),
+    )
 
-    // 滑动走满 EXIT_MS，淡出只走 EXIT_FADE_MS：旧页先退干净，重叠期画面才不糊。
-    val exit = slideOutHorizontally(tween(PageMotion.EXIT_MS, easing = PageMotion.ExitEasing)) { w ->
-        -dir * (w * PageMotion.SLIDE_FRACTION).toInt()
-    } + fadeOut(tween(PageMotion.EXIT_FADE_MS, easing = PageMotion.ExitEasing))
+    // 旧页只淡出：零位移、线性、100ms 内干净。
+    // **同样延迟** [PageMotion.ENTER_DELAY_MS]：否则头两帧会看到「旧页先暗一下、新页才动」——
+    // 门控要门的是整段过渡，只门一半等于把重活留在了另一半上。
+    val exit = fadeOut(
+        tween(PageMotion.EXIT_FADE_MS, delayMillis = PageMotion.ENTER_DELAY_MS, easing = PageMotion.ExitEasing),
+    )
 
     // 不自定义 sizeTransform：两个页面都是全屏，尺寸不会变（这版 Compose 里它也是 internal）
     return enter togetherWith exit
 }
 
-/** 供页面自行组合时复用（例如想给某个特殊页面单独定制动效）。 */
-fun pageEnterTransition(dir: Int): EnterTransition = slideInHorizontally(
-    tween(PageMotion.ENTER_MS, easing = PageMotion.EnterEasing),
-) { w ->
-    dir * (w * PageMotion.SLIDE_FRACTION).toInt()
-} + fadeIn(tween(PageMotion.ENTER_MS, easing = PageMotion.EnterEasing))
+/** 供页面自行组合时复用（例如想给某个特殊页面单独定制动效）；形态与 [pageTransform] 一致。 */
+fun pageEnterTransition(dir: Int): EnterTransition =
+    slideInHorizontally(
+        tween(PageMotion.ENTER_MS, delayMillis = PageMotion.ENTER_DELAY_MS, easing = PageMotion.EnterEasing),
+    ) { w ->
+        dir * (w * PageMotion.SLIDE_FRACTION).toInt()
+    } + fadeIn(
+        tween(PageMotion.ENTER_MS, delayMillis = PageMotion.ENTER_DELAY_MS, easing = PageMotion.EnterEasing),
+    )
 
-/** 与 [pageEnterTransition] 配对的退场。 */
-fun pageExitTransition(dir: Int): ExitTransition = slideOutHorizontally(
-    tween(PageMotion.EXIT_MS, easing = PageMotion.ExitEasing),
-) { w ->
-    -dir * (w * PageMotion.SLIDE_FRACTION).toInt()
-} + fadeOut(tween(PageMotion.EXIT_FADE_MS, easing = PageMotion.ExitEasing))
+/** 与 [pageEnterTransition] 配对的退场：原地淡出（与 [pageTransform] 的旧页行为一致，同样受门控延迟）。 */
+fun pageExitTransition(dir: Int): ExitTransition =
+    fadeOut(
+        tween(PageMotion.EXIT_FADE_MS, delayMillis = PageMotion.ENTER_DELAY_MS, easing = PageMotion.ExitEasing),
+    )
