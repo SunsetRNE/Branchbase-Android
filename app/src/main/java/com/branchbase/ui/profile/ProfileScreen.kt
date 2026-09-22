@@ -84,7 +84,6 @@ import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.AvatarCache
 import com.branchbase.ui.navigation.NavigationShell
-import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.navigation.PageLevel
 import com.branchbase.ui.navigation.PageSwitcher
 import com.branchbase.ui.navigation.TabSwitcher
@@ -237,7 +236,8 @@ fun ProfileScreen(
     // 先回设置页，一级子页（星标 / 项目 / 任务 / 编辑资料 / 设置，depth=1）才回个人主页。
     // 曾经这里写死 `subPage = null` —— 页面左上角返回是回设置、系统返回键却直接跳回个人页，
     // 同一个返回意图给出两个结果（返回键跳层）。
-    PageBackHandler(subPage != null) { subPage = profileBackTarget(subPage) }
+    // 子页返回交给下面 PageSwitcher 的 `onBack` 兜底（同一条规则：[profileBackTarget] 是
+    // 穷尽 `when`）。这里不再单独挂 handler —— 两处各写一遍迟早会分家。
 
     // 底部气泡导航栏由 [NavigationShell] 持有（**不在**下面的 PageSwitcher 里）：
     // 放进切换器里的话，切 Tab 会被同级动效连着整条栏一起播（2026-09 之前那 2% 垂直位移就是这样
@@ -261,7 +261,12 @@ fun ProfileScreen(
                 .fillMaxSize()
                 .padding(contentPadding),
         ) {
-            PageSwitcher(state = route, modifier = Modifier.fillMaxSize(), label = "profile-page") { r ->
+            PageSwitcher(
+                state = route,
+                onBack = { subPage = profileBackTarget(subPage) },
+                modifier = Modifier.fillMaxSize(),
+                label = "profile-page",
+            ) { r ->
                 when (r) {
                     is ProfileRoute.Sub -> when (r.page) {
                         SubPage.Stars -> StarsScreen(sessionJson, onBack = { subPage = null }, onOpenRepo = onOpenRepo)

@@ -2,7 +2,6 @@ package com.branchbase.ui.auth
 
 import android.content.Intent
 import android.net.Uri
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -63,15 +62,8 @@ fun LoginFlow(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // 返回键分两段，按「谁最清楚」划分职责：
-    // - 登录流程的中间态（模式介绍页 / 密钥填写 / 授权中 / 换 token / 2FA / 出错）→ 这里回欢迎页；
-    // - **已登录的主界面 / 引导页 → 由它们自己处理顶层返回**（“再按一次退出应用”，
-    //   见 ui/navigation/TopLevelBack.kt —— 不再回登录页：会话还在，回登录页是与真实
-    //   登录状态不符的死状态），所以这里显式排除 LoggedIn，避免两个 BackHandler 抢同一个事件；
-    // - 欢迎页（Idle）→ 这里不拦截，交给系统默认行为：**彻底退出 App**（未登录时无需二次确认）。
-    BackHandler(enabled = state !is LoginState.Idle && state !is LoginState.LoggedIn) {
-        viewModel.back()
-    }
+    /** 登录流程的中间态（模式介绍 / 密钥填写 / 授权中 / 换 token / 2FA / 出错）算「子页」。 */
+    fun isLoginStep(s: LoginState): Boolean = s !is LoginState.Idle && s !is LoginState.LoggedIn
 
     // 登录流程内部也按层级切换（欢迎 0 → 介绍页 1 → 授权中/密钥填写 2 → 主界面 3）：
     // 前进从右滑入、返回向右滑出，与 App 其它页面同一套动效规则。
@@ -81,8 +73,21 @@ fun LoginFlow(
     // 换一个授权地址），按「状态本身」算就会被当成换了一页、白播一次切换动画。
     // 页面身份只有「哪一步」这一层（见 LoginState 的注释：页面态与请求态分开），
     // 所以身份用 `::class` 恰好。
+    // 返回键分两段，按「谁最清楚」划分职责：
+    // - 登录流程的中间态（模式介绍页 / 密钥填写 / 授权中 / 换 token / 2FA / 出错）→ 回欢迎页；
+    // - **已登录的主界面 / 引导页 → 由它们自己处理顶层返回**（“再按一次退出应用”，
+    //   见 ui/navigation/TopLevelBack.kt —— 不再回登录页：会话还在，回登录页是与真实
+    //   登录状态不符的死状态）；
+    // - 欢迎页（Idle）→ 不拦截，交给系统默认行为：**彻底退出 App**（未登录时无需二次确认）。
+    //
+    // 2026-09 起这一段不再自己挂 BackHandler：兜底收到 [PageSwitcher] 的 `onBack` 里
+    // （`isSubPage` 精确描述「哪些格子才该被兜底」）。注意**不能**用默认的 `depth > 0`：
+    // `LoggedIn` 的 depth 是 3（位移动画靠它），但它不是子页 —— 拿默认判据会让登录流程
+    // 吃掉主界面的返回键，「再按一次退出」直接失灵。
     PageSwitcher(
         state = state,
+        onBack = { viewModel.back() },
+        isSubPage = ::isLoginStep,
         modifier = Modifier.fillMaxSize(),
         label = "login-step",
         contentKey = { it::class },

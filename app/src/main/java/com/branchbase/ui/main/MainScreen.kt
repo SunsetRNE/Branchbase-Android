@@ -18,12 +18,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.branchbase.ui.home.HomeScreen
-import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.navigation.BranchbaseNavigationBar
 import com.branchbase.ui.navigation.BackDisposition
 import com.branchbase.ui.navigation.backDisposition
 import com.branchbase.ui.navigation.NavDestination
 import com.branchbase.ui.navigation.NavigationShell
+import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.navigation.PageLevel
 import com.branchbase.ui.navigation.PageSwitcher
 import com.branchbase.ui.navigation.TabSwitcher
@@ -101,13 +101,23 @@ fun MainScreen(
     //    handler 仍然启用，会把用户紧接着的第二次返回键吃掉 —— 「再按一次退出」失灵。
     //    现在由 PageBackHandler 叠加 LocalPageActive：**只有当前页能抢返回键**。
     val confirmExit = rememberTopLevelBackAction()
-    PageBackHandler {
-        when {
-            backDisposition(route.depth) == BackDisposition.ExitApp -> confirmExit()
-            route is MainRoute.Repo -> showRepo = null
-            route is MainRoute.Security -> showSecurity = null
-            route is MainRoute.Profile -> showProfile = false
-            route is MainRoute.Search -> showSearch = false
+    // 这一层只管**顶层**（Tab 骨架）：退回上一层由下面 PageSwitcher 的 `onBack` 兜底
+    // （那条规则是穷尽 `when`，新增路由漏不掉）。两层各管一段，不再互相抄一份路由判断。
+    PageBackHandler { confirmExit() }
+
+    /**
+     * 子页的**默认返回**：一条规则（穷尽 `when` ⇒ 新增路由必须在这里表态）。
+     *
+     * 老写法是「每个页面自己在 `onBack` 回调里清自己的状态」，主界面这四条路由还算好找，
+     * 仓库页那边十几个子页就漏了一个（见 [RepositoryScreen]）。
+     */
+    fun leavePage() {
+        when (route) {
+            MainRoute.Tabs -> Unit
+            MainRoute.Profile -> showProfile = false
+            MainRoute.Search -> showSearch = false
+            is MainRoute.Repo -> showRepo = null
+            is MainRoute.Security -> showSecurity = null
         }
     }
 
@@ -133,7 +143,12 @@ fun MainScreen(
                 .fillMaxSize()
                 .padding(contentPadding),
         ) {
-            PageSwitcher(state = route, modifier = Modifier.fillMaxSize(), label = "main-page") { r ->
+            PageSwitcher(
+                state = route,
+                onBack = ::leavePage,
+                modifier = Modifier.fillMaxSize(),
+                label = "main-page",
+            ) { r ->
                 when (r) {
                     // 仓库详情页（点击仓库进入；通知深链接可直达详情子页）
                     is MainRoute.Repo -> RepositoryScreen(

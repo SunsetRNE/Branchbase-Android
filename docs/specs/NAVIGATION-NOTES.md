@@ -86,6 +86,9 @@ Compose 的返回键是「**最后注册且启用者胜**」。而 `AnimatedCont
 ## 五、改动清单（自检）
 
 - [ ] 新页面用了 `PageBackHandler` 而不是裸 `BackHandler`？
+- [ ] **子页的返回交给 `PageSwitcher(onBack = …)` 兜底了吗？**（这个参数是**必填**的，编译器会拦；
+      宿主的 `leavePage()` 是穷尽 `when`，新增路由同样会被编译器拦。页面自己那一层
+      —— 编辑态 / 多选态 / 决策页 —— 才需要额外挂 `PageBackHandler`，它后注册、优先级更高）
 - [ ] 新页面在 `PageSwitcher` / `TabSwitcher` 里（能拿到 `LocalPageActive`）？
 - [ ] 改了切换器？确认 `PageSwitcher` **和** `TabSwitcher` 都下发了 `LocalPageActive`？
 - [ ] 新页面自己有下一层（决策页 / 详情 / 编辑态）时，挂 `PageBackHandler` 了吗？目标与页面内返回箭头一致吗？
