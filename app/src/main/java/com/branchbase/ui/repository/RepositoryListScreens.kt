@@ -51,6 +51,7 @@ import com.branchbase.cache.ListCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
+import com.branchbase.ui.navigation.rememberPageResumeTick
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.LanguageColors
 import com.branchbase.ui.theme.Primer
@@ -165,8 +166,12 @@ fun RepositoryCodeContent(sessionJson: String, owner: String, repo: String, bran
     var error by remember { mutableStateOf<String?>(null) }
     var retryTick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(owner, repo, path, branch, refreshTick, retryTick) {
-        loading = true
+    // Tab 保活 ⇒ 切走再切回不会重跑这个 effect。把「重新可见」的 tick 加进键：
+    // 回来时重新校验一次（cachedFirst 命中 L1 就是同帧、TTL 内不联网）。
+    // ⚠️ 已有数据时**不置加载态** —— 否则这次重新校验会把列表换成 loading 闪一下。
+    val resumeTick = rememberPageResumeTick()
+    LaunchedEffect(owner, repo, path, branch, refreshTick, retryTick, resumeTick) {
+        if (items.isEmpty()) loading = true
         error = null
         // 只有「本次确实直出了缓存」才在回源失败时静默保留旧内容；否则照常报错
         var shownStale = false
@@ -287,8 +292,12 @@ fun IssueListContent(sessionJson: String, owner: String, repo: String, refreshTi
     var error by remember { mutableStateOf<String?>(null) }
     var retryTick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(owner, repo, refreshTick, retryTick) {
-        loading = true
+    // Tab 保活 ⇒ 切走再切回不会重跑这个 effect。把「重新可见」的 tick 加进键：
+    // 回来时重新校验一次（cachedFirst 命中 L1 就是同帧、TTL 内不联网）。
+    // ⚠️ 已有数据时**不置加载态** —— 否则这次重新校验会把列表换成 loading 闪一下。
+    val resumeTick = rememberPageResumeTick()
+    LaunchedEffect(owner, repo, refreshTick, retryTick, resumeTick) {
+        if (items.isEmpty()) loading = true
         error = null
         // 只有「本次确实直出了缓存」才在回源失败时静默保留旧内容；否则照常报错
         var shownStale = false
@@ -358,8 +367,12 @@ fun PullListContent(sessionJson: String, owner: String, repo: String, branch: St
     var error by remember { mutableStateOf<String?>(null) }
     var retryTick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(owner, repo, branch, refreshTick, retryTick) {
-        loading = true
+    // Tab 保活 ⇒ 切走再切回不会重跑这个 effect。把「重新可见」的 tick 加进键：
+    // 回来时重新校验一次（cachedFirst 命中 L1 就是同帧、TTL 内不联网）。
+    // ⚠️ 已有数据时**不置加载态** —— 否则这次重新校验会把列表换成 loading 闪一下。
+    val resumeTick = rememberPageResumeTick()
+    LaunchedEffect(owner, repo, branch, refreshTick, retryTick, resumeTick) {
+        if (items.isEmpty()) loading = true
         error = null
         // 只有「本次确实直出了缓存」才在回源失败时静默保留旧内容；否则照常报错
         var shownStale = false
@@ -431,8 +444,12 @@ fun CommitListContent(sessionJson: String, owner: String, repo: String, branch: 
     var error by remember { mutableStateOf<String?>(null) }
     var retryTick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(owner, repo, branch, refreshTick, retryTick) {
-        loading = true
+    // Tab 保活 ⇒ 切走再切回不会重跑这个 effect。把「重新可见」的 tick 加进键：
+    // 回来时重新校验一次（cachedFirst 命中 L1 就是同帧、TTL 内不联网）。
+    // ⚠️ 已有数据时**不置加载态** —— 否则这次重新校验会把列表换成 loading 闪一下。
+    val resumeTick = rememberPageResumeTick()
+    LaunchedEffect(owner, repo, branch, refreshTick, retryTick, resumeTick) {
+        if (items.isEmpty()) loading = true
         error = null
         // 只有「本次确实直出了缓存」才在回源失败时静默保留旧内容；否则照常报错
         var shownStale = false
@@ -503,8 +520,12 @@ fun WorkflowListContent(sessionJson: String, owner: String, repo: String, branch
     var error by remember { mutableStateOf<String?>(null) }
     var retryTick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(owner, repo, branch, refreshTick, retryTick) {
-        loading = true
+    // Tab 保活 ⇒ 切走再切回不会重跑这个 effect。把「重新可见」的 tick 加进键：
+    // 回来时重新校验一次（cachedFirst 命中 L1 就是同帧、TTL 内不联网）。
+    // ⚠️ 已有数据时**不置加载态** —— 否则这次重新校验会把列表换成 loading 闪一下。
+    val resumeTick = rememberPageResumeTick()
+    LaunchedEffect(owner, repo, branch, refreshTick, retryTick, resumeTick) {
+        if (items.isEmpty()) loading = true
         error = null
         // 只有「本次确实直出了缓存」才在回源失败时静默保留旧内容；否则照常报错
         var shownStale = false
@@ -586,8 +607,12 @@ fun ReleaseListContent(
     // 哪个是「最新发布」（正式发布里被 GitHub 标为 Latest 的那条）
     var latestId by remember(cacheKey) { mutableStateOf<Long?>(null) }
 
-    LaunchedEffect(owner, repo, refreshTick, retryTick) {
-        loading = true
+    // Tab 保活 ⇒ 切走再切回不会重跑这个 effect。把「重新可见」的 tick 加进键：
+    // 回来时重新校验一次（cachedFirst 命中 L1 就是同帧、TTL 内不联网）。
+    // ⚠️ 已有数据时**不置加载态** —— 否则这次重新校验会把列表换成 loading 闪一下。
+    val resumeTick = rememberPageResumeTick()
+    LaunchedEffect(owner, repo, refreshTick, retryTick, resumeTick) {
+        if (items.isEmpty()) loading = true
         error = null
         // 只有「本次确实直出了缓存」才在回源失败时静默保留旧内容；否则照常报错
         var shownStale = false

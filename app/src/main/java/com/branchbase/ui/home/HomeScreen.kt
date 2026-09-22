@@ -64,6 +64,7 @@ import kotlinx.coroutines.withContext
 import com.branchbase.ui.theme.Primer
 import com.branchbase.cache.RepoPrefetcher
 import com.branchbase.ui.notification.NotificationPrefetcher
+import com.branchbase.ui.navigation.rememberPageResumeTick
 import org.json.JSONObject
 
 /**
@@ -159,7 +160,11 @@ fun HomeScreen(
         }.getOrDefault(0)
     }
 
-    LaunchedEffect(Unit) {
+    // Tab 保活（`TabSwitcher` 不再销毁切走的页）⇒ `LaunchedEffect(Unit)` 一辈子只跑一次，
+    // 计数会静默变旧。挂上「重新可见」的 tick：切回首页时重新校验一遍
+    // （每个计数各自走 PageCache：TTL 内直接命中，不联网）。
+    val resumeTick = rememberPageResumeTick()
+    LaunchedEffect(resumeTick) {
         // 5 个互不依赖的请求并行（原来是串行：星标 → 活动 → 通知 → 评审 → 指派）
         coroutineScope {
             launch { loadStarred(false) }

@@ -20,6 +20,13 @@
 Compose 的返回键是「**最后注册且启用者胜**」。而 `AnimatedContent`（`PageSwitcher` / `TabSwitcher`）
 会把**旧页继续留在组合树里**播完退场动画（220ms），旧页的 `BackHandler` 在此期间仍然注册且启用。
 
+> **1.0.57 起 `TabSwitcher` 改成保活**：隐藏的 Tab **不再销毁**，会一直留在组合树里
+> （只是透明度为 0、且不再绘制）。这让这条规则从「动画期间的 220ms」变成**长期成立** ——
+> 切走的 Tab 只要没拿到 `LocalPageActive=false`，它的 `BackHandler` 就会长期抢着返回键，
+> 而且用户完全看不出为什么。两个切换器仍然都下发（判定是同一个纯函数
+> `pageIsCurrent(target, state)`），这条钉子在 `PageTransitionsTest` 里（断言全文件**两处**
+> `LocalPageActive provides`，且都由 `pageIsCurrent` 判定）。
+
 于是出现最典型的现场：
 
 ```
@@ -28,11 +35,13 @@ Compose 的返回键是「**最后注册且启用者胜**」。而 `AnimatedCont
 用户感受：说好的「再按一次退出」，按了两次都没退出
 ```
 
-`PageSwitcher` / `TabSwitcher` 会给内容下发 `LocalPageActive`（目标页 = true，退场中的旧页 = false），
+`PageSwitcher` / `TabSwitcher` 会给内容下发 `LocalPageActive`（目标页 = true，退场 / 隐藏中的旧页 = false），
 `PageBackHandler` 把它与页面自身条件取与。**两个切换器都必须下发**（判定是同一个纯函数
 `pageIsCurrent(target, state)`）—— 曾经只有 `TabSwitcher` 下发、`PageSwitcher` 漏了，
 于是这条机制在主界面 / 仓库页 / 个人页 / 登录流程这些最常用的路径上其实没生效。
 判定提成纯函数 `shouldHandleBack(enabled, pageActive)` 并有单测。
+`LocalPageActive` 同时也是页面「**我当前可见**」的信号：保活之后页面靠它做「重新可见即重新校验」
+（见 `rememberPageResumeTick()`）。
 
 ### 规则 2：页面状态要收敛成一条路由，且返回键按路由分派
 

@@ -88,6 +88,7 @@ import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.navigation.PageLevel
 import com.branchbase.ui.navigation.PageSwitcher
 import com.branchbase.ui.navigation.TabSwitcher
+import com.branchbase.ui.navigation.rememberPageResumeTick
 import kotlinx.coroutines.launch
 import com.branchbase.core.AccountStore
 import com.branchbase.core.RustBridge
@@ -204,7 +205,10 @@ fun ProfileScreen(
         Logger.net("GET /user/repos → ${if (json == null) "失败/空" else "200（${repos.size} 个仓库）"}", "GitHubAPI")
     }
 
-    LaunchedEffect(Unit) {
+    // Tab 保活 ⇒ `LaunchedEffect(Unit)` 只跑一次；挂上「重新可见」的 tick，
+    // 切回个人页时重新校验仓库列表（`loadRepos` 内部 cachedFirst → refresh，TTL 10 分钟内不联网）。
+    val resumeTick = rememberPageResumeTick()
+    LaunchedEffect(resumeTick) {
         loadRepos()
         reposLoading = false
     }
@@ -834,8 +838,13 @@ private fun ProfileActivity(
         return all.sortedByDescending { it.createdAt }
     }
 
-    LaunchedEffect(login) {
-        loading = true
+    // Tab 保活 ⇒ 这两个 effect 不会因为「切回动态页」重跑；挂上「重新可见」的 tick 做重新校验。
+    // 注意两个 loading 标志都加了「已有数据就别再置加载态」的条件：重新校验时数据就在手上
+    // （L1 同帧命中），再示意一次加载会让分区骨架闪一下。
+    val resumeTick = rememberPageResumeTick()
+
+    LaunchedEffect(login, resumeTick) {
+        if (events.isEmpty()) loading = true
         error = null
         if (login.isBlank()) {
             error = "未获取到登录名，请重新登录"
@@ -867,8 +876,8 @@ private fun ProfileActivity(
     }
 
     // 贡献日历：GraphQL contributionsCollection（REST 拿不到 52 周）
-    LaunchedEffect(login) {
-        calLoading = true
+    LaunchedEffect(login, resumeTick) {
+        if (calendar == null) calLoading = true
         val range = contributionRange()
         // key 按查询区间分段（profileKey(login, "calendar:$from:$to")），类型 TYPE_PROFILE
         val key = PageCache.profileKey(login, "calendar:${range.first}:${range.second}")

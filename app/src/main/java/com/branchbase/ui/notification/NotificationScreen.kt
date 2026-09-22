@@ -98,6 +98,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.branchbase.ui.navigation.PageBackHandler
+import com.branchbase.ui.navigation.rememberPageResumeTick
 import com.branchbase.ui.theme.color
 import com.branchbase.ui.theme.ProvideShimmer
 import com.branchbase.ui.theme.skeletonBlock
@@ -346,7 +347,10 @@ fun NotificationScreen(
         }
     }
 
-    LaunchedEffect(Unit) { load() }
+    // Tab 保活 ⇒ `LaunchedEffect(Unit)` 只跑一次；挂上「重新可见」的 tick，
+    // 切回消息页时重新校验（`load()` 内部是 cachedFirst → refresh：TTL 2 分钟内不联网）。
+    val resumeTick = rememberPageResumeTick()
+    LaunchedEffect(resumeTick) { load() }
 
     // 首次切到「参与」时补一次服务端口径的查询（切回来不重复请求）
     LaunchedEffect(category) {

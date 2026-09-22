@@ -202,10 +202,17 @@ Canvas 绘制 lambda），它们改用 `TintRole` 角色表 / 在 composable 里
    `LinearOutSlowInEasing` —— 起步速度是平均速度的 5 倍，短位移下就是「抽一下」；
 2. **只让一页动**：旧页不再反向滑出，只原地淡出（100ms）。屏幕上只有一个运动体，
    抖动感失去了来源；代价是少一点「两层错开」的纵深（那一版试过，见上面的警告）；
-3. **切 Tab 会存住原来的位置**：`TabSwitcher` 用 `rememberSaveableStateHolder()` 按目的地
-   保存 `rememberSaveable` 状态（列表滚动位置、筛选、展开态）。不加的话，
-   退场动画一结束旧内容就移出组合树，切走再切回来列表回到顶部 —— 动画本身没问题，
-   但整体仍然「不丝滑」。`PageSwitcher` **没有**加：它的路由 key 是带 payload 的 data class
+3. **切 Tab 是「保活」，不是「销毁重建」**（1.0.57）：`TabSwitcher` 给访问过的每个目的地各留一层，
+   切换只改透明度（fade-through 的时长不变），组合 / `remember` / 滚动位置 / 已解析的数据原地保留；
+   完全隐藏后**连绘制一起跳过**（`drawWithContent` 里判 alpha）。
+   在此之前用 `AnimatedContent`：退场一结束旧内容就移出组合树，「切走再切回」= 全新一次组合
+   （页面 effect 重跑、缓存重读、列表重建）—— 数据层再怎么优化也省不掉这一块。
+   **代价有两条，必须配套**：① 页面的 `LaunchedEffect(Unit)` 只会跑一次，数据会静默变旧 ——
+   页面要把 `rememberPageResumeTick()`（首次算 1，之后每次重新可见 +1）加进 effect 的键，
+   回来时重新校验一次（先直出缓存 → 按 TTL 决定是否回源）；重新校验时**已有数据就别再置加载态**，
+   否则会把列表整个换成 loading 闪一下；② 后台页仍然活着，重活（订阅、定时器）要挂在「可见」条件上。
+   仍然套 `rememberSaveableStateHolder()`：保活管**进程内**不重建，holder 管**进程被杀**后从 Bundle 恢复。
+   `PageSwitcher` 两条都没加：它的路由 key 是带 payload 的 data class
    （如 `MainRoute.Repo(RepoDeepLink)`），不是所有都能进 Bundle，强行加会在存盘时崩；
 4. **参数与形态按真机基线收敛过两轮（2026-09）**：位移 1/4 → 1/8 → **1/10 屏**、
    进场 300 → 240 → **220ms**、同级从交叉淡化换成 **fade-through**、旧页从「反向滑出」改成「原地淡出」。

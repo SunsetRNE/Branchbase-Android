@@ -9,16 +9,29 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
 
 /**
  * 页面切换动效的统一规格（全项目唯一真源）。
@@ -297,6 +310,37 @@ internal fun transitionKindFor(heavy: Boolean, initialDepth: Int, targetDepth: I
 val LocalPageActive = staticCompositionLocalOf { true }
 
 /**
+ * 「这一页重新可见」的计数：首次组合算 1，之后**每次从隐藏变为可见 +1**。
+ *
+ * ## 页面为什么要用它
+ *
+ * `TabSwitcher` 现在是**保活**的（访问过的 Tab 不销毁），所以页面的
+ * `LaunchedEffect(Unit)` 一辈子只跑一次 —— 数据会静默变旧。把本函数的返回值加进
+ * `LaunchedEffect` 的键，就能在「切走再切回」时重新校验一次：
+ * 先直出缓存（L1 命中就是同帧）→ 按 TTL 决定是否回源。通常**零网络**。
+ *
+ * ## 为什么不直接拿 [LocalPageActive] 当键
+ *
+ * 那样**切走时**也会重启 effect，把正在飞的回源请求取消掉 —— 保活的页面应当允许自己
+ * 在后台把这次加载跑完（用户很快切回来时，数据已经就位）。
+ */
+@Composable
+fun rememberPageResumeTick(): Int {
+    val visible = LocalPageActive.current
+    var tick by remember { mutableIntStateOf(1) }
+    // 首次组合（effect 的第一次运行）不算「重新可见」，否则会和初始值叠加成两次加载
+    var firstRun by remember { mutableStateOf(true) }
+    LaunchedEffect(visible) {
+        if (firstRun) {
+            firstRun = false
+            return@LaunchedEffect
+        }
+        if (visible) tick++
+    }
+    return tick
+}
+
+/**
  * 页面级返回键（**所有页面都该用它，而不是裸 `BackHandler`**）。
  *
  * `enabled` 只描述「这一页内部有没有要关的东西」（如子页是否打开、是否多选态），
@@ -333,38 +377,113 @@ enum class BackDisposition { ClosePage, ExitApp }
 fun backDisposition(depth: Int): BackDisposition =
     if (depth <= 0) BackDisposition.ExitApp else BackDisposition.ClosePage
 
-/** 同级切换（底部 Tab / 同层页）：没有方向，只做**纯交叉淡化**（2026-09 去掉了 2% 上浮）。 */
+/**
+ * 保活列表：把新目的地追加到末尾；已在列表里就**原样返回同一个实例**。
+ *
+ * 抽成纯函数有两个原因：能单测（顺序稳定 = 叠放次序不随访问次序乱跳）；
+ * 以及「原地返回」让调用方在组合期赋值时不触发多余重组（相等值不会 invalidate）。
+ */
+internal fun <S> keepAliveVisited(visited: List<S>, target: S): List<S> =
+    if (visited.contains(target)) visited else visited + target
+
+/**
+ * 同级切换（底部 Tab / 同层页）：**保活** —— 访问过的 Tab 留在组合树里，切回**零重建**。
+ *
+ * ## 为什么改成保活（2026-09）
+ *
+ * 原先用 `AnimatedContent`：退场动画一结束就把旧内容移出组合树。于是「切走再切回」是
+ * **全新一次组合** —— 页面的 `LaunchedEffect` 重跑、缓存重读、列表重新构建。
+ * 数据层再怎么优化（L1 同帧命中）也省不掉这一块；用户的原话是
+ * 「每次重进页面都要重建页面，浪费时间」。
+ *
+ * 现在访问过的目的地各占一层，切换只改**可见性**：组合、`remember`、滚动位置、
+ * 已解析的数据全部原地保留；完全隐藏后连绘制一起跳过（见 [KeepAliveTab]）。
+ *
+ * ## 代价与配套（必须一起看）
+ *
+ * 1. **数据会静默变旧** —— 页面的 `LaunchedEffect(Unit)` 只会跑一次。所以页面要把
+ *    「重新可见」当成刷新的触发条件：读 [LocalPageActive]（这一层为 `true` 表示
+ *    「我是当前 Tab」）并把它加进 `LaunchedEffect` 的键 —— 重新可见时再走一遍
+ *    「先直出缓存 → 按 TTL 决定是否回源」，命中就是同帧（L1），不命中才联网。
+ * 2. **后台页仍然活着** —— 它们的数据流订阅、定时器都还在。重活要挂在「可见」条件上，
+ *    否则切走的 Tab 会一直在后台干活。
+ *
+ * ## 保住的还有 `rememberSaveable`
+ *
+ * 仍然套一层 `rememberSaveableStateHolder`：保活管的是**进程内**不重建，
+ * holder 管的是**进程被杀**后重建时从 Bundle 恢复（滚动位置、筛选、展开态）。
+ * 两者解决的不是同一个问题，不能互相替代。
+ */
 @Composable
 fun <S> TabSwitcher(
     state: S,
     modifier: Modifier = Modifier,
     label: String = "tab",
     contentKey: (S) -> Any? = { it },
-    content: @Composable AnimatedContentScope.(S) -> Unit,
+    content: @Composable (S) -> Unit,
 ) {
-    // 同级页来回切时，退场动画一结束 `AnimatedContent` 就把旧内容移出组合树 ——
-    // 里面 `rememberSaveable` 的东西（列表滚动位置、筛选、展开态…）跟着一起丢，
-    // 表现成「切走再切回来，列表回到顶部」。用同一个 holder 按目的地存住它们：
-    // 动画照旧「切一次播一次」，但切回来还是原来的位置。
-    //
-    // 只给 TabSwitcher 加：这里的 key 都是枚举 / 整数（`NavDestination`、`RepoPage`、
-    // `ProfileTab`、步骤号），能被 Bundle 序列化；`PageSwitcher` 的路由 key 是带 payload 的
-    // data class（如 `MainRoute.Repo(RepoDeepLink)`），不是所有都能存，强行加会在存盘时炸。
+    // 组合期直接算新值：值相等时 keepAliveVisited 返回同一个实例 → 不会触发额外重组
+    var visited by remember { mutableStateOf(keepAliveVisited(emptyList<S>(), state)) }
+    visited = keepAliveVisited(visited, state)
+
     val stateHolder = rememberSaveableStateHolder()
-    AnimatedContent(
-        targetState = state,
-        modifier = modifier,
-        transitionSpec = { lightTransform() },
-        contentKey = contentKey,
-        label = label,
-    ) { target ->
-        stateHolder.SaveableStateProvider(target as Any) {
-            CompositionLocalProvider(LocalPageActive provides pageIsCurrent(target, state)) {
-                content(target)
+    Box(modifier) {
+        visited.forEach { target ->
+            key(contentKey(target) ?: target, label) {
+                stateHolder.SaveableStateProvider(target as Any) {
+                    KeepAliveTab(active = pageIsCurrent(target, state)) {
+                        content(target)
+                    }
+                }
             }
         }
     }
 }
+
+/**
+ * 保活的一层：切换只改透明度（沿用 fade-through 的时长与曲线）。
+ *
+ * - **完全隐藏后不再绘制**：透明度为 0 时 `drawWithContent` 直接返回 —— 组合与状态都留着，
+ *   但不再为看不见的页面付绘制代价（隐藏页仍会被布局，那是保活的固有成本）；
+ * - **当前页压在最上面**（[zIndex]）：交叉的那几帧里两页同时在屏，新页必须在旧页之上；
+ * - 透明度在 `graphicsLayer` / 绘制期读，不触发每帧重组（`Motion.kt` 里那条约定）。
+ */
+@Composable
+private fun KeepAliveTab(
+    active: Boolean,
+    content: @Composable () -> Unit,
+) {
+    val alpha by animateFloatAsState(
+        targetValue = if (active) 1f else 0f,
+        animationSpec = if (active) {
+            tween(
+                PageMotion.FADE_IN_MS,
+                delayMillis = PageMotion.FADE_OUT_MS,
+                easing = PageMotion.EnterEasing,
+            )
+        } else {
+            tween(PageMotion.FADE_OUT_MS, easing = PageMotion.ExitEasing)
+        },
+        label = "tab-alpha",
+    )
+    Box(
+        Modifier
+            .fillMaxSize()
+            .zIndex(if (active) 1f else 0f)
+            .graphicsLayer { this.alpha = alpha }
+            .drawWithContent { if (alpha > ALPHA_EPSILON) drawContent() },
+    ) {
+        CompositionLocalProvider(LocalPageActive provides active) { content() }
+    }
+}
+
+/**
+ * 「是否还在画」的阈值。
+ *
+ * 不用 `> 0f`：`animateFloatAsState` 的收尾值理论上精确到 0，但浮点插值尾部可能出现 1e-7
+ * 这种值 —— 那会让隐藏页继续绘制，保活省下的绘制代价就白留了。
+ */
+private const val ALPHA_EPSILON = 0.004f
 
 /**
  * 轻过渡：**fade-through**（旧页淡净 → 新页再进，两段不重叠）。

@@ -75,12 +75,23 @@ class PageTransitionsTest {
         // shouldHandleBack 单测都写着「退场中的旧页放手」，但走 PageSwitcher 的页面
         // （主界面路由 / 仓库页十几个子页 / 个人页子页 / 登录流程步骤）拿到的恒为 true ——
         // 机制在最常用的那条路径上没生效。谁再把其中一个改回 `content = content`，这里立刻红。
+        //
+        // 1.0.56 起 TabSwitcher 改成**保活**：下发点从 AnimatedContent 的 lambda 挪进了
+        // `KeepAliveTab`（多了一层），所以这里钉的不再是「那一行的字面写法」，而是两件事：
+        // ① 全文件有**两处** `LocalPageActive provides`（两个切换器各一处，一个都不能少）；
+        // ② 两处都必须由 `pageIsCurrent` 判定 —— 少了它，「退场 / 隐藏中的旧页」会拿到 true，
+        //    然后继续抢返回键（就是上面那串 bug 的根因）。
         val file = File("src/main/java/com/branchbase/ui/navigation/PageTransitions.kt")
         assertTrue("找不到 PageTransitions.kt：${file.absolutePath}", file.exists())
         val source = file.readText()
-        val dispatched = Regex("LocalPageActive provides pageIsCurrent\\(target, state\\)")
-            .findAll(source).count()
-        assertEquals("PageSwitcher 与 TabSwitcher 都要下发「是不是当前页」", 2, dispatched)
+        val dispatched = Regex("LocalPageActive provides").findAll(source).count()
+        assertEquals("PageSwitcher 与 TabSwitcher（保活层）都要下发「是不是当前页」", 2, dispatched)
+
+        val judged = Regex("pageIsCurrent\\(").findAll(source).count()
+        assertTrue(
+            "两处下发都必须由 pageIsCurrent 判定（当前只匹配到 $judged 处，含函数声明）",
+            judged >= 3,
+        )
     }
 
     // ── 过渡选择（重页降级） ──
