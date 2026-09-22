@@ -90,6 +90,10 @@ Compose 的返回键是「**最后注册且启用者胜**」。而 `AnimatedCont
 - [ ] 改了切换器？确认 `PageSwitcher` **和** `TabSwitcher` 都下发了 `LocalPageActive`？
 - [ ] 新页面自己有下一层（决策页 / 详情 / 编辑态）时，挂 `PageBackHandler` 了吗？目标与页面内返回箭头一致吗？
 - [ ] 多一层可返回的页面时，用的是嵌套 `PageSwitcher`，而不是在同一层堆 `if`？
+- [ ] 新页面**消费了系统栏内边距**？（edge-to-edge 是强制的：要么自己 `statusBarsPadding()` +
+      `navigationBarsPadding()`，要么走 `DetailScaffold` / `FullScreen` / `DecisionScreenShell` 这些已经取过的壳。
+      仓库树里进详情页时底部导航栏会收起（`barVisible = route is RepoRoute.Tab`），**没有人为子页兜底底部**）
+      —— 并在 `SystemBarInsetsTest` 的清单里登记，否则这条规则不会替你执法？
 - [ ] 新加/搬迁的**底部导航栏**挂在 `NavigationShell` 的 `bar` 槽位里（不是 `PageSwitcher` 里面）？
       栏自己带系统手势条内边距（M3 `NavigationBar` 自带 / 自定义栏自己 `navigationBarsPadding()`）？
       Tab 维度没被塞进外层路由？

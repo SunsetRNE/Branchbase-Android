@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只留格式契约 + 写法样板（3 个经典示例）；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.68**）
-与 §三 `versionCode` 流水（129 → **170**）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.69**）
+与 §三 `versionCode` 流水（129 → **171**）。
 
 ---
 
@@ -25,7 +25,36 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.68 → 1.0.22）
+## 二、`versionName` 流水（1.0.69 → 1.0.22）
+
+### 1.0.69
+
+**系统栏内边距（edge-to-edge 的「消费」）审计** —— 全仓 30 个全屏根逐个过了一遍，补上漏的那个，并把规则钉住。
+
+① **应用从 Android 15 起就是 edge-to-edge 强制**：窗口铺满整屏，状态栏与系统虚拟导航栏
+（手势条 / 三键）都浮在内容之上。谁不消费内边距**不会报错、不会崩、测试也不会红** ——
+只是「返回箭头压在状态栏底下」「列表最后一行滚不出手势条」，只有真机看得见。
+仓库树那条路由最容易漏：`NavigationShell(barVisible = route is RepoRoute.Tab)` 在进详情页时
+把底部导航栏**整个收起**，于是子页必须自己兜底底部内边距。
+
+② **审计结果：只有一个页面真的漏了** —— `JobLogScreen`（工作流作业日志，仓库树里最深的一页）。
+它是唯一一个没走 `DetailScaffold` 的详情页（顶栏带搜索框与步骤选择，自己用 `DetailTopBar` 搭根），
+而 `DetailTopBar` 自己不取任何内边距 ⇒ 顶栏压状态栏、日志列表压手势条。已补
+`statusBarsPadding().navigationBarsPadding()`。
+其余 29 个全屏根都合格：要么自己取（`SubPageScreens` / `AccountsScreen` / `LogScreen` /
+`SearchScreen` / `TaskScreen` / 登录页 …），要么走已经取过的壳
+（`DetailScaffold` 26 处、`FullScreen`（工作流）、`DecisionScreenShell`（决策页））；
+主骨架的两个 Tab（首页 / 消息）由 `MainScreen` 取「非底部」系统栏 + M3 `NavigationBar` 取底部，
+两处不叠层。顺带清掉 `RepositoryOverviewScreen` 里**两个从没用过的** insets import
+（当初想加没加，留着只会误导下一个人：那一页跑在 Tab 骨架里，本来就不该自己取）。
+
+③ **把规则钉在源码上**（`SystemBarInsetsTest` 3 条）：每个全屏页的根要么自己消费、
+要么用上面那几个壳；壳本身必须**真的**取了内边距（否则「用壳」就是空头承诺）；
+仓库树那条「收起底栏时子页自己兜底」的约定单独一条，连同 `RepoBottomBar` 自己取内边距一起锁住。
+清单是**显式**的（不是扫全目录）—— 「哪些是全屏页」只有人知道，而漏登记的后果正是这条钉子要防的。
+`docs/specs/NAVIGATION-NOTES.md` §五的自检清单同步加了一条。
+
+**钉子**：`SystemBarInsetsTest` 3 条。app+translate 666 条全绿。versionCode 170 → 171（一次提交 +1）。
 
 ### 1.0.68
 
@@ -1055,11 +1084,13 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（170 → 129）
+## 三、`versionCode` 流水（171 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **171**：系统栏内边距审计 —— 补上 `JobLogScreen`（唯一漏掉的全屏页）+ 清掉两处误导性的 unused import + `SystemBarInsetsTest` 把「全屏页必须消费系统栏」钉成规则（一次提交，故 +1）
 
 - **170**：修「重进已渲染过的仓库页会闪」—— 首帧快照 `RepoOverviewMemory`（数据本来就全命中，缺的是首帧有没有内容）+ 参与者头像走统一 `Avatar`（首帧同步直出，不再「蓝底→真图」）+ 启动标记改成进程级闸门（`resumeTick == 1` 拦不住页面重建）（一次提交，故 +1）
 
