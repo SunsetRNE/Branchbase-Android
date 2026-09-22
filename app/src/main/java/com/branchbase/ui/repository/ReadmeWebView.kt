@@ -24,6 +24,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.branchbase.core.RustBridge
@@ -77,7 +78,17 @@ import java.util.UUID
  *   发布说明这类短正文页不需要它。
  */
 @androidx.compose.runtime.Stable
-class ReadmeViewHolder {
+class ReadmeViewHolder(
+    /**
+     * 初始高度。页面侧会把**上一次测到的高度**传进来（首帧快照，见 `RepoOverviewMemory`）——
+     * 页面被整个重建时（离开仓库页再进来），没有它就又是「1dp → 几万 dp」那一次跳。
+     */
+    initialHeight: Dp = 1.dp,
+    /**
+     * 测量结果落地。页面侧拿它写进首帧快照，于是**下一次**进这个仓库页时这一项当帧就是正确高度。
+     */
+    private val onHeightChanged: (Dp) -> Unit = {},
+) {
 
     internal var webView: WebView? = null
 
@@ -85,19 +96,29 @@ class ReadmeViewHolder {
     internal var loadedKey: String? = null
 
     /**
-     * 上一轮的测量高度（Compose 状态）。
+     * 测量高度（Compose 状态）。
      *
      * 它是「不跳回顶部」的另一半：跨回收保留，重新挂回去时这一项**当帧就是正确高度**，
      * 外层列表的锚点不会因为「1dp → 4 万 dp」而错位。
      */
-    internal var measuredHeight by mutableStateOf(1.dp)
+    internal var measuredHeight by mutableStateOf(initialHeight)
 
-    /** 页面离开时调用：销毁 WebView 并复位。 */
+    /** 记一次测量结果：既更新组合状态，也通知页面侧的快照。 */
+    internal fun recordHeight(h: Dp) {
+        if (h != measuredHeight) measuredHeight = h
+        onHeightChanged(h)
+    }
+
+    /**
+     * 页面离开时调用：销毁 WebView。
+     *
+     * **不动 [measuredHeight]**：它已经随 [onHeightChanged] 落进首帧快照，
+     * 而被 release 的持有者不会再被复用 —— 把它打回 1dp 只会让「销毁」这一步多一次无意义的写。
+     */
     fun release() {
         runCatching { webView?.destroy() }
         webView = null
         loadedKey = null
-        measuredHeight = 1.dp
     }
 }
 
@@ -154,7 +175,7 @@ fun ReadmeWebView(
     var ownHeight by remember { mutableStateOf(1.dp) }
     val webViewHeight = holder?.measuredHeight ?: ownHeight
     val setWebViewHeight: (androidx.compose.ui.unit.Dp) -> Unit = { h ->
-        if (holder != null) holder.measuredHeight = h else ownHeight = h
+        if (holder != null) holder.recordHeight(h) else ownHeight = h
     }
 
     // README 真实路径（GitHub 在 HTML 外层给出 data-path）→ 相对路径的基准目录

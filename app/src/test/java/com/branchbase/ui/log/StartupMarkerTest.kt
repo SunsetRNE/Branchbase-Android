@@ -2,6 +2,7 @@ package com.branchbase.ui.log
 
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -91,8 +92,13 @@ class StartupMarkerTest {
     fun `首页阶段标记只在启动那一次打`() {
         val code = source(home)
         assertTrue(
-            "首页取数标记要门控在 resumeTick == 1（首次组合），否则切回首页会重复打",
-            code.contains("if (resumeTick == 1) Logger.ui(\"启动 ▸ 首页首帧取数"),
+            "首页取数标记要走进程级闸门（Logger.startupOnce）—— 页面被重建时 resumeTick 会从 1 重来，" +
+                "门控在它身上拦不住（1.0.67 真机：+116s 又打了一次）",
+            code.contains("Logger.startupOnce(\"home-first-paint\", \"启动 ▸ 首页首帧取数"),
+        )
+        assertFalse(
+            "不许退回到「判 resumeTick == 1」（那不是进程级的，页面重建就失效）",
+            code.contains("if (resumeTick == 1) Logger.ui(\"启动 ▸"),
         )
     }
 

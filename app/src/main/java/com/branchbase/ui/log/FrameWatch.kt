@@ -159,7 +159,7 @@ object FrameWatch {
         // 打的一条日志 —— 它后面整整 1.2~2.9 秒的帧全被归到了它头上。
         if (metrics.getMetric(FrameMetrics.FIRST_DRAW_FRAME) == 1L) {
             val cost = metrics.getMetric(FrameMetrics.TOTAL_DURATION) / 1_000_000.0
-            Logger.ui("启动 ■ 首帧已上屏（含建窗 ${ms(cost)}ms）", STARTUP_TAG)
+            Logger.startupOnce("first-frame", "启动 ■ 首帧已上屏（含建窗 ${ms(cost)}ms）", STARTUP_TAG)
             return
         }
 

@@ -46,13 +46,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import com.branchbase.cache.PreloadStore
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.cache.defaultBranchOf
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.theme.LanguageColors
+import com.branchbase.ui.theme.Avatar
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -101,18 +101,22 @@ fun RepositoryOverviewContent(
     val login = session?.optJSONObject("user")?.optString("login").orEmpty()
     val context = LocalContext.current
 
-    var repoInfo by remember { mutableStateOf<RepoInfo?>(sharedInfo) }
-    var readmeHtml by remember { mutableStateOf<String?>(null) }
+    // 首帧快照：这个仓库上一轮已经渲染过就**当帧**把内容摆上（见 [RepoOverviewMemory]）。
+    // 下面每一个初始值都从它来 —— 数据本来就全在 L1 里命中，缺的只是「首帧有没有内容」。
+    val snapshot = remember(owner, repo) { repoOverviewMemory.get(owner, repo) }
+    var repoInfo by remember { mutableStateOf<RepoInfo?>(sharedInfo ?: snapshot?.info) }
+    var readmeHtml by remember { mutableStateOf(snapshot?.readmeHtml) }
     var effectiveBranch by remember { mutableStateOf("main") }
-    var languages by remember { mutableStateOf<List<LanguageStat>>(emptyList()) }
-    var contributors by remember { mutableStateOf<List<Contributor>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
+    var languages by remember { mutableStateOf(snapshot?.languages ?: emptyList()) }
+    var contributors by remember { mutableStateOf(snapshot?.contributors ?: emptyList()) }
+    var loading by remember { mutableStateOf(sharedInfo == null && snapshot == null) }
     var error by remember { mutableStateOf<String?>(null) }
-    // 分区加载态：缓存直出后仍可能有一两块在回源，避免显示成「暂无…」
-    var infoLoading by remember { mutableStateOf(sharedInfo == null) }
-    var readmeLoading by remember { mutableStateOf(true) }
-    var langLoading by remember { mutableStateOf(true) }
-    var contribLoading by remember { mutableStateOf(true) }
+    // 分区加载态：缓存直出后仍可能有一两块在回源，避免显示成「暂无…」；
+    // 快照里已经有内容的那几块**直接不置加载态** —— 这是「重进不闪」的另一半
+    var infoLoading by remember { mutableStateOf(sharedInfo == null && snapshot?.info == null) }
+    var readmeLoading by remember { mutableStateOf(snapshot?.readmeHtml == null) }
+    var langLoading by remember { mutableStateOf(snapshot?.languages.isNullOrEmpty()) }
+    var contribLoading by remember { mutableStateOf(snapshot?.contributors.isNullOrEmpty()) }
 
     /**
      * 自述文件的 WebView 持有者：**作用域在这一页，不在 LazyColumn 的 item 里**。
@@ -123,7 +127,12 @@ fun RepositoryOverviewContent(
      * 放到页面级之后，回收只是把它摘下来，挂回去还是同一个 WebView、同一份文档、同一个高度。
      * 机制见 [ReadmeViewHolder]。
      */
-    val readmeHolder = remember { ReadmeViewHolder() }
+    // 初始高度来自快照：没有它，这一项挂回去时是 1dp，要等 JS 量完才撑开 —— 那就是「跳」
+    val readmeHolder = remember {
+        ReadmeViewHolder(initialHeight = snapshot?.readmeHeight ?: 1.dp) { h ->
+            repoOverviewMemory.putReadmeHeight(owner, repo, h)
+        }
+    }
     DisposableEffect(readmeHolder) {
         onDispose { readmeHolder.release() }
     }
@@ -134,6 +143,7 @@ fun RepositoryOverviewContent(
             repoInfo = sharedInfo
             infoLoading = false
             if (branch == null && effectiveBranch == "main") effectiveBranch = sharedInfo.defaultBranch
+            repoOverviewMemory.putInfo(owner, repo, sharedInfo)
         }
     }
 
@@ -168,6 +178,7 @@ fun RepositoryOverviewContent(
         if (force || readmeHtml == null) readmeLoading = true
         if (force || languages.isEmpty()) langLoading = true
         if (force || contributors.isEmpty()) contribLoading = true
+        // （上面这几行的初始值已由首帧快照给足：快照命中时它们本来就是 false）
 
         val staleInfo = if (force) null else cacheManager.getStale(PreloadStore.infoKey(owner, repo), PreloadStore.TYPE_INFO)
         /**
@@ -186,11 +197,22 @@ fun RepositoryOverviewContent(
             val bundle = PreloadStore.readStaleBundle(cacheManager, owner, repo, staleBranch)
             if (bundle.usable) {
                 // 外部传入的值更新（它来自同一个请求，但可能比缓存新）
-                bundle.info?.let { parseRepoInfo(it) }?.let { if (repoInfo == null) repoInfo = it }
+                bundle.info?.let { parseRepoInfo(it) }?.let {
+                    if (repoInfo == null) repoInfo = it
+                    repoOverviewMemory.putInfo(owner, repo, it)
+                }
                 effectiveBranch = staleBranch
-                bundle.readme?.let { readmeHtml = it; readmeLoading = false }
-                bundle.languages?.let { languages = parseLanguages(it); langLoading = false }
-                bundle.contributors?.let { contributors = parseContributors(it); contribLoading = false }
+                bundle.readme?.let { readmeHtml = it; readmeLoading = false; repoOverviewMemory.putReadme(owner, repo, it) }
+                bundle.languages?.let {
+                    languages = parseLanguages(it)
+                    langLoading = false
+                    repoOverviewMemory.putLanguages(owner, repo, languages)
+                }
+                bundle.contributors?.let {
+                    contributors = parseContributors(it)
+                    contribLoading = false
+                    repoOverviewMemory.putContributors(owner, repo, contributors)
+                }
                 loading = false
             }
         }
@@ -219,9 +241,9 @@ fun RepositoryOverviewContent(
             infoLoading = repoInfo == null
             if (repoInfo == null && !loading) error = "仓库不存在或无权访问"
 
-            langJob.await()?.let { languages = it }
+            langJob.await()?.let { languages = it; repoOverviewMemory.putLanguages(owner, repo, it) }
             langLoading = false
-            contribJob.await()?.let { contributors = it }
+            contribJob.await()?.let { contributors = it; repoOverviewMemory.putContributors(owner, repo, it) }
             contribLoading = false
         }
 
@@ -250,7 +272,10 @@ fun RepositoryOverviewContent(
             ?.takeIf { !it.startsWith("ERROR:") }
             ?.also { cacheManager.put(key, PreloadStore.TYPE_README, it) }
         // 取到了就换，取不到就保留缓存直出的那一份（别把已有内容清成「暂无自述文件」）
-        if (json != null) readmeHtml = json
+        if (json != null) {
+            readmeHtml = json
+            repoOverviewMemory.putReadme(owner, repo, json)
+        }
         // 分支已知 ⇒ 这一块该有结论了（有内容 / 真的没有），骨架到此为止
         readmeLoading = false
     }
@@ -496,13 +521,11 @@ private fun ContributorRow(c: Contributor) {
             .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(26.dp).clip(CircleShape).background(Primer.Blue500), contentAlignment = Alignment.Center) {
-            if (c.avatarUrl != null) {
-                AsyncImage(model = c.avatarUrl, contentDescription = c.login, modifier = Modifier.size(26.dp).clip(CircleShape))
-            } else {
-                Text(c.login.take(1).uppercase(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            }
-        }
+        // 用统一的 [Avatar] 而不是 Coil 的 AsyncImage：前者**首帧同步直出**进程内已解码的位图
+        // （24 条 LRU），后者每次重建都要重放一遍「蓝底 → 真图」。贡献者一屏十来个，
+        // 那串 pop-in 正是「参与者列表渲染有点慢」的观感来源；顺带 Avatar 的落盘还有 200 文件上限
+        // （见 core/AvatarCache 的 evictionVictims）。
+        Avatar(url = c.avatarUrl, login = c.login, size = 26.dp)
         Spacer(Modifier.width(10.dp))
         Text(c.login, fontSize = 13.sp, color = Primer.Blue500, modifier = Modifier.weight(1f))
         Text("${c.commits} 次提交", fontSize = 12.sp, color = Primer.TextTertiary)

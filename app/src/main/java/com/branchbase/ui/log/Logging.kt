@@ -97,6 +97,33 @@ object LogManager {
 }
 
 /**
+ * 「启动阶段标记**每个进程只打一次**」的闸门（[Logger.startupOnce]）。
+ *
+ * ## 为什么不能靠「是不是首次组合」来判断
+ *
+ * 启动标记是给慢帧当注脚用的（注脚 = 最近一条 UI 类日志），所以它必须**只属于启动**。
+ * 第一版把它门控在 `resumeTick == 1`（`rememberPageResumeTick` 的初值），
+ * 前提是「页面不会被重建」—— 真机日志（1.0.67）证明这个前提不成立：
+ *
+ * ```
+ * 23:37:14.307 启动 ▸ 首页首帧取数   ← 启动那一次（进程开始于 23:37:14）
+ * 23:39:10.834 启动 ▸ 首页首帧取数   ← +116s，用户正在仓库页；同一进程里又打了一次
+ * ```
+ *
+ * `resumeTick` 是 `remember` 出来的，页面一被重建它就从 1 重新开始，于是标记跟着复活，
+ * 把这之后几帧的慢帧注脚全改成「启动 ▸ …」—— 而 `frame-baseline.py` 的 `^启动` 场景桶
+ * 会把它们算成启动帧：**报表看着正常，桶是错的**。
+ *
+ * 进程级的「打过没有」不受页面生命周期影响，是这件事唯一可靠的判据。
+ */
+object StartupMarks {
+    private val printed = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+    /** 本进程第一次用这个 key 调用时返回 true。 */
+    fun firstTime(key: String): Boolean = printed.add(key)
+}
+
+/**
  * 便捷日志 API（门面）。
  */
 object Logger {
@@ -111,6 +138,15 @@ object Logger {
 
     fun local(message: String, tag: String = "") =
         LogManager.log(LogCategory.LOCAL_TASK, LogLevel.INFO, tag, message)
+
+    /**
+     * 启动阶段的 UI 类日志，**每个进程只打一次**（见 [StartupMarks]）。
+     *
+     * 页面被重建时不会重复打 —— 重复打会让「启动」这个场景桶混进交互段的帧。
+     */
+    fun startupOnce(key: String, message: String, tag: String = "启动"): Unit {
+        if (StartupMarks.firstTime(key)) ui(message, tag)
+    }
 
     fun debug(category: LogCategory, tag: String, message: String) =
         LogManager.log(category, LogLevel.DEBUG, tag, message)

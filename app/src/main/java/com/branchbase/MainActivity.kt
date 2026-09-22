@@ -57,7 +57,7 @@ class MainActivity : ComponentActivity() {
         // dumpsys（那个 120 帧窗口 + dump 自身跑在主线程的两个硬伤见 FrameWatch 类注释）
         FrameWatch.install(this)
         // 默认值随编译通道（Beta 开、正式版关），用户可在「设置 → 关于与诊断 → 慢帧日志」改
-        Logger.ui("启动 ▸ 首选项首次加载（整份 XML 在主线程解析）", "启动")
+        Logger.startupOnce("prefs-first-load", "启动 ▸ 首选项首次加载（整份 XML 在主线程解析）")
         FrameWatch.setEnabled(frameWatchEnabled(applicationContext))
 
         // 清理超期短任务记录（后台，不阻塞启动）
@@ -89,7 +89,7 @@ class MainActivity : ComponentActivity() {
         // 不触碰 libgit2；避免后台线程竞态与冷启动期 native 调用）
         // 这一行也是阶段标记：`gitInitSsl` 会首次触碰 RustBridge → 类初始化 → 加载 11MB .so，
         // 而上面的后台线程（AccountChecks / 头像预热）可能正拿着同一把类初始化锁。
-        Logger.ui("启动 ▸ JNI 库与 git 证书（loadLibrary + 190KB CA）", "启动")
+        Logger.startupOnce("jni-and-cert", "启动 ▸ JNI 库与 git 证书（loadLibrary + 190KB CA）")
         val sslOk = RustBridge.gitInitSsl(cacheDir.absolutePath)
         Logger.ui(if (sslOk) "git TLS 证书初始化完成" else "git TLS 证书初始化失败", "SSL")
 
@@ -102,7 +102,7 @@ class MainActivity : ComponentActivity() {
         // 阶段标记：从这一行到首帧之间，跑的是「恢复会话 → 登记账号 → 首页首次组合 + 首帧取数」。
         // 真机数据（14 次启动）里，这一段与慢帧「等待」段的相关系数最高（r=0.957），
         // 所以它必须能出现在慢帧注脚里，否则下一轮还是只能猜。
-        Logger.ui("启动 ▸ 首次组合：恢复会话 / 登记账号 / 首页取数", "启动")
+        Logger.startupOnce("first-composition", "启动 ▸ 首次组合：恢复会话 / 登记账号 / 首页取数")
         setContent {
             val themeMode by ThemeRuntime.mode.collectAsState()
             BranchbaseTheme(mode = themeMode) {
