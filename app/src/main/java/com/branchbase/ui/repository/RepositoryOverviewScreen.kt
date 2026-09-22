@@ -132,8 +132,11 @@ fun RepositoryOverviewContent(
      * 3. **按块收敛**：每块数据到达即单独落地，先到的先显示。
      *
      * 仓库信息不在这里回源（见上面的类注释），只吃缓存直出 + 外部传入。
+     *
+     * ⚠️ 键里必须带 `repoInfo?.defaultBranch`：默认分支到手时要**重跑一次**，
+     * 否则 README 会一直停在「用猜的 main 取回来的那一份」（下面 [DEFAULT_BRANCH_GUESS] 的注释）。
      */
-    LaunchedEffect(owner, repo, branch, refreshTick) {
+    LaunchedEffect(owner, repo, branch, refreshTick, repoInfo?.defaultBranch) {
         val cacheManager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
         val force = refreshTick > 0
         error = null
@@ -142,10 +145,20 @@ fun RepositoryOverviewContent(
         langLoading = true
         contribLoading = true
 
+        val staleInfo = if (force) null else cacheManager.getStale(PreloadStore.infoKey(owner, repo), PreloadStore.TYPE_INFO)
+        /**
+         * 默认分支的**可信来源**（按优先级）：用户显式选择 → 仓库信息（外部传入，或刚从缓存读出）。
+         * 两者都没有 = 「还没拿到」，此时**绝不猜 `main` 去回源** —— 猜错会先取一份 `@main` 的
+         * README，等真实分支（如 `master`）到了再取一遍，用户看到的是「仓库页闪现性重建」
+         * （真机日志：`@main` 与 `@master` 相隔 1 秒各未命中一次）。
+         */
+        val knownBranch = branch ?: repoInfo?.defaultBranch ?: defaultBranchOf(staleInfo)
+
         // ── ① 缓存直出（含过期数据）：命中即先渲染 ──
         if (!force) {
-            val staleInfo = cacheManager.getStale(PreloadStore.infoKey(owner, repo), PreloadStore.TYPE_INFO)
-            val staleBranch = branch ?: defaultBranchOf(staleInfo) ?: repoInfo?.defaultBranch ?: "main"
+            // 读缓存时可以用猜的分支拼键（猜错就是个 miss，没有任何副作用），
+            // 但**回源**不许用（见上）
+            val staleBranch = knownBranch ?: DEFAULT_BRANCH_GUESS
             val bundle = PreloadStore.readStaleBundle(cacheManager, owner, repo, staleBranch)
             if (bundle.usable) {
                 // 外部传入的值更新（它来自同一个请求，但可能比缓存新）
@@ -177,21 +190,25 @@ fun RepositoryOverviewContent(
                 json?.let { parseContributors(it) }
             }
 
-            // 实际分支：用户选择 ?: 仓库默认分支 ?: 上一次的值 ?: main
-            effectiveBranch = branch ?: repoInfo?.defaultBranch ?: effectiveBranch
+            // 实际分支：用户选择 ?: 仓库默认分支 ?: 上一次的值（**不用猜的兜底**）
+            if (knownBranch != null) effectiveBranch = knownBranch
             infoLoading = repoInfo == null
             if (repoInfo == null && !loading) error = "仓库不存在或无权访问"
 
-            // README 依赖默认分支 → 拿到分支后立刻与上面两个请求并行
+            // README 依赖默认分支 → 拿到分支后立刻与上面两个请求并行。
+            // 分支未知时**跳过**（保持加载态）：等 repoInfo 到了本 effect 会重跑
+            //（键里含 `repoInfo?.defaultBranch`），那时只取一次、且取的是对的那份。
             val readmeJob = async {
-                val key = PreloadStore.readmeKey(owner, repo, effectiveBranch)
+                if (knownBranch == null) return@async null
+                val key = PreloadStore.readmeKey(owner, repo, knownBranch)
                 val cached = if (force) null else cacheManager.get(key, PreloadStore.TYPE_README)
-                cached ?: RustBridge.readmeHtml(host, token, owner, repo, effectiveBranch)
+                cached ?: RustBridge.readmeHtml(host, token, owner, repo, knownBranch)
                     ?.takeIf { !it.startsWith("ERROR:") }
                     ?.also { cacheManager.put(key, PreloadStore.TYPE_README, it) }
             }
             readmeJob.await()?.let { readmeHtml = it }
-            readmeLoading = false
+            // 分支未知 ≠ 加载完成：保持骨架，别让「还没取」显示成「没有 README」
+            if (knownBranch != null) readmeLoading = false
             langJob.await()?.let { languages = it }
             langLoading = false
             contribJob.await()?.let { contributors = it }
@@ -528,3 +545,11 @@ private fun formatCount(n: Long): String = when {
     n >= 1000 -> "%.1fk".format(n / 1000.0)
     else -> n.toString()
 }
+/**
+ * 「默认分支未知」时**只用于读缓存**的猜测值。
+ *
+ * 猜错就是一次 miss，没有任何副作用；但**绝不能用它去回源** ——
+ * 那会先取一份 `@main` 的 README，等真实默认分支（如 `master`）到了再取一遍，
+ * 用户看到的是「仓库页闪现性重建」（真机日志里两次未命中相隔 1 秒）。
+ */
+private const val DEFAULT_BRANCH_GUESS = "main"

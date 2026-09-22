@@ -134,7 +134,16 @@ object RepoPrefetcher {
             ?.let { manager.put(key, PreloadStore.TYPE_INFO, it) }
     }
 
-    /** 仓库页四件套：信息（决定默认分支）→ README/语言/贡献者并行。 */
+    /**
+     * 仓库页四件套：信息（决定默认分支）→ README/语言/贡献者并行。
+     *
+     * ⚠️ **默认分支拿不到时不要猜 `main` 去预取**（1.0.62 修）：猜错的话，
+     * 预取写的 `@main` 条目永远不会被读取（真实分支是 `master` 时页面读的是 `@master`），
+     * 白打一次请求、还占了缓存额度 —— 真机日志里能直接看到同一份 README 先后以
+     * `@main` 与 `@master` 各请求一次，用户的观感是「仓库页闪现性重建」。
+     * 预取本来就是投机行为：**宁可少做一次，也不要写一份永远不会命中的缓存**。
+     * 语言 / 贡献者与分支无关，照常预取。
+     */
     private suspend fun warmOverview(
         manager: SearchCacheManager,
         host: String,
@@ -151,16 +160,18 @@ object RepoPrefetcher {
                     ?.takeIf { !it.startsWith("ERROR:") }
                     ?.let { manager.put(infoKey, PreloadStore.TYPE_INFO, it) }
             }
+            // 只信「取回来的 / 缓存里的」默认分支，不兜底 main
             branch = defaultBranchOfCached(manager.getStale(infoKey, PreloadStore.TYPE_INFO))
                 ?: branchHint
-                ?: "main"
         }
 
         coroutineScope {
             val readme = async {
-                val k = PreloadStore.readmeKey(owner, repo, branch)
+                // 分支未知 → 跳过 README（宁可不预取，也不写错键）
+                val b = branch ?: return@async
+                val k = PreloadStore.readmeKey(owner, repo, b)
                 if (!manager.isFresh(k, PreloadStore.TYPE_README)) {
-                    RustBridge.readmeHtml(host, token, owner, repo, branch)
+                    RustBridge.readmeHtml(host, token, owner, repo, b)
                         ?.takeIf { !it.startsWith("ERROR:") }
                         ?.let { manager.put(k, PreloadStore.TYPE_README, it) }
                 }
@@ -187,7 +198,12 @@ object RepoPrefetcher {
         }
     }
 
-    /** 其他 tab 的第一页（默认分支下），键与各列表页一致。 */
+    /**
+     * 其他 tab 的第一页（默认分支下），键与各列表页一致。
+     *
+     * 同样**不猜 `main`**：默认分支未知时整块跳过 —— 各 tab 的键都带分支参数，
+     * 猜错写的条目永远不会被读到（见 [warmOverview] 的注释）。
+     */
     private suspend fun warmTabs(
         manager: SearchCacheManager,
         host: String,
@@ -196,7 +212,7 @@ object RepoPrefetcher {
         repo: String,
     ) {
         val branch = defaultBranchOfCached(manager.getStale(PreloadStore.infoKey(owner, repo), PreloadStore.TYPE_INFO))
-            ?: "main"
+            ?: return
         val ref = encodeRef(branch)
 
         coroutineScope {

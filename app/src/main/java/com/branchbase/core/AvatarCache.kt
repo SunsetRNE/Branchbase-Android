@@ -25,6 +25,15 @@ object AvatarCache {
     fun fileFor(context: Context, login: String): File =
         File(File(context.filesDir, DIR), sanitize(login) + ".png")
 
+    /**
+     * 头像目录的**文件数上限**。
+     *
+     * 这个目录不只放账号头像：贡献者列表等位置也会渲染 `ui/theme/Avatar`，而 1.0.62 起
+     * 那些头像同样会落盘（为了「首帧同步直出」与离线可用）。不加上界的话，
+     * 翻几个大仓库就能把 `filesDir` 撑起来 —— 所以超限时按**最后修改时间**淘汰最旧的。
+     */
+    internal const val MAX_FILES = 200
+
     /** 已缓存则返回文件，否则 null —— 供 UI 判断能否「直接渲染」。 */
     fun localFileOrNull(context: Context, login: String): File? =
         fileFor(context, login).takeIf { it.isFile && it.length() > 0 }
@@ -64,6 +73,7 @@ object AvatarCache {
                     target.writeBytes(bytes)
                     tmp.delete()
                 }
+                trimDir(context)
                 true
             }.getOrDefault(false)
         }
@@ -73,7 +83,34 @@ object AvatarCache {
     fun clear(context: Context, login: String): Boolean =
         runCatching { fileFor(context, login).delete() }.getOrDefault(false)
 
+    /**
+     * 目录超出 [MAX_FILES] 时淘汰最旧的（按最后修改时间）。
+     *
+     * 只在**写入路径**上调用（写完才可能超），失败静默 —— 清理不该影响头像本身。
+     * 淘汰策略抽成纯函数 [evictionVictims]，单测钉住「保留最新、删最旧」。
+     */
+    private fun trimDir(context: Context) = runCatching {
+        val dir = File(context.filesDir, DIR)
+        val files = dir.listFiles()?.filter { it.isFile && it.name.endsWith(".png") } ?: return@runCatching
+        if (files.size <= MAX_FILES) return@runCatching
+        val victims = evictionVictims(
+            files.map { it.name to it.lastModified() },
+            keep = MAX_FILES,
+        )
+        victims.forEach { File(dir, it).delete() }
+    }
+
     /** login 只用于拼文件名，这里挡掉路径分隔符等异常字符。 */
     private fun sanitize(login: String): String =
         login.replace(Regex("[^A-Za-z0-9._-]"), "_")
 }
+
+/**
+ * 该淘汰哪些文件（纯函数，便于单测）：按修改时间**从旧到新**排出淘汰顺序，
+ * 保留最新的 [keep] 个，前面的都是淘汰对象。
+ *
+ * 单独提出来是因为「淘汰顺序」只有边界条件才出错（比如反过来把最新的删了），
+ * 而它一旦出错，用户会看到「头像刚存下就没了，每次都要重新下载」。
+ */
+internal fun evictionVictims(files: List<Pair<String, Long>>, keep: Int): List<String> =
+    files.sortedBy { it.second }.dropLast(keep.coerceAtLeast(0)).map { it.first }
