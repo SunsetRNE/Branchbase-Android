@@ -225,27 +225,43 @@ fun RunDetailContent(
 
 @Composable
 private fun RunJobRow(job: RunJob, onClick: () -> Unit) {
+    val jobTone = stateTone(job.status, job.conclusion)
     Row(
         Modifier.fillMaxWidth().clickable { onClick() }.padding(12.dp, 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(14.dp).clip(CircleShape).background(runStatusColor(job.status, job.conclusion)))
+        Box(Modifier.size(14.dp).clip(CircleShape).background(jobTone.dot))
         Spacer(Modifier.width(10.dp))
         Text(job.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, modifier = Modifier.weight(1f))
-        Text(job.conclusion ?: job.status, fontSize = 11.sp, color = Primer.TextTertiary)
+        // 文案走 runStatusLabel（多状态：进行中 / 排队中 / 已取消 / 超时…），颜色走 stateTone。
+        // 之前这里显示的是 `conclusion ?: status` 的**裸值** —— 运行中的 job 会显示成 `null`
+        // （conclusion 被 org.json 解析成字符串 "null"），既不是中文也不分状态。
+        Text(
+            runStatusLabel(job.status, job.conclusion),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = jobTone.text,
+        )
     }
 }
 
 
 @Composable
 private fun JobStepRow(step: JobStep) {
+    val stepTone = stateTone(step.status, step.conclusion)
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(14.dp).clip(CircleShape).background(runStatusColor(step.status, step.conclusion)))
+        Box(Modifier.size(14.dp).clip(CircleShape).background(stepTone.dot))
         Spacer(Modifier.width(10.dp))
         Text("${step.number}. ${step.name}", fontSize = 13.5.sp, color = Primer.TextPrimary, modifier = Modifier.weight(1f))
+        // 步骤也要有多状态显示：只有色点的话，「跳过 / 取消 / 失败」在色盲或小尺寸下分不出来
+        Text(
+            runStatusLabel(step.status, step.conclusion),
+            fontSize = 11.sp,
+            color = stepTone.text,
+        )
     }
 }
 

@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只留格式契约 + 写法样板（3 个经典示例）；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.63**）
-与 §三 `versionCode` 流水（129 → **165**）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.64**）
+与 §三 `versionCode` 流水（129 → **166**）。
 
 ---
 
@@ -25,7 +25,37 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.63 → 1.0.22）
+## 二、`versionName` 流水（1.0.64 → 1.0.22）
+
+### 1.0.64
+
+**正在跑的工作流被判成失败**：`org.json` 的 `"null"` 伪值一路传到判定层。
+
+① **根因**：GitHub 对进行中的 run / job / step 返回 `"conclusion": null`，而
+`JSONObject.optString` 在值是 JSON `null` 时返回的是**字符串 `"null"`**（不是 null）。
+旧的判定是黑名单反推 —— `conclusion != null && conclusion !in setOf("success","skipped","cancelled")`
+算失败 ⇒ `"null"` 非空且不在名单里 ⇒ **正在跑的被算成失败**。同一个伪值还波及：
+`isFailedConclusion`（详情页「只看失败」能筛出正在跑的）、失败优先排序、
+`Text(job.conclusion ?: job.status)`（界面上直接显示 `null`）。
+
+② **三层一起修（防御纵深）**：
+- **解析层**：新增 `JSONObject.optNullableString` / `optText`，把「缺省 / 空串 / 字面量 `"null"`」
+  统一归一；runs / jobs / steps 的 `conclusion`、`started_at`、`completed_at`、`runner_name`
+  等全部改走它；
+- **判定层**：`isFailedConclusion` 从黑名单改成**白名单** `{failure, timed_out, startup_failure}` ——
+  未知结论、伪值都**不算失败**（少报一个失败，好过把「正在跑」报成失败）；
+  `runProgress` 用同一个谓词，并按 `status` 分「运行中 / 排队」；
+- **显示层**：`stateTone` / `runStatusLabel` 顶部先把伪值归一（`normalizedConclusion()`），
+  不依赖上游是否干净。
+
+③ **多状态显示**：job 行原来是 `conclusion ?: status` 的裸值（会显示 `null`）、
+step 行只有色点没有文案 —— 现在两处都走 `runStatusLabel`（进行中 / 排队中 / 已取消 / 已跳过 /
+超时 / 成功 / 失败…）+ `stateTone` 的文字色。只有色点的话，「跳过 / 取消 / 失败」在小尺寸或
+色觉差异下分不出来。
+
+④ **钉子**：新增 4 条（`WorkflowFormatTest`：字面量 `null` 与未知结论都不算失败、
+运行中的 job 在进度里算运行中、状态文案覆盖多状态且伪值不泄漏）+ 1 条
+（`WorkflowModelsTest`：`JSON null` 字段解析成 null 而不是字符串 `"null"`，覆盖 runs/jobs/steps 三层）。
 
 ### 1.0.63
 
@@ -840,11 +870,13 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（165 → 129）
+## 三、`versionCode` 流水（166 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **166**：修「正在跑的工作流被判失败」（org.json 的 "null" 伪值：解析归一 + 判定改白名单 + 多状态显示）（一次提交，故 +1）
 
 - **165**：日志页导出改成「打包 zip → Download/Branchbase → 系统分享」（含权限与失败弹窗）（一次提交，故 +1）
 

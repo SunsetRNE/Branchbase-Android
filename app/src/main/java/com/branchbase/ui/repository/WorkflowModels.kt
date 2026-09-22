@@ -239,7 +239,7 @@ fun formatDuration(ms: Long?): String {
 }
 
 /** 运行/步骤状态的中文标签（GitHub 的 status + conclusion 组合）。 */
-fun runStatusLabel(status: String, conclusion: String?): String = when (conclusion) {
+fun runStatusLabel(status: String, conclusion: String?): String = when (conclusion.normalizedConclusion()) {
     "success" -> "成功"
     "failure" -> "失败"
     "cancelled" -> "已取消"
@@ -287,9 +287,12 @@ fun eventLabel(event: String): String = when (event) {
 /**
  * 一次运行的进度快照：头部进度条的**计数**与分段控件的数字都读它。
  *
- * 分类口径与状态点一致（[runStatusColor] 那套）：`success` 算成功；
- * `cancelled` / `skipped` 既不算成功也不算失败（它们不该把进度条染红）；
- * 其余非空结论算失败；还没结论的按 `status` 分「运行中 / 排队」。
+ * 分类口径与状态点一致（[isFailedConclusion] 那套白名单）：`success` 算成功；
+ * `cancelled` / `skipped` / 未知结论都**不算失败**；还没跑完的按 `status` 分「运行中 / 排队」。
+ *
+ * ⚠️ 这里曾经用「非空结论且不是 skipped/cancelled 就算失败」反推，而 `conclusion: null`
+ * （进行中的 job）被 `org.json` 解析成字符串 `"null"` ⇒ **正在跑的工作流被算成失败**。
+ * 现在判定走白名单，且结论先过 [normalizedConclusion]。
  */
 data class RunProgress(val ok: Int, val failed: Int, val running: Int, val waiting: Int) {
     val total: Int get() = ok + failed + running + waiting
@@ -300,9 +303,11 @@ data class RunProgress(val ok: Int, val failed: Int, val running: Int, val waiti
 fun runProgress(jobs: List<RunJob>): RunProgress {
     var ok = 0; var failed = 0; var running = 0; var waiting = 0
     jobs.forEach { j ->
+        val conclusion = j.conclusion.normalizedConclusion()
         when {
-            j.conclusion == "success" -> ok++
-            j.conclusion != null && j.conclusion !in setOf("skipped", "cancelled") -> failed++
+            conclusion == "success" -> ok++
+            // 白名单：只有明确的失败结论才计失败（未知结论宁可不算，见 isFailedConclusion）
+            isFailedConclusion(conclusion) -> failed++
             j.status == "in_progress" -> running++
             else -> waiting++
         }

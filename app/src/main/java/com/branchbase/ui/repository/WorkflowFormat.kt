@@ -21,7 +21,7 @@ data class StateTone(val dot: Color, val bg: Color, val text: Color)
  * 拿 `Red500` 当文字压在 `DangerSurface` 上只有 4.0，低于 WCAG AA（见 `ThemeContrastTest`）。
  */
 @Composable
-fun stateTone(status: String, conclusion: String?): StateTone = when (conclusion) {
+fun stateTone(status: String, conclusion: String?): StateTone = when (conclusion.normalizedConclusion()) {
     "success" -> StateTone(Primer.Green500, Primer.SuccessSurface, Primer.SuccessTextStrong)
     "failure", "timed_out", "startup_failure" ->
         StateTone(Primer.Red500, Primer.DangerSurface, Primer.DangerText)
@@ -41,13 +41,34 @@ fun stateTone(status: String, conclusion: String?): StateTone = when (conclusion
 fun runDotColor(status: String, conclusion: String?): Color = stateTone(status, conclusion).dot
 
 /**
+ * 把「缺省 / 空 / 字面量 `"null"`」三种伪值统一成 `null`（纯函数，便于单测）。
+ *
+ * 为什么要在这一层再兜一次：`org.json` 的 `optString` 对 JSON `null` 返回的是**字符串 "null"**，
+ * 一旦哪条解析路径漏了归一化（`RepositoryModels` 里已经统一走 `optNullableString`），
+ * 判定层就会把「还没结论」当成「有结论」—— 真机现象是**正在跑的工作流被算成失败**。
+ * 判定与配色属于「不能出错的那一侧」，所以这里独立再防一次，不依赖上游是否干净。
+ */
+fun String?.normalizedConclusion(): String? = this?.takeIf { it.isNotBlank() && it != "null" }
+
+/**
+ * **明确的失败结论**（白名单）。
+ *
+ * ⚠️ 不能用「非空且不是 success/skipped/cancelled」这种**黑名单**反推失败：
+ * 未知结论、`"null"` 伪值、后端将来新增的取值都会被误判成失败。
+ * 真机踩过的正是这条 —— 进行中（`conclusion: null`）的工作流被判失败。
+ * 拿不准就不算失败（少报一个失败，好过把「正在跑」报成失败）。
+ */
+private val FAIL_CONCLUSIONS = setOf("failure", "timed_out", "startup_failure")
+
+/**
  * 是不是「失败」结论 —— **非 Composable 的纯谓词**，给排序 / 过滤 / 计数用
  * （`stateTone` 要读主题色，放在 `remember` 里或排序 lambda 里都不行）。
  *
- * 口径与 [RunProgress] 一致：`cancelled` / `skipped` 不算失败（它们不该把列表染红）。
+ * 口径与 [RunProgress] 一致：`cancelled` / `skipped` 不算失败（它们不该把列表染红），
+ * **未知结论也不算**（见 [FAIL_CONCLUSIONS] 的注释）。
  */
 fun isFailedConclusion(conclusion: String?): Boolean =
-    conclusion != null && conclusion !in setOf("success", "skipped", "cancelled")
+    conclusion.normalizedConclusion() in FAIL_CONCLUSIONS
 
 /** 注解等级色标：failure 红 / warning 橙 / 其它蓝。 */
 @Composable

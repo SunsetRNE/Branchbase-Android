@@ -765,6 +765,24 @@ data class JobStep(
     val completedAt: String = "",
 )
 
+/**
+ * 取一个**可空**字符串字段：缺省、空串、以及字面量 `"null"` 一律返回 null（纯函数，便于单测）。
+ *
+ * ## 为什么必须有它（真机 bug 的根因）
+ *
+ * `org.json` 的 `optString` 在值是 JSON `null` 时返回的是**字符串 "null"**，不是 null。
+ * GitHub 对**正在运行**的 workflow run / job / step 返回的正是 `"conclusion": null`，
+ * 于是解析出来是 `"null"` —— 非空 ⇒ 判定层把它当成「有结论」⇒
+ * **正在跑的工作流被算成失败**（进度条写「失败 1」、详情页的「只看失败」也能筛出它）。
+ *
+ * 同一个坑对 `started_at` / `completed_at` / `runner_name` 一样成立（排队中的 job 全为 null）。
+ */
+internal fun JSONObject.optNullableString(key: String): String? =
+    optString(key).takeIf { it.isNotBlank() && it != "null" }
+
+/** 同上，但字段本身不可空：伪值统一成空串（避免界面把 `"null"` 当内容显示出来）。 */
+internal fun JSONObject.optText(key: String): String = optNullableString(key).orEmpty()
+
 /** 解析 GET .../actions/workflows/{id}/runs 的 {workflow_runs:[…]} */
 fun parseWorkflowRuns(json: String): List<WorkflowRun> = runCatching {
     val arr = JSONObject(json).optJSONArray("workflow_runs") ?: return@runCatching emptyList()
@@ -773,25 +791,25 @@ fun parseWorkflowRuns(json: String): List<WorkflowRun> = runCatching {
         WorkflowRun(
             id = o.optLong("id"),
             runNumber = o.optLong("run_number"),
-            name = o.optString("name"),
-            status = o.optString("status"),
-            conclusion = o.optString("conclusion").takeIf { it.isNotBlank() },
-            headBranch = o.optString("head_branch"),
-            createdAt = o.optString("created_at"),
-            displayTitle = o.optString("display_title"),
-            event = o.optString("event"),
+            name = o.optText("name"),
+            status = o.optText("status"),
+            conclusion = o.optNullableString("conclusion"),
+            headBranch = o.optText("head_branch"),
+            createdAt = o.optText("created_at"),
+            displayTitle = o.optText("display_title"),
+            event = o.optText("event"),
             runAttempt = o.optInt("run_attempt", 1),
-            headSha = o.optString("head_sha"),
-            actor = o.optJSONObject("actor")?.optString("login").orEmpty(),
-            runStartedAt = o.optString("run_started_at"),
-            updatedAt = o.optString("updated_at"),
-            htmlUrl = o.optString("html_url"),
-            path = o.optString("path"),
+            headSha = o.optText("head_sha"),
+            actor = o.optJSONObject("actor")?.optNullableString("login").orEmpty(),
+            runStartedAt = o.optText("run_started_at"),
+            updatedAt = o.optText("updated_at"),
+            htmlUrl = o.optText("html_url"),
+            path = o.optText("path"),
             workflowId = o.optLong("workflow_id"),
-            headCommitMessage = o.optJSONObject("head_commit")?.optString("message").orEmpty()
+            headCommitMessage = o.optJSONObject("head_commit")?.optText("message").orEmpty()
                 .lineSequence().firstOrNull().orEmpty(),
             headCommitAuthor = o.optJSONObject("head_commit")
-                ?.optJSONObject("author")?.optString("name").orEmpty(),
+                ?.optJSONObject("author")?.optNullableString("name").orEmpty(),
         )
     }
 }.getOrDefault(emptyList())
@@ -803,13 +821,13 @@ fun parseRunJobs(json: String): List<RunJob> = runCatching {
         val o = arr.getJSONObject(i)
         RunJob(
             id = o.optLong("id"),
-            name = o.optString("name"),
-            status = o.optString("status"),
-            conclusion = o.optString("conclusion").takeIf { it.isNotBlank() },
-            startedAt = o.optString("started_at"),
-            completedAt = o.optString("completed_at"),
-            runnerName = o.optString("runner_name"),
-            htmlUrl = o.optString("html_url"),
+            name = o.optText("name"),
+            status = o.optText("status"),
+            conclusion = o.optNullableString("conclusion"),
+            startedAt = o.optText("started_at"),
+            completedAt = o.optText("completed_at"),
+            runnerName = o.optText("runner_name"),
+            htmlUrl = o.optText("html_url"),
             steps = parseJobSteps(o.toString()),
         )
     }
@@ -822,11 +840,11 @@ fun parseJobSteps(json: String): List<JobStep> = runCatching {
         val o = arr.getJSONObject(i)
         JobStep(
             number = o.optLong("number"),
-            name = o.optString("name"),
-            status = o.optString("status"),
-            conclusion = o.optString("conclusion").takeIf { it.isNotBlank() },
-            startedAt = o.optString("started_at"),
-            completedAt = o.optString("completed_at"),
+            name = o.optText("name"),
+            status = o.optText("status"),
+            conclusion = o.optNullableString("conclusion"),
+            startedAt = o.optText("started_at"),
+            completedAt = o.optText("completed_at"),
         )
     }
 }.getOrDefault(emptyList())

@@ -29,6 +29,45 @@ class WorkflowFormatTest {
     }
 
     @Test
+    fun `字面量 null 与未知结论都不算失败_正在跑的工作流不许被误判`() {
+        // 真机 bug：GitHub 对进行中的 run/job/step 返回 `"conclusion": null`，而 org.json 的
+        // optString 会把它变成**字符串 "null"**；旧的「非空即失败」判定于是把正在跑的算成失败
+        //（进度条写「失败 1」、详情页「只看失败」也能筛出它）。
+        assertFalse("字面量 null 必须当成「还没结论」", isFailedConclusion("null"))
+        assertFalse("后端将来新增的结论也不能算失败（少报好过误报）", isFailedConclusion("some_new_conclusion"))
+        assertNull("null".normalizedConclusion())
+        assertNull("".normalizedConclusion())
+        assertNull("   ".normalizedConclusion())
+        assertEquals("failure", "failure".normalizedConclusion())
+    }
+
+    @Test
+    fun `运行中的 job 在进度里算运行中而不是失败`() {
+        val jobs = listOf(
+            RunJob(1, "build", "in_progress", null),
+            RunJob(1, "build", "in_progress", "null"),   // 未归一化的旧缓存形状
+        )
+        val p = runProgress(jobs)
+        assertEquals("一条都不该算失败", 0, p.failed)
+        assertEquals(2, p.running)
+        assertTrue(p.worthShowing)
+    }
+
+    @Test
+    fun `状态文案覆盖多状态_且伪值不泄漏`() {
+        assertEquals("进行中", runStatusLabel("in_progress", null))
+        assertEquals("排队中", runStatusLabel("queued", null))
+        assertEquals("已取消", runStatusLabel("completed", "cancelled"))
+        assertEquals("已跳过", runStatusLabel("completed", "skipped"))
+        assertEquals("超时", runStatusLabel("completed", "timed_out"))
+        assertEquals("成功", runStatusLabel("completed", "success"))
+        assertEquals("失败", runStatusLabel("completed", "failure"))
+        // 伪值不许泄漏成状态文案（否则界面上会出现一个「null」）
+        assertEquals("进行中", runStatusLabel("in_progress", "null"))
+        assertEquals("未知", runStatusLabel("", null))
+    }
+
+    @Test
     fun `进度计数与总任务数`() {
         val jobs = listOf(
             RunJob(1, "build", "completed", "success"),

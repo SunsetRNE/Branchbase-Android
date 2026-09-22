@@ -73,6 +73,36 @@ class WorkflowModelsTest {
         assertEquals(121000L, durationMillis(job.startedAt, job.completedAt))
     }
 
+    @Test
+    fun `JSON null 的字段解析成 null 而不是字符串 null`() {
+        // 真机 bug 的根因层：GitHub 对**进行中**的 run/job/step 返回 `"conclusion": null`、
+        // 排队中的 job 连 `started_at`/`completed_at`/`runner_name` 也是 null，
+        // 而 org.json 的 optString 会把 JSON null 变成**字符串 "null"** ——
+        // 非空 ⇒ 判定层当成「有结论」⇒ 正在跑的工作流被算成失败。
+        val runs = parseWorkflowRuns(
+            """{"workflow_runs":[{"id":1,"run_number":7,"name":"CI","status":"in_progress",
+               "conclusion":null,"head_branch":"main","created_at":"2026-09-07T13:42:30Z",
+               "display_title":"跑的这一次","event":"push","head_sha":"abc"}]}""",
+        )
+        assertEquals(1, runs.size)
+        assertNull("进行中 = 还没有 conclusion", runs[0].conclusion)
+        assertEquals("in_progress", runs[0].status)
+
+        val jobs = parseRunJobs(
+            """{"jobs":[{"id":9,"name":"build","status":"in_progress","conclusion":null,
+               "started_at":null,"completed_at":null,"runner_name":null,
+               "steps":[{"number":1,"name":"Set up job","status":"in_progress","conclusion":null,
+                         "started_at":null,"completed_at":null}]}]}""",
+        )
+        val job = jobs[0]
+        assertNull(job.conclusion)
+        assertEquals("伪值不能留在字段里（否则会显示成 null）", "", job.startedAt)
+        assertEquals("", job.completedAt)
+        assertEquals("", job.runnerName)
+        assertNull(job.steps[0].conclusion)
+        assertEquals("", job.steps[0].startedAt)
+    }
+
     // ── 产物 / 注解 ──
 
     @Test
