@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只留格式契约 + 写法样板（3 个经典示例）；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.62**）
-与 §三 `versionCode` 流水（129 → **164**）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.63**）
+与 §三 `versionCode` 流水（129 → **165**）。
 
 ---
 
@@ -25,7 +25,39 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.62 → 1.0.22）
+## 二、`versionName` 流水（1.0.63 → 1.0.22）
+
+### 1.0.63
+
+日志页的「导出 .log」换成**导出日志包**：打包 zip → 落到 `Download/Branchbase/` → 拉起系统分享。
+
+① **为什么换掉旧的**：旧实现是把整份日志塞进剪贴板 —— 长日志又慢又容易被别的输入框截断，
+出了 App 就没法用。现在是完整链路：`LogManager.flush()`（写盘是异步的，不刷会少最后几行）
+→ 内存里打 zip → 落盘 → 分享。单条复制（点日志行）与过滤面板里的「复制」都没动。
+
+② **落盘按系统分两条**（这不是偷懒，是必需）：
+
+| 系统 | 方式 | 权限 | 目录被删后 |
+|---|---|---|---|
+| API 29+ | `MediaStore.Downloads` + `RELATIVE_PATH=Download/Branchbase` | **不需要** | 下次写入自动重建 |
+| API ≤ 28 | `getExternalStoragePublicDirectory(DOWNLOADS)/Branchbase` + `mkdirs()` | `WRITE_EXTERNAL_STORAGE`（运行时申请） | 下次写入重建 |
+
+MediaStore 那条还顺带解决两件事：写入期间用 `IS_PENDING` 标记（别的应用读不到半截 zip）、
+拿到的 `content://` Uri 可直接丢给分享窗口。API ≤ 28 的真文件必须过 FileProvider
+（`file://` 从 API 24 起抛 `FileUriExposedException`）。
+
+③ **失败要说清是哪一种**：`Result.Failed` 带 `needsStoragePermission` —— 权限问题弹窗引导去
+本应用权限页（一键跳系统设置），其它问题（磁盘满、系统拒绝）只如实说明原因。
+两者混成一句「导出失败」会让用户去改一个本来没问题的开关。
+
+④ **两个坑记在这里**：
+- Manifest 合并按**类名**判重：`:downloader` 已注册过 `androidx.core.content.FileProvider`，
+  再注册同一个类（即使 authority 不同）会冲突 → 新增空子类 `ui/log/LogFileProvider.kt`；
+- 日志内容「文件优先、内存环形缓冲兜底」：首次启动后立刻导出时文件可能还没落盘，
+  没有兜底就会导出一个空包（而「导出为空」比「导出失败」更难排查）。
+
+⑤ **钉子**：`LogExporterTest` 4 条 —— 压缩包内容一致（中文与换行原样往返 UTF-8）、
+多条目各自独立、空内容也能打出合法包、文件名带时间戳（两次导出不互相覆盖、同一时刻同名）。
 
 ### 1.0.62
 
@@ -808,11 +840,13 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（164 → 129）
+## 三、`versionCode` 流水（165 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **165**：日志页导出改成「打包 zip → Download/Branchbase → 系统分享」（含权限与失败弹窗）（一次提交，故 +1）
 
 - **164**：修仓库页闪现性重建（默认分支未知时不再猜 main 取数）+ 头像首帧同步直出（进程内解码缓存）（一次提交，故 +1）
 

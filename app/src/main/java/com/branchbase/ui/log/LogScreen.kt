@@ -1,5 +1,13 @@
 package com.branchbase.ui.log
 
+import android.Manifest
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -44,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -97,7 +106,56 @@ fun LogScreen(onBack: () -> Unit) {
     var curTag by remember { mutableStateOf<String?>(null) }
     var showFilter by remember { mutableStateOf(false) }
     var levelMenu by remember { mutableStateOf(false) }
+    // ── 导出（打包 zip 落到 Download/Branchbase/，成功后拉起系统分享）──
+    var exporting by remember { mutableStateOf(false) }
+    var exportError by remember { mutableStateOf<String?>(null) }
+    var exportNeedsPermission by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+
+    fun shareZip(ok: LogExporter.Result.Ok) {
+        val sent = runCatching {
+            context.startActivity(
+                Intent.createChooser(LogExporter.shareIntent(context, ok), "分享日志包"),
+            )
+        }.isSuccess
+        if (!sent) exportError = "没有可用的分享应用（日志包已保存到 ${ok.displayDir}）"
+    }
+
+    fun doExport() {
+        if (exporting) return
+        exporting = true
+        exportError = null
+        scope.launch {
+            when (val r = LogExporter.export(context)) {
+                is LogExporter.Result.Ok -> shareZip(r)
+                is LogExporter.Result.Failed -> {
+                    exportError = r.message
+                    exportNeedsPermission = r.needsStoragePermission
+                }
+            }
+            exporting = false
+        }
+    }
+
+    // API ≤ 28 写公共下载目录要存储权限；拿到授权后继续导出，被拒就弹失败框（引导去设置）
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) doExport() else {
+            exportError = "没有存储权限，无法写入 Download/${LogExporter.DIR_NAME}/"
+            exportNeedsPermission = true
+        }
+    }
+
+    fun startExport() {
+        if (LogExporter.needsStoragePermission(context)) {
+            permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        } else {
+            doExport()
+        }
+    }
 
     fun refresh() { logs = LogManager.all() }
 
@@ -131,12 +189,13 @@ fun LogScreen(onBack: () -> Unit) {
             Spacer(Modifier.width(8.dp))
             Text("日志", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
             Spacer(Modifier.weight(1f))
-            TextButton(onClick = {
-                // 写盘是异步的（见 FileAppender）：导出前先等积压落盘，否则会少最后几行
-                LogManager.flush()
-                val c = LogManager.logFile()?.readText().orEmpty()
-                clipboard.setText(AnnotatedString(c.ifEmpty { "（暂无日志）" }))
-            }) { Text("导出 .log", color = Primer.Blue500, fontSize = 13.sp) }
+            // ── 导出（直接替换掉原来的「导出 .log」）──
+            // 旧行为是把全文塞进剪贴板：长日志既慢、又容易被别的输入框截断，而且出了 App 就没了。
+            // 现在一次点击就是完整链路：打包 zip → 落盘 `Download/Branchbase/` → 拉起系统分享。
+            // （单条/全量复制仍然可用：点日志行复制单条、过滤面板里有「复制」，都不受影响。）
+            TextButton(onClick = { startExport() }, enabled = !exporting) {
+                Text(if (exporting) "导出中…" else "导出", color = Primer.Blue500, fontSize = 13.sp)
+            }
             TextButton(onClick = { LogManager.clear(); refresh() }) { Text("清空", color = Primer.Red500, fontSize = 13.sp) }
         }
 
@@ -273,6 +332,51 @@ fun LogScreen(onBack: () -> Unit) {
             onCopy = { clipboard.setText(AnnotatedString(logs.joinToString("\n") { logLine(it) })) },
             onClear = { LogManager.clear(); refresh() },
             onDismiss = { showFilter = false },
+        )
+    }
+
+    // 导出失败提示：**必须说清是哪一种失败** —— 权限问题引导去授权，其它问题（磁盘满、
+    // 系统拒绝）只如实说明原因。混成一句「导出失败」会让用户去改一个本来没问题的开关。
+    exportError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { exportError = null },
+            title = { Text("导出失败") },
+            text = {
+                Column {
+                    Text(message, fontSize = 13.sp)
+                    if (exportNeedsPermission) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "到「系统设置 → 应用 → Branchbase → 权限」里允许存储，再回来点一次导出。",
+                            fontSize = 12.sp,
+                            color = Primer.TextTertiary,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                if (exportNeedsPermission) {
+                    TextButton(onClick = {
+                        exportError = null
+                        // 直接跳到本应用的权限页，省得用户自己找
+                        runCatching {
+                            context.startActivity(
+                                Intent(
+                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.fromParts("package", context.packageName, null),
+                                ),
+                            )
+                        }
+                    }) { Text("去授权", color = Primer.Blue500) }
+                } else {
+                    TextButton(onClick = { exportError = null }) { Text("知道了", color = Primer.Blue500) }
+                }
+            },
+            dismissButton = if (exportNeedsPermission) {
+                { TextButton(onClick = { exportError = null }) { Text("稍后", color = Primer.TextSecondary) } }
+            } else {
+                null
+            },
         )
     }
 }

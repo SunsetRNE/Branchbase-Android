@@ -5,6 +5,16 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- 预加载策略需要判断当前网络是否计费（普通权限，无运行时弹窗） -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!--
+        日志导出到公共下载目录（`Download/Branchbase/`）。
+
+        **只在 API ≤ 28 需要这个权限**：29 起写公共目录走 MediaStore（`RELATIVE_PATH`），
+        既不需要权限、也不怕用户把目录删掉（下一次写入会自动重建）。
+        `maxSdkVersion="28"` 保证新系统上不会申请一个用不到的敏感权限。
+    -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
 
     <application
         android:name=".BranchbaseApp"
@@ -40,6 +50,24 @@
                     android:scheme="branchbase" />
             </intent-filter>
         </activity>
+
+        <!--
+            日志压缩包的分享通道（API ≤ 28 用；API 29+ 走 MediaStore 的 content:// Uri）。
+            file:// 从 API 24 起会抛 FileUriExposedException，所以必须经 FileProvider。
+            暴露范围只有 `Download/Branchbase/`（见 res/xml/log_file_paths.xml）。
+            ⚠️ 这里用 `.ui.log.LogFileProvider`（继承 FileProvider 的空子类）而不是直接注册
+            `androidx.core.content.FileProvider` —— `:downloader` 模块已经注册过那个类，
+            manifest 合并按类名判重，同类的两个 provider 会冲突。
+        -->
+        <provider
+            android:name=".ui.log.LogFileProvider"
+            android:authorities="${applicationId}.logs.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/log_file_paths" />
+        </provider>
     </application>
 
 </manifest>

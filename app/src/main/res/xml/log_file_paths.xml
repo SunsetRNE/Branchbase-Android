@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider 暴露范围：只暴露「应用自己写进公共下载目录的那个子目录」。
+     用途只有一个 —— API ≤ 28 时 `file://` 会抛 FileUriExposedException，
+     分享日志压缩包必须走 content://（API 29+ 用 MediaStore 的 Uri，不需要这里）。
+     范围越小越安全：这里不是整个 Download 目录。 -->
+<paths>
+    <external-path name="logs" path="Download/Branchbase/" />
+</paths>
