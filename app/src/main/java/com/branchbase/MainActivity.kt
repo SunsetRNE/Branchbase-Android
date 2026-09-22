@@ -17,6 +17,7 @@ import com.branchbase.ui.theme.ThemeRuntime
 import com.branchbase.core.RustBridge
 import com.branchbase.core.NetworkWatch
 import com.branchbase.ui.auth.LoginFlow
+import com.branchbase.ui.log.DeviceProfile
 import com.branchbase.ui.log.FrameWatch
 import com.branchbase.ui.log.LogManager
 import com.branchbase.ui.settings.frameWatchEnabled
@@ -43,6 +44,12 @@ class MainActivity : ComponentActivity() {
         // 初始化日志管理器（FileAppender 持久化到 branchbase.log）
         LogManager.init(applicationContext)
         Logger.ui("App 启动", "System")
+
+        // 设备档案：机型 / 屏幕与刷新率 / 内存核数 / 动画缩放 / 不保留活动 / 省电模式 …
+        // 别人发日志过来时，「同样的 120ms 慢帧」在旗舰机与低端机上结论完全不同 ——
+        // 这几项直接决定怎么读那些数字（阈值按 60Hz 写死、动画被调小会让动效验收失真）。
+        // 只进日志、不加设置页行；每次启动记一组。
+        DeviceProfile.log(this)
 
         // 慢帧守望：把系统每帧下发的 FrameMetrics（与 `dumpsys gfxinfo framestats` 同源）
         // 里挑出的慢帧写进日志 —— 「切页那一下卡了多少毫秒、卡在哪一段」从此不用另开终端敲
