@@ -447,10 +447,19 @@ object RustBridge {
             nativeGetRepoContributors(host, token, owner, repo).ifBlank { null }
         }
 
-    /** 通用 GET（列表等任意路径，返回原始 JSON）。 */
+    /**
+     * 通用 GET（列表等任意路径，返回原始 JSON）。
+     *
+     * **成功时给 [ApiEvidence] 记一笔**：这是全 App 请求的必经之路，正好当「这个 token 现在能用」
+     * 的证据。账号健康检查在下「令牌已失效」这种重结论之前会查这份证据 ——
+     * 真机上出现过「`/user` 报失效，而 `/user/repos`、`/notifications`、GraphQL 全 200」的误判，
+     * 而且结论会粘住整场会话（重探只在手动点或网络跃迁时发生，见 `AccountChecks` 的类注释）。
+     */
     suspend fun getJson(host: String, token: String, path: String): String? =
         withContext(Dispatchers.IO) {
-            nativeGetJson(host, token, path).ifBlank { null }
+            val out = nativeGetJson(host, token, path).ifBlank { null }
+            if (out != null && !out.startsWith("ERROR:")) ApiEvidence.noteSuccess(host, token)
+            out
         }
 
     /**

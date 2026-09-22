@@ -253,18 +253,34 @@ object AccountStore {
      * 依据一次 `/user` 探测结果判定账号状态。
      *
      * @param httpCode 0 表示网络异常（连接失败/超时）
-     * @param body 响应体（用于识别 suspended / rate limit 文案）
+     * @param body 响应体（用于识别 suspended / rate limit 文案，以及**判断这是不是 GitHub 在回话**）
      */
     fun checkStatusFromResponse(httpCode: Int, body: String): AccountStatus = when {
         httpCode == 0 -> AccountStatus.UNREACHABLE
         httpCode in 200..299 -> AccountStatus.OK
-        httpCode == 401 -> AccountStatus.INVALID
+        // ⚠️ 401/403 只有在**响应像 GitHub 的**时候才算「令牌/账号问题」。
+        // 真 GitHub 的错误体是 JSON（含 message，通常还有 documentation_url）；代理、门户、
+        // 加速网关回给你的 403 往往是 HTML 或空体。把后者写成「令牌已失效」是**有害的误导**：
+        // 用户会去重新登录（没用），而真正该做的是检查代理/网络。
+        // 真机上出现过：同一次会话里 `/user` 报失效，而 `/user/repos`、`/notifications`、
+        // GraphQL 全是 200 —— 令牌显然是好的。
+        httpCode == 401 -> if (looksLikeGitHub(body)) AccountStatus.INVALID else AccountStatus.UNREACHABLE
         body.contains("suspended", ignoreCase = true) -> AccountStatus.SUSPENDED
         body.contains("rate limit", ignoreCase = true) -> AccountStatus.LIMITED
-        httpCode == 403 -> AccountStatus.INVALID
+        httpCode == 403 -> if (looksLikeGitHub(body)) AccountStatus.INVALID else AccountStatus.UNREACHABLE
         httpCode == 429 -> AccountStatus.LIMITED
         else -> AccountStatus.UNREACHABLE
     }
+
+    /**
+     * 这个错误响应是否**像 GitHub 自己回的**（纯函数，便于单测）。
+     *
+     * 判据取两条里任一：`documentation_url`（GitHub 错误体几乎必有）或 JSON 形状的 `"message"`。
+     * 代理/门户的 HTML 403、空体 403 都不满足 —— 它们该被判成「无法连接」。
+     */
+    internal fun looksLikeGitHub(body: String): Boolean =
+        body.contains("documentation_url") ||
+            (body.contains("\"message\"") && body.contains('{') && body.contains('}'))
 
     /**
      * 从 [RustBridge.getJson] 的返回判定状态。
