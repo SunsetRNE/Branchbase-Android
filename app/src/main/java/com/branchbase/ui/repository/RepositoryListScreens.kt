@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -51,6 +52,9 @@ import com.branchbase.cache.ListCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
+import com.branchbase.ui.log.LogCategory
+import com.branchbase.ui.log.Logger
+import com.branchbase.ui.decision.FeedbackLine
 import com.branchbase.ui.navigation.rememberPageResumeTick
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.LanguageColors
@@ -58,6 +62,20 @@ import com.branchbase.ui.theme.Primer
 import org.json.JSONObject
 
 // ── 通用 ──
+
+/**
+ * 用**覆盖令牌**重建会话 JSON（私有仓库「用访问令牌打开」用）。
+ *
+ * 子页面各自解析自己那份 `sessionJson`，所以只要在仓库页这一层换掉传下去的那份，
+ * **子页面零改动**；解析失败时原样返回（宁可不变，也不要造一份坏会话）。
+ */
+internal fun sessionWithToken(sessionJson: String, token: String): String = runCatching {
+    val o = JSONObject(sessionJson)
+    val t = o.optJSONObject("token") ?: JSONObject()
+    t.put("access_token", token)
+    o.put("token", t)
+    o.toString()
+}.getOrDefault(sessionJson)
 
 internal fun sessionInfo(sessionJson: String): Triple<String, String, String> {
     val s = runCatching { JSONObject(sessionJson) }.getOrNull()
@@ -82,6 +100,33 @@ private fun ListEmpty(text: String) {
     }
 }
 
+/**
+ * 仓库打不开时的**出路**：由仓库页提供、失败卡消费。
+ *
+ * 为什么用 CompositionLocal 而不是加参数：`ListError` 有 6 个调用点（代码/议题/拉取请求/提交/工作流/发布），
+ * 把 3 个回调一路穿下去会改 6 个函数签名；而出路只跟「当前在哪个仓库」有关，天然是环境。
+ * （`navigation` 包的 `LocalPageActive` 是同一个套路。）
+ */
+internal data class RepoAccessActions(
+    /** 打开访问令牌输入页（PAT 重试）。 */
+    val useToken: () -> Unit,
+    /** 去建一个带 repo 权限的新令牌（浏览器）。 */
+    val reauth: () -> Unit,
+    /** 在浏览器里打开这个仓库。 */
+    val openInBrowser: () -> Unit,
+    /** 探测当前令牌**已授予**的 scopes（拿不到返回 null）。只在失败卡真的要用时才调用。 */
+    val probeScopes: suspend () -> String?,
+    /**
+     * 账号在这个仓库上被拒（404/403）时回调一次（同一 message 只报一次）。
+     *
+     * 仓库页据此决定**要不要回退到仓库级凭据**（规则：账号优先，打不开才回退）——
+     * 判定放在仓库页，失败卡只负责「如实上报」。
+     */
+    val onAccessDenied: (String) -> Unit,
+)
+
+internal val LocalRepoAccessActions = androidx.compose.runtime.staticCompositionLocalOf<RepoAccessActions?> { null }
+
 /** 失败态 + 重试按钮（对应原型「失败」态，与「空态」区分） */
 @Composable
 internal fun ListError(message: String, onRetry: () -> Unit) {
@@ -93,12 +138,71 @@ internal fun ListError(message: String, onRetry: () -> Unit) {
         Text("加载失败", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
         Spacer(Modifier.height(4.dp))
         Text(message, fontSize = 12.sp, color = Primer.TextTertiary)
-        Spacer(Modifier.height(12.dp))
+
+        // 打不开仓库（404/403）时给「解释 + 出路」：只给原始错误串，用户只能猜
+        val actions = LocalRepoAccessActions.current
+        val hint = repoAccessHint(message)
+        if (hint != null && actions != null) {
+            var scopeLine by remember(message) { mutableStateOf<String?>(null) }
+            LaunchedEffect(message) {
+                // 上报一次：账号在这个仓库上被拒 —— 仓库页可能因此回退到仓库级凭据
+                actions.onAccessDenied(message)
+                // 探测一次令牌权限（失败/细粒度令牌拿不到 → 不额外说明）
+                scopeLine = scopeVerdictLine(scopeVerdict(actions.probeScopes()))
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                hint,
+                fontSize = 12.sp,
+                color = Primer.TextSecondary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 24.dp),
+            )
+            scopeLine?.let {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    it,
+                    fontSize = 12.sp,
+                    color = Primer.TextSecondary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 24.dp),
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AccessAction("用访问令牌打开", primary = true) { actions.useToken() }
+                AccessAction("建一个带 repo 的令牌") { actions.reauth() }
+                AccessAction("在浏览器打开") { actions.openInBrowser() }
+            }
+            Spacer(Modifier.height(12.dp))
+        } else {
+            Spacer(Modifier.height(12.dp))
+        }
+
         Box(
             Modifier.clip(CircleShape).background(Primer.Blue500).clickable { onRetry() }.padding(horizontal = 20.dp, vertical = 8.dp),
         ) {
             Text("重试", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
         }
+    }
+}
+
+/** 失败卡上的一个出路按钮（主按钮为实心蓝，其余描边）。 */
+@Composable
+private fun AccessAction(label: String, primary: Boolean = false, onClick: () -> Unit) {
+    val bg = if (primary) Primer.Blue500 else Color.Transparent
+    val fg = if (primary) Color.White else Primer.TextSecondary
+    Box(
+        Modifier
+            .clip(CircleShape)
+            .background(bg)
+            .then(
+                if (primary) Modifier else Modifier.border(1.dp, Primer.Border, CircleShape),
+            )
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 7.dp),
+    ) {
+        Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = fg)
     }
 }
 
@@ -195,7 +299,7 @@ fun RepositoryCodeContent(sessionJson: String, owner: String, repo: String, bran
         val ref = branch?.takeIf { it.isNotBlank() }?.let { b -> "?ref=${encodeRef(b)}" } ?: ""
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/contents$encoded$ref")
         if (json == null || json.startsWith("ERROR:")) {
-            if (!shownStale) error = json?.removePrefix("ERROR:") ?: "加载失败"
+            if (!shownStale) error = loadFailure("代码", json?.removePrefix("ERROR:"), owner, repo)
         } else {
             items = parseFileTree(json)
             ListCache.write(manager, cacheKey, json)
@@ -318,7 +422,7 @@ fun IssueListContent(sessionJson: String, owner: String, repo: String, refreshTi
         // ② 回源刷新
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/issues?state=all")
         if (json == null || json.startsWith("ERROR:")) {
-            if (!shownStale) error = json?.removePrefix("ERROR:") ?: "加载失败"
+            if (!shownStale) error = loadFailure("议题", json?.removePrefix("ERROR:"), owner, repo)
         } else {
             items = parseIssues(json)
             ListCache.write(manager, cacheKey, json)
@@ -395,7 +499,7 @@ fun PullListContent(sessionJson: String, owner: String, repo: String, branch: St
         val base = branch?.takeIf { it.isNotBlank() }?.let { b -> "&base=${encodeRef(b)}" } ?: ""
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/pulls?state=all$base")
         if (json == null || json.startsWith("ERROR:")) {
-            if (!shownStale) error = json?.removePrefix("ERROR:") ?: "加载失败"
+            if (!shownStale) error = loadFailure("拉取请求", json?.removePrefix("ERROR:"), owner, repo)
         } else {
             items = parsePulls(json)
             ListCache.write(manager, cacheKey, json)
@@ -472,7 +576,7 @@ fun CommitListContent(sessionJson: String, owner: String, repo: String, branch: 
         val sha = branch?.takeIf { it.isNotBlank() }?.let { b -> "?sha=${encodeRef(b)}" } ?: ""
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/commits$sha")
         if (json == null || json.startsWith("ERROR:")) {
-            if (!shownStale) error = json?.removePrefix("ERROR:") ?: "加载失败"
+            if (!shownStale) error = loadFailure("提交", json?.removePrefix("ERROR:"), owner, repo)
         } else {
             items = parseCommits(json)
             ListCache.write(manager, cacheKey, json)
@@ -547,7 +651,7 @@ fun WorkflowListContent(sessionJson: String, owner: String, repo: String, branch
         // ② 回源刷新
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/workflows")
         if (json == null || json.startsWith("ERROR:")) {
-            if (!shownStale) error = json?.removePrefix("ERROR:") ?: "加载失败"
+            if (!shownStale) error = loadFailure("工作流", json?.removePrefix("ERROR:"), owner, repo)
         } else {
             items = parseWorkflows(json)
             ListCache.write(manager, cacheKey, json)
@@ -633,7 +737,7 @@ fun ReleaseListContent(
         // ② 回源刷新
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/releases")
         if (json == null || json.startsWith("ERROR:")) {
-            if (!shownStale) error = json?.removePrefix("ERROR:") ?: "加载失败"
+            if (!shownStale) error = loadFailure("发布", json?.removePrefix("ERROR:"), owner, repo)
         } else {
             items = parseReleases(json)
             ListCache.write(manager, cacheKey, json)
@@ -936,6 +1040,52 @@ private fun ForkRow(fork: ForkItem) {
 
 // ── 设置（入口列表 → 仓库设置决策页 / PR 一条龙） ──
 
+/** PR 一条龙的提交信息初值（决策页里可改；只是默认，不再是写死的唯一值）。 */
+private const val DEFAULT_PR_COMMIT_MESSAGE = "chore: 通过 Branchbase 提交"
+
+/**
+ * 该仓库在「文件页」留下的待提交草稿（仓库内相对路径）—— 一条龙的真实改动来源。
+ *
+ * 目录约定与文件页一致（`files/edit/single/{owner}/{repo}`，见 `RepositoryFileViewer.draftRoot()`）：
+ * 用户在代码页编辑并**保存草稿** → 回到仓库页 ⋮ → 开 PR 一条龙，这里就能把清单接进去。
+ * 只认已落盘的草稿：正在编辑、还没保存的那份只在文件页的内存里，本页看不到。
+ * `.base`（草稿基准 sha）与 `.remote`（冲突副本）是旁挂文件，不是改动本身，排除。
+ */
+/**
+ * 列表类页面的统一失败落点：**先记一条能定位的日志，再把原始错误交给 UI**。
+ *
+ * 打不开仓库（404/403）是最需要日志的场景 —— 用户只会说「某个仓库打不开」，
+ * 而日志里能看出是哪个 owner/repo、哪种状态码、以及该怎么理解（见 [repoAccessHint]）。
+ * 锚点：`私有仓库`（导出包 `report.md` 的锚点词典里有它）。
+ */
+/** 在系统浏览器里打开链接（失败即静默 —— 与本仓库其它 `ACTION_VIEW` 用法一致）。 */
+internal fun openInBrowser(context: android.content.Context, url: String) {
+    runCatching {
+        context.startActivity(
+            android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)),
+        )
+    }
+}
+
+private fun loadFailure(page: String, error: String?, owner: String, repo: String): String {
+    val raw = error ?: "加载失败"
+    repoAccessHint(raw)?.let { hint ->
+        Logger.warn(LogCategory.NETWORK, "私有仓库", "${page}页 $owner/$repo 打不开 —— $hint")
+    }
+    return raw
+}
+
+private fun pendingDraftPaths(context: android.content.Context, owner: String, repo: String): List<String> =
+    runCatching {
+        val root = java.io.File(context.getExternalFilesDir(null), "edit/single/$owner/$repo")
+        if (!root.isDirectory) return@runCatching emptyList()
+        root.walkTopDown()
+            .filter { it.isFile && !it.name.endsWith(".base") && !it.name.endsWith(".remote") }
+            .map { it.relativeTo(root).path }
+            .sorted()
+            .toList()
+    }.getOrDefault(emptyList())
+
 @Composable
 fun RepositorySettingsContent(
     sessionJson: String,
@@ -944,8 +1094,15 @@ fun RepositorySettingsContent(
     branches: List<String>,
     defaultBranch: String,
 ) {
+    val context = LocalContext.current
     // 0=入口列表 1=仓库设置决策页 2=PR 一条龙
     var subPage by remember { mutableStateOf(0) }
+    // 决策页的结果冒泡到这里：返回入口列表后仍然看得到「默认分支已切换为 x」这类反馈
+    // （旧实现 onFeedback = {} 直接丢掉）。error=true 时用红字。
+    var feedback by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    // 待提交草稿：重新可见时重扫（代码页存完草稿回到仓库页，这里要看到新清单）
+    val resumeTick = rememberPageResumeTick()
+    val changedFiles = remember(owner, repo, resumeTick) { pendingDraftPaths(context, owner, repo) }
     when (subPage) {
         1 -> {
             com.branchbase.ui.decision.RepoSettingScreen(
@@ -955,7 +1112,7 @@ fun RepositorySettingsContent(
                 branches = branches,
                 defaultBranch = defaultBranch,
                 onBack = { subPage = 0 },
-                onFeedback = {},
+                onFeedback = { msg, error -> feedback = msg to error },
             )
             return
         }
@@ -965,10 +1122,16 @@ fun RepositorySettingsContent(
                 owner = owner,
                 repo = repo,
                 baseBranch = defaultBranch,
-                commitMessage = "chore: 通过 Branchbase 提交",
-                changedFiles = emptyList(),
+                commitMessage = DEFAULT_PR_COMMIT_MESSAGE,
+                // 真实改动只能来自文件页草稿；一个都没有时一条龙第②步会明确拦住（不假装能开 PR）
+                changedFiles = changedFiles,
+                // 分支清单来自仓库页（同一份 branches），第①步据此查重名
+                branches = branches,
                 onBack = { subPage = 0 },
-                onCreated = { subPage = 0 },
+                onCreated = { msg ->
+                    msg?.let { feedback = it to false }
+                    subPage = 0
+                },
             )
             return
         }
@@ -976,9 +1139,19 @@ fun RepositorySettingsContent(
     // 原先还有一条「许可证」占位行（enabled=false，点了没反应），已随占位清理移除
     val entries = listOf(
         Triple("仓库设置（默认分支 / 分支管理 / 危险区）", 1, true),
-        Triple("开 PR 一条龙（新建分支 + 开 PR）", 2, true),
+        Triple(
+            if (changedFiles.isEmpty()) {
+                "开 PR 一条龙（新建分支 + 开 PR）· 无待提交草稿"
+            } else {
+                "开 PR 一条龙（新建分支 + 开 PR）· 待提交 ${changedFiles.size} 个文件"
+            },
+            2,
+            true,
+        ),
     )
     LazyColumn(Modifier.fillMaxSize()) {
+        // 决策页带回来的结果（成功 / 失败）就显示在这里 —— 沿用决策页同一条反馈行，不另造提示组件
+        feedback?.let { (msg, error) -> item { FeedbackLine(msg, error = error) } }
         items(entries) { (name, target, enabled) ->
             Row(
                 Modifier

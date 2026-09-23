@@ -5,7 +5,7 @@ import org.json.JSONObject
 /**
  * 贡献日历数据（GraphQL `contributionsCollection.contributionCalendar`）。
  *
- * 对齐 `design/contribution-wall-prototype.html`：
+ * 数据来源与取舍：
  * REST 的 `/users/{login}/events` 只有近 90 天、最多 300 条且仅公开事件，
  * 画不出 52 周；GraphQL 一次即可拿到 `weeks[].contributionDays[]`。
  */

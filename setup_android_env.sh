@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # setup_android_env.sh —— 本地 proot 环境一键入口（已重构为「判定→准备→持久化」三脚本解耦）
 #
-# 重构说明（对应 docs/build-optimization-proposal.md）：
+# 重构说明（为什么这么定，见 docs/specs/BUILD-NOTES.md §六）：
 #   - 环境判定与准备解耦：tools/env/env-detect.sh（纯判定）→ env-prepare.sh（缺失才准备）
 #   - 已彻底删除镜像测速（ping / 分段测速），走「预存资产 + 固定镜像」离线优先路径
 #   - 环境变量进仓库 tools/env/env.rc，env-persist.sh 只在 ~/.bashrc 追加一行 source

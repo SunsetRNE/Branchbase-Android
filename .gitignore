@@ -58,6 +58,11 @@ __pycache__/
 # /docs/specs/prototypes/ 入库 —— 草图与结论的寿命不一样，见 /docs/README.md
 /design/
 
+# 审计 / 评审件（一次性的调查记录：契约审计、文档体检、落地记录）
+# 它们的**结论**已经落进 /docs/specs/ 与代码，这里只是过程材料 ——
+# 本地留着方便复查，不入库、也不进版本历史；看完可整目录删除。
+/review/
+
 # 注意：/docs/ **不再**整体忽略。
 # 历史上来过一版「/docs/ 也忽略」的写法，代价是 core/src/html/mod.rs 长年引用一份
 # docs/html-parser-design.md，而它从未进过版本库、丢失后无从找回 ——

@@ -66,7 +66,7 @@
 「GitHub 族」= `is_github_host(host, ctx.host)`：与 `ctx.host` 相同（大小写不敏感）、
 `github.com`、`*.github.com`、或 `raw.githubusercontent.com`。
 
-### §4 站内路径分类（`classify_github`）
+## 4. 站内路径分类（`classify_github`）
 
 先按 `?` 切掉查询串再分段（见 §5.4），`segs` 是**去掉空段**后的路径段：
 
@@ -96,7 +96,7 @@
 以 `ctx.base_dir` 为起点，逐段应用目标路径：`.`/空段跳过、`..` 弹出一段，其余入栈；
 再按 §5.1 决定 `blob`/`tree`，最后**重建**成绝对 URL。
 
-### §5.1 末尾 `/` 判目录
+### 5.1 末尾 `/` 判目录
 
 路径以 `/` 结尾 → `tree`；否则 → `blob`。**这个判定在两处必须一致**：
 

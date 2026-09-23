@@ -89,6 +89,9 @@ object RustBridge {
 
     private external fun nativeGetRepoInfo(host: String, token: String, owner: String, repo: String): String
 
+    /** 读取当前令牌已被授予的 scopes（`x-oauth-scopes` 响应头原文；空串 = 该头缺失）。 */
+    private external fun nativeOauthScopes(host: String, token: String): String
+
     private external fun nativeGetRepoLanguages(host: String, token: String, owner: String, repo: String): String
 
     private external fun nativeGetRepoContributors(host: String, token: String, owner: String, repo: String): String
@@ -433,6 +436,36 @@ object RustBridge {
     suspend fun getRepoInfo(host: String, token: String, owner: String, repo: String): String? =
         withContext(Dispatchers.IO) {
             nativeGetRepoInfo(host, token, owner, repo).ifBlank { null }
+        }
+
+    /**
+     * 读取当前令牌**已被授予**的 scopes（`x-oauth-scopes` 原文，例如 `"repo,read:user"`）。
+     *
+     * ## 为什么单独一个入口
+     * GitHub 对**当前授权看不到的私有仓库**也返回 **404**（和「不存在」一模一样），
+     * 唯一能区分的信号就是这个**响应头** —— 而 [getJson] 只把 body 带回来，头被丢掉了。
+     *
+     * ## 返回约定
+     * 成功 = 归一后的原文（Rust 侧已去空白、丢空项）。**null = 拿不到 scope 信息**
+     * （细粒度 PAT 不报这个头 / 探测请求失败 / 旧 `.so` 里还没有这个符号），
+     * 与「令牌一个 scope 都没有」是两回事，调用方**不能**把 null 当成没权限。
+     *
+     * **刻意不在这里判成布尔**：怎么解读（有没有 `repo`、要不要重新授权、是不是 SSO）
+     * 属于界面层的判断，见 `com.branchbase.ui.repository.scopeVerdict`；这里只负责把事实原样带回来。
+     *
+     * `ERROR:` 前缀（引擎侧失败，如 401）也收敛成 null：那不是 scope 原文，若原样交出去，
+     * 界面层按 `,` 切分后会把 `ERROR:HTTP 401…` 当成一个 scope，进而判成「没有 repo 权限」。
+     */
+    suspend fun oauthScopes(host: String, token: String): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                // 空串 = 这个令牌不报 scope（细粒度 PAT）；`ERROR:` = 探测本身失败。
+                // 两者都是「拿不到信息」，与「令牌真的没有 scope」必须区分开。
+                nativeOauthScopes(host, token)
+                    .takeIf { it.isNotBlank() && !it.startsWith("ERROR:") }
+            } catch (e: Throwable) {
+                null // 新增符号：设备上还是旧 .so 时抛 UnsatisfiedLinkError，优雅降级成「拿不到」
+            }
         }
 
     /** 获取仓库语言统计（返回 {语言:字节数} JSON）。 */

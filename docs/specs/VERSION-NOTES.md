@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只留格式契约 + 写法样板（3 个经典示例）；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.71**）
-与 §三 `versionCode` 流水（129 → **173**）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.72**）
+与 §三 `versionCode` 流水（129 → **174**）。
 
 ---
 
@@ -16,7 +16,7 @@
 3. **最后改 `version.properties`**：只改 `versionName=` / `versionCode=` 两个值。
    那个文件**不再堆变更记录**（只留 3 个写法样板），记录一律进本文档。
 
-### 写法约定（从这 23 条里长出来的）
+### 写法约定（从 1.0.22–1.0.44 那批条目里长出来的）
 
 - 标题一句「改了什么」；正文写**为什么** —— 原先哪里不成立、代价是什么，以及这条结论的边界；
 - 一版里有多件事就分 ①②③，别混成一段；
@@ -25,7 +25,58 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.71 → 1.0.22）
+## 二、`versionName` 流水（1.0.72 → 1.0.22）
+
+### 1.0.72
+
+**文档重组收尾 + 三个「说了没做」的功能兑现 + 私有仓库凭据** —— 这一版没有新界面，改的都是
+「用户已经能点到、但点到之后不成立」的地方。
+
+① **文档先按代码纠偏，再谈重组**。逐份对照源码复核 `docs/specs/` 全部 17 份文档，改掉 **35 处**
+与代码不符的断言（`SettingsSpecTest` 18→24、`JniSignatureTest` 83→88、`frame-perf` 同一基线窗
+两套数字、`ui-design` 的「12% 胶囊」实际 18%、「`Gray900` 零调用」实际多处调用…），
+修掉 **11 处悬空引用**（3 份从未进过版本库的文档 + 8 个不存在的 `/design/*-prototype.html`）
+与 6 处幽灵代码路径。根 `README.md` 从 **417 行瘦到 110 行**（只留门面 / 下载与安装 / 快速上手 /
+一行制功能一览 / 技术栈与结构 / 构建 / 文档入口），迁出的正文进了三份新规格：
+`features-design.md`（用户可见行为）、`decision-pages-design.md`（14 页决策体系）、
+`local-git-engine-design.md`（libgit2 稳定接口与 `nff:` 归一）；`docs/README.md` 成为**唯一**文档索引
+（历史上「根 README 与 docs/README 各列一份」已经导致 `morph-design.md` 两边同时漏掉）。
+
+② **决策页/仓库页的「演示数据」全部换成真值**。PR 一条龙的第二步此前是空转（宿主传
+`changedFiles = emptyList()`，于是「建分支 → 开 PR」产生的是**与 base 同 sha、diff 为空**的假 PR）——
+现在第②步真的调 `commitFiles`（内容草稿优先、读不全整体不提交），空清单**拦住并给引导**；
+`PrMergeScreen` 从「零调用点」接进 PR 详情页（`open && !merged` 才露出，`mergeable` 三态分别处理）；
+「已合并」不再写死 `setOf("patch-1")`，改按需 `compareBranches`；「挽留 stats」与仓库统计取真值、
+取不到就不显示那一行；`DraftInfo.remoteChanged` 接上**已有的**草稿基准 sha（此前恒为 false，
+多端编辑提醒从来没亮过）；仓库设置的反馈冒泡到页面。文案层面把「点了必然失败」的两处改成**预先禁用 + 写明原因**
+（`has_parent` / `has_remote_ref` 由 `repo_status` 新增下发），「仅本次推送」这个与引擎行为不符的假选择删掉，
+「revert 失败（引擎不可用）」这类**编造归因**全部换成中性说法。
+
+③ **私有仓库认证失败有了完整出路**。GitHub 对无权限的私有仓库返回 **404**（与「不存在」同码），
+所以先补上唯一能区分的信号：`GET /user` 的 **`x-oauth-scopes`** 响应头（`ApiClient::oauth_scopes`，
+探测失败/拿不到一律收敛成 UNKNOWN，绝不误判成「没有权限」）。失败卡据此给出解释 + 三条出路
+（用访问令牌打开 / 建一个带 `repo` 的令牌 / 浏览器打开），并新增**仓库级凭据**：
+账号优先、账号打不开（404/403）才回退、**回退后读写都用它** —— 因此使用中页面顶部有身份横幅
+（写操作会以另一身份执行）+「改用账号」退路；凭据存在独立 prefs 文件并**排除云备份与设备迁移**，
+管理入口在 设置 → 仓库凭据，**只在令牌登录模式（PAT）下出现**（规范 `settings-design.md` §3.2.1）。
+
+④ **别人发来的日志包现在自带索引**。导出 zip 从「一份 `branchbase.log`」变成**两份文件**：
+`report.md`（版本 / 条数（含 ERROR/WARN）/ 时间范围 / 类别分布 / 设备档案摘要 / **锚点词典**）
++ 原始日志；索引的数字都从同一批日志现算，不可能与原始日志矛盾。配套给关键路径钉了**锚点**
+（`LOG_ANCHORS`：`PR一条龙` / `PR合并` / `敏感扫描` / `决策页` / `私有仓库` / `草稿`），
+没有真机走查时，「用户说某个操作不对」直接 grep 一个词就能看到整条链路。
+另外：提交前敏感扫描**不可用时改为拦下并说明**（此前把 null 折叠成「没命中」直接放行 ——
+等于警告在最需要它的时候正好不存在，而用户以为扫过了）。
+
+⑤ **钉子**：新增 `DecisionModelsTest`(8) / `SyncDecisionPrecheckTest`(15) / `CollabDecisionRulesTest`(19) /
+`PullDetailModelsTest`(9) / `RepoCredentialStoreTest`(11) / `LogAnchorsTest`(2) / `OAuthDeepLinkTest`(2) /
+`DownloadFileProviderAuthorityTest`(2) / `RepoAccessHintTest`(9)；两条此前**既无钉子也无文档**的契约
+（OAuth 深链、下载模块 FileProvider authority）补上了源码级钉子；Rust 侧 `repo_status` 补 3 个字段
+（`has_parent` / `head_sha` / `has_remote_ref`）与用例。顺带修掉一个**必然 flaky** 的断言：
+`MorphPairTest` 拿两次缓存命中的耗时互比（实测失败率 **34.9%**，因为台账是进程级单例、该用例
+在类里最后一个跑），改成对**新建 pair** 量真首次（1.34ms vs 0.29µs）。
+
+---
 
 ### 1.0.71
 
@@ -1152,11 +1203,17 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（173 → 129）
+## 三、`versionCode` 流水（174 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **174**：文档按代码纠偏（35 处断言 / 11 处悬空引用 / 6 处幽灵路径）+ 根 README 瘦身 417→110 行、
+迁出三份新规格；决策页与仓库页的演示数据换真值（PR 一条龙真提交、合并入口接线、预检与文案诚实化、
+敏感扫描不可用改为拦下）；私有仓库 scope 探测 + 失败卡三出路 + 仓库级凭据（独立 prefs、排除备份、
+设置页仅 PAT 模式）；日志导出包补 `report.md` 索引与锚点词典；新增 9 个测试类、修掉一个 34.9% 失败率的
+flaky 断言（一次提交，故 +1）
 
 - **173**：修日志页闪退 —— LazyColumn 的 key 用了 `时间戳 + 文案`（同毫秒同文案即撞车 ⇒ `IllegalArgumentException: Key … was already used`，自 1.0.42 起），改用 `LogEntry.seq`（进程内单调递增）（一次提交，故 +1）
 

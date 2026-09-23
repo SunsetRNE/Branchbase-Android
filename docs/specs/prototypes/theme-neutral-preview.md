@@ -6,7 +6,12 @@
 
 # 中性色「去灰」对比原型 · 说明
 
+> **快照说明（2026-09 补）**：本文是**设计当时的记录** —— 文中的「现状测绘」、「`文件:行号`」、
+> 「依据：`xxx.kt`（N 行）」都不会随代码演进更新（只有少数几处加了「2026-09 追记」）。
+> 判断当前行为请以代码与 `docs/specs/` 下的规格为准；落地清单里未落地的项只表示「当时计划过」。
+
 > 目录：`design/theme-neutral-preview/`（`/design/` 已在 `.gitignore` 中：原型草图不入库）
+> 本文档的**入库副本**：`docs/specs/prototypes/theme-neutral-preview.md`（改完这里请同步那份）
 > 目的：在**动 `ThemePalette.kt` 之前**，先看清「把灰色部分换成纯黑/纯白」在明暗两套下分别是什么观感。
 
 ## 一、怎么打开
@@ -27,6 +32,9 @@
 | `--icon2` | `iconSecondary` | `#9194A1` | `#8B949E` |
 | `--border` | `border` | `#BFC1C9` | `#30363D` |
 | `--subtle` | `neutralFill` | `#F7F7F9` | `#161B22` |
+
+> **2026-09 追记**：四行里只有 `iconPrimary` 变了 —— 已按方案 A 落地为 `#000000`（浅）/ `#FFFFFF`（深）
+> （`ui/theme/ThemePalette.kt`；改动记于 VERSION-NOTES 的 1.0.31 条目）。其余三行与设计当时一致。
 
 **`--accent`（蓝）/ `--success`（绿）等品牌与状态色在三列之间完全一致** —— 这是刻意的，
 用来确认「蓝绿不换」的基准没被顺手带偏。
@@ -75,11 +83,11 @@ radius 16dp → 9dp · 灰底 #F7F7F9 → #F0F0F2、#161B22 → #1A1A1A（更实
 
 ## 五、结论与后续
 
-- **图标**：改成黑/白值得做，波及 `Primer.IconPrimary`/`IconSecondary` 79 处，风险低；
+- **图标**：改成黑/白值得做，波及 `Primer.IconPrimary`/`IconSecondary` 79 处（2026-09 同法复算约 **85** 处），风险低；
 - **正文**：`textPrimary` 已经是 `#050505` / `#E6EDF3`，本来就不需要动。真正偏灰的是
   `textSecondary`(#41434E) 与 `textTertiary`(#6A6D7C)，它们是**层次本身**，全塌成纯黑会让长列表发糊；
 - **描边**：一刀切纯黑/纯白（方案 B）会让浅色退回 wireframe、深色出现一屏「发光矩形」，
-  建议走方案 A 的 3:1 档；`Primer.Border` 波及 70 处。
+  建议走方案 A 的 3:1 档；`Primer.Border` 波及 70 处（2026-09 同法复算约 **69** 处）。
 
 定了口径后改 `ThemePalette.kt` 的 `LightPrimerPalette` / `DarkPrimerPalette` 即可，
 所有 `Primer.XXX` 调用点一行都不用动（这是该色板架构的设计前提）。

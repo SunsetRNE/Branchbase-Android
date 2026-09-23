@@ -76,7 +76,7 @@ class PageTransitionsTest {
         // （主界面路由 / 仓库页十几个子页 / 个人页子页 / 登录流程步骤）拿到的恒为 true ——
         // 机制在最常用的那条路径上没生效。谁再把其中一个改回 `content = content`，这里立刻红。
         //
-        // 1.0.56 起 TabSwitcher 改成**保活**：下发点从 AnimatedContent 的 lambda 挪进了
+        // 1.0.57 起 TabSwitcher 改成**保活**：下发点从 AnimatedContent 的 lambda 挪进了
         // `KeepAliveTab`（多了一层），所以这里钉的不再是「那一行的字面写法」，而是两件事：
         // ① 全文件有**两处** `LocalPageActive provides`（两个切换器各一处，一个都不能少）；
         // ② 两处都必须由 `pageIsCurrent` 判定 —— 少了它，「退场 / 隐藏中的旧页」会拿到 true，

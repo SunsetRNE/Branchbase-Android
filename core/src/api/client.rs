@@ -358,6 +358,42 @@ impl ApiClient {
         Ok(text)
     }
 
+    /// 读取当前令牌**已被授予**的 scopes（响应头 `x-oauth-scopes`）。
+    ///
+    /// 为什么单独一个请求：它是**响应头**，而 `get_json` 只带 body 回来。
+    /// 判定「私有仓库打不开是不是权限不够」只能靠它 —— 404 本身有歧义（不存在 / 无权限）。
+    ///
+    /// 返回：逗号分隔的 scopes 原文（已 normalize）。**空串** = 响应头缺失或为空
+    /// （细粒度 PAT 不报这个头，OAuth / 经典 PAT 会报）。
+    ///
+    /// 这条路径**只能真机验证**：头是 GitHub 按令牌类型在服务端发的，本机单测既没有
+    /// 真令牌、也没有能回这个头的服务端；单测只覆盖下面 [normalize_scopes] 的纯逻辑。
+    /// GHE 上若网关或反向代理把该头滤掉，同样只会拿到空串（表现为「拿不到 scope」而非报错）。
+    pub async fn oauth_scopes(&self) -> Result<String> {
+        let url = format!("{}user", self.base_url());
+        let resp = self
+            .http
+            .get(&url)
+            .header("Authorization", format!("token {}", self.token))
+            .header("Accept", "application/json")
+            .header("User-Agent", "Branchbase/0.1")
+            .send()
+            .await?;
+        // 必须先读头再消费 body：`text()` 会吃掉整个响应，之后就拿不到头了
+        let raw = resp
+            .headers()
+            .get("x-oauth-scopes")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+        let status = resp.status();
+        let text = resp.text().await?;
+        if !status.is_success() {
+            return Err(CoreError::Other(format!("HTTP {status}: {text}")));
+        }
+        Ok(normalize_scopes(&raw))
+    }
+
     /// 下载任意 URL 的文本内容（公开资源，不带鉴权，如 release 附件）
     /// 带鉴权的 DELETE 请求（删除分支/仓库等），返回 JSON 字符串或空串
     pub async fn delete_json(&self, path: &str) -> Result<String> {
@@ -393,9 +429,25 @@ impl ApiClient {
         Ok(text)
     }
 }
+
+/// 归一 `x-oauth-scopes` 的值：去空白、丢掉空项、用 `,` 连接（缺头时传空串 → 返回空串）。
+///
+/// GitHub 给的原文形如 `"repo, read:user"`（逗号 + 空格），也可能带前导/尾随空白，
+/// 甚至出现连续逗号（空项）。这里统一成**无空格**的 `"repo,read:user"`：
+/// 调用方按 `,` 切分即可，不必各自再 trim；空项一并丢掉，避免「空 scope」被当成一项有效权限。
+///
+/// 单独提成纯函数是为了能单测 —— [ApiClient::oauth_scopes] 那条路要真令牌才能验（见该方法注释）。
+pub(crate) fn normalize_scopes(raw: &str) -> String {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{build_count, reset_http_client, shared_http};
+    use super::{build_count, normalize_scopes, reset_http_client, shared_http};
     use std::io::{Read, Write};
     use std::net::TcpListener;
 
@@ -435,6 +487,20 @@ mod tests {
             "reset_http_client 之后应重新构建客户端（before={before}, after={}）",
             build_count()
         );
+    }
+
+    /// [normalize_scopes] 的归一规则：去空白、丢空项、用 `,` 连接。
+    ///
+    /// 缺头（空串）与「只有空白」都必须回空串 —— 那是「这次拿不到 scope 信息」的信号，
+    /// 上层据此判 UNKNOWN；这里若返回别的东西（比如 `" "` 或 `","`），上层就会误判成
+    /// 「令牌一个 scope 都没有」，把「不知道」说成「没权限」。
+    #[test]
+    fn scopes_归一化去掉空白与空项() {
+        assert_eq!("repo,read:user", normalize_scopes(" repo , read:user "));
+        assert_eq!("repo,gist", normalize_scopes("repo,,gist"));
+        assert_eq!("", normalize_scopes(""));
+        assert_eq!("", normalize_scopes("   "));
+        assert_eq!("repo", normalize_scopes("repo"));
     }
 
     /// 重置不是「把客户端废掉」：重建出来的那一份仍要能正常发请求。

@@ -6,9 +6,15 @@
 
 # 工作流详情页重设计原型 · 说明与落实方案
 
+> **快照说明（2026-09 补）**：本文是**设计当时的记录** —— 文中的「现状测绘」、「`文件:行号`」、
+> 「依据：`xxx.kt`（N 行）」都不会随代码演进更新（只有少数几处加了「2026-09 追记」）。
+> 判断当前行为请以代码与 `docs/specs/` 下的规格为准；落地清单里未落地的项只表示「当时计划过」。
+
 > 目录：`design/workflow-redesign/`（`/design/` 已在 `.gitignore` 中：原型草图不入库，但能被 DSH 原型预览面板扫到）
+> 本文档的**入库副本**：`docs/specs/prototypes/workflow-redesign.md`（改完这里请同步那份）
 > 目标页面：**工作流运行详情（Run 详情）** + **作业日志页**（原「Job 详情页」的演进）
-> 依据：`app/src/main/java/com/branchbase/ui/repository/WorkflowRunDetailScreen.kt`（676 行，逐行测绘）
+> 依据：`app/src/main/java/com/branchbase/ui/repository/WorkflowRunDetailScreen.kt`（设计当时 676 行，逐行测绘；
+> 2026-09 追记：该文件现为 **495 行**，文中的行号区间已整体漂移）
 
 ## 一、交付物与查看方式
 

@@ -24,7 +24,7 @@ import com.branchbase.ui.log.Logger
 import com.branchbase.ui.theme.Primer
 
 /**
- * 提交模式独立子页（对齐 `design/settings-split-prototype.html` 屏 2）。
+ * 提交模式独立子页（设置页规范见 `docs/specs/settings-design.md` §三）。
  *
  * 原来这 3 个模式卡片直接塞在设置主页里，占掉近半屏；拆出来后
  * 设置主页只留一行入口并显示当前模式。

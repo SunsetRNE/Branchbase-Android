@@ -20,6 +20,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -39,10 +41,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.branchbase.ui.log.LogCategory
+import com.branchbase.ui.log.Logger
 import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
+import com.branchbase.ui.decision.PrMergeScreen
+import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.async
@@ -55,7 +61,7 @@ import kotlinx.coroutines.coroutineScope
  * 本文件保留 PR 与提交详情，以及两个页面共用的页头 / 居中态 / diff 渲染。
  *
  * 结构：
- * PR：标题 + 状态 + 分支合并信息 + 描述 + 文件变更（+/- 统计）。
+ * PR：标题 + 状态 + 分支合并信息 + **合并入口（合并子页 `PrMergeScreen`）** + 描述 + 文件变更（+/- 统计）。
  */
 
 @Composable
@@ -72,6 +78,25 @@ fun PullDetailScreen(
     var files by remember { mutableStateOf<List<PullFile>>(emptyList()) }
     var bodyHtml by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
+    // 合并子页（`PrMergeScreen`）的打开态：它是**本页内部**的一层，不新增仓库页路由
+    var mergeOpen by remember { mutableStateOf(false) }
+    // 合并结果反馈：合并页通过 `onMerged` 交回来的原话（成功信息，可能带「分支删除失败」后缀）
+    var mergeFeedback by remember { mutableStateOf<String?>(null) }
+    // 主动刷新计数：合并成功后 +1。键进下面那个 LaunchedEffect ⇒ 详情重新回源
+    // （force = true，跳过直出并忽略缓存新鲜度，否则刚合并完还会把旧的 open 详情再渲染一遍）
+    var refreshTick by remember { mutableStateOf(0) }
+
+    /**
+     * 合并子页打开时，系统返回键**先关子页**。
+     *
+     * 与文件页的决策页同一约定（`RepositoryFileViewer` 的 `PageBackHandler`）：页面自己消费
+     * 「自己的下一层」，否则系统返回键会跳过合并页、直接把整个 PR 详情页关掉，
+     * 与合并页左上角的返回箭头走成两条路。
+     *
+     * 本页在 `PageSwitcher` 的 content 里 ⇒ 这里的 handler 注册在其兜底之后、优先级更高；
+     * `enabled = mergeOpen` 为 false 时不抢事件，交回仓库页的 `leavePage()` 关详情页。
+     */
+    PageBackHandler(mergeOpen) { mergeOpen = false }
 
     /**
      * 应用一份 PR 详情 JSON：解析 + 正文 markdown 渲染（与改造前的渲染路径完全一致）。
@@ -84,9 +109,13 @@ fun PullDetailScreen(
         return true
     }
 
-    LaunchedEffect(owner, repo, number) {
-        loading = true
-        // 与 Issue 详情同一套：本页无手动刷新/重试入口，force 恒为 false（PageCache 默认值）
+    LaunchedEffect(owner, repo, number, refreshTick) {
+        // refreshTick > 0 = 合并成功后的主动回源：跳过直出、忽略新鲜度（见页首那段注释）
+        val force = refreshTick > 0
+        // 只有「手上还没有详情」才打加载态：合并后的刷新保留当前内容，不把详情闪成骨架
+        if (detail == null) loading = true
+        // 平时 force = false（PageCache 默认值，命中未过期缓存即零网络）；
+        // 只有合并成功后的那次刷新把它置为 true —— 那一次必须真的回源。
         val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
         val detailKey = PageCache.pullKey(owner, repo, number)
         val filesKey = PageCache.pullFilesKey(owner, repo, number)
@@ -94,26 +123,26 @@ fun PullDetailScreen(
         var appliedJson: String? = null
 
         // ① 先直出缓存（含过期数据）
-        PageCache.cachedFirst(manager, detailKey, PageCache.TYPE_DETAIL)?.let { cached ->
+        PageCache.cachedFirst(manager, detailKey, PageCache.TYPE_DETAIL, force)?.let { cached ->
             if (applyDetail(cached)) {
                 appliedJson = cached
                 loading = false
             }
         }
         // 文件变更一并直出（空列表与「请求失败」的渲染结果相同，无需区分）
-        PageCache.cachedFirst(manager, filesKey, PageCache.TYPE_DETAIL)?.let { cached ->
+        PageCache.cachedFirst(manager, filesKey, PageCache.TYPE_DETAIL, force)?.let { cached ->
             runCatching { parsePullFiles(cached) }.getOrNull()?.let { f -> files = f }
         }
 
         // ② 回源并写回：详情与文件变更并行（原来是详情成功后再串行拉文件）
         coroutineScope {
             val detailJob = async {
-                PageCache.refresh(manager, detailKey, PageCache.TYPE_DETAIL) {
+                PageCache.refresh(manager, detailKey, PageCache.TYPE_DETAIL, force) {
                     RustBridge.getJson(host, token, "/repos/$owner/$repo/pulls/$number")
                 }
             }
             val filesJob = async {
-                PageCache.refresh(manager, filesKey, PageCache.TYPE_DETAIL) {
+                PageCache.refresh(manager, filesKey, PageCache.TYPE_DETAIL, force) {
                     RustBridge.getJson(host, token, "/repos/$owner/$repo/pulls/$number/files")
                 }
             }
@@ -127,26 +156,129 @@ fun PullDetailScreen(
         loading = false
     }
 
-    Column(
-        Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding(),
-    ) {
-        DetailHeader("#$number", onBack)
-        when {
-            loading -> CenterLoading()
-            detail == null -> CenterText("加载失败")
-            else -> LazyColumn(Modifier.fillMaxSize()) {
-                item { PullHead(detail!!) }
-                // 分支传空串 = 用 HEAD 兜底（这里拿不到默认分支；写死 "main" 在 master 仓库上会 404）
-                if (bodyHtml != null) item { ReadmeWebView(bodyHtml!!, host, owner, repo, "", login, token, onLinkClick = {}) }
-                else if (detail!!.body.isNotBlank()) item { CommentBody(detail!!.body, detail!!.author, detail!!.createdAt) }
-                item { Text("文件变更 (${files.size})", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, modifier = Modifier.padding(16.dp, 14.dp, 16.dp, 6.dp)) }
-                items(files) { f -> PullFileRow(f) }
+    Box(Modifier.fillMaxSize().background(Primer.BackgroundPrimary)) {
+        Column(
+            Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding(),
+        ) {
+            DetailHeader("#$number", onBack)
+            // 合并结果反馈压在页头下（LazyColumn 之外）：滚到文件变更末尾也还看得见
+            mergeFeedback?.let { MergeResultBanner(it) }
+            val d = detail
+            when {
+                loading -> CenterLoading()
+                d == null -> CenterText("加载失败")
+                else -> LazyColumn(Modifier.fillMaxSize()) {
+                    item { PullHead(d) }
+                    // 合并入口：仅 open 且未合并的 PR 露出；不可自动合并时置灰 + 给一句原因
+                    val entry = pullMergeEntry(d.state, d.merged, d.mergeable, d.headRef, d.baseRef)
+                    if (entry != PullMergeEntry.Hidden) {
+                        item {
+                            MergeEntry(
+                                enabled = entry == PullMergeEntry.Enabled,
+                                hint = pullMergeHint(d.mergeable, d.headRef, d.baseRef),
+                                onMerge = {
+                                    // 锚点：`PR合并` —— 记下入口当时看到的状态，便于解释「为什么这次置灰/能点」
+                                    Logger.local(
+                                        "打开合并页：$owner/$repo #${d.number} state=${d.state} merged=${d.merged} " +
+                                            "mergeable=${d.mergeable} head=${d.headRef}",
+                                        "PR合并",
+                                    )
+                                    mergeOpen = true
+                                },
+                            )
+                        }
+                    }
+                    // 分支传空串 = 用 HEAD 兜底（这里拿不到默认分支；写死 "main" 在 master 仓库上会 404）
+                    if (bodyHtml != null) item { ReadmeWebView(bodyHtml!!, host, owner, repo, "", login, token, onLinkClick = {}) }
+                    else if (d.body.isNotBlank()) item { CommentBody(d.body, d.author, d.createdAt) }
+                    item { Text("文件变更 (${files.size})", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, modifier = Modifier.padding(16.dp, 14.dp, 16.dp, 6.dp)) }
+                    items(files) { f -> PullFileRow(f) }
+                }
+            }
+        }
+
+        /**
+         * 合并子页：盖在详情之上的全屏层。
+         *
+         * 放在这个 Box 里（而不是上面那个 Column 内部）：`PrMergeScreen` 用的 `DecisionScreenShell`
+         * 自带 `statusBarsPadding + navigationBarsPadding`，套进已经取过内边距的 Column 会多出一份内边距。
+         *
+         * 参数一律用详情里的真实值；`onMerged` 回来后关子页 + 刷新详情 + 显示反馈。
+         */
+        if (mergeOpen) {
+            detail?.let { d ->
+                PrMergeScreen(
+                    sessionJson = sessionJson,
+                    owner = owner,
+                    repo = repo,
+                    // 合并页的编号是 Int（详情里是 Long）：PR 编号来自详情本身
+                    prNumber = d.number.toInt(),
+                    prTitle = d.title,
+                    headBranch = d.headRef,
+                    baseBranch = d.baseRef,
+                    onBack = { mergeOpen = false },
+                    onMerged = { message ->
+                        // 合并页负责合并本身（策略 + 按记忆删分支）；这里只做「关子页 + 把详情拉回最新」
+                        Logger.local("合并页返回：#${d.number} · ${message ?: "（无附加说明）"} → 强制回源刷新", "PR合并")
+                        mergeOpen = false
+                        mergeFeedback = message ?: "已合并 PR #${d.number}"
+                        refreshTick++
+                    },
+                )
             }
         }
     }
 }
 
 // ── 组件 ──
+
+/**
+ * 详情页的合并入口。
+ *
+ * 置灰（`enabled = false`）时按钮**不消失**，下方给一句原因 —— 「点不了」必须让用户看见为什么。
+ * 可点但 `mergeable == null`（GitHub 还在算）时 `hint` 是提醒而不是拒绝。
+ */
+@Composable
+private fun MergeEntry(enabled: Boolean, hint: String?, onMerge: () -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+        Button(
+            onClick = onMerge,
+            enabled = enabled,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Primer.Green500,
+                disabledContainerColor = Primer.Gray150,
+                disabledContentColor = Primer.TextTertiary,
+            ),
+        ) {
+            Text("合并此 PR", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        }
+        if (hint != null) {
+            Spacer(Modifier.height(6.dp))
+            Text(hint, fontSize = 11.5.sp, color = Primer.TextTertiary, lineHeight = 16.sp)
+        }
+    }
+}
+
+/** 合并结果反馈：合并页 `onMerged` 交回来的原话，一个字不改地显示（不吞消息）。 */
+@Composable
+private fun MergeResultBanner(message: String) {
+    // 「已合并」是成功；带「失败」后缀（例如合并成功但删分支失败）用警告色，
+    // 别把半成功渲染成纯成功 —— 那个后缀是用户唯一能看到的线索。
+    val partial = message.contains("失败")
+    Text(
+        message,
+        fontSize = 12.sp,
+        lineHeight = 17.sp,
+        color = if (partial) Primer.WarningText else Primer.SuccessText,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (partial) Primer.WarningSurface else Primer.SuccessSurface)
+            .padding(12.dp),
+    )
+}
 
 @Composable
 private fun DetailHeader(title: String, onBack: () -> Unit) {

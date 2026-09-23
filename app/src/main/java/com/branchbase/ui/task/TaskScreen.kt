@@ -56,7 +56,7 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 任务中心：本地持久化任务记录（对齐 design/task-prototype.html）。
+ * 任务中心：本地持久化任务记录。
  *
  * - 筛选（全部/运行中/已完成/失败）
  * - 单条删除、清理已完成、全部清除（二次确认，运行中任务保留于"清理已完成"）

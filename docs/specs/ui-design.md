@@ -26,17 +26,20 @@
 
 现在 `Theme.kt` 把这些角色一次性对齐到设计色板：**容器一律标准白底**，
 `surfaceContainerHighest`/`surfaceVariant` 用 `Gray150`/`Gray200` 作为「白底上再垫一层」的灰，
-描边统一 `Primer.Border`，底部导航选中胶囊 = 主色 12% 蓝。约定：
+描边统一 `Primer.Border`，底部导航选中胶囊 = 主色 **18%** 蓝（`ui/theme/Theme.kt:128`：
+`secondaryContainer = p.accent.copy(alpha = 0.18f)`）。约定：
 
 - 弹层统一 **白底（`Primer.BackgroundPrimary`）+ 1dp `Primer.Border` 描边 + 阴影 + 16dp 圆角**
-  （气泡弹层的做法见 `ui/navigation/PageTransitions.kt` 的 `bubbleEnter` 与个人页 More 气泡）；
+  （气泡弹层的做法见 `ui/theme/Motion.kt:303` 的 `bubbleEnter` 与个人页 More 气泡）；
 - **白底容器里不要再放白底元素** —— 需要垫一层时用 `Gray150`（如筛选手板里的输入框、+/− 圆点），
   否则容器改白之后它们会直接「消失」；
 - 新组件不要依赖 M3 默认容器色；确实需要特殊底色时才在调用处显式传 `containerColor`。
 
 单行状态位（设置项右侧的值 / 页面副标题 / 编辑器底栏 / toast）**只放短名**：
 `CommitMode` 这类有多档状态的枚举要区分 `label`（短名，给状态位）与 `title`（完整说明，给整行卡片）。
-行高固定的行（如 `SettingsItem` 的 48dp）里换行会被直接裁掉，所以名称与值都必须单行省略，
+行高固定的行（如 `ui/settings/SettingsRow.kt` 的六种行型 `NavRow` / `SwitchRow` / `ChoiceRow` /
+`ActionRow` / `DangerRow` / `InfoRow`，`SettingsRow.kt:71` 的 48dp 最小行高）里换行会被直接裁掉，
+所以名称与值都必须单行省略，
 且**由值负责省略、不许挤压名称**。
 
 ---
@@ -53,7 +56,7 @@
 | 运行时 | `ui/theme/ThemeRuntime.kt` | 进程内 StateFlow：任何页面都能切主题，不必层层传参 |
 | 开关 | `LoginScreens.ThemeModeSwitch` / 设置 → 外观 | 太阳 / 月亮 / 自动 三态图标 |
 
-关键点：**`Primer.XXX` 的调用点完全没动**（1254 处）就跟着主题切换；
+关键点：**`Primer.XXX` 的调用点完全没动**（截至 1.0.71 约 1766 处；数量随后续改动增长）就跟着主题切换；
 真正需要改的只有 105 处「非 Composable 上下文」（顶层颜色表、`remember` 里取色、
 Canvas 绘制 lambda），它们改用 `TintRole` 角色表 / 在 composable 里pre-取色 / 参数传入。
 
@@ -119,7 +122,7 @@ Canvas 绘制 lambda），它们改用 `TintRole` 角色表 / 在 composable 里
 | `border` 描边 | 浅 `#BFC1C9` 1.80:1 / 深 `#30363D` 1.55:1 是刻意做弱的；拉到纯黑/纯白会让浅色退回 wireframe、深色出现一屏「发光矩形」 |
 | 灰底填充 | 高对比硬边是成套风格，单独拉黑会导致硬线与软面互相打架 |
 
-改动只落在两份色板的 `iconPrimary` 各一行，52 处 `Primer.IconPrimary` 调用点一行未改
+改动只落在两份色板的 `iconPrimary` 各一行，`Primer.IconPrimary` 的调用点（截至 1.0.71 约 50 处）一行未改
 （这是色板 + 角色架构的前提）。
 
 ### 深色下必须一起换的部分（Compose 管不到的）
@@ -145,8 +148,10 @@ Canvas 绘制 lambda），它们改用 `TintRole` 角色表 / 在 composable 里
   里的两份副本。这属于「单一真源」问题，尚未收敛；
 - **主按钮白字压在深色 `accent`（`#1F6FEB`）上 = 4.08**，低于 AA 的 4.5。这是**全站既有特性**
   （`background(Primer.Blue500)` + `Color.White` 到处都是，GitHub 网页版深色主按钮同样如此），
-  不是某一页引入的。要严格达标可改用色板里已有、但**目前零调用**的高强调组合
-  `Primer.Gray900` + `Primer.OnEmphasis`（浅色深底白字 / 深色浅底深字，两端都在 16 以上）；
+  不是某一页引入的。要严格达标可改用色板里已有、**已在多处使用**的高强调组合
+  `Primer.Gray900` + `Primer.OnEmphasis`（浅色深底白字 / 深色浅底深字，两端都在 16 以上）——
+  例如 `NotificationPanel.kt:100`（选中态填充）、`RepoRelationSheets.kt:260`（绿底勾选图标）、
+  `GithubWebLoginScreen.kt:158`（绿底按钮文字），角色表里也把 `TintRole.EMPHASIS` 映射到它（`TintRole.kt:59`）；
 - 全项目仍有约 30 处 `color = Primer.Red500`（拿填充色当文字）。其中绝大多数压在 canvas 上
   （浅色 4.57 / 深色 5.65，**达标**），属于「语义不够准但不影响可读」；收敛只处理了
   压在 `*Surface` 浅底上、对比度低于 AA 的那几处。下一轮可用「文字不得用填充色角色」这条

@@ -9,8 +9,8 @@
 > **配套原型**：`design/settings-redesign/`（可点草图，不入库），
 > 说明副本见 [`prototypes/settings-redesign.md`](prototypes/settings-redesign.md)。
 >
-> **状态**：v1 · 依据 2026-09 的现状测绘（§2）。规范里标 **必须 / 应该 / 禁止** 的是硬约束，
-> 标 **可以** 的是建议。凡与现状冲突的，§9 给了迁移路径。
+> **状态**：v4（见 §十三）· 依据 2026-09 的现状测绘（§一）。规范里标 **必须 / 应该 / 禁止** 的是硬约束，
+> 标 **可以** 的是建议。凡与现状冲突的，§十一 给了迁移路径。
 
 ---
 
@@ -31,20 +31,24 @@
 
 全仓共 **12 个设置类界面**，分布在 8 个文件里，用了 **8 套互不相通的行组件**：
 
+> 下表是 **2026-09 改前测绘**（历史记录，故意保留当时的组件名与形态）：其中 `SettingsItem` / `LocalRepoEntry`
+> 与 `TranslateSettingsScreen` 的私有 `SwitchRow` / `SectionTitle` 已在第一轮落地中**删除**（见 §十四），
+> Git 代理也已从主页对话框搬进二级页；现状以 §十四 为准。
+
 | # | 界面 | 入口 | 实现 | 行组件 | 落盘 |
 |---|---|---|---|---|---|
-| 1 | **设置（主页）** | 个人页 ⋮ 气泡 | `ui/profile/SubPageScreens.kt:449` | `SettingsSectionTitle` + `SettingsItem`×7 + `LocalRepoEntry` | — |
+| 1 | **设置（主页）** | 个人页 ⋮ 气泡 | `ui/profile/SubPageScreens.kt` 的 `SettingsScreen()` | `SettingsSectionTitle` + `SettingsItem`×7 + `LocalRepoEntry` | — |
 | 2 | 提交模式 | 设置 → 提交模式 | `ui/profile/CommitModeScreen.kt:33` | `ModeOptionRow`×3 | `KEY_COMMIT_MODE` |
-| 3 | 本地仓库 | 设置 → 本地仓库 | `ui/profile/SubPageScreens.kt:773` | 页面自有列表 + 决策页群 | git 工作目录 |
+| 3 | 本地仓库 | 设置 → 本地仓库 | `ui/profile/SubPageScreens.kt` 的 `LocalRepoScreen()` | 页面自有列表 + 决策页群 | git 工作目录 |
 | 4 | 账号管理 | 设置 → 账号管理 | `ui/profile/AccountsScreen.kt:70` | 卡片 + 气泡菜单 + `AlertDialog` | `AccountStore` |
-| 5 | 通知 | 设置 → 通知 | `ui/profile/SubPageScreens.kt:562` | `SettingsItem`×1 + `ModeOptionRow`×4 | `KEY_NOTIF_LAYOUT` |
+| 5 | 通知 | 设置 → 通知 | `ui/profile/SubPageScreens.kt` 的 `NotificationSettingsScreen()` | `SettingsItem`×1 + `ModeOptionRow`×4 | `KEY_NOTIF_LAYOUT` |
 | 6 | 沉浸式翻译 | 设置 → 沉浸式翻译 | `ui/profile/TranslateSettingsScreen.kt:93` | **私有** `SwitchRow`×3 + `ModeOptionRow`×7 + 输入框 | `TranslateSettings` |
-| 7 | 关于 | 设置 → 关于 | `ui/profile/SubPageScreens.kt:1572` | `AboutIdentityRow` / `AboutCard` / `AboutLinkRow` / `AboutInfoRow` | — |
+| 7 | 关于 | 设置 → 关于 | `ui/profile/SubPageScreens.kt` 的 `AboutScreen()` | `AboutIdentityRow` / `AboutCard` / `AboutLinkRow` / `AboutInfoRow` | — |
 | 8 | 日志 | 设置 → 日志 | `ui/log/LogScreen.kt` | 独立页面（另有专项重设计） | — |
 | 9 | 主题（外观） | 设置 → 外观 | `ui/theme/ThemeRuntime.kt` | **无行**：点一下就地循环三档 | `ThemeMode.storageKey` |
-| 10 | Git 代理 | 设置 → 网络 | `SubPageScreens.kt:515` | 主页行 + **主页内** `AlertDialog` 输入 | `KEY_GIT_PROXY` |
+| 10 | Git 代理 | 设置 → 网络 | 改前：`SubPageScreens.kt` 主页内；现为 `ui/settings/GitProxyScreen.kt` 的 `GitProxyScreen()` | 主页行 + **主页内** `AlertDialog` 输入 | `KEY_GIT_PROXY` |
 | 11 | 仓库设置 | 仓库页 ⋮ 气泡 | `ui/decision/CollabScreens.kt:232` | `FactCard` + 自制行 + 两个确认 | 远端 API |
-| 12 | 仓库设置（列表） | 仓库列表 | `ui/repository/RepositoryListScreens.kt:885` | 内嵌子页 | 远端 API |
+| 12 | 仓库设置（列表） | 仓库列表 | `ui/repository/RepositoryListScreens.kt` 的 `RepositorySettingsContent()` | 内嵌子页 | 远端 API |
 
 > #11 / #12 是**仓库级**设置（作用于某个仓库、走远端 API），不是 App 级设置。
 > 本规范对它们只有两条约束（§4.6 的对象名、§7 的危险操作）；其余章节针对 #1–#10 这个 App 级设置树。
@@ -94,8 +98,8 @@ L1 设置（唯一入口）
 - **必须**：层级深度 ≤ 2。L2 页面**禁止**再挂 L3 子页（日志页内部的视图切换不算换页）。
   超过两级说明这件事该做成一件事而不是一组设置。
 - **必须**：二级页的返回目标 = 设置主页。这条已是既成事实，由
-  `profileBackTarget(page)`（`ui/profile/ProfileScreen.kt:340`）与 `subPageDepth()`
-  （同文件 `:323`）唯一决定，**页面内的返回箭头与系统返回键必须走同一个函数**，
+  `profileBackTarget(page)`（`ui/profile/ProfileScreen.kt:383`）与 `subPageDepth()`
+  （同文件 `:366`）唯一决定，**页面内的返回箭头与系统返回键必须走同一个函数**，
   禁止任何页面自己 `onBack = { subPage = null }` 抄近路跳回个人主页。
 
 ### 3.2 分组的顺序与命名
@@ -104,7 +108,7 @@ L1 设置（唯一入口）
 
 | 序 | 分组名 | 放什么 | 为什么在这个位置 |
 |---|---|---|---|
-| 1 | **账户** | 当前账号卡 → 账号管理 | 身份是第一信息；多账号是高频动作 |
+| 1 | **账户** | 当前账号卡 → 账号管理 → **仓库凭据**（仅在令牌登录模式出现，见 §3.2.1） | 身份是第一信息；多账号是高频动作 |
 | 2 | **外观** | 主题 | 第二高频（换环境就换），且改错无痛 |
 | 3 | **通知** | 系统通知开关、通知显示模式 | 用户来设置页最常见的两个目的之一（「为什么没提醒」） |
 | 4 | **翻译** | 自动翻译开关 → 沉浸式翻译 | 功能级开关，开了就长期用 |
@@ -118,6 +122,21 @@ L1 设置（唯一入口）
   确实无法归类时，用**能说明白它是什么**的名字（如「网络」而不是「其他」）。
 - 每个分组 **1–6 行**。超过 6 行拆组；只有 1 行的分组考虑并入相邻组。
 - **禁止**分组名与行名重复（分组「通知」下有行「通知」）。
+
+### 3.2.1 「仓库凭据」是**条件行**（只在令牌登录模式下出现）
+
+「仓库凭据」= 给「当前账号打不开的私有仓库」单独配的一条令牌（账号优先、打不开才回退、回退后读写都用它；
+规则见 [`features-design.md`](features-design.md) §3、可行性核实见 `review/08-BCD可行性核实.md`）。
+
+**必须**：
+
+- 位置固定在**账户**组内、紧挨账号卡之后；
+- **显示条件**：`AccountStore.current(context)?.auth == AuthKind.PAT` —— OAuth / 未登录时**整行不出现**；
+- **为什么是「不出现」而不是「置灰」**：§6.3 要求禁用行给出「怎么才能开」的出路，而这条的出路是
+  「改用令牌登录」，不属于设置页能代办的动作 —— 一行点不动的死行只会变成噪音；
+- 值列只报条数（`N 条` / `未设置`，§6.1），**令牌与本机 host 一律不进值列**（§4.3 / §6.5）；
+- 二级页 `RepoCredentialsScreen`：说明段落 + 每条一行 `DangerRow`（只打开确认）+ 空态；
+  删除是危险动作，按 §7.3 写清「只删本机凭据、不动远端令牌」与「删除后该仓库回退到当前账号」。
 
 ### 3.3 「关于与诊断」是兜底组
 
@@ -260,16 +279,19 @@ L1 设置（唯一入口）
 ### 5.4 单选列表（L2 页的 4–7 档枚举）
 
 用 `ModeOptionRow`：18dp 单选圆点 + 名称 14sp `SemiBold` + 说明 12sp `TextTertiary`，
-选中态底 `Primer.SuccessSurface`、圆点 `Primer.Green500`（走 `selectionColor(selected, on, off)`，
-`ui/theme/Motion.kt:181`）。**必须**给每一行写说明 —— 单选列表的选择质量完全取决于说明文案。
+选中态底 `Primer.SuccessSurface`、圆点 `Primer.SuccessTextStrong`（未选中描边走
+`Primer.BorderControl`；走 `selectionColor(selected, on, off)`，`ui/theme/Motion.kt:206`）。
+**必须**给每一行写说明 —— 单选列表的选择质量完全取决于说明文案。
 
 ### 5.5 输入框只在 L2，且必须带反馈
 
 **必须**：自由文本设置在**二级页**里编辑。
 
-**为什么**：现状 Git 代理用一个主页 `AlertDialog` 收 URL，而反馈
-（`proxyFeedback`）渲染在**主页最底部**（`SubPageScreens.kt:510`）—— 对话框关了，
+**为什么**：改前 Git 代理用一个主页 `AlertDialog` 收 URL，而反馈
+（`proxyFeedback`，已随第一轮落地删除）渲染在**主页最底部**（改前的 `SubPageScreens.kt`）—— 对话框关了，
 用户看到的是页尾一行小字，既没和操作建立联系，也可能被滚出视野。这就是 §6.4 要消灭的形态。
+现状：代理已搬进二级页 `ui/settings/GitProxyScreen.kt` 的 `GitProxyScreen()`，
+校验结果紧贴输入框下方（纯逻辑在 `ui/settings/GitProxy.kt`：脱敏 `displayGitProxy()` + 校验 `validateGitProxy()`）。
 
 **规格**：
 
@@ -406,7 +428,7 @@ L1 设置（唯一入口）
 
 - 每个 key 都有**显式默认值**，且默认值写在**读取函数内部**（`?: DEFAULT`），不让调用方兜底；
 - 读到**非法值**（老版本残留、手改、枚举改名）**必须**回落到默认值，**禁止**抛异常 ——
-  `readNotifLayout()`（`NotificationModels.kt:473`）的 `firstOrNull { } ?: FLAT` 是正确写法；
+  `readNotifLayout()`（`NotificationModels.kt:470`）的 `firstOrNull { } ?: FLAT` 是正确写法；
 - 枚举落盘用 `name`（如 `"LOCAL_REPO"`），**禁止**用 `ordinal`（顺序一变就串档）。
   > 例外：`ThemeMode.storageKey` 存的是小写短名（`"system"`），这是历史约定 ——
   > **不要**为了统一而迁移它（会读不到老用户的设置），新增项一律存 `name`。
@@ -435,7 +457,7 @@ L1 设置（唯一入口）
 | 分隔线 / 卡片描边 | `Primer.Gray200` |
 | 危险文字 | `Primer.DangerText`（**不是** `Primer.Red500`） |
 | 权限/状态胶囊 | `Primer.SuccessTextStrong` / `DangerText` / `WarningText` / `AccentText` + 对应 `*Surface` |
-| 选中圆点 / 开关轨道 | `Primer.Green500` / `Primer.Blue500` |
+| 选中圆点 / 开关轨道 | `Primer.SuccessTextStrong` / `Primer.Blue500` |
 
 **副作用**：这样写之后，设置树**自动跟随** `ThemeRuntime.mode`（跟随系统 / 浅色 / 深色），
 不需要为深色单独做一套。现状设置树已经基本合规（这是本项目做得好的地方），
@@ -480,7 +502,7 @@ L1 设置（唯一入口）
 
 ## 十一、落地路径
 
-建议分三步，每步都可独立发布、独立回滚。**三步已于 2026-09 落地，状态见 §14：**
+建议分三步，每步都可独立发布、独立回滚。**三步已于 2026-09 落地，状态见 §十四：**
 
 ### 第 1 步 · 抽组件（不改观感）
 
@@ -540,14 +562,16 @@ L1 设置（唯一入口）
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v1 | 2026-09 | 首次成文：现状测绘（12 个界面 / 8 套行组件）、两级 IA、6 种行型、控件决策树、用语表、危险操作规格、令牌约束、`SettingsSpecTest` 钉子、三步落地路径 |
-| v2 | 2026-09 | 落地第一轮：新增 `ui/settings/` 四个文件（行组件 / 键 / 代理纯逻辑 / 代理页）；`SettingsScreen` 与 `NotificationSettingsScreen` 重写；删掉 `SettingsItem` 等三处重复组件；新增 `Primer.BorderControl` 角色；补 `SettingsSpecTest`(18) + `GitProxyTest`(10)。偏离与待办见 §14 |
-| v3 | 2026-09 | 账户卡修复：`AccountRow` 原来是写死的灰底首字母，改成统一 `theme/Avatar`（本地缓存 → `avatar_url` → 首字母兜底，圆形裁切），新增 `avatar` 参数；账号侧补 `Account.avatarUrl`（快照缺失回落会话 `user.avatar_url`），`MainActivity` 预热同源；`SettingsSpecTest` 新增两条钉子；偏离表补第 4 条。见 §14 |
+| v2 | 2026-09 | 落地第一轮：新增 `ui/settings/` 四个文件（行组件 / 键 / 代理纯逻辑 / 代理页）；`SettingsScreen` 与 `NotificationSettingsScreen` 重写；删掉 `SettingsItem` 等三处重复组件；新增 `Primer.BorderControl` 角色；补 `SettingsSpecTest`(18) + `GitProxyTest`(10)。偏离与待办见 §十四 |
+| v4 | 2026-09 | 新增「仓库凭据」条件行 + 二级页（`ui/settings/RepoCredentialsScreen.kt`）：账户组内、仅在 `AuthKind.PAT` 时出现；删除走 `DangerRow` + 二次确认；凭据存独立 prefs（已排除云备份与设备迁移）。见 §3.2.1 |
+| v3 | 2026-09 | 账户卡修复：`AccountRow` 原来是写死的灰底首字母，改成统一 `theme/Avatar`（本地缓存 → `avatar_url` → 首字母兜底，圆形裁切），新增 `avatar` 参数；账号侧补 `Account.avatarUrl`（快照缺失回落会话 `user.avatar_url`），`MainActivity` 预热同源；`SettingsSpecTest` 新增两条钉子；偏离表补第 4 条。见 §十四 |
 
 ---
 
 ## 十四、落地状态（2026-09 · 第一轮）
 
-三步都已落地，`SettingsSpecTest`（18 条）与 `GitProxyTest`（10 条）钉住机械可判定的部分。
+三步都已落地，`SettingsSpecTest` 与 `GitProxyTest`（10 条）**逐项**钉住机械可判定的部分
+（钉子的条数随每轮修补增长，不在这里写死）。
 
 ### 已完成的改动
 

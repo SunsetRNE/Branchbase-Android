@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 /**
  * 任务中心（本地持久化任务记录）。
  *
- * 对齐 `design/task-prototype.html`：
+ * 保留策略：
  * - 长任务（clone / pull / push / PR 创建等）：保留至手动清理
  * - 短任务（提交 / 查询类）：按保留期自动清理
  * - 运行中任务：短时更新 progress/detail，永不自动清理

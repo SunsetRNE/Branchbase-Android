@@ -6,6 +6,10 @@
 
 # 日志页重设计原型 · 说明与落实方案
 
+> **快照说明（2026-09 补）**：本文是**设计当时的记录** —— 文中的「现状测绘」、「`文件:行号`」、
+> 「依据：`xxx.kt`（N 行）」都不会随代码演进更新（只有少数几处加了「2026-09 追记」）。
+> 判断当前行为请以代码与 `docs/specs/` 下的规格为准；落地清单里未落地的项只表示「当时计划过」。
+
 > 目录：`design/log-redesign/`（`/design/` 在 `.gitignore` 里：原型草图不入库）
 > 本文档的**入库副本**：`docs/specs/prototypes/log-redesign.md`（改完这里请同步那份）
 > 对象页面：`app/src/main/java/com/branchbase/ui/log/LogScreen.kt`（设置 →「日志」）
@@ -323,6 +327,11 @@ UI→`accent`、网络→`success`、远端→`done`、本地→`warning`。计�
 | `ui/log/LogTagSheet.kt`（新增） | tag 过滤面板：`ModalBottomSheet`，限高 `fillMaxHeight(0.62f)` + `LazyColumn` + 计数 + 搜索框 |
 | `ui/log/LogText.kt`（新增，纯函数） | `formatLine(entry)`（与 `FileAppender` 同一格式）、`rawLines(entries)`、`hits(entries, kw)` —— 都能单测 |
 | `ui/log/Logging.kt` | **只加不改**：`all()` 保持新→旧；页面上做 `asReversed()`（或给 `LogManager` 加一个 `allAscending()`） |
+
+> **2026-09 追记（落地核实）**：上表是设计当时的计划。实际落地**没有拆出那 5 个新文件** ——
+> `app/src/main/java/com/branchbase/ui/log/` 现在只有 `LogScreen.kt` / `Logging.kt` / `LogExporter.kt` /
+> `LogFileProvider.kt` / `FrameWatch.kt` / `DeviceProfile.kt`，chips、单行网格、原始视图都收在
+> `LogScreen.kt` 与 `Logging.kt` 里。设计意图（单行网格 / 底栏 / chips / 原始视图）保留在上文。
 
 顺带一起修（第一节列出的 app 侧问题）：
 

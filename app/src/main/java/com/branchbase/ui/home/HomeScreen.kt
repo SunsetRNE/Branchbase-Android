@@ -126,7 +126,7 @@ fun HomeScreen(
         }
     }
 
-    // 首页仪表盘数据（对齐 design/home-redesign-prototype.html）
+    // 首页仪表盘数据（未读通知 / 待审 PR / 进行中的运行）
     var unreadNotifs by remember { mutableStateOf(0) }
     var reviewRequests by remember { mutableStateOf(0) }
     var assignedIssues by remember { mutableStateOf(0) }

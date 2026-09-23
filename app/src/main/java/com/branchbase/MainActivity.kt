@@ -131,10 +131,10 @@ class MainActivity : ComponentActivity() {
         NetworkWatch.refresh(applicationContext)
     }
 
-    /** 解析 branchbase://oauth/callback 深链，提取 code */
+    /** 解析 branchbase://oauth/callback 深链，提取 code（判定与清单的一致性见 [OAuthDeepLink]） */
     private fun handleDeepLink(intent: android.content.Intent?) {
         val uri = intent?.data ?: return
-        if (uri.scheme == "branchbase" && uri.host == "oauth" && uri.path == "/callback") {
+        if (OAuthDeepLink.matches(uri.scheme, uri.host, uri.path)) {
             pendingAuthCode = uri.getQueryParameter("code")
         }
     }

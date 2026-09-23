@@ -59,7 +59,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * 账号管理页（对齐 `design/account-management-prototype.html`）。
+ * 账号管理页（属设置页规范里的「账户」组，见 `docs/specs/settings-design.md` §三）。
  *
  * 支持：新增（外层跳登录流程）、切换、删除、检查（`GET /user` 判定封禁/失效）。
  *

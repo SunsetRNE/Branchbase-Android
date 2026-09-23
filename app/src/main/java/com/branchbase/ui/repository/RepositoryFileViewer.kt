@@ -55,6 +55,8 @@ import com.branchbase.editor.BranchbaseCodeEditor
 import com.branchbase.ui.decision.AuthorIdentityScreen
 import com.branchbase.ui.decision.DraftInfo
 import com.branchbase.ui.decision.DraftRecoverScreen
+import com.branchbase.ui.log.LogCategory
+import com.branchbase.ui.log.Logger
 import com.branchbase.ui.decision.OfflineConflictScreen
 import com.branchbase.ui.decision.SensitiveWarningScreen
 import com.branchbase.ui.decision.StageCommitScreen
@@ -141,6 +143,24 @@ fun FileViewerScreen(
         runCatching { draftBaseFile().takeIf { it.exists() }?.readText()?.trim() }.getOrNull()
 
     /**
+     * 草稿的「远端已变化」判定 —— 喂给 P2-1 草稿恢复页的 `DraftInfo.remoteChanged`。
+     *
+     * 依据是**已有的**草稿基准 sha（`draftBaseFile`，P2-4 离线冲突检测也在用它）与当前远端 sha：
+     * 两者不同 = 保存草稿之后别人改过这个文件。此前这条提示恒为 false（`DraftInfo` 的默认值没人传），
+     * 多端编辑提醒从来没亮过。没有基准（首次编辑）或 sha 未知时不误报。
+     */
+    fun draftRemoteChanged(): Boolean {
+        val base = loadDraftBaseSha() ?: return false
+        val changed = base.isNotBlank() && sha.isNotBlank() && base != sha
+        // 锚点：`草稿` —— 「远端已变化」这张卡以前恒为 false（默认值没人传），
+        // 现在真判定了，就把判定结果留痕，方便回答「为什么这次提示了」。
+        if (changed) {
+            Logger.local("远端已变化（$owner/$repo $path）：草稿基准 ${base.take(7)} ≠ 当前 ${sha.take(7)}", "草稿")
+        }
+        return changed
+    }
+
+    /**
      * 离线冲突检测（P2-4）。
      *
      * 草稿保存时记录了当时的远端 sha；提交前重新拉一次远端：
@@ -211,10 +231,34 @@ fun FileViewerScreen(
         loading = false
     }
 
-    /** 提交前敏感扫描（P0-4）：命中 → 警告页；否则执行动作。 */
+    /**
+     * 提交前敏感扫描（P0-4）：命中 → 警告页；否则执行动作。
+     *
+     * **扫描不可用时不放行**：`scanSensitive` 返回 null 表示引擎没就绪（`.so` 未重编译、
+     * 引擎调用抛错等）。此前这里把 null 折叠成「没有命中」直接放行 —— 等于敏感信息警告
+     * 在最需要它的场景里正好不存在，而用户以为扫过了。现在拦下并说清原因与出路。
+     */
     fun proceedWithScan(action: () -> Unit) {
-        val hits = RustBridge.scanSensitive(draft)?.let { parseSensitiveHits(it) } ?: emptyList()
-        if (hits.isNotEmpty()) page = FilePage.Sensitive(hits) else action()
+        val raw = RustBridge.scanSensitive(draft)
+        if (raw == null) {
+            // 锚点：`敏感扫描` —— 「以为扫过了」是最危险的状态，拦下这件事必须留痕
+            Logger.warn(LogCategory.LOCAL_TASK, "敏感扫描", "扫描不可用，已拦下提交（$owner/$repo $path）")
+            feedback = "提交前扫描不可用（本地引擎未就绪），为安全起见已拦下本次提交；" +
+                "可改用网页端提交，或重装带完整引擎的版本后重试。"
+            return
+        }
+        val hits = parseSensitiveHits(raw)
+        if (hits.isNotEmpty()) {
+            Logger.warn(
+                LogCategory.LOCAL_TASK,
+                "敏感扫描",
+                "命中 ${hits.size} 处（$owner/$repo $path）：" + hits.joinToString("、") { "#${it.line} ${it.kind}" },
+            )
+            page = FilePage.Sensitive(hits)
+        } else {
+            Logger.local("未命中，继续提交（$owner/$repo $path）", "敏感扫描")
+            action()
+        }
     }
 
     /** 该仓库的草稿根目录（`edit/single/{owner}/{repo}`，D3 隔离）。 */
@@ -460,7 +504,7 @@ fun FileViewerScreen(
                     // 草稿恢复检测（P2-1）：存在未提交草稿且与远端不同 → 决策页
                     val saved = loadDraft()
                     if (saved != null && saved != content) {
-                        page = FilePage.Draft(listOf(DraftInfo(path, "本地草稿", saved.lines().size)))
+                        page = FilePage.Draft(listOf(DraftInfo(path, "本地草稿", saved.lines().size, draftRemoteChanged())))
                     }
                 })
             }
@@ -577,7 +621,7 @@ fun FileViewerScreen(
                                 // 草稿恢复检测（P2-1）：存在未提交草稿且与远端不同 → 决策页
                                 val saved = loadDraft()
                                 if (saved != null && saved != content) {
-                                    page = FilePage.Draft(listOf(DraftInfo(path, "本地草稿", saved.lines().size)))
+                                    page = FilePage.Draft(listOf(DraftInfo(path, "本地草稿", saved.lines().size, draftRemoteChanged())))
                                 }
                             },
                         )

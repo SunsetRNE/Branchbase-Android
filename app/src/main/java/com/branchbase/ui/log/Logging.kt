@@ -145,10 +145,32 @@ object StartupMarks {
 }
 
 /**
+ * **关键路径的日志锚点**（tag → 它记录什么）。
+ *
+ * 存在的理由：没有真机走查时，「用户说某个操作不对」只能靠日志定位 —— 所以给每条容易出问题的
+ * 新路径固定一个 tag，出问题时 `grep` 这一个词就能看到完整链路。**导出包里的 `report.md`
+ * 会把这张表一起带上**，收到日志的人不必先读代码就知道该搜什么。
+ *
+ * 约定：
+ * - tag 必须是**稳定的中文短词**（改 tag 等于改契约，会让旧日志对不上这张表）；
+ * - 只记「发生了什么 + 关键参数 + 结果」，**绝不记凭据**（token / PAT / 密码一律不许进日志）；
+ * - 一处动作一条，不要在重组（recomposition）里打 —— 会刷屏（见各调用点的 `LaunchedEffect` / 点击回调）。
+ *
+ * 钉子：`LogReportTest` 会逐个 tag 到源码里搜，确认它**真的被用过**（表不会腐烂）。
+ */
+internal val LOG_ANCHORS: List<Pair<String, String>> = listOf(
+    "PR一条龙" to "开 PR：待提交文件数、建分支 / 提交 / 开 PR 的每一步与失败原因",
+    "PR合并" to "合并：PR 号、策略（squash/merge/rebase）、结果、删分支结果",
+    "敏感扫描" to "提交前扫描：命中条数；扫描不可用时被拦下的提交",
+    "决策页" to "预检拦下（没有远端 ref / 第一个提交 / 统计取不到 / 已合并检查）",
+    "私有仓库" to "仓库打不开（404/403）时的判定与用户选择的出路",
+    "草稿" to "草稿落盘与「远端已变化」判定",
+)
+
+/**
  * 便捷日志 API（门面）。
  */
-object Logger {
-    fun ui(message: String, tag: String = "Compose") =
+object Logger {    fun ui(message: String, tag: String = "Compose") =
         LogManager.log(LogCategory.UI_RENDER, LogLevel.INFO, tag, message)
 
     fun net(message: String, tag: String = "GitHubAPI") =

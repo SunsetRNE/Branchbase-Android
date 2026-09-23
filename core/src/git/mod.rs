@@ -1,6 +1,6 @@
 //! Git 工具包：基于 libgit2（`git2` crate），提供 clone / pull（fast-forward）。
 //!
-//! 对齐 `docs/code-editing-collaboration-thinking.md` §9：Git 引擎（libgit2）+ 稳定接口。
+//! 对齐 `docs/specs/local-git-engine-design.md` §3（稳定接口）/ §4（错误归一）。
 //! HTTPS 走 vendored OpenSSL（见 Cargo.toml）。
 
 use crate::error::{CoreError, Result};
@@ -579,12 +579,20 @@ fn check_cert(
     }
 }
 
-// ── 决策页面支持 API（对齐 docs/decision-pages-gap.md §6） ──
+// ── 决策页面支持 API（对齐 docs/specs/decision-pages-design.md §6） ──
 
 use serde_json::json;
 
-/// 仓库状态（JSON）：branch / ahead / behind / has_upstream / remote_url / dirty / unpushed。
+/// 仓库状态（JSON）：branch / ahead / behind / has_upstream / remote_url / dirty / unpushed
+/// **+ has_parent / head_sha / has_remote_ref**。
 /// 供分叉决策、Git 化回退、删除升级警告、撤销误提交等决策页面读取事实区。
+///
+/// 后三个字段是**只增**的「前提事实」，用途都是让 UI 在动作必然失败之前先说明原因，
+/// 而不是等执行层报错再显示成「引擎不可用」：
+/// - `has_parent`：[reset_soft] 走 `HEAD~1`，HEAD 是**第一个提交**时 `parent_id(0)` 必失败；
+/// - `head_sha`：完整 sha，用于与远端 ref sha 比对（判断「远端有没有变化」）；
+/// - `has_remote_ref`：[reset_hard_to_remote] 要求 `refs/remotes/origin/{branch}` 存在，
+///   否则报「找不到 ref」。
 pub fn repo_status(dir: &str) -> Result<String> {
     use git2::{Repository, StatusOptions};
 
@@ -614,6 +622,26 @@ pub fn repo_status(dir: &str) -> Result<String> {
             }
         }
     }
+
+    // 新增前提事实：HEAD 是否有父提交（撤销上一次提交 reset_soft 的前提）。
+    // 用 parent_count() 而不是 parent_id(0).is_ok()：多父合并提交同样算「有父」。
+    let has_parent = local_commit.parent_count() > 0;
+
+    // 新增前提事实：HEAD 提交的**完整** sha（无 HEAD 时上面已经 Err 了）。
+    // 用完整 sha 而非 unpushed 里的 7 位短 sha：与远端 ref sha 比对时不能有歧义。
+    let head_sha = local_commit.id().to_string();
+
+    // 新增前提事实：refs/remotes/origin/{branch} 是否存在（reset_hard_to_remote 的前提）。
+    // 分支为空（detached HEAD）时该名字没有意义，直接 false。
+    // 条件必须与 reset_hard_to_remote 的**真实前提完全一致**：先 find_reference 再取 target()。
+    // 只判「ref 存在」是不够的 —— 符号引用（如 origin/HEAD 那种）存在但取不到 target，
+    // `target()` 那步照样报「远端引用无目标」，预检就会从「提前拦住」退化成「点了才报错」。
+    let has_remote_ref = !branch.is_empty()
+        && repo
+            .find_reference(&format!("refs/remotes/origin/{branch}"))
+            .ok()
+            .and_then(|r| r.target())
+            .is_some();
 
     // 远端 URL
     let remote_url = repo
@@ -669,7 +697,11 @@ pub fn repo_status(dir: &str) -> Result<String> {
         "has_upstream": has_upstream,
         "remote_url": remote_url,
         "dirty": dirty,
-        "unpushed": unpushed
+        "unpushed": unpushed,
+        // 只增字段（老键名与类型保持不变，Kotlin 侧 parseGitStatus 缺省即退化）
+        "has_parent": has_parent,
+        "head_sha": head_sha,
+        "has_remote_ref": has_remote_ref
     })
     .to_string())
 }
@@ -1135,5 +1167,187 @@ mod tests {
         if let Some(ca) = intermediate {
             assert!(verify_cert_chain(ca), "中间证书应能链到内置根");
         }
+    }
+
+    // ───────────────────── repo_status：事实区字段 ─────────────────────
+
+    /// `dirty` 的顺序必须**稳定**：决策页的勾选清单直接按它渲染，顺序抖一下用户就要重新找位置。
+    ///
+    /// 这条钉的是「不用显式排序也不该乱」：libgit2 的状态表由两个**已排序**的 diff 归并而来
+    /// （`git_diff__paired_foreach`，见 libgit2 的 status.c），只有开重命名检测时才需要
+    /// `SORT_CASE_*` 标志。哪天这里红了，说明上游行为变了 —— 那时在 `repo_status` 里补一次显式排序。
+    #[test]
+    fn repo_status_dirty_keeps_path_order() {
+        let dir = std::env::temp_dir().join(format!("bb-repo-status-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // repo_status 需要 HEAD：先落一个初始提交，再乱序制造三个未跟踪文件
+        let repo = git2::Repository::init(&dir).unwrap();
+        std::fs::write(dir.join("seed.txt"), "seed").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(std::path::Path::new("seed.txt")).unwrap();
+        index.write().unwrap();
+        let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+        let sig = git2::Signature::now("t", "t@example.com").unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "init", &tree, &[]).unwrap();
+        for name in ["z.txt", "a.txt", "m.txt"] {
+            std::fs::write(dir.join(name), "x").unwrap();
+        }
+
+        let json = repo_status(dir.to_str().unwrap()).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let paths: Vec<&str> = value["dirty"]
+            .as_array()
+            .expect("dirty 应是数组")
+            .iter()
+            .map(|e| e["path"].as_str().unwrap_or_default())
+            .collect();
+        assert_eq!(paths, vec!["a.txt", "m.txt", "z.txt"], "dirty 应按路径稳定排序");
+        assert_eq!(value["has_upstream"], serde_json::json!(false), "新仓库没有上游");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ───────────── repo_status：只增的三个「前提事实」字段 ─────────────
+
+    /// 建一个带初始提交的临时仓库。`repo_status` 需要 HEAD 才能工作（见上一条测试）。
+    ///
+    /// 目录名带 `tag`：cargo 单测在同进程内并行跑，只用 pid 会撞车。
+    fn init_repo_with_initial_commit(tag: &str) -> (std::path::PathBuf, git2::Repository) {
+        let dir = std::env::temp_dir().join(format!("bb-repo-status-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let repo = git2::Repository::init(&dir).unwrap();
+        std::fs::write(dir.join("seed.txt"), "seed").unwrap();
+        // index/tree 借用 repo，先关在块里再返回 repo（git2::Tree 的 Drop 会用到 repo）
+        {
+            let mut index = repo.index().unwrap();
+            index.add_path(std::path::Path::new("seed.txt")).unwrap();
+            index.write().unwrap();
+            let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+            let sig = git2::Signature::now("t", "t@example.com").unwrap();
+            repo.commit(Some("HEAD"), &sig, &sig, "init", &tree, &[]).unwrap();
+        }
+        (dir, repo)
+    }
+
+    /// 读一次 `repo_status` 并解析成 JSON。
+    fn status_json(dir: &std::path::Path) -> serde_json::Value {
+        let json = repo_status(dir.to_str().unwrap()).unwrap();
+        serde_json::from_str(&json).expect("repo_status 应返回 JSON 对象")
+    }
+
+    /// `has_parent` / `head_sha`：撤销上一次提交（`reset_soft` = `HEAD~1`）在**第一个提交**上
+    /// 必然失败，UI 要靠 `has_parent` 提前说明，而不是报「引擎不可用」。
+    #[test]
+    fn repo_status_reports_parent_and_full_head_sha() {
+        let (dir, repo) = init_repo_with_initial_commit("fields");
+
+        // ① 初始提交：无父；head_sha = HEAD 提交的**完整** sha
+        let first = status_json(&dir);
+        assert_eq!(first["has_parent"], serde_json::json!(false), "初始提交没有父提交");
+        let first_head = repo.head().unwrap().target().unwrap().to_string();
+        assert_eq!(
+            first["head_sha"].as_str().unwrap_or_default(),
+            first_head,
+            "head_sha 应与 repo.head().target() 一致"
+        );
+        assert_eq!(first_head.len(), 40, "head_sha 应是完整 sha，而不是 7 位短 sha");
+        assert!(!first["head_sha"].as_str().unwrap_or_default().is_empty(), "head_sha 不应为空串");
+
+        // ② 再落一个提交：有父；sha 跟着 HEAD 走
+        std::fs::write(dir.join("second.txt"), "second").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(std::path::Path::new("second.txt")).unwrap();
+        index.write().unwrap();
+        let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+        let parent = repo.head().unwrap().peel_to_commit().unwrap();
+        let sig = git2::Signature::now("t", "t@example.com").unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "second", &tree, &[&parent]).unwrap();
+
+        let second = status_json(&dir);
+        assert_eq!(second["has_parent"], serde_json::json!(true), "第二个提交有父提交");
+        let second_head = repo.head().unwrap().target().unwrap().to_string();
+        assert_eq!(second["head_sha"].as_str().unwrap_or_default(), second_head);
+        assert_ne!(second["head_sha"], first["head_sha"], "head_sha 应跟随 HEAD 变化");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `has_remote_ref`：只认 `refs/remotes/origin/{branch}` **这个 ref**，不认「配了 origin」——
+    /// `reset_hard_to_remote` 查的正是这个 ref，没有就报「找不到 ref」。
+    #[test]
+    fn repo_status_remote_ref_flag_follows_origin_ref() {
+        let (dir, repo) = init_repo_with_initial_commit("remote-ref");
+
+        // ① 连 origin 都没有
+        let bare = status_json(&dir);
+        assert_eq!(bare["has_remote_ref"], serde_json::json!(false), "无 origin 时不应报有远端 ref");
+
+        // ② 有 origin 配置但没有 remote-tracking ref（本地新建的仓库就是这样）
+        repo.remote("origin", "https://example.com/x.git").unwrap();
+        let no_ref = status_json(&dir);
+        assert_eq!(
+            no_ref["has_remote_ref"],
+            serde_json::json!(false),
+            "只有 origin 配置、没有 remote-tracking ref 时应为 false"
+        );
+        assert_eq!(
+            no_ref["remote_url"].as_str().unwrap_or_default(),
+            "https://example.com/x.git",
+            "remote_url 与 has_remote_ref 是两件事：前者有 URL 不等于后者为 true"
+        );
+
+        // ③ fetch（或 clone）过之后 ref 出现 → true
+        let branch = no_ref["branch"].as_str().unwrap_or_default().to_string();
+        assert!(!branch.is_empty(), "初始提交应落在某个分支上，否则这条测试没有意义");
+        let head_oid = repo.head().unwrap().target().unwrap();
+        repo.reference(&format!("refs/remotes/origin/{branch}"), head_oid, true, "test")
+            .unwrap();
+        let with_ref = status_json(&dir);
+        assert_eq!(
+            with_ref["has_remote_ref"],
+            serde_json::json!(true),
+            "refs/remotes/origin/{branch} 存在时应为 true"
+        );
+
+        // 字段只增：老键名与类型都不能动（Kotlin 侧 parseGitStatus 依赖它们）
+        for key in ["branch", "ahead", "behind", "has_upstream", "remote_url", "dirty", "unpushed"] {
+            assert!(with_ref.get(key).is_some(), "老字段 {key} 不能消失");
+        }
+        assert!(with_ref["branch"].is_string(), "branch 应仍是字符串");
+        assert!(with_ref["ahead"].is_u64() && with_ref["behind"].is_u64(), "ahead/behind 应仍是数字");
+        assert!(with_ref["has_upstream"].is_boolean(), "has_upstream 应仍是布尔");
+        assert!(with_ref["dirty"].is_array() && with_ref["unpushed"].is_array(), "dirty/unpushed 应仍是数组");
+        assert!(with_ref["head_sha"].is_string(), "head_sha 应是字符串");
+        assert!(with_ref["has_parent"].is_boolean() && with_ref["has_remote_ref"].is_boolean());
+
+        // ④ 符号引用：ref **存在**但取不到 target —— 正是「只判存在」会漏掉的那种。
+        // reset_hard_to_remote 在这条 ref 上同样会失败（`target()` → 「远端引用无目标」），
+        // 所以预检必须报 false，否则用户点下去才炸。
+        // 目标故意指向不存在的 ref，把「悬挂符号引用」这个最坏形状也一起盖上。
+        let ref_name = format!("refs/remotes/origin/{branch}");
+        repo.reference_symbolic(&ref_name, "refs/remotes/origin/does-not-exist", true, "test")
+            .unwrap();
+        // 先自证这条用例真的走在「符号引用」分支上，而不是退化成「ref 不存在」：
+        assert!(
+            repo.find_reference(&ref_name).is_ok(),
+            "符号引用也应能被 find_reference 找到，否则这条用例没测到符号引用分支"
+        );
+        assert!(
+            repo.find_reference(&ref_name).unwrap().target().is_none(),
+            "符号引用没有直接 target"
+        );
+
+        let symbolic = status_json(&dir);
+        assert_eq!(
+            symbolic["has_remote_ref"],
+            serde_json::json!(false),
+            "ref 存在但解析不出 target 时应为 false（与 reset_hard_to_remote 的真实前提一致）"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

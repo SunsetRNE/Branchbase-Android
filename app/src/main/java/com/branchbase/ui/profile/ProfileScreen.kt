@@ -74,6 +74,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import com.branchbase.ui.settings.GitProxyScreen
+import com.branchbase.ui.settings.RepoCredentialsScreen
 import com.branchbase.ui.repository.repoRelationOf
 import com.branchbase.ui.repository.RepoRelation
 import com.branchbase.ui.theme.color
@@ -232,7 +233,7 @@ fun ProfileScreen(
     val route: ProfileRoute = subPage?.let { ProfileRoute.Sub(it) } ?: ProfileRoute.Main
 
     // 子页面跳转时拦截系统返回，**逐层退回**（不是一律回主页）：
-    // 设置的下级页（本地仓库 / 关于 / 日志 / 通知设置 / 翻译 / 账号 / 提交模式，depth=2）
+    // 设置的下级页（本地仓库 / 关于 / 日志 / 通知设置 / 翻译 / 账号 / 提交模式 / 仓库凭据，depth=2）
     // 先回设置页，一级子页（星标 / 项目 / 任务 / 编辑资料 / 设置，depth=1）才回个人主页。
     // 曾经这里写死 `subPage = null` —— 页面左上角返回是回设置、系统返回键却直接跳回个人页，
     // 同一个返回意图给出两个结果（返回键跳层）。
@@ -271,7 +272,7 @@ fun ProfileScreen(
                     is ProfileRoute.Sub -> when (r.page) {
                         SubPage.Stars -> StarsScreen(sessionJson, onBack = { subPage = null }, onOpenRepo = onOpenRepo)
                         SubPage.Projects -> ProjectsScreen(sessionJson, onBack = { subPage = null })
-                        SubPage.Settings -> SettingsScreen(onBack = { subPage = null }, onOpenLocalRepo = { subPage = SubPage.LocalRepo }, onOpenAbout = { subPage = SubPage.About }, onOpenLog = { subPage = SubPage.Log }, onOpenNotificationSettings = { subPage = SubPage.NotificationSettings }, onOpenTranslate = { subPage = SubPage.Translate }, onOpenAccounts = { subPage = SubPage.Accounts }, onOpenCommitMode = { subPage = SubPage.CommitMode }, onOpenGitProxy = { subPage = SubPage.GitProxy }, onLogout = onLogout)
+                        SubPage.Settings -> SettingsScreen(onBack = { subPage = null }, onOpenLocalRepo = { subPage = SubPage.LocalRepo }, onOpenAbout = { subPage = SubPage.About }, onOpenLog = { subPage = SubPage.Log }, onOpenNotificationSettings = { subPage = SubPage.NotificationSettings }, onOpenTranslate = { subPage = SubPage.Translate }, onOpenAccounts = { subPage = SubPage.Accounts }, onOpenCommitMode = { subPage = SubPage.CommitMode }, onOpenGitProxy = { subPage = SubPage.GitProxy }, onOpenRepoCredentials = { subPage = SubPage.RepoCredentials }, onLogout = onLogout)
                         SubPage.LocalRepo -> LocalRepoScreen(sessionJson, onBack = { subPage = SubPage.Settings })
                         SubPage.About -> AboutScreen(onBack = { subPage = SubPage.Settings })
                         SubPage.Log -> LogScreen(onBack = { subPage = SubPage.Settings })
@@ -281,6 +282,9 @@ fun ProfileScreen(
                         SubPage.Accounts -> AccountsScreen(onBack = { subPage = SubPage.Settings }, onAdd = onLogout)
                         SubPage.CommitMode -> CommitModeScreen(onBack = { subPage = SubPage.Settings })
                         SubPage.GitProxy -> GitProxyScreen(onBack = { subPage = SubPage.Settings })
+                        // 返回目标不写死：走 [profileBackTarget]（本页 depth = 2 → SubPage.Settings），
+                        // 与系统返回键同一条规则（规范 §3.1）
+                        SubPage.RepoCredentials -> RepoCredentialsScreen(onBack = { subPage = profileBackTarget(subPage) })
                         SubPage.EditProfile -> ProfileEditScreen(sessionJson, onBack = { subPage = null }, onSaved = { subPage = null })
                     }
 
@@ -328,7 +332,7 @@ fun ProfileScreen(
  * 个人页路由。
  *
  * 层级：主页三 Tab（0）→ 一级子页（1：星标 / 项目 / 任务 / 编辑资料 / 设置）→
- * 设置的下级页（2：本地仓库 / 关于 / 日志 / 通知设置 / 沉浸式翻译 / 账号 / 提交模式）。
+ * 设置的下级页（2：本地仓库 / 关于 / 日志 / 通知设置 / 沉浸式翻译 / 账号 / 提交模式 / 仓库凭据）。
  * 这样「设置 → 关于」是推进，「关于 → 设置」是返回，方向都对得上用户的操作。
  */
 private sealed interface ProfileRoute : PageLevel {
@@ -366,6 +370,7 @@ private sealed interface ProfileRoute : PageLevel {
 internal fun subPageDepth(page: SubPage): Int = when (page) {
     SubPage.LocalRepo, SubPage.About, SubPage.Log, SubPage.NotificationSettings,
     SubPage.Translate, SubPage.Accounts, SubPage.CommitMode, SubPage.GitProxy,
+    SubPage.RepoCredentials,
     -> 2
 
     else -> 1

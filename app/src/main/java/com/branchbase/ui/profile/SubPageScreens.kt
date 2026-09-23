@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Speed
@@ -71,6 +72,8 @@ import com.branchbase.ui.repository.RepoRelation
 import com.branchbase.ui.theme.selectionColor
 import com.branchbase.BuildConfig
 import com.branchbase.core.AccountStatus
+import com.branchbase.core.AuthKind
+import com.branchbase.core.RepoCredentialStore
 import com.branchbase.ui.settings.frameWatchEnabled
 import com.branchbase.ui.settings.gitProxy
 import com.branchbase.ui.settings.setFrameWatchEnabled
@@ -118,7 +121,9 @@ import com.branchbase.ui.decision.StageCommitScreen
 import com.branchbase.ui.decision.StageFile
 import com.branchbase.ui.decision.UpstreamSetupScreen
 import com.branchbase.ui.decision.UndoCommitScreen
+import com.branchbase.ui.decision.RepoStats
 import com.branchbase.ui.decision.parseGitStatus
+import com.branchbase.ui.decision.parseRepoStats
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -146,6 +151,7 @@ enum class SubPage(val label: String) {
     Accounts("账号"),
     CommitMode("提交模式"),
     GitProxy("Git 代理"),
+    RepoCredentials("仓库凭据"),
 }
 
 // ───────────────────────── 缓存机制（内存缓存 + TTL 过期） ─────────────────────────
@@ -471,6 +477,7 @@ fun SettingsScreen(
     onOpenAccounts: () -> Unit,
     onOpenCommitMode: () -> Unit,
     onOpenGitProxy: () -> Unit,
+    onOpenRepoCredentials: () -> Unit,
     onLogout: () -> Unit,
 ) {
     LaunchedEffect(Unit) { Logger.ui("进入设置页", "Compose") }
@@ -484,6 +491,14 @@ fun SettingsScreen(
     val themeMode by ThemeRuntime.mode.collectAsState()
     val notificationPermission = rememberSystemNotificationState()
     val account = remember { AccountStore.current(context) }
+
+    // 仓库级凭据只在**令牌登录模式**（PAT）下登记 —— 产品口径：入口的显示条件是
+    // `AccountStore.current(context)?.auth == AuthKind.PAT`，OAuth 账号下**整行不出现**（不是置灰）。
+    // 之所以不置灰：禁用行必须给「怎么才能开」的出路（规范 §6.3），而这里的出路是重新登录，
+    // 不属于设置页能代办的事 —— 一行点不动的死行只会变成噪音。
+    val patMode = account?.auth == AuthKind.PAT
+    // 条数是读 prefs，进 remember：设置页组合期读盘一律不裸调（每次重组都会再读一遍）
+    val repoCredentialCount = remember { if (patMode) RepoCredentialStore.all(context).size else 0 }
 
     var translateEnabled by remember { mutableStateOf(TranslateSettings.read(context).enabled) }
     var confirmLogout by remember { mutableStateOf(false) }
@@ -525,6 +540,19 @@ fun SettingsScreen(
                     statusTone = account?.status?.let { accountStatusTone(it) } ?: StatusTone.MUTE,
                     onClick = onOpenAccounts,
                 )
+                // 仓库级凭据：账户组内、紧挨账号卡之后（不新建分组，规范 §3.2）。
+                // 显示条件见上面的 `patMode`：OAuth 账号下整行不出现。
+                if (patMode) {
+                    NavRow(
+                        icon = Icons.Filled.Key,
+                        name = "仓库凭据",
+                        // 值列只报条数：令牌与本机 host 一律不进值列（规范 §4.3 / §6.5）。
+                        // 数量用「N 条」，未配置用「未设置」（规范 §6.1：禁止「无」「空」「——」）
+                        value = if (repoCredentialCount > 0) "$repoCredentialCount 条" else "未设置",
+                        sub = "只在当前账号打不开的私有仓库上生效。",
+                        onClick = onOpenRepoCredentials,
+                    )
+                }
             }
         }
 
@@ -842,7 +870,12 @@ private sealed interface LocalPage {
     data class Undo(val name: String) : LocalPage
     data class Upstream(val name: String) : LocalPage
     data class Rollback(val name: String) : LocalPage
-    data class DeleteWarn(val name: String, val unpushed: kotlin.collections.List<com.branchbase.ui.decision.UnpushedCommit>) : LocalPage
+    data class DeleteWarn(
+        val name: String,
+        val unpushed: kotlin.collections.List<com.branchbase.ui.decision.UnpushedCommit>,
+        /** 远端仓库统计（取不到就是 null —— 页面据此**不显示**这一行，而不是编数字）。 */
+        val stats: com.branchbase.ui.decision.RepoStats? = null,
+    ) : LocalPage
     data class Stage(val name: String) : LocalPage
     data class Identity(val name: String, val message: String) : LocalPage
     /** 本地分支管理（列表 / 切换 / 新建 / 删除） */
@@ -1041,7 +1074,9 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
                 onDeletedRepo = {
                     scope.launch {
                         val st = withContext(Dispatchers.IO) { RustBridge.gitStatus(dirOf(p.name))?.let { parseGitStatus(it) } }
-                        page = LocalPage.DeleteWarn(p.name, st?.unpushed ?: emptyList())
+                        // 远端统计：从本地记录的 origin URL 反推 owner/repo，取不到就传 null（页面不显示那一行）
+                        val stats = withContext(Dispatchers.IO) { fetchRepoStats(st?.remoteUrl, host, token) }
+                        page = LocalPage.DeleteWarn(p.name, st?.unpushed ?: emptyList(), stats)
                     }
                 },
                 onResolved = { msg -> feedback = msg; page = LocalPage.List },
@@ -1052,6 +1087,7 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
             DeleteRepoWarningScreen(
                 repoName = p.name,
                 unpushed = p.unpushed,
+                stats = p.stats,
                 onBack = { page = LocalPage.List },
                 onPushFirst = {
                     // 先推送再删：直接走 push（无 upstream 引导设置；被拒转分叉）
@@ -1357,6 +1393,27 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
 
 private fun listLocalRepos(root: File): List<String> =
     root.listFiles()?.filter { it.isDirectory }?.map { it.name }?.sorted() ?: emptyList()
+
+/**
+ * 删除本地仓库前的「挽留」统计（P1-3）。
+ *
+ * 本地仓库目录里**没有** owner/repo，只有 git 配置里的 origin URL —— 从这里反推；
+ * 任何一步拿不到（没配 origin / URL 解析不出 / 接口失败）就返回 null，
+ * 页面据此**不显示**统计行 —— 宁可少一行，也不摆一串写死的假数字（本轮修掉的正是后者）。
+ */
+private suspend fun fetchRepoStats(remoteUrl: String?, host: String, token: String): RepoStats? {
+    val (owner, repo) = ownerRepoOfRemote(remoteUrl ?: return null) ?: return null
+    val json = RustBridge.getRepoInfo(host, token, owner, repo) ?: return null
+    return parseRepoStats(json)
+}
+
+/** 从 `https://github.com/o/r(.git)` / `git@github.com:o/r.git` 取 owner/repo；解析不出返回 null。 */
+private fun ownerRepoOfRemote(url: String): Pair<String, String>? {
+    val m = Regex("""[/:]([^/:\s]+)/([^/\s]+?)(?:\.git)?$""").find(url.trim()) ?: return null
+    val owner = m.groupValues[1]
+    val repo = m.groupValues[2]
+    return if (owner.isNotBlank() && repo.isNotBlank()) owner to repo else null
+}
 
 @Composable
 private fun LocalRepoRow(

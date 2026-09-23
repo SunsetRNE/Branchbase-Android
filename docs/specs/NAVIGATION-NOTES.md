@@ -17,8 +17,10 @@
 
 ### 规则 1：只有当前页能抢返回键
 
-Compose 的返回键是「**最后注册且启用者胜**」。而 `AnimatedContent`（`PageSwitcher` / `TabSwitcher`）
-会把**旧页继续留在组合树里**播完退场动画（220ms），旧页的 `BackHandler` 在此期间仍然注册且启用。
+Compose 的返回键是「**最后注册且启用者胜**」。`PageSwitcher` 仍是 `AnimatedContent`，
+会把**旧页继续留在组合树里**播完退场动画（220ms），旧页的 `BackHandler` 在此期间仍然注册且启用；
+`TabSwitcher` 则**自 1.0.57 起改成保活**（`PageTransitions.kt` 的 `KeepAliveTab`），
+隐藏的 Tab 不再销毁、长期留在组合树里 —— 见下方说明。
 
 > **1.0.57 起 `TabSwitcher` 改成保活**：隐藏的 Tab **不再销毁**，会一直留在组合树里
 > （只是透明度为 0、且不再绘制）。这让这条规则从「动画期间的 220ms」变成**长期成立** ——

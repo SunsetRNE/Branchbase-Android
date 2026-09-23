@@ -35,7 +35,7 @@ import com.branchbase.ui.theme.Primer
 import com.branchbase.ui.theme.ProfileColors
 import com.branchbase.ui.theme.skeletonBlock
 
-/** 单格尺寸与间距（与 `design/contribution-wall-prototype.html` 一致）。 */
+/** 单格尺寸与间距（贡献墙的设计取值，改这里即改全局）。 */
 private val CELL = 10.dp
 private val GAP = 2.dp
 private val COL_STEP = 12.dp
