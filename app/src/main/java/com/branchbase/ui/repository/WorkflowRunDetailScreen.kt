@@ -1,6 +1,7 @@
 package com.branchbase.ui.repository
 
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,6 +26,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -49,6 +52,8 @@ import com.branchbase.cache.SearchCacheManager
 import com.branchbase.cache.networkMetered
 import com.branchbase.core.RustBridge
 import com.branchbase.downloader.DownloadRequest
+import com.branchbase.downloader.DownloadStatus
+import com.branchbase.downloader.DownloadTask
 import com.branchbase.downloader.DownloaderRuntime
 import com.branchbase.joblogs.JobLog
 import com.branchbase.joblogs.JobLogStore
@@ -120,6 +125,10 @@ fun WorkflowRunDetailScreen(
     var logFailed by remember { mutableStateOf<Set<Long>>(emptySet()) }
     // 运行中：耗时每秒走动（靠它刷新，而不是靠网络）
     var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
+
+    // 产物下载状态：与系统通知同源（任务表在 :downloader 里），
+    // 退出页面再回来、甚至退到后台，进度都还在 —— 与发布附件那条路同一套
+    val downloadTasks by DownloaderRuntime.tasks.collectAsState()
 
     // 主取数：run / jobs / artifacts 三路并行；注解依赖 headSha
     LaunchedEffect(owner, repo, runId, retryTick, forceTick) {
@@ -398,7 +407,13 @@ fun WorkflowRunDetailScreen(
 
                 if (artifacts.isNotEmpty()) {
                     item { DetailSectionTitle("产物 · ${artifacts.size}") }
-                    items(artifacts, key = { it.id }) { artifact -> ArtifactRow(artifact, context) }
+                    items(artifacts, key = { it.id }) { artifact ->
+                        ArtifactRow(
+                            artifact = artifact,
+                            context = context,
+                            task = downloadTasks.firstOrNull { it.id == artifactTaskId(artifact.id) },
+                        )
+                    }
                 }
 
                 // 归属不到任何任务的注解（宁可放不对，不要放错）
@@ -435,15 +450,24 @@ private fun FilterSegment(label: String, on: Boolean, onClick: () -> Unit) {
 }
 
 /**
- * 产物行：名字 + 大小 + 「已过期」 + 行尾**直接下载**。
+ * 产物行：名字 + 大小 + 「已过期」 + 行尾**一个主动作**。
+ *
+ * 动作随下载状态走，与发布附件行同一套：下载 → 取消 / 重试 / **安装**。
+ * 安装那一步要先把 zip 解开 —— Actions 的产物**下载时永远是 zip**（平台约束，绕不过），
+ * 所以「拿产物当第二条取包通道」的最后一环落在 App 这边，见 [installWorkflowArtifact]。
  *
  * 下载走 `:downloader`（前台服务 + 通知进度 + 重定向鉴权都是现成的）；
  * `archive_download_url` 需要鉴权，由 `:downloader` 的 `AuthProvider` 按 host 注入。
  * 地址缺失（老缓存 / 已过期被回收）时按钮置灰，不假装能下。
  */
 @Composable
-private fun ArtifactRow(artifact: WorkflowArtifact, context: android.content.Context) {
+private fun ArtifactRow(
+    artifact: WorkflowArtifact,
+    context: android.content.Context,
+    task: DownloadTask?,
+) {
     val downloadable = artifact.archiveDownloadUrl.isNotBlank() && !artifact.expired
+    val failed = task?.status == DownloadStatus.FAILED && !task.error.isNullOrBlank()
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -456,40 +480,80 @@ private fun ArtifactRow(artifact: WorkflowArtifact, context: android.content.Con
                 maxLines = 2,
             )
             Spacer(Modifier.height(2.dp))
-            Text(artifact.sizeText, fontSize = 11.sp, color = Primer.TextTertiary)
+            // 失败原因直接写在这一行，别只留一个「重试」让人猜刚才发生了什么
+            Text(
+                if (failed) task.error!! else artifact.sizeText,
+                fontSize = 11.sp,
+                color = if (failed) Primer.DangerText else Primer.TextTertiary,
+                maxLines = 2,
+            )
         }
         if (artifact.expired) {
             Spacer(Modifier.width(8.dp))
             Text("已过期", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Primer.DangerText)
         }
         Spacer(Modifier.width(8.dp))
-        Box(
-            Modifier
-                .clip(RoundedCornerShape(6.dp))
-                .background(if (downloadable) Primer.Blue500 else Primer.Gray150)
-                .then(if (downloadable) Modifier.clickable {
-                    runCatching {
-                        DownloaderRuntime.enqueue(
-                            context,
-                            DownloadRequest(
-                                id = "artifact-${artifact.id}",
-                                url = artifact.archiveDownloadUrl,
-                                fileName = "${artifact.name}.zip",
-                                title = artifact.name,
-                                sizeHint = artifact.sizeInBytes,
-                            ),
-                        )
-                    }
-                } else Modifier)
-                .padding(horizontal = 10.dp, vertical = 4.dp),
-        ) {
-            Text(
-                "下载",
-                fontSize = 11.5.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = if (downloadable) Primer.Gray000 else Primer.TextTertiary,
-            )
+        when {
+            task?.isActive == true -> ArtifactAction("取消", Primer.TextSecondary) {
+                DownloaderRuntime.cancel(task.id)
+            }
+            task?.status == DownloadStatus.COMPLETED -> ArtifactAction("安装", Primer.Blue500) {
+                val file = task.file
+                Toast.makeText(
+                    context,
+                    if (file == null) "找不到已下载的文件" else installWorkflowArtifact(context, file),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            failed -> ArtifactAction("重试", Primer.Blue500) {
+                DownloaderRuntime.retry(context, task.id)
+            }
+            else -> ArtifactAction(
+                text = if (downloadable) "下载" else "不可用",
+                color = if (downloadable) Primer.Blue500 else Primer.TextTertiary,
+                enabled = downloadable,
+            ) {
+                runCatching {
+                    DownloaderRuntime.enqueue(
+                        context,
+                        DownloadRequest(
+                            id = artifactTaskId(artifact.id),
+                            url = artifact.archiveDownloadUrl,
+                            fileName = "${artifact.name}.zip",
+                            title = artifact.name,
+                            sizeHint = artifact.sizeInBytes,
+                        ),
+                    )
+                }
+            }
         }
     }
     Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Gray100))
+}
+
+/** 产物的下载任务 id：下载、取消、重试、取文件必须用同一个键，否则状态对不上。 */
+private fun artifactTaskId(artifactId: Long): String = "artifact-$artifactId"
+
+/** 产物行尾的动作按钮：任何时刻只给一个主动作，避免按钮堆叠（同发布附件行）。 */
+@Composable
+private fun ArtifactAction(
+    text: String,
+    color: Color,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (enabled) color else Primer.Gray150)
+            .then(if (enabled) Modifier.clickable { onClick() } else Modifier)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+    ) {
+        Text(
+            text,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = if (enabled) Primer.Gray000 else Primer.TextTertiary,
+        )
+    }
 }

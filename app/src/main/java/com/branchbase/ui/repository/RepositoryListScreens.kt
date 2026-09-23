@@ -739,7 +739,26 @@ fun ReleaseListContent(
         if (json == null || json.startsWith("ERROR:")) {
             if (!shownStale) error = loadFailure("发布", json?.removePrefix("ERROR:"), owner, repo)
         } else {
-            items = parseReleases(json)
+            var parsed = parseReleases(json)
+            // 列表接口对**刚发布**的 release 会在一段时间内返回空 assets（实测窗口约 1~2 小时，
+            // 见 `releasesNeedingAssetBackfill` 的注释），而同一时刻单体接口已经是对的。
+            // 只对这几条回源补齐 —— 否则「刚发完版想立刻装」这个最常见的动作恰好看到「没有附件」，
+            // 而那正是最需要看到附件的时候。
+            val need = releasesNeedingAssetBackfill(parsed)
+            if (need.isNotEmpty()) {
+                val filled = HashMap<Long, List<ReleaseAsset>>()
+                for (item in need) {
+                    val one = parseSingleRelease(
+                        RustBridge.getJson(host, token, "/repos/$owner/$repo/releases/${item.id}"),
+                    )
+                    if (one != null && one.assets.isNotEmpty()) filled[item.id] = one.assets
+                }
+                if (filled.isNotEmpty()) {
+                    // 补不上的保持原样：宁可少显示，也不要显示错的
+                    parsed = parsed.map { if (filled.containsKey(it.id)) it.copy(assets = filled.getValue(it.id)) else it }
+                }
+            }
+            items = parsed
             ListCache.write(manager, cacheKey, json)
         }
         // ③ 「最新发布」问权威端点：列表接口**每条记录里不带 latest 标记**，

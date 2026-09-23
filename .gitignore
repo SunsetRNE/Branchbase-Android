@@ -77,3 +77,7 @@ __pycache__/
 *.keystore
 !app/debug.keystore
 *.jks
+
+# 本地排障用的 GitHub 凭据与脚本（**永久不入库**）
+# 目录里有访问令牌与 SSH 私钥 —— 提交上去等于泄露。说明见 .local-gh/README.md。
+/.local-gh/

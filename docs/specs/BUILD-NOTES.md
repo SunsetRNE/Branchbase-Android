@@ -56,7 +56,7 @@ androidComponents {
 ### 1. 版本号（`version.properties`，手动维护）
 
 下面这段（以及本节其余示例）是**格式示例** —— 示例值 `1.0.3` / `103`，**不是当前值**；
-当前值一律以 `version.properties` 为准（截至 1.0.73 为 `1.0.73` / `175`），版本号逐版变化、不属于本节的契约。
+当前值一律以 `version.properties` 为准（截至 1.0.74 为 `1.0.74` / `176`），版本号逐版变化、不属于本节的契约。
 
 ```properties
 versionName=1.0.3   # 工程版本号（semver：主.次.修订）

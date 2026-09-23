@@ -969,8 +969,11 @@ private fun enqueueAssetDownload(context: Context, release: ReleaseItem, asset: 
  *
  * 没拿到「安装未知应用」授权时先跳设置页 —— 直接拉起安装器只会白屏失败，
  * 用户完全不知道要做什么。
+ *
+ * `internal` 而不是 `private`：[ArtifactInstall] 的「工作流产物 → 安装」也走这里 ——
+ * 授权引导只能有一份，抄第二份就多一处将来会忘记同步的权限处理。
  */
-private fun installDownloadedApk(context: Context, file: File): String {
+internal fun installDownloadedApk(context: Context, file: File): String {
     if (!DownloadActions.canInstallPackages(context)) {
         runCatching { context.startActivity(DownloadActions.unknownSourcesSettingsIntent(context)) }
         return "请先允许「安装未知应用」，已为你打开设置页"

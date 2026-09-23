@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只留格式契约 + 写法样板（3 个经典示例）；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.73**）
-与 §三 `versionCode` 流水（129 → **175**）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.74**）
+与 §三 `versionCode` 流水（129 → **176**）。
 
 ---
 
@@ -25,7 +25,66 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.73 → 1.0.22）
+## 二、`versionName` 流水（1.0.74 → 1.0.22）
+
+### 1.0.74
+
+**「刚发布的版本在 App 里看不到附件」—— 补齐第二条取包通道**（发布页那条断点 + CI 产物那条断点）。
+
+① **现场**。v1.0.73 的三个 beta release，在 App 的发布页上全都没有附件，而**附件一直是好的**。
+同一个 release 三条取值路径给出两种答案：
+
+| 路径 | 结果 |
+|------|------|
+| `GET /repos/{o}/{r}/releases`（列表）| `assets: []` ← **App 只读这个** |
+| `GET /repos/{o}/{r}/releases/{id}`（单体）| 3 个 |
+| `releases/expanded_assets/{tag}`（网页）| 3 行，带 sha256 |
+
+窗口约 **1.5~2.6 小时**（发布后 1h25m 仍为空、2h38m 已恢复），之后自愈。跨仓库对照佐证不是
+GitHub 全局故障：`neovim/neovim` 3.7 小时前的 release（13 个附件）两条路径一致。
+网页端也露了同一个馅 —— 发布页标题旁的「Assets **N**」计数显示成 `0 + 2 个自动源码包`，
+而**同一页的附件列表本身是完整的**（列表由另一个端点渲染）。这也说明源头在 GitHub 那份
+`assets` 元数据，与客户端解析无关。
+
+**代价**：`刚发完版想立刻装` 是最常见的动作，而它恰好落在窗口里。
+
+② **发布页那条断点**。App 读列表接口，那就在它报空时补一次单体接口：
+`parseSingleRelease`（单体返回对象，套层方括号复用 `parseReleases`，同 `parseWorkflowRun` 手法）
++ `releasesNeedingAssetBackfill`（只挑 `assets` 为空的、最多 3 条、`id == 0` 跳过）。
+正常仓库**零额外请求**。钉子 `ReleaseAssetBackfillTest`(6)。
+
+③ **CI 产物那条断点**。产物是发布页之外的第二条取包通道，但它原来**走到一半**：
+
+```
+发布附件  →  下载 .apk  →  有「安装」
+CI 产物   →  下载 .zip  →  结束（`app`/`downloader`/`core` 里 ZipFile 零命中，手机上解不了）
+```
+
+Actions 的产物**下载时永远是 zip**，去不掉这层壳。既然去不掉，就把壳做成确定性的：
+
+- **工作流**：产物由「一个 58MB 混装包」拆成**一个 APK 一个 artifact**
+  （`Branchbase-<sv>-debug` / `-perfBeta` / `-core-so`，正式版为 `Branchbase-<sv>`），
+  保留期 7 → **30 天**，`if-no-files-found: error`（兜底通道不能静默产出空产物）。
+  publish 侧改 `pattern: Branchbase-*` + **`merge-multiple: true`** —— 不加会把文件解到
+  以 artifact 命名的子目录里，发布步骤与 `cp libbranchbase_core.so` 会一起找不到文件。
+- **App**：新增 `ArtifactInstall.kt` —— `pickSingleApkEntry` / `extractSingleApk` /
+  `installWorkflowArtifact`；产物行接上与发布附件同一套状态机（下载 → 取消 / 重试 / **安装**），
+  失败原因写进行内。`installDownloadedApk` 由 `private` 改 `internal`，
+  **「安装未知应用」的授权引导只有一份**。
+
+判断力全在「挑哪个」：**只在恰好一个 APK 时才动手**，两个以上**不猜** —— debug 与 perfBeta
+是两个不同签名的变体，装错要卸载重来。zip-slip 靠「输出路径只取条目名最后一段」天然不成立
+（不是过滤 `..`，是不采纳）。钉子 `ArtifactInstallTest`(11)：挑选规则 / 混装拒绝 /
+带 `../../` 的条目 / 非 zip 不抛。
+
+④ **顺带**：`GET /releases` 对刚发布的 release 返回空 `assets` 这件事**没有自动化守卫** ——
+HTML 端点的对照逻辑进了本地排障脚本（`.local-gh/check-releases.py`，不入库），
+发布后想核对可以跑一次。
+
+⑤ **测试**。`:app` 编译通过，`com.branchbase.ui.repository.*` 全绿；本轮新增 17 例
+（`ReleaseAssetBackfillTest` 6 + `ArtifactInstallTest` 11）。
+
+---
 
 ### 1.0.73
 
@@ -1251,11 +1310,19 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（175 → 129）
+## 三、`versionCode` 流水（176 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **176**：「刚发布的版本在 App 里看不到附件」—— 补两条断点。①App 读的列表接口对刚发布的
+release 会返回空 `assets`（窗口约 1.5~2.6 小时，单体接口与网页始终正确），改在报空时回源单体
+接口补齐（`releasesNeedingAssetBackfill`，只挑空的最多 3 条）；②CI 产物原本下载的是 zip 而
+App 无法解压（三个模块 `ZipFile` 零命中），产物拆成「一个 APK 一个 artifact」+ 保留期 30 天 +
+`if-no-files-found: error`，App 侧新增解压安装（只在恰好一个 APK 时动手，两个以上不猜，
+zip-slip 靠不采纳条目路径天然不成立）。新增 17 例钉子（`ReleaseAssetBackfillTest` 6 +
+`ArtifactInstallTest` 11）（一次提交，故 +1）
 
 - **175**：首页 / 个人页三 Tab / 设置页的描边改为纯黑（**仅浅色**）—— 新增 `Primer.BorderEmphasis`
 角色（浅 `#000000` / 深 `#30363D`）承接 17 处引用（首页 4 / 个人页 11 / 设置页 2，设置页原为 `Gray200`）；

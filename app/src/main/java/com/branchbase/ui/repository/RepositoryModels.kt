@@ -315,6 +315,40 @@ fun parseReleases(json: String): List<ReleaseItem> = runCatching {
     }
 }.getOrDefault(emptyList())
 
+/**
+ * 解析**单体**发布接口 `GET /repos/{o}/{r}/releases/{id}`（返回对象，不是数组）。
+ *
+ * 复用 [parseReleases]：套一层方括号就成数组了，免得再抄一遍十个字段
+ * （与 `parseWorkflowRun` 同一手法）。
+ */
+fun parseSingleRelease(json: String?): ReleaseItem? {
+    if (json.isNullOrBlank() || json.startsWith("ERROR:")) return null
+    return parseReleases("[$json]").firstOrNull()
+}
+
+/**
+ * 挑出「需要回源单体接口补齐附件」的 release。
+ *
+ * ## 为什么需要这个
+ *
+ * 列表接口 `GET /repos/{o}/{r}/releases` 对**刚发布**的 release 会在一段时间内返回空
+ * `assets` 数组 —— 实测窗口约 **1~2 小时**，而同一时刻 `GET /releases/{id}` 已经是正确的。
+ * 列表页那条路径还带得动：发布页标题旁「Assets N」计数会显示成「0 个上传附件 + 2 个源码包」，
+ * 但附件列表本身由另一个端点渲染，所以网页上看不出问题。
+ *
+ * **App 只读列表接口**（见 `RepositoryListScreens` 的 releases 加载），于是「刚发完版想立刻装」
+ * 这个最常见的动作恰好命中窗口：页面上没有附件，只能去装上一版。
+ *
+ * ## 边界
+ *
+ * - 只挑 `assets` 为空的，正常 release 一次都不多请求；
+ * - `id == 0` 的（解析异常）跳过，否则会拼出 `/releases/0`；
+ * - 最多 [limit] 条 —— 列表是新→旧排的，所以天然只补最新的几条。
+ *   真有仓库整仓都不传附件时，上限保证不会每个 release 都发一次请求。
+ */
+fun releasesNeedingAssetBackfill(items: List<ReleaseItem>, limit: Int = 3): List<ReleaseItem> =
+    items.filter { it.id != 0L && it.assets.isEmpty() }.take(limit)
+
 /** 解析 GET /repos/{o}/{r}/actions/workflows 的 {total_count, workflows:[…]} */
 fun parseWorkflows(json: String): List<WorkflowItem> = runCatching {
     val arr = JSONObject(json).optJSONArray("workflows") ?: return@runCatching emptyList()

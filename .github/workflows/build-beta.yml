@@ -79,12 +79,38 @@ jobs:
           cp app/src/main/jniLibs/arm64-v8a/libbranchbase_core.so dist/ || true
           ls -la dist/
 
-      - name: Upload artifacts
+      # ── 产物上传：**一个 APK 一个 artifact**，不再混装成一个 zip ──
+      #
+      # 为什么拆开：产物是发布页之外的**第二条取包通道**。列表接口对刚发布的 release 会有一段
+      # 空 assets 的缓存窗口（见 `releasesNeedingAssetBackfill` 的注释），那段时间里只能靠产物。
+      # 而「靠产物」要求两条：① 名字能认出是哪个包；② 下载下来的 zip 里**只有一个** .apk ——
+      # App 侧「解出唯一 APK 并安装」才有无歧义的判断依据（`pickSingleApkEntry`）。
+      # 原来混装成 `beta-artifacts`（debug + perfBeta + .so，58MB）两条都不满足。
+      #
+      # `if-no-files-found: error`：这条通道是兜底，静默产出空产物等于兜底也没了。
+      - name: Upload artifacts（debug APK）
         uses: actions/upload-artifact@v4
         with:
-          name: beta-artifacts
-          path: dist/
-          retention-days: 7
+          name: Branchbase-${{ steps.ver.outputs.standardVersion }}-debug
+          path: dist/*-debug.apk
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload artifacts（perfBeta APK）
+        uses: actions/upload-artifact@v4
+        with:
+          name: Branchbase-${{ steps.ver.outputs.standardVersion }}-perfBeta
+          path: dist/*-perfBeta.apk
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload artifacts（Rust core .so）
+        uses: actions/upload-artifact@v4
+        with:
+          name: Branchbase-${{ steps.ver.outputs.standardVersion }}-core-so
+          path: dist/libbranchbase_core.so
+          retention-days: 30
+          if-no-files-found: error
 
   publish:
     runs-on: ubuntu-latest
@@ -96,10 +122,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      # build 任务把产物拆成了三个 artifact（一个 APK 一个），这里按前缀全取回来。
+      # `merge-multiple: true` 是关键：不加它，每个 artifact 会解到**以自己命名的子目录**里，
+      # 于是 `*.apk` / `libbranchbase_core.so` 都不在工作区根目录 —— 发布步骤与
+      # 「代码变更整合」会一起找不到文件（后者直接 `cp` 失败）。
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: beta-artifacts
+          pattern: Branchbase-*
+          merge-multiple: true
 
       - name: Generate signature file
         run: |
