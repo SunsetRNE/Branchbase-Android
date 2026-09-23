@@ -188,6 +188,10 @@ fun AccountsScreen(
                             // 记一行：这个功能出过一次「点了没反应」，当时日志里查不到任何线索
                             Logger.ui("点「添加账号」→ 进入新增登录流程", "Compose")
                             onAdd()
+                            Logger.ui(
+                                "新增流程标记 = ${com.branchbase.ui.auth.AddAccountFlow.active}",
+                                "Compose",
+                            )
                         }.padding(vertical = 13.dp),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically,

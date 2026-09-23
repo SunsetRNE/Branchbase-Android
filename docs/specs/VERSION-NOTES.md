@@ -25,7 +25,41 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.80 → 1.0.22）
+## 二、`versionName` 流水（1.0.81 → 1.0.22）
+
+### 1.0.81
+
+**「添加账号」仍无页面响应 —— `AnimatedContent` 的 contentKey 没变，内容不重放**（用户反馈）。
+
+1.0.80 修掉了「自己取消自己」，用户确认「UI 不再变形、按钮有反馈」，但**页面依然不动**。
+新加的诊断日志给出了决定性证据：`点「添加账号」` 连打 5 次（23:14:59 → 23:15:03），
+每次后面**什么都没有**。
+
+根因在渲染层：新增流程中 `state` 仍是 `LoginState.LoggedIn`（用户本来就登录着），
+而 [PageSwitcher] 底层是 `AnimatedContent`，它的 `contentKey` 取的是 `state::class` ——
+**key 完全没变**。于是「同一格里把 `LoggedInGate` 换成 `WelcomeScreen`」这件事，
+`AnimatedContent` 不会重放内容，界面纹丝不动。
+
+改法：新增流程**不再走 `PageSwitcher`**，在它之前直接渲染欢迎页并 return：
+
+```kotlin
+if (addingInProgress) {
+    WelcomeScreen(onOAuthLogin = …, onKeyLogin = …)
+    return
+}
+```
+
+这一步只需要「显示欢迎页（选登录方式）」这一格，不需要位移动画，直接渲染反而更贴合语义，
+也少一层对 `AnimatedContent` 内部行为的依赖。`LoggedIn` 分支恢复成只剩 `LoggedInGate`。
+
+诊断留档（都做了「只在值变化时记」防刷屏）：
+`登录根布局：新增流程=… 状态=… 接管=…` 与 `新增流程标记 = …` 两行 ——
+前者证明**根布局有没有读到标记**，后者证明**标记有没有被置上**。
+这两句是这类「点了没反应」问题的定性工具，上一轮就因为没有它们而只能靠猜。
+
+app 89 类 / 773 例全绿；`assembleDebug` 通过。versionCode 182 → 183（一次提交 +1）。
+
+---
 
 ### 1.0.80
 
@@ -1640,6 +1674,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **183**：「添加账号」仍无响应 —— `PageSwitcher`（`AnimatedContent`）的 `contentKey`
+取 `state::class`，而新增流程中 state 仍是 `LoggedIn`、key 没变，内容不重放。
+改为在 `PageSwitcher` **之前**直接渲染欢迎页并 return；补两句只在值变化时记录的诊断日志
+（根布局有没有读到标记 / 标记有没有被置上）（一次提交，故 +1）
 
 - **182**：修「添加账号没反应」—— 1.0.79 在账号页挂的 `onDispose { finish() }` 与
 「登录界面接管整屏」结构互斥（主界面一撤就 dispose，标记当场被清），改用兜底过期

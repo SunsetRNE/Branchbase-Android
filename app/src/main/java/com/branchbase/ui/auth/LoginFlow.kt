@@ -18,6 +18,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.branchbase.ui.log.Logger
 import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.navigation.PageSwitcher
 import com.branchbase.MainActivity
@@ -109,6 +112,38 @@ fun LoginFlow(
     // 不拦的话既回不去、还可能直接退出应用（用户报的就是这个）。
     // 深层页面（介绍 / 填密钥 / 2FA…）仍交给状态机自己回退到欢迎页。
     PageBackHandler(enabled = addingInProgress && state is LoginState.Idle) { AddAccountFlow.finish() }
+
+    // 诊断：给「点了添加账号但界面不动」那类问题定性。
+    // 出问题时看得到「标记有没有被这一层读到」—— 上一轮正因为没有这行，日志里只剩一句
+    // 「点了添加账号」，完全分不清是「标记没置上」还是「置上了但这一层没重组」。
+    //
+    // 只在**值变化**时记：登录页播放动画期间这一层会频繁重组，每帧一行会把日志刷满。
+    val watch = remember { mutableStateOf("") }
+    LaunchedEffect(addingAccount, state::class) {
+        val now = "新增流程=$addingAccount 状态=${state::class.simpleName} 接管=$addingInProgress"
+        if (watch.value != now) {
+            watch.value = now
+            Logger.ui("登录根布局：$now", "Compose")
+        }
+    }
+
+    if (addingInProgress) {
+        // ⚠️ 这里**不走 [PageSwitcher]**，直接渲染欢迎页。
+        //
+        // 原因是实测出来的：`PageSwitcher` 底层是 `AnimatedContent`，而它的 `contentKey`
+        // 取的是 `state::class`。新增流程中 `state` 仍是 `LoginState.LoggedIn`（用户本来就
+        // 登录着），key 完全没变 —— 于是「同一格里把 LoggedInGate 换成 WelcomeScreen」
+        // 这件事 AnimatedContent **不会重放内容**，界面纹丝不动。
+        // 真机日志里那 5 次「点「添加账号」」后面什么都没有，正是这个形状。
+        //
+        // 这一步只需要「显示欢迎页（选登录方式）」这一格，不需要位移动画，
+        // 所以直接渲染反而更贴合语义，也少一层对 AnimatedContent 行为的依赖。
+        WelcomeScreen(
+            onOAuthLogin = { viewModel.showOAuthIntro() },
+            onKeyLogin = { viewModel.showKeyIntro() },
+        )
+        return
+    }
 
     PageSwitcher(
         state = state,
@@ -203,19 +238,11 @@ fun LoginFlow(
             }
 
             is LoginState.LoggedIn -> {
-                if (addingInProgress) {
-                    // 新增流程尚未完成：停在这里继续选登录方式，**不进主界面**。
-                    // 顶栏由账号页自己提供（它的返回键清标记即回列表），所以这里不再叠一层返回。
-                    WelcomeScreen(
-                        onOAuthLogin = { viewModel.showOAuthIntro() },
-                        onKeyLogin = { viewModel.showKeyIntro() },
-                    )
-                } else {
-                    LoggedInGate(
-                        sessionJson = s.sessionJson,
-                        onLogout = { viewModel.logout() },
-                    )
-                }
+                // 走到这里说明不在新增流程里（新增流程在上面就 return 了）
+                LoggedInGate(
+                    sessionJson = s.sessionJson,
+                    onLogout = { viewModel.logout() },
+                )
             }
 
             is LoginState.Error -> {
