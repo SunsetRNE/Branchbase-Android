@@ -30,6 +30,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -91,6 +92,20 @@ fun AccountsScreen(
         com.branchbase.core.AccountChecks.check(context, a)
         checking = checking - a.id
         reload()
+    }
+
+    // 新增流程结束（登录成功）后刷新列表：新账号应当立刻出现在这里。
+    // 这一步不能省 —— 本页在 Tab 保活的树里，不会因为「离开过」而自动重建。
+    val addingAccount by com.branchbase.ui.auth.AddAccountFlow.activeState
+    LaunchedEffect(addingAccount) {
+        if (!addingAccount) reload()
+    }
+
+    // 离开本页时一定要清掉标记：否则「进新增流程 → 中途切到别的 Tab / 返回设置」
+    // 会把标记留成 true，下次进账号页直接被扔进登录界面，而用户并没有要新增。
+    // 登录成功那条路径已经清了，这里清是幂等的。
+    DisposableEffect(Unit) {
+        onDispose { com.branchbase.ui.auth.AddAccountFlow.finish() }
     }
 
     LaunchedEffect(Unit) {
@@ -171,6 +186,8 @@ fun AccountsScreen(
                     ) {
                         Icon(Icons.Filled.Add, contentDescription = null, tint = Primer.Blue500, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
+                        // 「添加账号」= 再登一个号（当前账号保持登录、凭据不动）。
+                        // 它的出口是登录流程里的返回键 → 回到本页，因此这里不再自称「登录」。
                         Text("添加账号", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
                     }
                 }

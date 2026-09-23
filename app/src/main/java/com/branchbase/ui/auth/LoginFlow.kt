@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.navigation.PageSwitcher
 import com.branchbase.MainActivity
 import com.branchbase.ui.theme.AppIcon
@@ -84,6 +85,31 @@ fun LoginFlow(
     // （`isSubPage` 精确描述「哪些格子才该被兜底」）。注意**不能**用默认的 `depth > 0`：
     // `LoggedIn` 的 depth 是 3（位移动画靠它），但它不是子页 —— 拿默认判据会让登录流程
     // 吃掉主界面的返回键，「再按一次退出」直接失灵。
+    // 「新增账号」流程中：登录界面**接管整屏**（不组合主界面）。
+    //
+    // 为什么必须不组合：主界面里就是那个账号页，若两者同时存在会叠两层；
+    // 而整屏替换的代价只是「返回时重建一次主界面」—— 与切账号同一条路径，可接受。
+    //
+    // 登录**成功**时收尾：清掉标记，让主界面接管（新增的账号若被设为当前，主界面就是新账号的）。
+    // 用 LaunchedEffect 而不是在渲染里写 state：写状态要放在副作用里。
+    val addingAccount by AddAccountFlow.activeState
+    // 登录成功即收尾：清掉标记，主界面接管。用 LaunchedEffect 而不是在渲染里写 ——
+    // 写状态要放在副作用里，否则重组期间改状态会引发下一帧再重组。
+    LaunchedEffect(addingAccount, state) {
+        if (addingAccount && state is LoginState.LoggedIn) AddAccountFlow.finish()
+    }
+    // 新增流程里、且还没登录成功 → 登录界面接管整屏（下面 [PageSwitcher] 里
+    // `LoggedIn` 那一格会被换成欢迎页，因此主界面根本不会组合）。
+    //
+    // 为什么不单独写一条渲染路径：登录流程的步骤与位移动画都收在下面这一个
+    // [PageSwitcher] 里，另起一份必然分叉。这里只是把「已登录」这一格换掉。
+    val addingInProgress = addingAccount && state !is LoginState.LoggedIn
+    // 欢迎页**在新增流程里要拦返回**：`LoginState.Idle` 平时刻意不拦截（未登录时是
+    // 「再按一次退出 App」），但从账号页进来的用户按返回是想回账号列表 ——
+    // 不拦的话既回不去、还可能直接退出应用（用户报的就是这个）。
+    // 深层页面（介绍 / 填密钥 / 2FA…）仍交给状态机自己回退到欢迎页。
+    PageBackHandler(enabled = addingInProgress && state is LoginState.Idle) { AddAccountFlow.finish() }
+
     PageSwitcher(
         state = state,
         onBack = { viewModel.back() },
@@ -177,10 +203,19 @@ fun LoginFlow(
             }
 
             is LoginState.LoggedIn -> {
-                LoggedInGate(
-                    sessionJson = s.sessionJson,
-                    onLogout = { viewModel.logout() },
-                )
+                if (addingInProgress) {
+                    // 新增流程尚未完成：停在这里继续选登录方式，**不进主界面**。
+                    // 顶栏由账号页自己提供（它的返回键清标记即回列表），所以这里不再叠一层返回。
+                    WelcomeScreen(
+                        onOAuthLogin = { viewModel.showOAuthIntro() },
+                        onKeyLogin = { viewModel.showKeyIntro() },
+                    )
+                } else {
+                    LoggedInGate(
+                        sessionJson = s.sessionJson,
+                        onLogout = { viewModel.logout() },
+                    )
+                }
             }
 
             is LoginState.Error -> {

@@ -25,7 +25,39 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.78 → 1.0.22）
+## 二、`versionName` 流水（1.0.79 → 1.0.22）
+
+### 1.0.79
+
+**「添加账号」不再是登出 —— 回不去账号页的根因**（用户反馈）。
+
+账号页那个按钮直接接的是 `onLogout`（`ProfileScreen` 的 `SubPage.Accounts` 那行）：
+点一下＝**把自己登出**（`logout()` 删掉全局 `session` 键、状态回欢迎页）。两个后果：
+
+① **回不去**：欢迎页刻意不拦截返回键（未登录时是「再按一次退出 App」），所以从账号页进来的
+用户既回不到列表，按返回还可能直接退出应用；
+② **凭据被误删**：只想再登一个号，当前账号的 `session` 却已经被清掉了。
+
+改法：新增流程走 `AddAccountFlow`（进程内瞬时标记，与 `ThemeRuntime` / `NotifSnapshot` 同一模式
+—— 触发点在 `AccountsScreen`，分流点在根 `LoginFlow`，层层传参会穿过三个签名，其中 `MainScreen`
+只是转手）。`LoginFlow` 把 `LoggedIn` 那一格在新增流程中换成欢迎页，**主界面根本不组合**
+（否则账号页会叠两层）。三条收尾路径都必须成立，否则用户会被永久留在登录页：
+
+| 路径 | 机制 |
+|---|---|
+| 登录成功 | `LaunchedEffect` 观察到 `LoginState.LoggedIn` → `finish()` |
+| 欢迎页按返回 | `PageBackHandler(enabled = 新增流程中 && Idle)` → 回账号列表 |
+| 离开账号页 | `DisposableEffect.onDispose` → 中途切 Tab / 返回设置不会把标记留成 true |
+
+配套的「谁成为当前账号」规则进 `AccountStore.planUpsert`（纯函数）：
+**首登态**（`makeCurrent = true`）登完成为当前；**刷新态**（账号页新增）新号**不夺**当前账号；
+两种情形下命中**当前那条**记录时一律不切换（否则「只是重新授权一下」会被切走）。
+
+新增 `AddAccountFlowTest` 7 例；`AccountStoreIdentityTest` 24 → 29 例（新增/刷新的夺权规则 5 例）。
+app 全绿；`assembleDebug` 通过。规则进 [`features-design.md` §1](features-design.md)。
+versionCode 180 → 181（一次提交 +1）。
+
+---
 
 ### 1.0.78
 
@@ -1573,6 +1605,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **181**：「添加账号」改子流程（`AddAccountFlow`），不再接 `onLogout` —— 修「点添加账号
+回不去账号页」（欢迎页不拦返回）与「当前账号凭据被误删」。三条收尾路径：登录成功 /
+欢迎页返回 / 离开账号页。`planUpsert` 补「首登态夺权、刷新态不夺权」规则。
+`AddAccountFlowTest` 7 例，`AccountStoreIdentityTest` 24 → 29 例（一次提交，故 +1）
 
 - **180**：账号身份加「登录方式」维度 —— 密钥登录不再伪覆盖 OAuth 记录（两种方式可共存）；
 `add` 不再重置 `lastCheck`/`status`（启动检查的结果到设置页就作废、必然重探的根因）；

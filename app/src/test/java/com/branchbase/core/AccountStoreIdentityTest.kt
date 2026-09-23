@@ -264,6 +264,70 @@ class AccountStoreIdentityTest {
         assertEquals(2, afterPat.size)
     }
 
+    // ───────────────── 新增 vs 刷新：谁该成为当前账号（1.0.79） ─────────────────
+    //
+    // 「添加账号」是刷新态（makeCurrent = false）：用户只想再登一个号，**不想被顶下当前账号**。
+
+    private fun planFull(
+        existing: List<Account>,
+        auth: AuthKind,
+        session: String = "new-session",
+        makeCurrent: Boolean = true,
+        currentId: String? = null,
+    ) = AccountStore.planUpsert(
+        existing, "SunsetRNE", session, "github.com", null, auth, 1000L,
+        makeCurrent = makeCurrent, currentId = currentId,
+    )!!
+
+    @Test
+    fun `首登态_新账号成为当前`() {
+        val p = planFull(emptyList(), AuthKind.OAUTH, makeCurrent = true)
+        assertEquals(true, p.added)
+        assertEquals(true, p.makeCurrent)
+    }
+
+    @Test
+    fun `刷新态新增一条_不夺当前账号`() {
+        // 账号页点「添加账号」：当前还挂在别的账号上，登完不该被顶下来
+        val existing = listOf(
+            acc("cur", "someone-else", auth = AuthKind.OAUTH, session = "cur-tok"),
+        )
+        val p = planFull(existing, AuthKind.PAT, makeCurrent = false, currentId = "cur")
+        assertEquals("必须是新增", true, p.added)
+        assertEquals("刷新态不该夺权", false, p.makeCurrent)
+    }
+
+    @Test
+    fun `刷新态更新到当前那条_保持当前`() {
+        // 对当前账号重新授权：它本来就是当前，不存在「切换」这回事
+        val existing = listOf(acc("cur", "SunsetRNE", auth = AuthKind.OAUTH, session = "old"))
+        val p = planFull(existing, AuthKind.OAUTH, session = "renewed", makeCurrent = false, currentId = "cur")
+        assertEquals(false, p.added)
+        assertEquals(false, p.makeCurrent)
+        assertEquals("cur", p.account.id)
+    }
+
+    @Test
+    fun `刷新态更新到别的记录_也不夺权`() {
+        // 当前是 A，这次登录补的是 B 的 PAT：不该把当前切到 B
+        val existing = listOf(
+            acc("a", "alice", auth = AuthKind.OAUTH),
+            acc("b", "SunsetRNE", auth = AuthKind.OAUTH),
+        )
+        val p = planFull(existing, AuthKind.OAUTH, session = "b2", makeCurrent = false, currentId = "a")
+        assertEquals(false, p.added)
+        assertEquals(false, p.makeCurrent)
+        assertEquals("b", p.account.id)
+    }
+
+    @Test
+    fun `首登态更新到当前那条_仍然保持当前`() {
+        // 首登态传 makeCurrent = true，但命中的是当前那条 —— 也不该无谓地重写 current
+        val existing = listOf(acc("cur", "SunsetRNE", auth = AuthKind.OAUTH))
+        val p = planFull(existing, AuthKind.OAUTH, makeCurrent = true, currentId = "cur")
+        assertEquals(false, p.makeCurrent)
+    }
+
     // ───────────────── 两种登录方式指向同一份本地数据 ─────────────────
 
     @Test

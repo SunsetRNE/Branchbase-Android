@@ -155,19 +155,40 @@ object AccountStore {
         auth: AuthKind = AuthKind.OAUTH,
         makeCurrent: Boolean = true,
     ): Account? {
-        val planned = planUpsert(accounts(context), login, session, host, avatar, auth, System.currentTimeMillis())
-            ?: return null
+        val currentId = prefs(context).getString(KEY_CURRENT, null)
+        val planned = planUpsert(
+            existing = accounts(context),
+            login = login,
+            session = session,
+            host = host,
+            avatar = avatar,
+            auth = auth,
+            now = System.currentTimeMillis(),
+            makeCurrent = makeCurrent,
+            currentId = currentId,
+        ) ?: return null
         save(context, planned.accounts)
         val account = planned.account
-        if (makeCurrent || prefs(context).getString(KEY_CURRENT, null) == null) {
+        // 首次登录取决于 plan；一个账号都没有时（首登）无条件成为当前，否则会「登录成功但没有当前账号」
+        if (planned.makeCurrent || currentId == null) {
             prefs(context).edit().putString(KEY_CURRENT, account.id).apply()
             syncLegacySession(context, account)
         }
         return account
     }
 
-    /** [planUpsert] 的产物：这次登录对应的账号 + 变更后的完整列表。 */
-    data class UpsertPlan(val account: Account, val accounts: List<Account>)
+    /**
+     * [planUpsert] 的产物。
+     *
+     * @param added true = **新增了一条**，false = 更新了已有那条
+     * @param makeCurrent 这次登录是否应当成为当前账号 —— 见 [planUpsert] 的「刷新态」说明
+     */
+    data class UpsertPlan(
+        val account: Account,
+        val accounts: List<Account>,
+        val added: Boolean,
+        val makeCurrent: Boolean,
+    )
 
     /**
      * 「这次登录该更新哪一条、列表变成什么样」（**纯函数，不碰 Context，有单测**）。
@@ -176,6 +197,19 @@ object AccountStore {
      * （旧 session 被丢掉就找不回来），而它原先埋在 `add` 的 I/O 之间，只能靠真机发现。
      * 现在 `add` 只剩「读 → [planUpsert] → 写」三件事。
      *
+     * ## 「新增」与「刷新」的区分（[added] / [makeCurrent]）
+     *
+     * 同一个入口有两种意图，**不能混为一谈**（1.0.79 修「添加账号把用户登出」时立的规矩）：
+     *
+     * - **刷新态**（`makeCurrent = false`）：从账号页点「添加账号」进来，用户只想再登一个号，
+     *   并不想离开当前账号。此时若把新号设为当前，会把用户从正在用的账号上顶下来；
+     * - **首登态**（`makeCurrent = true`）：正常的登录入口，登完就该进主界面。
+     *
+     * 并且**刷新态下若这次登录命中的是「当前账号那条记录」，一律不切换** ——
+     * 否则会出现「我只是重新授权一下，结果被切到另一个账号」这种莫名其妙的行为。
+     *
+     * @param makeCurrent 调用方的意图（首登 true / 账号页新增 false）
+     * @param currentId 当前账号 id（判断命中记录是不是当前那条）
      * @return null 表示 login 为空（不登记）
      */
     fun planUpsert(
@@ -186,6 +220,8 @@ object AccountStore {
         avatar: String?,
         auth: AuthKind,
         now: Long,
+        makeCurrent: Boolean = true,
+        currentId: String? = null,
     ): UpsertPlan? {
         if (login.isBlank()) return null
         val all = existing.toMutableList()
@@ -200,7 +236,13 @@ object AccountStore {
                 // lastCheck / status 保持不变 —— 见 add 的注释（重置它会让「刚查过」作废）
             )
             all[exist] = account
-            return UpsertPlan(account, all)
+            return UpsertPlan(
+                account = account,
+                accounts = all,
+                added = false,
+                // 刷新态更新到「当前那条」时保持不动；更新到别的记录（例如补一条 PAT）也不夺权
+                makeCurrent = makeCurrent && account.id != currentId,
+            )
         }
         val account = Account(
             id = newAccountId(now, all.map { it.id }.toSet()),
@@ -212,7 +254,7 @@ object AccountStore {
             addedAt = now,
         )
         all += account
-        return UpsertPlan(account, all)
+        return UpsertPlan(account = account, accounts = all, added = true, makeCurrent = makeCurrent)
     }
 
     /**
