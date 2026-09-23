@@ -7,7 +7,7 @@ package com.branchbase.translate
  *
  * MyMemory 单次 `q` 上限 500 字符，**超了不报错**：它会把
  * `QUERY LENGTH LIMIT DONE. MAX ALLOWED QUERY : 500 CHARS` 当成「译文」返回
- * （见 `core/src/translate.rs::parse_response`）。不切片的直接后果是页面上
+ * （见 `core/src/translate/mymemory.rs` 的响应解析）。不切片的直接后果是页面上
  * 「译文是一句英文错误提示」——这是本项目最早踩到、也最容易被忽略的坑。
  *
  * ## 切分优先级

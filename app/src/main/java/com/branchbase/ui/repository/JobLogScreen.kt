@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -154,8 +156,15 @@ fun JobLogScreen(
     // 当前选中的步骤（用于顶部标题与 chips 高亮）
     val currentStep = steps.firstOrNull { it.number == selectedStep }
 
+    // 全屏页（`barVisible = route is RepoRoute.Tab` ⇒ 这一层没有底部导航栏）：
+    // 顶栏与日志列表都要**自己**避开系统栏，否则返回箭头压在状态栏下、日志最后几行压在手势条下。
+    // `DetailScaffold` 就是干这个的，但这一页的顶栏带搜索框与步骤选择，没有走它。
     Column(
-        Modifier.fillMaxSize().background(Primer.BackgroundPrimary),
+        Modifier
+            .fillMaxSize()
+            .background(Primer.BackgroundPrimary)
+            .statusBarsPadding()
+            .navigationBarsPadding(),
     ) {
         DetailTopBar(
             title = buildString {

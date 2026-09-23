@@ -17,8 +17,10 @@
 
 ### 规则 1：只有当前页能抢返回键
 
-Compose 的返回键是「**最后注册且启用者胜**」。而 `AnimatedContent`（`PageSwitcher` / `TabSwitcher`）
-会把**旧页继续留在组合树里**播完退场动画（220ms），旧页的 `BackHandler` 在此期间仍然注册且启用。
+Compose 的返回键是「**最后注册且启用者胜**」。`PageSwitcher` 仍是 `AnimatedContent`，
+会把**旧页继续留在组合树里**播完退场动画（220ms），旧页的 `BackHandler` 在此期间仍然注册且启用；
+`TabSwitcher` 则**自 1.0.57 起改成保活**（`PageTransitions.kt` 的 `KeepAliveTab`），
+隐藏的 Tab 不再销毁、长期留在组合树里 —— 见下方说明。
 
 > **1.0.57 起 `TabSwitcher` 改成保活**：隐藏的 Tab **不再销毁**，会一直留在组合树里
 > （只是透明度为 0、且不再绘制）。这让这条规则从「动画期间的 220ms」变成**长期成立** ——
@@ -86,10 +88,17 @@ Compose 的返回键是「**最后注册且启用者胜**」。而 `AnimatedCont
 ## 五、改动清单（自检）
 
 - [ ] 新页面用了 `PageBackHandler` 而不是裸 `BackHandler`？
+- [ ] **子页的返回交给 `PageSwitcher(onBack = …)` 兜底了吗？**（这个参数是**必填**的，编译器会拦；
+      宿主的 `leavePage()` 是穷尽 `when`，新增路由同样会被编译器拦。页面自己那一层
+      —— 编辑态 / 多选态 / 决策页 —— 才需要额外挂 `PageBackHandler`，它后注册、优先级更高）
 - [ ] 新页面在 `PageSwitcher` / `TabSwitcher` 里（能拿到 `LocalPageActive`）？
 - [ ] 改了切换器？确认 `PageSwitcher` **和** `TabSwitcher` 都下发了 `LocalPageActive`？
 - [ ] 新页面自己有下一层（决策页 / 详情 / 编辑态）时，挂 `PageBackHandler` 了吗？目标与页面内返回箭头一致吗？
 - [ ] 多一层可返回的页面时，用的是嵌套 `PageSwitcher`，而不是在同一层堆 `if`？
+- [ ] 新页面**消费了系统栏内边距**？（edge-to-edge 是强制的：要么自己 `statusBarsPadding()` +
+      `navigationBarsPadding()`，要么走 `DetailScaffold` / `FullScreen` / `DecisionScreenShell` 这些已经取过的壳。
+      仓库树里进详情页时底部导航栏会收起（`barVisible = route is RepoRoute.Tab`），**没有人为子页兜底底部**）
+      —— 并在 `SystemBarInsetsTest` 的清单里登记，否则这条规则不会替你执法？
 - [ ] 新加/搬迁的**底部导航栏**挂在 `NavigationShell` 的 `bar` 槽位里（不是 `PageSwitcher` 里面）？
       栏自己带系统手势条内边距（M3 `NavigationBar` 自带 / 自定义栏自己 `navigationBarsPadding()`）？
       Tab 维度没被塞进外层路由？

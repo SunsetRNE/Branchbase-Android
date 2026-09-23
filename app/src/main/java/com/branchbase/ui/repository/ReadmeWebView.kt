@@ -24,10 +24,12 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.branchbase.core.RustBridge
 import com.branchbase.imageviewer.ImageViewerDialog
+import com.branchbase.ui.log.Logger
 import com.branchbase.ui.theme.LocalIsDarkTheme
 import com.branchbase.translate.TranslateBridge
 import com.branchbase.translate.TranslatePage
@@ -45,6 +47,80 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 import java.util.UUID
+
+/**
+ * README WebView 的**页面级持有者**：让 WebView 与它的测量高度活过 LazyColumn 的回收。
+ *
+ * ## 为什么需要它（真机现场 2026-09-22）
+ *
+ * 正文按架构约定「WebView 高度 = 整篇内容高度，滚动交给外层原生列表」
+ * （见 [`docs/specs/modules-design.md`](../../../../../../../../docs/specs/modules-design.md) §1），
+ * 所以自述文件是 LazyColumn 里**一项 4~6 万 dp 高的 item**（本仓库自己那份 README 实测 ≈45k~58k px，
+ * 见 [MAX_README_HEIGHT] 的注释）。用户滚到页面底部（许可证 / 贡献者 / 语言）时这一项整体离开视口，
+ * LazyColumn 把它回收，而旧的 `DisposableEffect` 会 `webView.destroy()`、`webViewHeight`
+ * （`remember`，1dp 起步）跟着一起没了。往回滚时这一项重新组合 ——
+ *
+ * 1. **重建加载**：新 WebView + 重新 `wrapHtml`（读资产、拼几十~几百 KB 字符串）
+ *    + `loadDataWithBaseURL`，沉浸式翻译也跟着从头再来一遍；
+ * 2. **跳回整篇描述的最顶部**：在高度测量回来之前，这一项只有 **1dp** ——
+ *    4 万多 dp 的内容塌成 1dp，外层列表的锚点全部错位，于是「往上一翻就跳回顶部」。
+ *
+ * 持有者由**页面**（`RepositoryOverviewScreen`）创建，作用域比 item 长：item 被回收时
+ * WebView 只是被摘下来（[AndroidView] 的 `onRelease`，不 destroy），下次挂回去还是同一个实例、
+ * 同一份已加载的文档（[loadedKey]）、同一个高度（[measuredHeight]）。
+ *
+ * ## 边界
+ *
+ * - **只留一份**（当前这一篇）。换仓库 / 换分支时由同一个 WebView 直接导航到新文档，
+ *   不做多份 LRU —— 一个 WebView 是几 MB 到几十 MB（渲染树 + 位图），多留一份的收益远小于代价；
+ * - 必须由页面在离开时 [release]，否则 WebView 会跟着窗口一起泄漏（它持有 Context）；
+ * - 不给持有者（`holder = null`）时 [ReadmeWebView] 保持原行为：随 item 生灭。
+ *   发布说明这类短正文页不需要它。
+ */
+@androidx.compose.runtime.Stable
+class ReadmeViewHolder(
+    /**
+     * 初始高度。页面侧会把**上一次测到的高度**传进来（首帧快照，见 `RepoOverviewMemory`）——
+     * 页面被整个重建时（离开仓库页再进来），没有它就又是「1dp → 几万 dp」那一次跳。
+     */
+    initialHeight: Dp = 1.dp,
+    /**
+     * 测量结果落地。页面侧拿它写进首帧快照，于是**下一次**进这个仓库页时这一项当帧就是正确高度。
+     */
+    private val onHeightChanged: (Dp) -> Unit = {},
+) {
+
+    internal var webView: WebView? = null
+
+    /** 当前已载入的文档指纹：与它相同就不再 `loadDataWithBaseURL`（那是「重建加载」那一半）。 */
+    internal var loadedKey: String? = null
+
+    /**
+     * 测量高度（Compose 状态）。
+     *
+     * 它是「不跳回顶部」的另一半：跨回收保留，重新挂回去时这一项**当帧就是正确高度**，
+     * 外层列表的锚点不会因为「1dp → 4 万 dp」而错位。
+     */
+    internal var measuredHeight by mutableStateOf(initialHeight)
+
+    /** 记一次测量结果：既更新组合状态，也通知页面侧的快照。 */
+    internal fun recordHeight(h: Dp) {
+        if (h != measuredHeight) measuredHeight = h
+        onHeightChanged(h)
+    }
+
+    /**
+     * 页面离开时调用：销毁 WebView。
+     *
+     * **不动 [measuredHeight]**：它已经随 [onHeightChanged] 落进首帧快照，
+     * 而被 release 的持有者不会再被复用 —— 把它打回 1dp 只会让「销毁」这一步多一次无意义的写。
+     */
+    fun release() {
+        runCatching { webView?.destroy() }
+        webView = null
+        loadedKey = null
+    }
+}
 
 /**
  * README 渲染器（WebView 方案）。
@@ -86,11 +162,21 @@ fun ReadmeWebView(
     login: String,
     token: String,
     onLinkClick: (Destination) -> Unit,
+    /**
+     * 页面级持有者：给了就「活过 LazyColumn 回收」（见 [ReadmeViewHolder]）。
+     * 不给 = 原来的随 item 生灭行为（发布说明等短正文页不需要）。
+     */
+    holder: ReadmeViewHolder? = null,
 ) {
     val context = LocalContext.current
     val currentOnLinkClick by rememberUpdatedState(onLinkClick)
+    // 高度：有持有者时它是**跨回收保留**的（「跳回顶部」的根因就是它被重置成 1dp）。
     // 1dp 起步：WebView 视口为 0 时也能加载并测量，测量结果到达后立即撑开
-    var webViewHeight by remember { mutableStateOf(1.dp) }
+    var ownHeight by remember { mutableStateOf(1.dp) }
+    val webViewHeight = holder?.measuredHeight ?: ownHeight
+    val setWebViewHeight: (androidx.compose.ui.unit.Dp) -> Unit = { h ->
+        if (holder != null) holder.recordHeight(h) else ownHeight = h
+    }
 
     // README 真实路径（GitHub 在 HTML 外层给出 data-path）→ 相对路径的基准目录
     val readmePath = remember(html) { readmePathOf(html) }
@@ -123,16 +209,34 @@ fun ReadmeWebView(
     val translateScope = rememberCoroutineScope()
     val translateHost = LocalTranslateBubbleHost.current
 
+    // 文档指纹：与持有者里记着的那份相同 → 这个 WebView 上已经是这一篇，别再 load 一遍。
+    val docKey = remember(html, host, owner, repo, branch, login, token, documentUrl) {
+        readmeDocKey(html, host, owner, repo, branch, login, token, documentUrl)
+    }
+
     val webView = remember {
-        WebView(context).apply {
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
-            settings.allowFileAccess = false
-            settings.allowContentAccess = false
-            settings.cacheMode = WebSettings.LOAD_DEFAULT
-            setBackgroundColor(android.graphics.Color.TRANSPARENT)
-            addJavascriptInterface(heightBridge, "BBReadme")
-            addJavascriptInterface(imageBridge, "BBImage")
+        // 持有者里已经有一个（上一次组合被 LazyColumn 回收时摘下来的那个）→ 接着用：
+        // 文档、滚动、翻译状态、测量高度全都还在，用户看不到任何「重建」。
+        holder?.webView ?: run {
+            // 首次创建 WebView = 把 Chromium 拉起来（进程级一次性成本），而且**必须在主线程**。
+            // 真机日志（2026-09-22，v1.0.65）里进程内第一次进仓库页出现
+            // `慢帧 272.8ms（等待 254.2*）` —— 等待段最大的一条非启动帧，怀疑就是它，
+            // 但日志里没有任何一行能证实。这行用**本地类目**记耗时（不是 UI 类目，
+            // 否则它会顶掉慢帧的页面注脚），下次取到日志就能证实或证伪。
+            val t0 = System.nanoTime()
+            val created = WebView(context).apply {
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                settings.allowFileAccess = false
+                settings.allowContentAccess = false
+                settings.cacheMode = WebSettings.LOAD_DEFAULT
+                setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                addJavascriptInterface(heightBridge, "BBReadme")
+                addJavascriptInterface(imageBridge, "BBImage")
+            }
+            Logger.local("WebView 首次创建 ${(System.nanoTime() - t0) / 1_000_000}ms（主线程）", "正文")
+            if (holder != null) holder.webView = created
+            created
         }
     }
 
@@ -193,7 +297,7 @@ fun ReadmeWebView(
         heightBridge.onHeight = { raw ->
             webView.post {
                 val h = raw.coerceIn(1, MAX_README_HEIGHT).dp
-                if (h != webViewHeight) webViewHeight = h
+                if (h != webViewHeight) setWebViewHeight(h)
             }
         }
         imageBridge.onOpenImage = { url, alt ->
@@ -205,16 +309,30 @@ fun ReadmeWebView(
         }
     }
     DisposableEffect(webView) {
+        // 每次进入组合都把**当前的**桥重新登记一遍。
+        // 复用时 `webView` 是上一轮那个实例，上面挂的还是上一轮的桥对象 —— 它们的闭包指向
+        // 已经被回收的组合（例如写到旧的 `viewingImage` 上 ⇒ 点图没反应）。
+        // 同名重复 add 会覆盖，所以这里等价于「换成这一轮的桥」。
+        webView.addJavascriptInterface(heightBridge, "BBReadme")
+        webView.addJavascriptInterface(imageBridge, "BBImage")
+        webView.addJavascriptInterface(translateBridge, "BBTranslate")
         onDispose {
             heightBridge.onHeight = null
             imageBridge.onOpenImage = null
-            runCatching { webView.removeJavascriptInterface("BBTranslate") }
-            runCatching { webView.removeJavascriptInterface("BBImage") }
-            runCatching { webView.destroy() }
+            // 有持有者时**不销毁**：WebView 只是被摘下来，等这一项被重新挂回去。
+            // 销毁它正是「往下翻到底再往回翻 ⇒ 自述文件重建 + 跳回顶部」的根因。
+            if (holder == null) {
+                runCatching { webView.removeJavascriptInterface("BBTranslate") }
+                runCatching { webView.removeJavascriptInterface("BBImage") }
+                runCatching { webView.removeJavascriptInterface("BBReadme") }
+                runCatching { webView.destroy() }
+            }
         }
     }
 
     LaunchedEffect(html, host, owner, repo, branch, login, token, documentUrl) {
+        // client 每次都换：它带着这一轮的闭包（onLinkClick / viewingImage / imageCache），
+        // 换 client 不重新加载文档，代价只有一次赋值。
         webView.webViewClient = ReadmeWebViewClient(
             host = host,
             owner = owner,
@@ -229,9 +347,12 @@ fun ReadmeWebView(
             // 链接指向图片本身（README 里点截图很常见）→ 走应用内查看器，不再扔进浏览器
             onImageClick = { url, alt -> viewingImage = url to alt },            onHeightMeasured = { cssHeight ->
                 val h = cssHeight.coerceIn(1, MAX_README_HEIGHT).dp
-                if (h != webViewHeight) webViewHeight = h
+                if (h != webViewHeight) setWebViewHeight(h)
             },
         )
+        // 复用的 WebView 上已经是这一篇 → 一个字都不用重来。
+        // 这一句就是「往下翻到底、再往回翻，自述文件不会重建」的全部实现。
+        if (holder != null && holder.loadedKey == docKey) return@LaunchedEffect
         webView.loadDataWithBaseURL(
             documentUrl,
             // 组装放到后台线程：读资产（TranslatePage.load 首次调用 + 正文 CSS）与
@@ -244,6 +365,7 @@ fun ReadmeWebView(
             "UTF-8",
             null,
         )
+        holder?.loadedKey = docKey
     }
 
     // 图片查看器（:imageviewer 模块）：全屏 Dialog，覆盖整窗，不进导航栈
@@ -258,11 +380,44 @@ fun ReadmeWebView(
 
     AndroidView(
         factory = { webView },
+        // 离开组合时**只摘下来、不销毁**：复用的 WebView 还挂在上一轮的 holder 上，
+        // 不摘就再挂会抛 `The specified child already has a parent`。
+        onRelease = { view -> (view.parent as? android.view.ViewGroup)?.removeView(view) },
         modifier = Modifier
             .fillMaxWidth()
             .height(webViewHeight),
     )
 }
+
+/**
+ * README 文档指纹（纯函数，便于单测）：指纹相同 = 这个 WebView 上已经是这一篇，
+ * 可以省掉一次 `loadDataWithBaseURL`（见 [ReadmeViewHolder.loadedKey]）。
+ *
+ * ## 为什么必须「宽进严出」——键漏了维度的后果是反的
+ *
+ * 别的缓存漏参数只是「命中率低」（每次都联网，慢但正确）；**这里漏一个维度是把另一篇文档
+ * 当成这一篇**：用户看到的是上一篇的内容，而且只要页面不再重建就永远不会自己刷新。
+ * 所以凡是能让渲染结果不同的输入都要进键：仓库 / 分支（同一个仓库不同分支是两篇 README）、
+ * `documentUrl`（决定相对图片与链接的基准目录）、登录名与令牌（私有仓库的图鉴权不同）、
+ * 以及 html 本身。
+ *
+ * ## 为什么键里放的是 `hashCode` 而不是 html 原文
+ *
+ * html 是几十~几百 KB 的字符串，`String.hashCode()` 的结果会被 JVM 缓存在对象里，
+ * 反复取是 O(1)；而把它本身当键，每次重组都要走一遍全文比较。长度一起放进去是为了
+ * 让哈希碰撞**再多一道**（碰撞的代价就是上面那条：显示成另一篇且不自愈）。
+ */
+internal fun readmeDocKey(
+    html: String,
+    host: String,
+    owner: String,
+    repo: String,
+    branch: String,
+    login: String,
+    token: String,
+    documentUrl: String,
+): String = "$host/$owner/$repo@$branch|${documentUrl.hashCode()}|" +
+    "${login.hashCode()}|${token.hashCode()}|${html.length}:${html.hashCode()}"
 
 /**
  * 查看器取图的鉴权头。

@@ -1,5 +1,8 @@
 package com.branchbase.ui.theme.morph
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Remove
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -45,23 +48,42 @@ class MorphPairTest {
     }
 
     @Test
-    fun `分析只做一次而且足够快`() {
-        // 分析（解析 → 重采样 → O(N²) 对应关系搜索）按配对缓存：MorphPair.plan 是 lazy 的。
-        // 这里量的是**首次**分析的成本：调用点在建组合期（图标第一次出现在屏幕上），
-        // 所以它必须留在毫秒级，否则搜索页首帧会掉帧。上限给得很松（100ms），
+    fun `分析只做一次_首次在预算内_第二次命中缓存`() {
+        // ⚠️ 这里必须用**新建的** pair，不能用台账里的 `MorphIcons.PlusMinus`。
+        //
+        // 原因：`MorphPair.plan` 是 `by lazy`，而台账（`MorphIcons`）是**进程级单例** —— 整个测试套件
+        // 在同一个 JVM 里跑（没有 `forkEvery`），本类另外 8 个用例都会遍历 `MorphIcons.all`，
+        // 而本用例按 JUnit 的固定顺序是**最后一个**执行。也就是说：等它跑到时，台账里每一对的 plan
+        // 早就算好了，量到的两次都是缓存命中。
+        //
+        // 实测（2026-09，n=2000）：预热后两次读取分别约 236ns / 194ns，`second < first` 只以
+        // **65%** 的概率成立 —— 这是一个真实的 flaky（失败时报文形如「实际 0.000469ms」，
+        // 那个量级正是缓存命中）。而新建 pair 是真正的首次：1.34ms vs 0.29µs（≈4600×），稳定成立。
+        val pair = MorphPair(
+            name = "test⇄probe",
+            from = Icons.Filled.Add,
+            to = Icons.Filled.Remove,
+            expectation = MorphExpectation.Morph,
+        )
+
+        // 首次：真跑分析（解析 → 重采样 → O(N²) 对应关系搜索）。上限给得很松（100ms），
         // 目的是拦住复杂度的意外变化（比如把搜索写成 O(N³)），不是卡具体耗时。
-        val pair = MorphIcons.PlusMinus
-        val first = System.nanoTime()
+        val t1 = System.nanoTime()
         val plan = pair.plan
-        val firstMs = (System.nanoTime() - first) / 1_000_000.0
+        val firstMs = (System.nanoTime() - t1) / 1_000_000.0
 
-        val second = System.nanoTime()
+        // 第二次：必须是缓存命中（`lazy` 的语义）。同一对的「只算一次」由这里的**同一实例**保证 ——
+        // `===` 比计时更硬：重算一定会产生新对象。
+        val t2 = System.nanoTime()
         val again = pair.plan
-        val secondMs = (System.nanoTime() - second) / 1_000_000.0
+        val secondMs = (System.nanoTime() - t2) / 1_000_000.0
 
-        assertTrue("首次分析耗时 ${firstMs}ms", firstMs < 100.0)
-        assertTrue("第二次必须是缓存命中（几乎不花时间），实际 ${secondMs}ms", secondMs < firstMs)
+        assertTrue("首次分析耗时 ${firstMs}ms（预算 100ms）", firstMs < 100.0)
         assertTrue("缓存必须返回同一份计划", plan === again)
+        assertTrue(
+            "第二次必须是缓存命中：首次 ${firstMs}ms / 第二次 ${secondMs}ms",
+            secondMs < firstMs,
+        )
     }
 
     @Test

@@ -13,6 +13,7 @@ import com.branchbase.downloader.DownloaderConfig
 import com.branchbase.downloader.DownloaderRuntime
 import com.branchbase.downloader.VendorIslandExtensions
 import com.branchbase.translate.TranslateRuntime
+import com.branchbase.ui.log.LogManager
 import com.branchbase.ui.log.Logger
 import com.branchbase.translate.TranslateSettings
 
@@ -40,9 +41,19 @@ class BranchbaseApp : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        // 日志管理器**最先**起：`LogManager.init` 里的建目录 / 清历史是启动路径上第一笔磁盘 IO，
+        // 而它此前在 `MainActivity.onCreate` 里 —— Application 阶段的日志只进内存环形缓冲、
+        // 永远进不了文件（导出读的是文件）。真机证据：`NetworkWatch.install` 每次启动都会打一行
+        // 基线，而整份 907 行日志里 `[Reach]` 只出现过 1 次。init 幂等，`MainActivity` 那次是兜底。
+        Logger.startupOnce("log-init", "启动 ▸ 日志初始化（建目录 / 清历史）")
+        LogManager.init(this)
+
         // 远端可达性守望：盯默认网络（含 VPN 接入 / 断开），跃迁时丢连接池并重探远端。
         // 必须**最先**装：晚于任何一次网络请求的话，基线就落在旧网络上，
         // 「先没开 VPN 打开 App、之后才接入 VPN」这一档会被漏掉（见 NetworkWatch 类注释）。
+        // 这行「启动 ▸」是给慢帧注脚用的阶段标记：启动段本来就是「主线程被谁占住」的黑盒，
+        // 唯一的归因通道是「最近一条 UI 类日志」，见 frame-perf-design.md §8/§9。
+        Logger.startupOnce("app-assemble", "启动 ▸ 应用装配（Application.onCreate）")
         NetworkWatch.install(this)
         // 沉浸式翻译：后端用 Rust（core/src/translate/：MyMemory 或用户自带的 DeepSeek Key），
         // 缓存落 filesDir。引擎拿到的是「取设置的函数」而不是设置快照 ——

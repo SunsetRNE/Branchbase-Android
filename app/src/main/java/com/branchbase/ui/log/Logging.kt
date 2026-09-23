@@ -24,14 +24,32 @@ enum class LogLevel {
     DEBUG, INFO, WARN, ERROR,
 }
 
-/** 单条日志 */
+/**
+ * 单条日志。
+ *
+ * [seq] 是**进程内单调递增**的序号，只为一件事存在：给列表当 key。
+ * 时间戳不能当 key —— 同一毫秒落两条**同文案**的日志是常态（缓存直出那几行成串地打，
+ * 例如 `L1 直出（含过期）repo-info:…` 同一毫秒两条），而 `LazyColumn` 的 key 重复会直接崩：
+ * `IllegalArgumentException: Key "…" was already used`。日志越多越容易撞上，
+ * 表现出来就是「日志页加载的日志一多就闪退」（2026-09-23 真机反馈）。
+ */
 data class LogEntry(
+    val seq: Long,
     val time: Long,
     val category: LogCategory,
     val level: LogLevel,
     val tag: String,
     val message: String,
 )
+
+/**
+ * 日志列表的 item key（纯函数，便于单测）。
+ *
+ * 只用 [LogEntry.seq]：时间戳 + 文案在「同一毫秒 + 同一条文案」时会撞车，
+ * 而那正是缓存日志的常态。改成序号之后 key 在**进程内**唯一（重启会从 1 重新开始，
+ * 但列表也一起重建了，不会同屏出现两代）。
+ */
+internal fun logItemKey(e: LogEntry): Long = e.seq
 
 /**
  * 日志管理器：内存环形缓冲（最近 N 条），线程安全。
@@ -43,12 +61,29 @@ object LogManager {
 
     fun init(context: Context) {
         if (appender == null) synchronized(this) {
-            if (appender == null) appender = FileAppender(context.getExternalFilesDir(null) ?: context.filesDir)
+            if (appender == null) {
+                val created = FileAppender(context.getExternalFilesDir(null) ?: context.filesDir)
+                appender = created
+                // 落盘边界之前打过的日志补写一遍。
+                //
+                // 起因（2026-09-22 真机日志）：`init` 原本在 `MainActivity.onCreate` 里，而
+                // `Application.onCreate` 阶段的日志**只进内存环形缓冲**（那时 `appender` 还是 null），
+                // 导出走的是「文件优先」，于是那些行等于从没存在过 —— 铁证是 `NetworkWatch.install`
+                // 每次启动都打一行基线，而整份 907 行日志里 `[Reach]` 只出现过 1 次
+                // （那是 init 之后的网络跃迁）。`FileAppender` 构造函数里那句「清理历史日志」
+                // 同样打在自己被赋值之前，一起丢。
+                //
+                // 缓冲本来就是「最新在前」（`addFirst`），倒过来写才是时间顺序。
+                synchronized(buffer) { buffer.toList().asReversed() }.forEach { created.append(it) }
+            }
         }
     }
 
+    /** 进程内单调递增的序号（[LogEntry.seq]）：列表 key 靠它保证唯一。 */
+    private val seq = java.util.concurrent.atomic.AtomicLong(0)
+
     fun log(category: LogCategory, level: LogLevel, tag: String, message: String) {
-        val entry = LogEntry(System.currentTimeMillis(), category, level, tag, message)
+        val entry = LogEntry(seq.incrementAndGet(), System.currentTimeMillis(), category, level, tag, message)
         synchronized(buffer) {
             buffer.addFirst(entry)
             while (buffer.size > MAX) buffer.removeLast()
@@ -83,10 +118,59 @@ object LogManager {
 }
 
 /**
+ * 「启动阶段标记**每个进程只打一次**」的闸门（[Logger.startupOnce]）。
+ *
+ * ## 为什么不能靠「是不是首次组合」来判断
+ *
+ * 启动标记是给慢帧当注脚用的（注脚 = 最近一条 UI 类日志），所以它必须**只属于启动**。
+ * 第一版把它门控在 `resumeTick == 1`（`rememberPageResumeTick` 的初值），
+ * 前提是「页面不会被重建」—— 真机日志（1.0.67）证明这个前提不成立：
+ *
+ * ```
+ * 23:37:14.307 启动 ▸ 首页首帧取数   ← 启动那一次（进程开始于 23:37:14）
+ * 23:39:10.834 启动 ▸ 首页首帧取数   ← +116s，用户正在仓库页；同一进程里又打了一次
+ * ```
+ *
+ * `resumeTick` 是 `remember` 出来的，页面一被重建它就从 1 重新开始，于是标记跟着复活，
+ * 把这之后几帧的慢帧注脚全改成「启动 ▸ …」—— 而 `frame-baseline.py` 的 `^启动` 场景桶
+ * 会把它们算成启动帧：**报表看着正常，桶是错的**。
+ *
+ * 进程级的「打过没有」不受页面生命周期影响，是这件事唯一可靠的判据。
+ */
+object StartupMarks {
+    private val printed = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+    /** 本进程第一次用这个 key 调用时返回 true。 */
+    fun firstTime(key: String): Boolean = printed.add(key)
+}
+
+/**
+ * **关键路径的日志锚点**（tag → 它记录什么）。
+ *
+ * 存在的理由：没有真机走查时，「用户说某个操作不对」只能靠日志定位 —— 所以给每条容易出问题的
+ * 新路径固定一个 tag，出问题时 `grep` 这一个词就能看到完整链路。**导出包里的 `report.md`
+ * 会把这张表一起带上**，收到日志的人不必先读代码就知道该搜什么。
+ *
+ * 约定：
+ * - tag 必须是**稳定的中文短词**（改 tag 等于改契约，会让旧日志对不上这张表）；
+ * - 只记「发生了什么 + 关键参数 + 结果」，**绝不记凭据**（token / PAT / 密码一律不许进日志）；
+ * - 一处动作一条，不要在重组（recomposition）里打 —— 会刷屏（见各调用点的 `LaunchedEffect` / 点击回调）。
+ *
+ * 钉子：`LogReportTest` 会逐个 tag 到源码里搜，确认它**真的被用过**（表不会腐烂）。
+ */
+internal val LOG_ANCHORS: List<Pair<String, String>> = listOf(
+    "PR一条龙" to "开 PR：待提交文件数、建分支 / 提交 / 开 PR 的每一步与失败原因",
+    "PR合并" to "合并：PR 号、策略（squash/merge/rebase）、结果、删分支结果",
+    "敏感扫描" to "提交前扫描：命中条数；扫描不可用时被拦下的提交",
+    "决策页" to "预检拦下（没有远端 ref / 第一个提交 / 统计取不到 / 已合并检查）",
+    "私有仓库" to "仓库打不开（404/403）时的判定与用户选择的出路",
+    "草稿" to "草稿落盘与「远端已变化」判定",
+)
+
+/**
  * 便捷日志 API（门面）。
  */
-object Logger {
-    fun ui(message: String, tag: String = "Compose") =
+object Logger {    fun ui(message: String, tag: String = "Compose") =
         LogManager.log(LogCategory.UI_RENDER, LogLevel.INFO, tag, message)
 
     fun net(message: String, tag: String = "GitHubAPI") =
@@ -97,6 +181,15 @@ object Logger {
 
     fun local(message: String, tag: String = "") =
         LogManager.log(LogCategory.LOCAL_TASK, LogLevel.INFO, tag, message)
+
+    /**
+     * 启动阶段的 UI 类日志，**每个进程只打一次**（见 [StartupMarks]）。
+     *
+     * 页面被重建时不会重复打 —— 重复打会让「启动」这个场景桶混进交互段的帧。
+     */
+    fun startupOnce(key: String, message: String, tag: String = "启动"): Unit {
+        if (StartupMarks.firstTime(key)) ui(message, tag)
+    }
 
     fun debug(category: LogCategory, tag: String, message: String) =
         LogManager.log(category, LogLevel.DEBUG, tag, message)

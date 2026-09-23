@@ -5,7 +5,7 @@ package com.branchbase.translate
  *
  * 模块里所有逻辑（分片、缓存、调度、页面脚本）都只依赖这个接口，
  * **具体用哪家服务是 :app 的事** —— 当前实现是 `RustTranslateEngine`
- * （Rust 侧 `core/src/translate.rs`，默认 MyMemory 匿名接口）。
+ * （Rust 侧 `core/src/translate/`，默认 MyMemory 匿名接口）。
  *
  * 这样切服务商 / 加服务商的代价是「新增一个实现类 + 改一行 install」：
  * - 换成 DeepL / 有道：实现 [translate] 即可；

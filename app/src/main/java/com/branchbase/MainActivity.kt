@@ -41,7 +41,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 初始化日志管理器（FileAppender 持久化到 branchbase.log）
+        // 日志管理器已在 BranchbaseApp.onCreate 里起过（那里才是启动路径的第一笔磁盘 IO）；
+        // 这里留一次幂等兜底：万一 Application 的初始化被换掉，日志也不会整个丢掉。
         LogManager.init(applicationContext)
         Logger.ui("App 启动", "System")
 
@@ -56,6 +57,7 @@ class MainActivity : ComponentActivity() {
         // dumpsys（那个 120 帧窗口 + dump 自身跑在主线程的两个硬伤见 FrameWatch 类注释）
         FrameWatch.install(this)
         // 默认值随编译通道（Beta 开、正式版关），用户可在「设置 → 关于与诊断 → 慢帧日志」改
+        Logger.startupOnce("prefs-first-load", "启动 ▸ 首选项首次加载（整份 XML 在主线程解析）")
         FrameWatch.setEnabled(frameWatchEnabled(applicationContext))
 
         // 清理超期短任务记录（后台，不阻塞启动）
@@ -85,6 +87,9 @@ class MainActivity : ComponentActivity() {
 
         // 初始化 git 引擎 TLS 证书信任（主线程同步：仅写文件 + 设环境变量，
         // 不触碰 libgit2；避免后台线程竞态与冷启动期 native 调用）
+        // 这一行也是阶段标记：`gitInitSsl` 会首次触碰 RustBridge → 类初始化 → 加载 11MB .so，
+        // 而上面的后台线程（AccountChecks / 头像预热）可能正拿着同一把类初始化锁。
+        Logger.startupOnce("jni-and-cert", "启动 ▸ JNI 库与 git 证书（loadLibrary + 190KB CA）")
         val sslOk = RustBridge.gitInitSsl(cacheDir.absolutePath)
         Logger.ui(if (sslOk) "git TLS 证书初始化完成" else "git TLS 证书初始化失败", "SSL")
 
@@ -94,6 +99,10 @@ class MainActivity : ComponentActivity() {
         // 主题档位在启动时同步一次；之后由 ThemeRuntime 驱动（开关无需层层传参）
         ThemeRuntime.init(applicationContext)
 
+        // 阶段标记：从这一行到首帧之间，跑的是「恢复会话 → 登记账号 → 首页首次组合 + 首帧取数」。
+        // 真机数据（14 次启动）里，这一段与慢帧「等待」段的相关系数最高（r=0.957），
+        // 所以它必须能出现在慢帧注脚里，否则下一轮还是只能猜。
+        Logger.startupOnce("first-composition", "启动 ▸ 首次组合：恢复会话 / 登记账号 / 首页取数")
         setContent {
             val themeMode by ThemeRuntime.mode.collectAsState()
             BranchbaseTheme(mode = themeMode) {
@@ -122,10 +131,10 @@ class MainActivity : ComponentActivity() {
         NetworkWatch.refresh(applicationContext)
     }
 
-    /** 解析 branchbase://oauth/callback 深链，提取 code */
+    /** 解析 branchbase://oauth/callback 深链，提取 code（判定与清单的一致性见 [OAuthDeepLink]） */
     private fun handleDeepLink(intent: android.content.Intent?) {
         val uri = intent?.data ?: return
-        if (uri.scheme == "branchbase" && uri.host == "oauth" && uri.path == "/callback") {
+        if (OAuthDeepLink.matches(uri.scheme, uri.host, uri.path)) {
             pendingAuthCode = uri.getQueryParameter("code")
         }
     }

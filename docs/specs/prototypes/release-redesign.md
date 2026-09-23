@@ -1,18 +1,25 @@
-<!-- 入库副本：正文与 design/release-redesign/README.md 一致，未做删改，仅加本段头 + 三处失效的 `README.md:804-821` / `:795-798` 引用改指新文档（见下）。 -->
+<!-- 入库副本：正文与 design/release-redesign/README.md 一致，未做删改，仅加本段头。 -->
 > **来源**：`design/release-redesign/README.md`（原型本体 `index.html` / `style.css` / `app.js` / `smoke.js` 在 `/design/release-redesign/` 下，按仓库约定**不入库**；DSH 侧边栏「原型预览」面板可直接打开）
 > **为什么只把文档抽进来**：原型 HTML 是一次性草图，跟具体实现绑死、很快过期；
 > 而这份文档里的**现状测绘、取舍论证与落地清单**是跨时间有效的设计结论，代码注释会引用它。
 > **维护**：原型再改时请把这份副本一并更新，别让两边分叉；文中提到的文件名相对原始目录。
-> **路径重写（2026-09）**：根 `README.md` 拆分后，正文里三处按行号钉住 README 的引用已失效
-> （`README.md:804-821` → [`docs/specs/screens-design.md` §3](../screens-design.md)；
-> `README.md:795-798` → [`docs/specs/ui-design.md` §1](../ui-design.md)），仅此三处与原始草稿不同。
+> **路径重写**：**无**。正文里三处引用（2 处 [`docs/specs/screens-design.md` §3](../screens-design.md)、
+> 1 处 [`docs/specs/ui-design.md` §1](../ui-design.md)）在源文 `design/release-redesign/README.md` 中**已同步**为
+> 新文档链接（不再按行号钉 `README.md`），入库时按原样照录，未做任何改写。
+> （2026-09 更正：本头旧版称「三处失效引用已改指新文档、仅此三处与原始草稿不同」，与事实不符。）
 
 # 发布页重设计原型 · 说明与落实方案（第二轮）
 
+> **快照说明（2026-09 补）**：本文是**设计当时的记录** —— 文中的「现状测绘」、「`文件:行号`」、
+> 「依据：`xxx.kt`（N 行）」都不会随代码演进更新（只有少数几处加了「2026-09 追记」）。
+> 判断当前行为请以代码与 `docs/specs/` 下的规格为准；落地清单里未落地的项只表示「当时计划过」。
+
 > 本轮目标：**继续压（≈488 → ≈360dp）+ 把精细度提上来**（图标、滑动胶囊、槽内对齐、状态条、防抖草稿）。
 > 目录：`design/release-redesign/`（`/design/` 已在 `.gitignore` 中：原型草图不入库，但能被 DSH 原型预览面板扫到）
+> 本文档的**入库副本**：`docs/specs/prototypes/release-redesign.md`（改完这里请同步那份）
 > 目标页面：**新建 / 编辑发布**（`ReleaseEditScreen`）
-> 依据：`app/src/main/java/com/branchbase/ui/repository/ReleaseScreens.kt`（846 行，逐行测绘）
+> 依据：`app/src/main/java/com/branchbase/ui/repository/ReleaseScreens.kt`（设计当时 846 行，逐行测绘；
+> 2026-09 追记：该文件现为 **981 行**，文中的行号已漂移）
 
 ## 一、交付物与查看方式
 

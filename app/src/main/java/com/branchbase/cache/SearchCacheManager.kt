@@ -51,6 +51,22 @@ class SearchCacheManager(
         /** 过期清理的最小间隔（进程内节流，见 [sweepIfDue]）。 */
         private const val SWEEP_INTERVAL_MS = 5 * 60 * 1000L
 
+        /**
+         * 过期之后**还能被直出多久**（[getStale] 的可用窗口），也是清扫的宽限期。
+         *
+         * 为什么清扫不能直接按 `expireAt <= now` 删：那删掉的正好是 [getStale]
+         * （stale-while-revalidate 的「先直出」）要服务的那批行 —— 两条机制互相抵消，
+         * 「先直出再回源」只剩「上一次清扫之后的 5 分钟」里成立。
+         *
+         * 真机日志（2026-09-22，v1.0.64）就是这个后果：`无缓存可直出 profile:…:repos`
+         * 出现 5 次，而同一份数据上一场会话明明写过（`L2 直出（含过期）…（已回填 L1）`）。
+         * 于是「隔一会儿再进个人主页」永远是冷启动 + 一次 `/user/repos` 往返。
+         *
+         * 现在改成**只删过期超过这个宽限期的行**：过期不等于没用，过期太久才是。
+         * 容量另有 [MAX_ENTRIES] 的 LRU 兜着（写入路径按条数淘汰最旧），不会无限涨。
+         */
+        const val STALE_GRACE_MS = 24 * 60 * 60 * 1000L
+
         /** 上次清理时间（进程级）。0 表示本进程还没清过。 */
         @Volatile
         private var lastSweepAt = 0L
@@ -186,10 +202,10 @@ class SearchCacheManager(
     }
 
     /**
-     * 过期清理：**每个进程一次，之后每 [SWEEP_INTERVAL_MS] 一次**，由写入路径触发。
+     * 过期清理的**节流闸门**：每个进程一次，之后每 [SWEEP_INTERVAL_MS] 一次，由写入路径触发。
      *
      * 为什么不在读路径做：那是「每读一次缓存就写一次库」（历史实现就在 `get()` 第一行）。
-     * 为什么仍要清：Room 的 LRU 只按条数淘汰，过期行会一直占着名额。
+     * 真正的清理在 [sweepNow]（单测直接调它，不受进程级节流影响）。
      */
     private suspend fun sweepIfDue(now: Long) {
         if (!shouldSweep(now, lastSweepAt)) return
@@ -197,9 +213,28 @@ class SearchCacheManager(
             if (!shouldSweep(System.currentTimeMillis(), lastSweepAt)) return
             lastSweepAt = now
         }
-        val removed = dao.deleteExpired(now)
+        sweepNow(now)
+    }
+
+    /**
+     * 立刻清一次库里的「死条目」，返回删掉的条数。
+     *
+     * **删的是「过期超过 [STALE_GRACE_MS]」的行，不是「已过期」的行**：后者正是
+     * [getStale]（先直出再回源）要服务的那批，按 `now` 删会让整条
+     * stale-while-revalidate 路径形同不存在（详见 [STALE_GRACE_MS]）。
+     *
+     * `internal` 是为了单测能绕开进程级节流直接验证口径 —— 节流是 [shouldSweep] 的事，
+     * 两者分开才测得动。
+     */
+    internal suspend fun sweepNow(now: Long = System.currentTimeMillis()): Int {
+        val removed = dao.deleteExpired(now - STALE_GRACE_MS)
         if (removed > 0) {
-            Logger.debug(LogCategory.LOCAL_TASK, "缓存", "清理过期条目 $removed 条")
+            Logger.debug(
+                LogCategory.LOCAL_TASK,
+                "缓存",
+                "清理过期条目 $removed 条（过期超过 ${STALE_GRACE_MS / 3_600_000}h 才算没救）",
+            )
         }
+        return removed
     }
 }

@@ -9,9 +9,10 @@ import org.junit.Test
 import kotlin.math.abs
 
 /**
- * 两级缓存管理器单测：L2 命中回填 L1、读路径不写库、清扫节流、删除要两层一起删。
+ * 两级缓存管理器单测：L2 命中回填 L1、读路径不写库、清扫节流、删除要两层一起删、
+ * 清扫不误伤「刚过期」的行（否则先直出再回源形同不存在）。
  *
- * 用内存版假 DAO（[SearchCacheDao] 是接口），不依赖 Room / Android ——
+ * 用内存版假 DAO（[SearchCacheDao] 是接口，见 [FakeSearchCacheDao]），不依赖 Room / Android ——
  * 这几条规则出错的后果都是「静默变慢」：读一次缓存写一次库、删了 L2 又被 L1 直出回来，
  * 都不会报错，只会在真机上表现为「重进页面还是慢」。
  *
@@ -24,48 +25,13 @@ import kotlin.math.abs
  */
 class SearchCacheManagerTest {
 
-    /** 内存版假 DAO：只实现测试关心的事实（行、清扫次数、写入次数）。 */
-    private class FakeDao : SearchCacheDao {
-        val rows = mutableMapOf<String, SearchCacheEntity>()
-        var deleteExpiredCalls = 0
-        var insertCalls = 0
-
-        override suspend fun get(key: String, type: String, now: Long): SearchCacheEntity? =
-            rows[key]?.takeIf { it.type == type && it.expireAt > now }
-
-        override suspend fun getStale(key: String, type: String): SearchCacheEntity? =
-            rows[key]?.takeIf { it.type == type }
-
-        override suspend fun insert(entity: SearchCacheEntity) {
-            insertCalls++
-            rows[entity.key] = entity
-        }
-
-        override suspend fun deleteExpired(now: Long): Int {
-            deleteExpiredCalls++
-            val victims = rows.filterValues { it.expireAt <= now }.keys
-            victims.forEach { rows.remove(it) }
-            return victims.size
-        }
-
-        override suspend fun count(): Int = rows.size
-
-        override suspend fun deleteOldest(n: Int) {
-            rows.entries.sortedBy { it.value.createdAt }.take(n).forEach { rows.remove(it.key) }
-        }
-
-        override suspend fun delete(key: String) {
-            rows.remove(key)
-        }
-    }
-
     private fun row(key: String, type: String, data: String, expireAt: Long) =
         SearchCacheEntity(key = key, type = type, data = data, createdAt = 1L, expireAt = expireAt)
 
     /** L2（磁盘）命中后必须回填 L1，否则「同页重进」永远还是走磁盘那一遍。 */
     @Test
     fun l2HitBackfillsL1() = runBlocking {
-        val dao = FakeDao()
+        val dao = FakeSearchCacheDao()
         val memory = MemoryCache()
         val mgr = SearchCacheManager(dao, memory)
         dao.rows["k"] = row("k", PageCache.TYPE_PROFILE, "JSON", expireAt = Long.MAX_VALUE)
@@ -85,7 +51,7 @@ class SearchCacheManagerTest {
      */
     @Test
     fun readsNeverWrite() = runBlocking {
-        val dao = FakeDao()
+        val dao = FakeSearchCacheDao()
         val mgr = SearchCacheManager(dao, MemoryCache())
 
         repeat(3) { mgr.get("miss$it", PageCache.TYPE_PROFILE) }
@@ -113,7 +79,7 @@ class SearchCacheManagerTest {
     /** 删除必须两层一起删：只删 L2 的话，下一次 `getStale` 会把 L1 里的旧值又直出回来。 */
     @Test
     fun deleteClearsBothLayers() = runBlocking {
-        val dao = FakeDao()
+        val dao = FakeSearchCacheDao()
         val memory = MemoryCache()
         val mgr = SearchCacheManager(dao, memory)
         mgr.put("k", PageCache.TYPE_NOTIFICATION, "OLD")
@@ -127,7 +93,7 @@ class SearchCacheManagerTest {
     /** 写入的 `expireAt` 必须由类型 TTL 决定（打错类型字符串会静默变成默认 30 分钟）。 */
     @Test
     fun putUsesTypeTtl() = runBlocking {
-        val dao = FakeDao()
+        val dao = FakeSearchCacheDao()
         val mgr = SearchCacheManager(dao, MemoryCache())
         val before = System.currentTimeMillis()
         mgr.put("k", PageCache.TYPE_NOTIFICATION, "JSON")
@@ -137,6 +103,40 @@ class SearchCacheManagerTest {
         assertTrue(
             "expireAt 与类型 TTL 不符：${saved.expireAt - before}",
             abs(saved.expireAt - expected) < 5_000,
+        )
+    }
+
+    /**
+     * 清扫**不许**删掉「刚过期」的行 —— 那正是 [SearchCacheManager.getStale]
+     * （先直出再回源）要服务的那批，按 `now` 删等于把整条 stale-while-revalidate 废掉。
+     *
+     * 现场（真机日志 2026-09-22，v1.0.64）：`无缓存可直出 profile:…:repos` 5 次，
+     * 而同一份数据上一场会话明明写过 —— 跨会话的「先直出」一次都没生效。
+     *
+     * 用 [SearchCacheManager.sweepNow] 绕开进程级节流（节流本身另有纯函数用例），
+     * 否则断言会随用例执行顺序变红。
+     */
+    @Test
+    fun sweepSparesRecentlyStaleRows() = runBlocking {
+        val dao = FakeSearchCacheDao()
+        val mgr = SearchCacheManager(dao, MemoryCache())
+        val now = System.currentTimeMillis()
+        dao.rows["fresh"] = row("fresh", PageCache.TYPE_PROFILE, "A", expireAt = now + 60_000)
+        dao.rows["stale-1h"] = row("stale-1h", PageCache.TYPE_PROFILE, "B", expireAt = now - 3_600_000)
+        dao.rows["stale-25h"] = row("stale-25h", PageCache.TYPE_PROFILE, "C", expireAt = now - 25 * 3_600_000L)
+
+        assertEquals("只该删「过期超过宽限期」的那一条", 1, mgr.sweepNow(now))
+        assertEquals(setOf("fresh", "stale-1h"), dao.rows.keys)
+        // 关键一步：没被删掉的过期行仍然直得出来 —— 这才是「先直出再回源」的前提
+        assertEquals("B", mgr.getStale("stale-1h", PageCache.TYPE_PROFILE))
+    }
+
+    /** 宽限期要长过一个正常的会话间隔，否则跨会话的「先直出」还是白搭。 */
+    @Test
+    fun `过期宽限期足够覆盖一次会话`() {
+        assertTrue(
+            "宽限期至少要有小时级：${SearchCacheManager.STALE_GRACE_MS}",
+            SearchCacheManager.STALE_GRACE_MS >= 60 * 60 * 1000L,
         )
     }
 }

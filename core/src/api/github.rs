@@ -21,6 +21,15 @@ impl GitHubApi {
         Ok(user)
     }
 
+    /// 读取当前令牌**已被授予**的 scopes（`x-oauth-scopes` 响应头原文；空串 = 头缺失/为空）。
+    ///
+    /// 薄委托到 [ApiClient::oauth_scopes]（它是响应头，普通 `get_json` 拿不到）。
+    /// 这里**只回原文、不解析成结论**：判读（有没有 `repo`、要不要重新授权）属于界面层，
+    /// 见 `com.branchbase.ui.repository.scopeVerdict`。
+    pub async fn oauth_scopes(&self) -> Result<String> {
+        self.client.oauth_scopes().await
+    }
+
     /// 获取指定用户（`GET /users/{login}`）
     pub async fn user(&self, login: &str) -> Result<User> {
         let path = format!("/users/{login}");
@@ -675,7 +684,7 @@ impl GitHubApi {
         self.client.delete_json(&path).await
     }
 
-    // ── 协作与仓库管理（对齐 docs/decision-pages-gap.md §8.4 执行层） ──
+    // ── 协作与仓库管理（对齐 docs/specs/decision-pages-design.md §8.4 执行层） ──
 
     /// 读取分支 ref 的 sha（GET /repos/{o}/{r}/git/ref/heads/{branch}）
     pub async fn get_ref_sha(&self, owner: &str, repo: &str, branch: &str) -> Result<String> {

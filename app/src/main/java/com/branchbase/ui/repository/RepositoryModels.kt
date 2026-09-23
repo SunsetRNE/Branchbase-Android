@@ -512,7 +512,64 @@ data class PullDetail(
     val createdAt: String,
     val baseRef: String,
     val headRef: String,
+    /**
+     * `GET /pulls/{n}` 的 `merged`：是否已被合并。
+     *
+     * 带默认值是为了不影响只关心展示字段的构造点（手写详情的测试等）。
+     */
+    val merged: Boolean = false,
+    /**
+     * `GET /pulls/{n}` 的 `mergeable`（**三态**）：
+     *
+     * - `true`  GitHub 认为可以自动合并；
+     * - `false` GitHub 明确判定不可自动合并（冲突 / 分支保护）；
+     * - `null`  **未知** —— GitHub 还在后台计算，响应里就是 JSON `null`。
+     *
+     * `null` 绝不能落到 `false`：「还没算出来」与「不能合并」是两回事，
+     * 前者不该给用户看一句凭空捏造的拒绝理由（[pullMergeEntry] 也不把它当 false）。
+     */
+    val mergeable: Boolean? = null,
 )
+
+/** 详情页「合并」入口的三种形态：不露出 / 可点 / 置灰（附原因）。 */
+enum class PullMergeEntry { Hidden, Enabled, Disabled }
+
+/**
+ * 「合并」入口的可见性规则（纯函数，便于单测钉住）。
+ *
+ * - 只有 `state == "open"` 且**未合并**的 PR 才有可合并的东西 → 其余 [Hidden]
+ *   （已合并 / 已关闭的 PR 再点合并，服务端只会回一句错误）；
+ * - `mergeable == false` 时**不藏、置灰**（[Disabled]）—— 用户需要知道为什么点不了；
+ * - `mergeable == null`（GitHub 还在算）**放行**：算完之前不替 GitHub 下结论，
+ *   真不可合并时合并页会把服务端错误原样回报；
+ * - head / base 分支名为空同样置灰：合并页的副标题与「合并后删分支」都依赖它们。
+ */
+fun pullMergeEntry(
+    state: String,
+    merged: Boolean,
+    mergeable: Boolean?,
+    headRef: String,
+    baseRef: String,
+): PullMergeEntry = when {
+    state != "open" || merged -> PullMergeEntry.Hidden
+    mergeable == false || headRef.isBlank() || baseRef.isBlank() -> PullMergeEntry.Disabled
+    else -> PullMergeEntry.Enabled
+}
+
+/**
+ * 入口下方那句说明（入口露出时才有意义）：
+ *
+ * - `mergeable == false` → 拒绝原因（对应置灰态）；
+ * - 分支信息缺失 → 为什么点不了；
+ * - `mergeable == null` → 「还在算」的提醒（可点，但可能被拒）；
+ * - 其余（可合并）→ `null`，不加文案。
+ */
+fun pullMergeHint(mergeable: Boolean?, headRef: String, baseRef: String): String? = when {
+    mergeable == false -> "GitHub 判定当前不可自动合并（存在冲突或分支保护规则）"
+    headRef.isBlank() || baseRef.isBlank() -> "缺少分支信息，暂时无法合并"
+    mergeable == null -> "GitHub 仍在计算可合并性，此时合并可能被拒绝"
+    else -> null
+}
 
 data class PullFile(
     val filename: String,
@@ -656,6 +713,10 @@ fun parsePullDetail(json: String): PullDetail? = runCatching {
         createdAt = o.optString("created_at"),
         baseRef = o.optJSONObject("base")?.optString("ref").orEmpty(),
         headRef = o.optJSONObject("head")?.optString("ref").orEmpty(),
+        merged = o.optBoolean("merged", false),
+        // 缺键与 JSON null 都算「未知」：`optBoolean("mergeable")` 会把两者都吞成 false，
+        // 而那正是「GitHub 还在计算」被渲染成「不可合并」的路径，所以这里必须先判 isNull。
+        mergeable = if (o.isNull("mergeable")) null else o.optBoolean("mergeable"),
     )
 }.getOrNull()
 

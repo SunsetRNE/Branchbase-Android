@@ -16,6 +16,18 @@ data class GitStatus(
     val remoteUrl: String,
     val dirty: List<DirtyFile>,
     val unpushed: List<UnpushedCommit>,
+    /**
+     * HEAD 是否有父提交。**false = 这是第一个提交**：`reset --soft HEAD~1`（撤销上一次提交）
+     * 必然失败 —— 页面要据此提前说明，而不是报「引擎不可用」。
+     */
+    val hasParent: Boolean = true,
+    /** HEAD 的完整 sha（空串 = 未知）。用于与远端 ref 比对，判断「远端有没有变化」。 */
+    val headSha: String = "",
+    /**
+     * `refs/remotes/origin/{branch}` 是否存在。**false** 时「放弃本地提交（reset --hard origin/x）」
+     * 必然失败（从没 fetch 过的仓库就是这种）—— 同样要在 UI 里提前说明。
+     */
+    val hasRemoteRef: Boolean = false,
 )
 
 /** 工作区变更文件 */
@@ -52,6 +64,11 @@ fun parseGitStatus(json: String?): GitStatus? {
             remoteUrl = o.optString("remote_url", ""),
             dirty = dirty,
             unpushed = unpushed,
+            // 缺键时的默认值偏保守：hasParent=true 不误报「第一个提交」，
+            // hasRemoteRef=false 则让「放弃本地提交」在状态未知时先拦一下（见各决策页的预检）。
+            hasParent = o.optBoolean("has_parent", true),
+            headSha = o.optString("head_sha", ""),
+            hasRemoteRef = o.optBoolean("has_remote_ref", false),
         )
     }.getOrNull()
 }
@@ -68,18 +85,4 @@ fun parseSensitiveHits(json: String?): List<SensitiveHit> {
             }
         }
     }.getOrDefault(emptyList())
-}
-
-/**
- * 危险操作级别：决定删除/放弃类操作是否需要升级警告或二次确认。
- */
-enum class DangerLevel {
-    /** 无风险：直接执行 + 轻反馈 */
-    NONE,
-
-    /** 需确认：普通 AlertDialog */
-    CONFIRM,
-
-    /** 需二次确认：独立确认页/勾选（不可恢复） */
-    DOUBLE_CONFIRM,
 }

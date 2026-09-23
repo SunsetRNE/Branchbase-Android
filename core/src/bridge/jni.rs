@@ -567,6 +567,29 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGetRepoInfo<'lo
     into_jstring(&mut env, result)
 }
 
+/// 读取当前令牌**已被授予**的 scopes（返回 `x-oauth-scopes` 原文；空串 = 头缺失或为空）
+/// 参数：host, accessToken
+///
+/// 走 [ApiClient::oauth_scopes]：scope 是**响应头**，普通 `nativeGetJson` 只带 body 回来。
+/// 上层用它区分「404 = 私有仓库没权限」与「404 = 仓库不存在」。空串是**正常返回**，不是错误。
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeOauthScopes<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    host: JString<'local>,
+    token: JString<'local>,
+) -> jstring {
+    let host = jstr(&mut env, &host);
+    let token = jstr(&mut env, &token);
+
+    let result: crate::error::Result<String> = block_on(async move {
+        let client = crate::api::ApiClient::new(&host, &token);
+        crate::api::GitHubApi::new(client).oauth_scopes().await
+    });
+
+    into_jstring(&mut env, result)
+}
+
 /// 获取仓库语言统计（返回 {语言:字节数} JSON）
 /// 参数：host, accessToken, owner, repo
 #[no_mangle]
@@ -1282,7 +1305,7 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeUnsubscribeThre
     into_jstring(&mut env, result)
 }
 
-// ── 决策页面支持（对齐 docs/decision-pages-gap.md §6） ──
+// ── 决策页面支持（对齐 docs/specs/decision-pages-design.md §6） ──
 
 /// 仓库状态（返回 JSON；ERROR:=失败）
 /// 参数：dir

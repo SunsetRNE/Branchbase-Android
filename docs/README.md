@@ -12,13 +12,16 @@
 
 ```
 /docs/                            ← 结论类文档，**全部入库**（这个目录不再整体忽略）
-├── README.md                     ← 本文件：收纳规则 + 索引
+├── README.md                     ← 本文件：收纳规则 + 索引（**唯一的文档索引**）
 └── specs/                        ← 「详细重点文档」都放这儿
+    ├── features-design.md        ← **功能规格**（用户可见行为与判定：登录 / 搜索 / 提交 / 关于页）
+    ├── modules-design.md         ← **功能模块族**（沉浸式翻译 / 内建下载 / 图片查看器 / 编辑器 / 作业日志与运行轮询）
+    ├── decision-pages-design.md  ← **决策页面**（14 页体系 / 事实区 / 本地支持 API / 执行层 API / 已知缺口）
+    ├── local-git-engine-design.md← **本地 Git 引擎**（libgit2 稳定接口 / `nff:` 错误归一 / 证书与代理 / 边界）
     ├── html-parser-design.md     ← HTML 链接解析与跳转导航的设计契约（规则表 + 已知边界）
     ├── NAVIGATION-NOTES.md       ← 返回键与导航（反复踩坑后定下的两条硬规则）
-    ├── BUILD-NOTES.md            ← 构建环境、AGP 9.0 API、版本号体系
+    ├── BUILD-NOTES.md            ← 构建环境、AGP 9.0 API、版本号体系、JNI 契约、CI 流水线
     ├── settings-design.md        ← **设置页设计规范**（信息架构 / 6 种行型 / 控件选型 / 用语表 / 危险操作）
-    ├── modules-design.md         ← **功能模块族**（沉浸式翻译 / 内建下载 / 图片查看器 / 编辑器 / 作业日志与运行轮询）
     ├── ui-design.md              ← **界面规格**（配色与弹层（单一真源）/ 深色主题 / 动效）
     ├── frame-perf-design.md      ← **帧率基线**（页面重建：口径 / 取数通道 / 归因四类 / 验收清单）
     ├── morph-design.md           ← **图标形变规格**（术语表 / 六步管线与失真点 / 六类成因 / 验收清单 / 极端组合台账）
@@ -34,13 +37,24 @@
         └── theme-neutral-preview.md
 
 /design/<原型名>/                  ← 原型**草图本体**（HTML/CSS/JS）：**永久不入库**
-README.md                          ← 项目门面 + 功能概览 + 文档指针，留在根目录别挪
+README.md                          ← 项目门面 + 下载与上手 + 文档入口，留在根目录别挪
 ```
 
-> **从根 README 迁出的正文**（2026-09：`modules-design.md` / `ui-design.md` / `screens-design.md`）
+### 按角色找（先看这张表，再看 §五 全量索引）
+
+| 你是 | 从哪开始 |
+|---|---|
+| **用户**（装 / 用 / 反馈） | 根 [`README.md`](../README.md)：下载与安装 · 快速上手 · 反馈渠道 |
+| **开发者**（改某块实现） | `specs/features-design.md`（用户可见行为）→ 对应专题文档 → 代码里的真源注释；改动前先读该专题的「已知边界」 |
+| **设计 / 文案**（改界面观感） | `specs/ui-design.md`（配色 / 深色 / 动效）· `specs/settings-design.md`（设置页规范）· `specs/screens-design.md`（页面重绘） |
+| **要动原型** | 草图建在 `/design/<原型名>/`（不入库），说明与落实方案抽一份进 `specs/prototypes/` |
+
+> **从根 README 迁出的正文**（2026-09 第一轮：`modules-design.md` / `ui-design.md` / `screens-design.md`）
 > 同样属于结论类。头部都标了来源与「正文未删改」，区别只有三点：标题去 emoji、加**章节编号**；
-> 空行规整（合并多余空行）；正文里的**仓库根相对链接改成相对本文件的链接**。迁出后 README 只留结论摘要 + 指向，
-> 别把正文再抄回去 —— 两处各写一份，迟早分叉。
+> 空行规整（合并多余空行）；正文里的**仓库根相对链接改成相对本文件的链接**。
+> **第二轮（2026-09）**：根 README 进一步瘦身成「门面 + 下载 + 上手 + 一行制功能一览」，
+> 功能特性正文迁进 `specs/features-design.md`，分支同步与星标/关注/复刻正文迁进 `specs/decision-pages-design.md`。
+> 两轮都遵守同一条：**别在两处各写一份正文** —— 一处写，另一处只留一行与指针。
 
 ## 二、存什么 / 不存什么
 
@@ -98,29 +112,36 @@ README.md                          ← 项目门面 + 功能概览 + 文档指�
 4. **被代码引用时**：注释里写**仓库相对路径**（如 `docs/specs/html-parser-design.md §3`）。
    引用到**章节号**的，重排章节时必须回头改注释 —— `matcher.rs` 钉着 §3、
    `ReadmeWebView.kt` 钉着 §5.1，就是既有的两个锚点。
-5. **顺手做**：在 §五 的索引里加一行，并同步 `README.md` 的「📚 文档导航」表与项目结构块
-   （两处都别写反）。
+   **别引用 `/design/` 下的草图文件**：它们不在版本库里，本地清理一次就没了 ——
+   实测曾有 8 处注释指向早已不存在的 `design/*-prototype.html`。要指就指 `docs/specs/` 里的规格。
+5. **顺手做**：在 §五 的索引里加一行（**这是唯一的文档清单**）——
+   根 `README.md` 不再逐份列文档（两处各列一份必然分叉：实测 `morph-design.md` 曾在两边同时漏掉），
+   它只保留「按角色去哪里找」的入口。
 
 ## 五、索引
 
-| 文档 | 一句话 | 谁在引用 |
+| 文档 | 一句话 | 真源 / 引用者（改了要回头改这些地方） |
 |---|---|---|
-| [`specs/html-parser-design.md`](specs/html-parser-design.md) | 链接如何归一化成跳转目标：§3 规则表、§5.1 末尾斜杠判目录、§6 已知边界 | `core/src/html/mod.rs`、`matcher.rs`、`ReadmeWebView.kt` |
-| [`specs/NAVIGATION-NOTES.md`](specs/NAVIGATION-NOTES.md) | 返回键只有一条链路：`PageBackHandler` + 两个切换器都下发 `LocalPageActive` | `README.md` 功能特性、`ui/navigation/` 各页 |
-| [`specs/BUILD-NOTES.md`](specs/BUILD-NOTES.md) | AGP 9.0 的 `VariantOutputImpl` 坑 + 版本号体系 + JNI 签名与 locale | `README.md` 构建一节 |
-| [`specs/VERSION-NOTES.md`](specs/VERSION-NOTES.md) | **版本变更记录**：§二 `versionName` 逐版说明（每版改了什么、为什么这么改）/ §三 `versionCode` 流水 + 新增一版的写法约定 | `version.properties`（只留 3 个样板并指向它）、`BUILD-NOTES.md` §二 |
-| [`specs/modules-design.md`](specs/modules-design.md) | **功能模块族**：§1 沉浸式翻译 / §2 内建下载 / §3 图片查看器 / §4 代码编辑器 / §5 作业日志 / §6 运行中的工作流轮询，各带「已知边界」 | `README.md` 功能模块、`ui/repository/JobLogWiring.kt`、`RunPollPolicy.kt` |
-| [`specs/ui-design.md`](specs/ui-design.md) | **界面规格**：§1 配色与弹层（单一真源）/ §2 深色主题（色板 + 角色、对比度、已知取舍）/ §3 动效（页面级 + 元素级） | `ui/theme/*`、`ui/navigation/PageTransitions.kt`、`README.md` 界面规格 |
-| [`specs/frame-perf-design.md`](specs/frame-perf-design.md) | **帧率基线（页面重建）**：为什么只能走 `FrameWatch`（dumpsys 被守护拦）/ 口径（32ms 慢帧、16ms 预算、8 分段）/ 四类归因（等待·动画·绘制·下发）/ v1.0.53 基线与验收清单 | `ui/log/FrameWatch.kt`、`tools/perf/frame-baseline.py`、`specs/ui-design.md` §3 |
-| [`specs/screens-design.md`](specs/screens-design.md) | **页面重绘**：§1 运行详情卡片流 / §2 发布（三档性质 + 三个页面）/ §3 消息卡片流与多选 | `ReleaseNotesEditor.kt`、`ReleaseEditParts.kt`、`NotificationScreen.kt`、`WorkflowRunDetailScreen.kt` |
-| [`specs/reachability-design.md`](specs/reachability-design.md) | **远端可达性判定**：三档（离线 / 直连 / VPN）、四种跃迁才重探、跃迁时三件事（丢连接池 / 清去重窗口 / 重探账号），含已知边界 | `core/NetworkWatch.kt`、`core/ReachabilityPolicy.kt`、`RustBridge.resetHttpClient` |
-| [`specs/prototypes/release-redesign.md`](specs/prototypes/release-redesign.md) | 发布三页重绘原型：三档性质 / 垂直预算 694→360dp / 生成说明不覆盖手写行 | `specs/screens-design.md` §2、`ReleaseScreens.kt` |
-| [`specs/prototypes/messages-redesign.md`](specs/prototypes/messages-redesign.md) | 消息页重做：右下弹窗面板 / 长按状态机 / 预渲染 / Issue 单消息页 | `NotificationScreen.kt` |
-| [`specs/prototypes/workflow-redesign.md`](specs/prototypes/workflow-redesign.md) | Run 详情卡片流 + 作业日志页合并 | `WorkflowRunDetailScreen.kt`、`JobLogScreen.kt` |
-| [`specs/prototypes/theme-neutral-preview.md`](specs/prototypes/theme-neutral-preview.md) | 中性色「去灰」三个方案的取值与结论 | `ThemePalette.kt` |
-| [`specs/settings-design.md`](specs/settings-design.md) | **设置页设计规范**：两级 IA、6 种行型的封闭集合、控件选型决策树、用语表、危险操作规格、`SettingsSpecTest` 钉子 | `ui/profile/SubPageScreens.kt`、`CommitModeScreen.kt`、`TranslateSettingsScreen.kt`、`AccountsScreen.kt` |
-| [`specs/prototypes/log-redesign.md`](specs/prototypes/log-redesign.md) | 日志页重设计原型：chrome 196→110dp、单行网格、9 个写死色值→主题角色 | `docs/specs/settings-design.md`（同族参考） |
-| [`specs/prototypes/settings-redesign.md`](specs/prototypes/settings-redesign.md) | 设置页重设计原型：8 套行组件 → 6 种行型、主题去循环化、禁用行给出路、3 个对比度修正 | `docs/specs/settings-design.md` |
+| [`specs/features-design.md`](specs/features-design.md) | **功能规格**：登录与账号 / 个人主页 / 仓库浏览 / 搜索 / 提交与本地仓库 / 关于页 | 根 `README.md`「功能一览」、`ui/search/SearchQuery.kt` |
+| [`specs/modules-design.md`](specs/modules-design.md) | **功能模块族**：§1 沉浸式翻译 / §2 内建下载 / §3 图片查看器 / §4 代码编辑器 / §5 作业日志 / §6 运行中的工作流轮询，各带「已知边界」 | `ui/repository/ReadmeWebView.kt:57,455`、根 `README.md` |
+| [`specs/decision-pages-design.md`](specs/decision-pages-design.md) | **决策页面**：14 页体系 / 四要素组件 / §4.5 PR 一条龙 / §6 本地支持 API / §8.4 执行层 / 已知缺口 | `ui/decision/*.kt`、`core/src/git/mod.rs:582`、`core/src/bridge/jni.rs:1285`、`core/src/api/github.rs:678` |
+| [`specs/local-git-engine-design.md`](specs/local-git-engine-design.md) | **本地 Git 引擎**：§3 稳定接口（20 个 `pub fn`）/ §4 `nff:` 错误归一 / 证书与代理 / 已知边界 | `core/src/git/mod.rs:3` |
+| [`specs/html-parser-design.md`](specs/html-parser-design.md) | 链接如何归一化成跳转目标：§3 规则表、§5.1 末尾斜杠判目录、§6 已知边界 | `core/src/html/mod.rs:6`、`matcher.rs:6`、`ui/repository/ReadmeWebView.kt:534` |
+| [`specs/NAVIGATION-NOTES.md`](specs/NAVIGATION-NOTES.md) | 返回键只有一条链路：`PageBackHandler` + 两个切换器都下发 `LocalPageActive` | 根 `README.md`、`ui/navigation/` 各页、`BackConsumptionTest` |
+| [`specs/BUILD-NOTES.md`](specs/BUILD-NOTES.md) | AGP 9.0 的 `VariantOutputImpl` 坑 + 版本号体系 + JNI 签名与 locale + §六 编译流水线为什么这么定 | 根 `README.md` 构建一节、`tools/env/*`、`.github/workflows/*` |
+| [`specs/settings-design.md`](specs/settings-design.md) | **设置页设计规范**：两级 IA、6 种行型的封闭集合、控件选型决策树、用语表、危险操作规格 | `ui/settings/SettingsRow.kt:44`、`SettingsKeys.kt:8`、`GitProxyScreen.kt:34`、`ui/theme/ThemePalette.kt:81`、`SubPageScreens.kt` / `TranslateSettingsScreen.kt`（按「规范 §N」引用）、`SettingsSpecTest` |
+| [`specs/ui-design.md`](specs/ui-design.md) | **界面规格**：§1 配色与弹层（单一真源）/ §2 深色主题（色板 + 角色、对比度、已知取舍）/ §3 动效（页面级 + 元素级） | `ui/theme/morph/MorphSpring.kt:25`、根 `README.md` |
+| [`specs/frame-perf-design.md`](specs/frame-perf-design.md) | **帧率基线（页面重建）**：为什么只能走 `FrameWatch`（dumpsys 被守护拦）/ 口径（32ms 慢帧、16ms 预算、8 分段）/ 归因三类 / 基线与验收清单 | `ui/navigation/PageTransitions.kt:69,115,525`、`BranchbaseApp.kt:55`、`ui/home/HomeScreen.kt:170`、`specs/ui-design.md` §3 |
+| [`specs/morph-design.md`](specs/morph-design.md) | **图标形变规格**：术语表 / 六步管线与失真点 / 六类成因 / 验收清单 / 极端组合台账 | `ui/theme/morph/MorphGeometry.kt`、根 `README.md`（2026-09 补登记） |
+| [`specs/screens-design.md`](specs/screens-design.md) | **页面重绘**：§1 运行详情卡片流 / §2 发布（三档性质 + 三个页面）/ §3 消息卡片流与多选 | `ui/repository/ReleaseNotesEditor.kt:57`、`ReleaseEditParts.kt:70`、`specs/prototypes/*` |
+| [`specs/reachability-design.md`](specs/reachability-design.md) | **远端可达性判定**：三档（离线 / 直连 / VPN）、四种跃迁才重探、跃迁时三件事（丢连接池 / 清去重窗口 / 重探账号），含已知边界 | 实现位置 `app/src/main/java/com/branchbase/core/NetworkWatch.kt`、`ReachabilityPolicy.kt`；引用者 `VERSION-NOTES.md` 1.0.47 条目 |
+| [`specs/VERSION-NOTES.md`](specs/VERSION-NOTES.md) | **版本变更记录**：§二 `versionName` 逐版说明（每版改了什么、为什么这么改）/ §三 `versionCode` 流水 + 新增一版的写法约定 | `version.properties:8,62`（只留 3 个样板并指向它）、`BUILD-NOTES.md:63` |
+| [`specs/prototypes/release-redesign.md`](specs/prototypes/release-redesign.md) | 发布三页重绘原型：三档性质 / 垂直预算 694→360dp / 生成说明不覆盖手写行 | `specs/screens-design.md:78,251`、`ui/repository/ReleaseScreens.kt` |
+| [`specs/prototypes/messages-redesign.md`](specs/prototypes/messages-redesign.md) | 消息页重做：右下弹窗面板 / 长按状态机 / 预渲染 / Issue 单消息页 | `specs/screens-design.md` §3、`design/messages-redesign/`（草图本体） |
+| [`specs/prototypes/workflow-redesign.md`](specs/prototypes/workflow-redesign.md) | Run 详情卡片流 + 作业日志页合并 | `specs/screens-design.md:14,250` |
+| [`specs/prototypes/log-redesign.md`](specs/prototypes/log-redesign.md) | 日志页重设计原型：chrome 196→110dp、单行网格、9 个写死色值→主题角色 | `specs/settings-design.md:76,194,365` |
+| [`specs/prototypes/settings-redesign.md`](specs/prototypes/settings-redesign.md) | 设置页重设计原型：8 套行组件 → 6 种行型、主题去循环化、禁用行给出路、3 个对比度修正 | `specs/settings-design.md` §一 / §十四 |
+| [`specs/prototypes/theme-neutral-preview.md`](specs/prototypes/theme-neutral-preview.md) | 中性色「去灰」三个方案的取值与结论 | `specs/settings-design.md` §九（令牌取舍）、`ui/theme/ThemePalette.kt`（消费方） |
 
 ---
 

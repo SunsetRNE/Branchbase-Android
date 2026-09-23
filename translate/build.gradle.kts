@@ -10,7 +10,7 @@ plugins {
  * 设计约束（对齐 :editor 的做法：拆包速切、留痕可删）：
  * 1. **依赖方向单向**：`:app → :translate`。模块内不引用任何 App 内类型，
  *    翻译后端由 :app 通过 [com.branchbase.translate.TranslateEngine] 注入；
- * 2. **换服务商只改一处**：现在后端是 Rust 侧的 MyMemory（`core/src/translate.rs`），
+ * 2. **换服务商只改一处**：现在后端是 Rust 侧的 MyMemory（`core/src/translate/`），
  *    要换成 DeepL / 大模型，只需要 :app 换一个 `TranslateEngine` 实现；
  * 3. **移除步骤**：删本模块目录 + settings.gradle.kts 的 include + :app 的依赖与
  *    `TranslateRuntime.install` 一行即可（页面脚本/CSS 随模块一起被删掉）。

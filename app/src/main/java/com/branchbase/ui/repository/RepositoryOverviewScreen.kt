@@ -12,10 +12,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -32,6 +30,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,13 +44,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import com.branchbase.cache.PreloadStore
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.cache.defaultBranchOf
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.theme.LanguageColors
+import com.branchbase.ui.theme.Avatar
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -100,18 +99,41 @@ fun RepositoryOverviewContent(
     val login = session?.optJSONObject("user")?.optString("login").orEmpty()
     val context = LocalContext.current
 
-    var repoInfo by remember { mutableStateOf<RepoInfo?>(sharedInfo) }
-    var readmeHtml by remember { mutableStateOf<String?>(null) }
+    // 首帧快照：这个仓库上一轮已经渲染过就**当帧**把内容摆上（见 [RepoOverviewMemory]）。
+    // 下面每一个初始值都从它来 —— 数据本来就全在 L1 里命中，缺的只是「首帧有没有内容」。
+    val snapshot = remember(owner, repo) { repoOverviewMemory.get(owner, repo) }
+    var repoInfo by remember { mutableStateOf<RepoInfo?>(sharedInfo ?: snapshot?.info) }
+    var readmeHtml by remember { mutableStateOf(snapshot?.readmeHtml) }
     var effectiveBranch by remember { mutableStateOf("main") }
-    var languages by remember { mutableStateOf<List<LanguageStat>>(emptyList()) }
-    var contributors by remember { mutableStateOf<List<Contributor>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
+    var languages by remember { mutableStateOf(snapshot?.languages ?: emptyList()) }
+    var contributors by remember { mutableStateOf(snapshot?.contributors ?: emptyList()) }
+    var loading by remember { mutableStateOf(sharedInfo == null && snapshot == null) }
     var error by remember { mutableStateOf<String?>(null) }
-    // 分区加载态：缓存直出后仍可能有一两块在回源，避免显示成「暂无…」
-    var infoLoading by remember { mutableStateOf(sharedInfo == null) }
-    var readmeLoading by remember { mutableStateOf(true) }
-    var langLoading by remember { mutableStateOf(true) }
-    var contribLoading by remember { mutableStateOf(true) }
+    // 分区加载态：缓存直出后仍可能有一两块在回源，避免显示成「暂无…」；
+    // 快照里已经有内容的那几块**直接不置加载态** —— 这是「重进不闪」的另一半
+    var infoLoading by remember { mutableStateOf(sharedInfo == null && snapshot?.info == null) }
+    var readmeLoading by remember { mutableStateOf(snapshot?.readmeHtml == null) }
+    var langLoading by remember { mutableStateOf(snapshot?.languages.isNullOrEmpty()) }
+    var contribLoading by remember { mutableStateOf(snapshot?.contributors.isNullOrEmpty()) }
+
+    /**
+     * 自述文件的 WebView 持有者：**作用域在这一页，不在 LazyColumn 的 item 里**。
+     *
+     * 自述文件是列表里一项 4~6 万 dp 高的 item，滚到页面底部就会被 LazyColumn 回收；
+     * item 一没，`remember` 出来的 WebView 与测量高度就一起没了 —— 往回滚时重新组合，
+     * 用户看到的是「自述文件重新加载，然后跳回整篇描述的最顶部」（2026-09-22 真机反馈）。
+     * 放到页面级之后，回收只是把它摘下来，挂回去还是同一个 WebView、同一份文档、同一个高度。
+     * 机制见 [ReadmeViewHolder]。
+     */
+    // 初始高度来自快照：没有它，这一项挂回去时是 1dp，要等 JS 量完才撑开 —— 那就是「跳」
+    val readmeHolder = remember {
+        ReadmeViewHolder(initialHeight = snapshot?.readmeHeight ?: 1.dp) { h ->
+            repoOverviewMemory.putReadmeHeight(owner, repo, h)
+        }
+    }
+    DisposableEffect(readmeHolder) {
+        onDispose { readmeHolder.release() }
+    }
 
     // 外部（RepositoryScreen）拿到仓库信息后补进来 —— 它同时解决了默认分支的判定
     LaunchedEffect(sharedInfo) {
@@ -119,31 +141,42 @@ fun RepositoryOverviewContent(
             repoInfo = sharedInfo
             infoLoading = false
             if (branch == null && effectiveBranch == "main") effectiveBranch = sharedInfo.defaultBranch
+            repoOverviewMemory.putInfo(owner, repo, sharedInfo)
         }
     }
 
     /**
-     * 加载仓库页数据。
+     * 加载仓库页数据（**与分支无关的那一半**）。
      *
      * 三段式：
      * 1. **缓存直出**：先读（可过期的）整页缓存 —— 有就立刻渲染，不转圈；
-     * 2. **并行回源**：语言 / 贡献者两个请求并发；README 依赖默认分支，
-     *    在拿到分支后立刻与它们并行；
+     * 2. **并行回源**：语言 / 贡献者两个请求并发（仓库信息由外部提供，见上面的类注释）；
      * 3. **按块收敛**：每块数据到达即单独落地，先到的先显示。
      *
-     * 仓库信息不在这里回源（见上面的类注释），只吃缓存直出 + 外部传入。
+     * ## 键里为什么**不再**带 `branch` / `repoInfo?.defaultBranch`（2026-09-22 修）
      *
-     * ⚠️ 键里必须带 `repoInfo?.defaultBranch`：默认分支到手时要**重跑一次**，
-     * 否则 README 会一直停在「用猜的 main 取回来的那一份」（下面 [DEFAULT_BRANCH_GUESS] 的注释）。
+     * 1.0.62 为了让 README 在真实默认分支到手后重取一次，把 `repoInfo?.defaultBranch`
+     * 塞进了这个 effect 的键。代价是**整段加载都跟着重跑**：进一次仓库页，外部 `sharedInfo`
+     * 与缓存直出会先后把分支补上 ⇒ 这个 effect 一共跑 **3 遍**。每遍都会
+     * (a) 把语言 / 贡献者重新打回加载态、(b) 用新的 `coroutineScope` 重启在途请求 ——
+     * 上一遍的请求被取消，于是同一份数据要发 3 次、骨架要闪 3 次。
+     * 真机日志（2026-09-22，v1.0.65）里的形状就是同一批
+     * `直出 repo-info ×2 / @main / repo-lang / repo-contrib` 连着出现**三轮**。
+     *
+     * 现在 README 拆成独立的 [LaunchedEffect]（它才是真正依赖分支的那一块，见下），
+     * 这个 effect 只跟 `(owner, repo, refreshTick)` 走。
      */
-    LaunchedEffect(owner, repo, branch, refreshTick, repoInfo?.defaultBranch) {
+    LaunchedEffect(owner, repo, refreshTick) {
         val cacheManager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
         val force = refreshTick > 0
         error = null
-        infoLoading = repoInfo == null
-        readmeLoading = true
-        langLoading = true
-        contribLoading = true
+        // 「已经有数据就别再打回加载态」（手动刷新除外 —— 那时用户要的就是「重来一遍」的反馈）。
+        // 上面那段注释里的「骨架闪 3 次」正是这里每跑一遍无条件置 true 造成的。
+        if (force || repoInfo == null) infoLoading = true
+        if (force || readmeHtml == null) readmeLoading = true
+        if (force || languages.isEmpty()) langLoading = true
+        if (force || contributors.isEmpty()) contribLoading = true
+        // （上面这几行的初始值已由首帧快照给足：快照命中时它们本来就是 false）
 
         val staleInfo = if (force) null else cacheManager.getStale(PreloadStore.infoKey(owner, repo), PreloadStore.TYPE_INFO)
         /**
@@ -162,16 +195,27 @@ fun RepositoryOverviewContent(
             val bundle = PreloadStore.readStaleBundle(cacheManager, owner, repo, staleBranch)
             if (bundle.usable) {
                 // 外部传入的值更新（它来自同一个请求，但可能比缓存新）
-                bundle.info?.let { parseRepoInfo(it) }?.let { if (repoInfo == null) repoInfo = it }
+                bundle.info?.let { parseRepoInfo(it) }?.let {
+                    if (repoInfo == null) repoInfo = it
+                    repoOverviewMemory.putInfo(owner, repo, it)
+                }
                 effectiveBranch = staleBranch
-                bundle.readme?.let { readmeHtml = it; readmeLoading = false }
-                bundle.languages?.let { languages = parseLanguages(it); langLoading = false }
-                bundle.contributors?.let { contributors = parseContributors(it); contribLoading = false }
+                bundle.readme?.let { readmeHtml = it; readmeLoading = false; repoOverviewMemory.putReadme(owner, repo, it) }
+                bundle.languages?.let {
+                    languages = parseLanguages(it)
+                    langLoading = false
+                    repoOverviewMemory.putLanguages(owner, repo, languages)
+                }
+                bundle.contributors?.let {
+                    contributors = parseContributors(it)
+                    contribLoading = false
+                    repoOverviewMemory.putContributors(owner, repo, contributors)
+                }
                 loading = false
             }
         }
 
-        // ── ② 并行回源（仓库信息由外部提供，这里只发剩下两个） ──
+        // ── ② 并行回源 ──
         coroutineScope {
             val langJob = async {
                 val key = PreloadStore.langKey(owner, repo)
@@ -195,27 +239,43 @@ fun RepositoryOverviewContent(
             infoLoading = repoInfo == null
             if (repoInfo == null && !loading) error = "仓库不存在或无权访问"
 
-            // README 依赖默认分支 → 拿到分支后立刻与上面两个请求并行。
-            // 分支未知时**跳过**（保持加载态）：等 repoInfo 到了本 effect 会重跑
-            //（键里含 `repoInfo?.defaultBranch`），那时只取一次、且取的是对的那份。
-            val readmeJob = async {
-                if (knownBranch == null) return@async null
-                val key = PreloadStore.readmeKey(owner, repo, knownBranch)
-                val cached = if (force) null else cacheManager.get(key, PreloadStore.TYPE_README)
-                cached ?: RustBridge.readmeHtml(host, token, owner, repo, knownBranch)
-                    ?.takeIf { !it.startsWith("ERROR:") }
-                    ?.also { cacheManager.put(key, PreloadStore.TYPE_README, it) }
-            }
-            readmeJob.await()?.let { readmeHtml = it }
-            // 分支未知 ≠ 加载完成：保持骨架，别让「还没取」显示成「没有 README」
-            if (knownBranch != null) readmeLoading = false
-            langJob.await()?.let { languages = it }
+            langJob.await()?.let { languages = it; repoOverviewMemory.putLanguages(owner, repo, it) }
             langLoading = false
-            contribJob.await()?.let { contributors = it }
+            contribJob.await()?.let { contributors = it; repoOverviewMemory.putContributors(owner, repo, it) }
             contribLoading = false
         }
 
         loading = false
+    }
+
+    /**
+     * README：**唯一依赖默认分支的那一块**，所以单独一个 effect。
+     *
+     * 分支是异步到的（外部 `sharedInfo`，或上面那条 effect 的缓存直出），这个 effect 的键
+     * 跟着它走：分支未知时**直接返回、什么都不做**（保持骨架，绝不拿猜的分支去取 ——
+     * 那正是 1.0.62 修掉的「仓库页闪现性重建」）；分支到齐就取一次，缓存新鲜时一次网络都不发。
+     *
+     * 拆出来的意义：分支变化只重跑这一块。此前它连着语言 / 贡献者一起重启，
+     * 那两块与分支毫无关系，却要跟着取消在途请求、重新打回加载态。
+     */
+    val readmeBranch = branch ?: repoInfo?.defaultBranch
+    LaunchedEffect(owner, repo, readmeBranch, refreshTick) {
+        val target = readmeBranch ?: return@LaunchedEffect
+        val cacheManager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+        val force = refreshTick > 0
+        effectiveBranch = target
+        val key = PreloadStore.readmeKey(owner, repo, target)
+        val cached = if (force) null else cacheManager.get(key, PreloadStore.TYPE_README)
+        val json = cached ?: RustBridge.readmeHtml(host, token, owner, repo, target)
+            ?.takeIf { !it.startsWith("ERROR:") }
+            ?.also { cacheManager.put(key, PreloadStore.TYPE_README, it) }
+        // 取到了就换，取不到就保留缓存直出的那一份（别把已有内容清成「暂无自述文件」）
+        if (json != null) {
+            readmeHtml = json
+            repoOverviewMemory.putReadme(owner, repo, json)
+        }
+        // 分支已知 ⇒ 这一块该有结论了（有内容 / 真的没有），骨架到此为止
+        readmeLoading = false
     }
 
     Column(
@@ -264,6 +324,8 @@ fun RepositoryOverviewContent(
                             login = login,
                             token = token,
                             onLinkClick = onLinkClick,
+                            // 页面级持有：滚到底再往回滚不重建、不跳回顶部（见 [ReadmeViewHolder]）
+                            holder = readmeHolder,
                         )
                     }
                 }
@@ -457,13 +519,11 @@ private fun ContributorRow(c: Contributor) {
             .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(26.dp).clip(CircleShape).background(Primer.Blue500), contentAlignment = Alignment.Center) {
-            if (c.avatarUrl != null) {
-                AsyncImage(model = c.avatarUrl, contentDescription = c.login, modifier = Modifier.size(26.dp).clip(CircleShape))
-            } else {
-                Text(c.login.take(1).uppercase(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            }
-        }
+        // 用统一的 [Avatar] 而不是 Coil 的 AsyncImage：前者**首帧同步直出**进程内已解码的位图
+        // （24 条 LRU），后者每次重建都要重放一遍「蓝底 → 真图」。贡献者一屏十来个，
+        // 那串 pop-in 正是「参与者列表渲染有点慢」的观感来源；顺带 Avatar 的落盘还有 200 文件上限
+        // （见 core/AvatarCache 的 evictionVictims）。
+        Avatar(url = c.avatarUrl, login = c.login, size = 26.dp)
         Spacer(Modifier.width(10.dp))
         Text(c.login, fontSize = 13.sp, color = Primer.Blue500, modifier = Modifier.weight(1f))
         Text("${c.commits} 次提交", fontSize = 12.sp, color = Primer.TextTertiary)

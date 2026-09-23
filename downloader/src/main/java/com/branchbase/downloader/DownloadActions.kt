@@ -29,6 +29,16 @@ object DownloadActions {
 
     private const val APK_MIME = "application/vnd.android.package-archive"
 
+    /**
+     * FileProvider authority 的后缀 —— 必须与模块清单里的
+     * `android:authorities="${applicationId}.downloader.files"` **逐字一致**。
+     *
+     * 这是「两处声明」型契约：系统只承认清单里声明过的 authority，代码这边算错一个字符，
+     * `getUriForFile` 就抛异常，**安装 / 打开 / 分享三个动作一起失效**。
+     * 钉子：`DownloadFileProviderAuthorityTest`（同时读本文件与清单，钉住同一份后缀）。
+     */
+    const val FILE_PROVIDER_SUFFIX = ".downloader.files"
+
     /** 常见文件管理器（探测用；命中即用，命中不了就走分享兜底）。 */
     private val FILE_MANAGER_PACKAGES = listOf(
         "com.android.documentsui",
@@ -44,8 +54,8 @@ object DownloadActions {
         "com.vivo.filemanager",
     )
 
-    /** 本模块 FileProvider 的 authority（与模块清单里的 `${applicationId}.downloader.files` 一致）。 */
-    fun authority(context: Context): String = "${context.packageName}.downloader.files"
+    /** 本模块 FileProvider 的 authority（= 包名 + [FILE_PROVIDER_SUFFIX]，与模块清单里的 `${applicationId}.downloader.files` 一致）。 */
+    fun authority(context: Context): String = context.packageName + FILE_PROVIDER_SUFFIX
 
     fun fileUri(context: Context, file: File): Uri =
         FileProvider.getUriForFile(context, authority(context), file)

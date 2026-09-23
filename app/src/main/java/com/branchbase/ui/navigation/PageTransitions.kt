@@ -228,8 +228,33 @@ internal fun pageIsCurrent(target: Any?, current: Any?): Boolean = target == cur
 @Composable
 fun <S : PageLevel> PageSwitcher(
     state: S,
+    /**
+     * **默认返回**：这一格里按系统返回要做什么（通常就是「退回上一层」）。
+     *
+     * ## 为什么它是必填参数（而不是各页面自己记得挂 handler）
+     *
+     * 老规矩是「每个子页自己在分支里挂一个 `PageBackHandler { xxx = null }`」——
+     * 于是**漏挂的后果是静默的**：系统返回会**跳掉一层**（仓库页的网页登录页就这么漏了一版，
+     * 按返回直接退出了整个仓库页）。这类缺陷不会崩、不会红，只有真机连按才试得出来。
+     *
+     * 现在把兜底收到切换器自己身上：**每一格自动注册一次**（[PageBackHandler]），
+     * 宿主只需要提供一个「退一层」的动作 —— 而它在宿主那边是一个**穷尽 `when`**，
+     * 新增路由时编译器会强制你先表态，漏不掉。
+     *
+     * 传 `null` = 这一层不注册（事件继续往外层走）—— 那是**例外**，要么写清理由，
+     * 要么用 [isSubPage] 精确描述这一层里哪些格子才该被兜底。
+     */
+    onBack: (() -> Unit)?,
     modifier: Modifier = Modifier,
     label: String = "page",
+    /**
+     * 这一格算不算「该由 [onBack] 兜底的子页」。
+     *
+     * 默认按层级判（`depth > 0`）。需要更细的判据时用它 —— 典型是登录流程：
+     * `LoggedIn` 的 depth 是 3（它确实是「最深的那一步」，位移动画靠它），但它**不是子页**，
+     * 那里的返回键要交给主界面的「再按一次退出」，不能被登录流程吃掉。
+     */
+    isSubPage: (S) -> Boolean = { it.depth > 0 },
     contentKey: (S) -> Any? = { it },
     content: @Composable AnimatedContentScope.(S) -> Unit,
 ) {
@@ -250,6 +275,13 @@ fun <S : PageLevel> PageSwitcher(
         label = label,
     ) { target ->
         CompositionLocalProvider(LocalPageActive provides pageIsCurrent(target, state)) {
+            // 注册顺序即优先级：这一句在 `content(target)` **之前** ⇒ 页面自己（或更深一层，
+            // 例如文件页的编辑态、决策页里的对话）注册的处理器后注册、优先命中；
+            // 只有它们都没接（enabled=false 或不存在）时，这里的默认返回才生效。
+            // 退场中的旧页由 [PageBackHandler] 按 LocalPageActive 自动放手。
+            if (onBack != null && isSubPage(target)) {
+                PageBackHandler(onBack = onBack)
+            }
             content(target)
         }
     }

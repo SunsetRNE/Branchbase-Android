@@ -1,4 +1,6 @@
-<!-- 来源：根 `README.md`（2026-09 拆分）。正文未做删改，仅规整标题（去 emoji 前缀、加章节编号）与空行。 -->
+<!-- 来源：根 `README.md`（2026-09 拆分）。正文未做删改，仅做三类机械改写：规整标题（去 emoji 前缀、
+     加章节编号）、空行规整（合并多余空行），以及**路径重写** —— 正文里的仓库根相对链接
+     （如 `docs/specs/prototypes/xxx.md`）改成相对本文件的链接（`prototypes/xxx.md`），链接文字与正文一字未动。 -->
 # 页面重绘（运行详情 / 发布 / 消息）
 
 三个页面从「信息平铺」重排成「卡片流」的落地规格：结构是什么、约束为什么这么定、哪些取舍是刻意的。
@@ -129,8 +131,8 @@ PATCH 的默认值是 `legacy`（= 不动归属），所以编辑标题/正文�
 > **JNI 签名是编译期查不出来的**：`external fun` 与 `Java_*` 只靠名字关联，参数表对不上时
 > Kotlin 编译通过、Rust 编译通过、JVM 单测也永远不会加载那个 `.so`（它是 aarch64-android 的），
 > 直到真机点下按钮才炸 `UnsatisfiedLinkError`。这次正好同时改了两侧，因此新增
-> `JniSignatureTest`：把 83 对声明与实现**逐参数、逐类型**钉在一起
-> （`JString<'local>` ↔ `String`、`jint` ↔ `Int`、`jboolean` ↔ `Boolean` …）。
+> `JniSignatureTest`：把两侧的声明与实现**逐参数、逐类型**全量比对、**不写死数量**
+> （`external fun` 增删后测试自动跟上；`JString<'local>` ↔ `String`、`jint` ↔ `Int`、`jboolean` ↔ `Boolean` …）。
 
 ---
 

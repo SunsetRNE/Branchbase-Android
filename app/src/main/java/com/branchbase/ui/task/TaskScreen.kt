@@ -45,7 +45,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.navigation.PageLevel
 import com.branchbase.ui.navigation.PageSwitcher
 import com.branchbase.ui.theme.iconTap
@@ -57,7 +56,7 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 任务中心：本地持久化任务记录（对齐 design/task-prototype.html）。
+ * 任务中心：本地持久化任务记录。
  *
  * - 筛选（全部/运行中/已完成/失败）
  * - 单条删除、清理已完成、全部清除（二次确认，运行中任务保留于"清理已完成"）
@@ -98,9 +97,14 @@ fun TaskScreen(onBack: () -> Unit) {
     // （任务页是个人页的一级子页，外层会退回个人主页）。
     // 曾经这里没有 handler —— 详情页按系统返回会直接跳出整个任务页，
     // 与详情页左上角的返回箭头（回列表）不是同一条路径。
-    PageBackHandler(detail != null) { detail = null }
+    // 详情 → 列表这一层交给下面 PageSwitcher 的 `onBack` 兜底（一条规则，不再单独挂 handler）
 
-    PageSwitcher(state = route, modifier = Modifier.fillMaxSize(), label = "task-page") { r ->
+    PageSwitcher(
+        state = route,
+        onBack = { detail = null },
+        modifier = Modifier.fillMaxSize(),
+        label = "task-page",
+    ) { r ->
         when (r) {
             is TaskRoute.Detail -> {
                 val current = r.task

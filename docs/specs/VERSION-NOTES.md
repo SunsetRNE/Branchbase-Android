@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只留格式契约 + 写法样板（3 个经典示例）；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.64**）
-与 §三 `versionCode` 流水（129 → **166**）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.72**）
+与 §三 `versionCode` 流水（129 → **174**）。
 
 ---
 
@@ -16,7 +16,7 @@
 3. **最后改 `version.properties`**：只改 `versionName=` / `versionCode=` 两个值。
    那个文件**不再堆变更记录**（只留 3 个写法样板），记录一律进本文档。
 
-### 写法约定（从这 23 条里长出来的）
+### 写法约定（从 1.0.22–1.0.44 那批条目里长出来的）
 
 - 标题一句「改了什么」；正文写**为什么** —— 原先哪里不成立、代价是什么，以及这条结论的边界；
 - 一版里有多件事就分 ①②③，别混成一段；
@@ -25,7 +25,340 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.64 → 1.0.22）
+## 二、`versionName` 流水（1.0.72 → 1.0.22）
+
+### 1.0.72
+
+**文档重组收尾 + 三个「说了没做」的功能兑现 + 私有仓库凭据** —— 这一版没有新界面，改的都是
+「用户已经能点到、但点到之后不成立」的地方。
+
+① **文档先按代码纠偏，再谈重组**。逐份对照源码复核 `docs/specs/` 全部 17 份文档，改掉 **35 处**
+与代码不符的断言（`SettingsSpecTest` 18→24、`JniSignatureTest` 83→88、`frame-perf` 同一基线窗
+两套数字、`ui-design` 的「12% 胶囊」实际 18%、「`Gray900` 零调用」实际多处调用…），
+修掉 **11 处悬空引用**（3 份从未进过版本库的文档 + 8 个不存在的 `/design/*-prototype.html`）
+与 6 处幽灵代码路径。根 `README.md` 从 **417 行瘦到 110 行**（只留门面 / 下载与安装 / 快速上手 /
+一行制功能一览 / 技术栈与结构 / 构建 / 文档入口），迁出的正文进了三份新规格：
+`features-design.md`（用户可见行为）、`decision-pages-design.md`（14 页决策体系）、
+`local-git-engine-design.md`（libgit2 稳定接口与 `nff:` 归一）；`docs/README.md` 成为**唯一**文档索引
+（历史上「根 README 与 docs/README 各列一份」已经导致 `morph-design.md` 两边同时漏掉）。
+
+② **决策页/仓库页的「演示数据」全部换成真值**。PR 一条龙的第二步此前是空转（宿主传
+`changedFiles = emptyList()`，于是「建分支 → 开 PR」产生的是**与 base 同 sha、diff 为空**的假 PR）——
+现在第②步真的调 `commitFiles`（内容草稿优先、读不全整体不提交），空清单**拦住并给引导**；
+`PrMergeScreen` 从「零调用点」接进 PR 详情页（`open && !merged` 才露出，`mergeable` 三态分别处理）；
+「已合并」不再写死 `setOf("patch-1")`，改按需 `compareBranches`；「挽留 stats」与仓库统计取真值、
+取不到就不显示那一行；`DraftInfo.remoteChanged` 接上**已有的**草稿基准 sha（此前恒为 false，
+多端编辑提醒从来没亮过）；仓库设置的反馈冒泡到页面。文案层面把「点了必然失败」的两处改成**预先禁用 + 写明原因**
+（`has_parent` / `has_remote_ref` 由 `repo_status` 新增下发），「仅本次推送」这个与引擎行为不符的假选择删掉，
+「revert 失败（引擎不可用）」这类**编造归因**全部换成中性说法。
+
+③ **私有仓库认证失败有了完整出路**。GitHub 对无权限的私有仓库返回 **404**（与「不存在」同码），
+所以先补上唯一能区分的信号：`GET /user` 的 **`x-oauth-scopes`** 响应头（`ApiClient::oauth_scopes`，
+探测失败/拿不到一律收敛成 UNKNOWN，绝不误判成「没有权限」）。失败卡据此给出解释 + 三条出路
+（用访问令牌打开 / 建一个带 `repo` 的令牌 / 浏览器打开），并新增**仓库级凭据**：
+账号优先、账号打不开（404/403）才回退、**回退后读写都用它** —— 因此使用中页面顶部有身份横幅
+（写操作会以另一身份执行）+「改用账号」退路；凭据存在独立 prefs 文件并**排除云备份与设备迁移**，
+管理入口在 设置 → 仓库凭据，**只在令牌登录模式（PAT）下出现**（规范 `settings-design.md` §3.2.1）。
+
+④ **别人发来的日志包现在自带索引**。导出 zip 从「一份 `branchbase.log`」变成**两份文件**：
+`report.md`（版本 / 条数（含 ERROR/WARN）/ 时间范围 / 类别分布 / 设备档案摘要 / **锚点词典**）
++ 原始日志；索引的数字都从同一批日志现算，不可能与原始日志矛盾。配套给关键路径钉了**锚点**
+（`LOG_ANCHORS`：`PR一条龙` / `PR合并` / `敏感扫描` / `决策页` / `私有仓库` / `草稿`），
+没有真机走查时，「用户说某个操作不对」直接 grep 一个词就能看到整条链路。
+另外：提交前敏感扫描**不可用时改为拦下并说明**（此前把 null 折叠成「没命中」直接放行 ——
+等于警告在最需要它的时候正好不存在，而用户以为扫过了）。
+
+⑤ **钉子**：新增 `DecisionModelsTest`(8) / `SyncDecisionPrecheckTest`(15) / `CollabDecisionRulesTest`(19) /
+`PullDetailModelsTest`(9) / `RepoCredentialStoreTest`(11) / `LogAnchorsTest`(2) / `OAuthDeepLinkTest`(2) /
+`DownloadFileProviderAuthorityTest`(2) / `RepoAccessHintTest`(9)；两条此前**既无钉子也无文档**的契约
+（OAuth 深链、下载模块 FileProvider authority）补上了源码级钉子；Rust 侧 `repo_status` 补 3 个字段
+（`has_parent` / `head_sha` / `has_remote_ref`）与用例。顺带修掉一个**必然 flaky** 的断言：
+`MorphPairTest` 拿两次缓存命中的耗时互比（实测失败率 **34.9%**，因为台账是进程级单例、该用例
+在类里最后一个跑），改成对**新建 pair** 量真首次（1.34ms vs 0.29µs）。
+
+---
+
+### 1.0.71
+
+**日志页闪退（用户反馈「加载太多日志会闪退」）** —— `LazyColumn` 的 key 撞车，实锤在设备的 crash buffer 里。
+
+① **根因**：日志页两个档位（时间流 / 原始日志）的 item key 都是
+`it.time.toString() + it.message`，而**同一毫秒落两条同文案的日志是常态** ——
+缓存那几行成串地打，`L1 直出（含过期）repo-info:…` 一次进入仓库页就会打两遍、经常落在同一毫秒。
+`LazyColumn` 的 key 必须唯一，撞了就直接抛：
+
+```
+java.lang.IllegalArgumentException: Key "1790084432978L1 直出（含过期）repo-info:SunsetRNE/Branchbase-Android"
+  was already used. If you are using LazyColumn/Row please make sure you provide a unique key for each item.
+  at androidx.compose.ui.layout.LayoutNodeSubcompositionsState.subcompose(SubcomposeLayout.kt:1591)
+  at androidx.compose.foundation.lazy.layout.LazyLayoutMeasureScopeImpl.compose(LazyLayoutMeasureScope.kt:94)
+```
+
+崩溃发生在**滚到那一项、它被测量组合的那一刻**（外层栈是 fling / overscroll），不在进页面时 ——
+所以表现是「日志越攒越多，翻着翻着就闪退」。同一份 crash buffer 里 **09-22 21:45:20**
+还有一次一模一样的（那时是 1.0.64），这个 key 从 1.0.42（`1e69c93`，日志页惰性化那一版）就埋下了。
+
+② **修法**：`LogEntry` 加一个**进程内单调递增的序号** `seq`（`LogManager.log` 用 `AtomicLong` 发号），
+列表 key 改用它（`items(filtered, key = ::logItemKey)`，两个档位都换）。
+时间戳不再参与 key —— 它不唯一，用它就是把这个崩溃请回来。
+序号只服务列表身份，不进日志文件、不影响导出格式。
+
+③ **顺带把全仓的列表 key 过了一遍**：其余 20 处都是 id / sha / number / login / name 这类天然唯一值
+（`NotificationScreen` 用 `it.id`、`RepositoryListScreens` 用 `number`/`sha`、贡献者用 `login`…），
+没有第二处拿时间戳或文案拼 key 的。
+
+**钉子**：`LogListKeyTest` 3 条。第一条是**确定性**的对抗输入 —— 按字面造出「同毫秒 + 同文案、
+只有 seq 不同」的两条，钉住 key 必须不同（不依赖「两次取时间戳恰好同毫秒」，那会偶发红）；
+另两条钉「序号单调递增、列表最新在前也能当 key」与「key 就是序号本身」。
+**把 key 换回旧写法跑一遍，这两条确实变红**（改动前后都验过）。
+app+translate 671 条全绿。versionCode 172 → 173（一次提交 +1）。
+
+### 1.0.70
+
+**系统返回键的消费改成「默认」** —— 不再靠每页自己记得挂 handler，改由切换器兜底 + 编译器把关。
+
+① **原来的失败模式是静默的**：每个子页要在自己的路由分支里挂一句
+`PageBackHandler { xxx = null }`，漏挂的后果是「按返回**跳掉一层**」——
+不崩、不红、只有真机连按才试得出来。仓库页的**网页会话登录页**就这么漏了一版：
+在那一页按系统返回会直接退出整个仓库页（上一轮做系统栏审计时才顺手发现）。
+
+② **兜底收进 `PageSwitcher`**：新增**必填**参数 `onBack`（「这一格的默认返回」），
+切换器给每一格自动注册一次 `PageBackHandler`。注册位置在 `content(target)` **之前** ⇒
+页面自己（或更深一层，例如文件页的编辑态、Issue 评论编辑态）注册的处理器后注册、优先命中；
+退场中的旧页照旧由 `LocalPageActive` 自动放手。
+**必填**是关键：新写的切换器没法「不表态」（编译器直接报错），
+把 `onBack: (() -> Unit)? = null` 加回去就等于让静默缺陷复活 —— 有钉子盯着这一点。
+
+③ **宿主那边只需要一条穷尽 `when`**（`leavePage()`）。`RepoRoute` / `MainRoute` 都是 sealed，
+**新增路由时编译器会强制先在这里表态**，而不是像旧写法那样漏一个分支就跳层。
+仓库页因此从 **15 个分支各挂一句** 收成 1 个函数（顺带把漏掉的 `WebLogin` 补上）；
+主界面同理，并且把「顶层 → 再按一次退出」和「子页 → 退一层」彻底分成两层各管一段。
+个人页（`profileBackTarget`）与任务页本来就用的这条模式，这次一并收进切换器。
+
+④ **登录流程是例外，而且是非显然的例外**：`LoggedIn` 的 `depth` 是 3（位移动画靠它），
+但它**不是子页** —— 拿默认判据（`depth > 0`）会让登录流程吃掉主界面的返回键，
+「再按一次退出」直接失灵。所以切换器还开放 `isSubPage` 谓词，登录流程显式写成
+`{ it !is Idle && it !is LoggedIn }`，同时**删掉了那个裸 `BackHandler`**
+（`BackConsumptionTest` 的「不许裸用 BackHandler」白名单里也少了一个文件）。
+
+**钉子**：`BackConsumptionTest` 从 2 条加到 4 条 —— 新增「`onBack` 必须是无默认值的必填参数」
+（有人加回 `= null` 就红）与「宿主的退一层必须是穷尽 `when` 且显式处理顶层」；
+原「有内部层级的页面必须消费返回键」放宽为两种合格写法（自己挂 handler **或** `onBack =`）。
+app+translate 668 条全绿。versionCode 171 → 172（一次提交 +1）。
+
+### 1.0.69
+
+**系统栏内边距（edge-to-edge 的「消费」）审计** —— 全仓 30 个全屏根逐个过了一遍，补上漏的那个，并把规则钉住。
+
+① **应用从 Android 15 起就是 edge-to-edge 强制**：窗口铺满整屏，状态栏与系统虚拟导航栏
+（手势条 / 三键）都浮在内容之上。谁不消费内边距**不会报错、不会崩、测试也不会红** ——
+只是「返回箭头压在状态栏底下」「列表最后一行滚不出手势条」，只有真机看得见。
+仓库树那条路由最容易漏：`NavigationShell(barVisible = route is RepoRoute.Tab)` 在进详情页时
+把底部导航栏**整个收起**，于是子页必须自己兜底底部内边距。
+
+② **审计结果：只有一个页面真的漏了** —— `JobLogScreen`（工作流作业日志，仓库树里最深的一页）。
+它是唯一一个没走 `DetailScaffold` 的详情页（顶栏带搜索框与步骤选择，自己用 `DetailTopBar` 搭根），
+而 `DetailTopBar` 自己不取任何内边距 ⇒ 顶栏压状态栏、日志列表压手势条。已补
+`statusBarsPadding().navigationBarsPadding()`。
+其余 29 个全屏根都合格：要么自己取（`SubPageScreens` / `AccountsScreen` / `LogScreen` /
+`SearchScreen` / `TaskScreen` / 登录页 …），要么走已经取过的壳
+（`DetailScaffold` 26 处、`FullScreen`（工作流）、`DecisionScreenShell`（决策页））；
+主骨架的两个 Tab（首页 / 消息）由 `MainScreen` 取「非底部」系统栏 + M3 `NavigationBar` 取底部，
+两处不叠层。顺带清掉 `RepositoryOverviewScreen` 里**两个从没用过的** insets import
+（当初想加没加，留着只会误导下一个人：那一页跑在 Tab 骨架里，本来就不该自己取）。
+
+③ **把规则钉在源码上**（`SystemBarInsetsTest` 3 条）：每个全屏页的根要么自己消费、
+要么用上面那几个壳；壳本身必须**真的**取了内边距（否则「用壳」就是空头承诺）；
+仓库树那条「收起底栏时子页自己兜底」的约定单独一条，连同 `RepoBottomBar` 自己取内边距一起锁住。
+清单是**显式**的（不是扫全目录）—— 「哪些是全屏页」只有人知道，而漏登记的后果正是这条钉子要防的。
+`docs/specs/NAVIGATION-NOTES.md` §五的自检清单同步加了一条。
+
+**钉子**：`SystemBarInsetsTest` 3 条。app+translate 666 条全绿。versionCode 170 → 171（一次提交 +1）。
+
+### 1.0.68
+
+**「已经渲染过的仓库，再进去会闪」** —— 数据全命中，闪的是**首帧**。
+
+① **仓库页首帧快照**（`RepoOverviewMemory`）。日志里那次重进的缓存全命中，可页面还是从零组合：
+```
+23:39:12.515 进入仓库详情页 SunsetRNE/Branchbase-Android
+23:39:12.516 L1 直出 ×8 / L1 命中 ×4        ← 一个字节都不用等
+23:39:12.540 WebView 首次创建 10ms（主线程）  ← 但整页是重新组合出来的
+```
+`readmeHtml` / `languages` / `contributors` / `repoInfo` 的初始值都是空的，要等一次挂起的缓存读
+才填上 ⇒ 每次都重放「正在加载自述文件… → 内容」、骨架 → 内容、README 从 **1dp 撑到几万 dp**。
+新增的进程内快照（按 `owner/repo`，LRU 3 条）存**解析后的对象**，重进时每个状态的初始值都从它来，
+`ReadmeViewHolder` 的初始高度也取它（上一次测到的高度），测量结果再写回去 —— 于是首帧就是
+「同一份内容、同一个高度」，**不闪也不跳**。快照只服务首帧：命中与失效仍完全由 `SearchCacheManager`
+的 TTL 决定，它不改变任何取数逻辑。
+
+② **参与者列表的头像改走统一 `Avatar`**（原来是 Coil 的 `AsyncImage`）。`Avatar` 首帧**同步**画
+进程内已解码的位图（24 条 LRU），`AsyncImage` 则每次重建都要重放一遍「蓝底 → 真图」——
+贡献者一屏十来个，那串 pop-in 就是「参与者列表渲染有点慢」的观感来源。同一条路 1.0.62 已经在
+账户头像上走过（`core/AvatarMemory`），顺带还吃到落盘的 200 文件上限。
+
+③ **启动标记改成进程级闸门**（`Logger.startupOnce`）。这件事连着两版都没做对：
+1.0.65 无条件打 ⇒ 切回首页就重跑，+20s/+22s/+27s 各一次；1.0.67 门控在 `resumeTick == 1`，
+可真机日志里 **+116s 又打了一次** —— `resumeTick` 是 `remember` 出来的，**页面一被重建就从 1 重来**。
+两次后果一样：之后几帧的慢帧注脚全变成「启动 ▸ …」，`frame-baseline.py` 的 `^启动` 桶把它们
+算成启动帧（报表看着正常、桶是错的）。进程级的「打过没有」是唯一不受页面生命周期影响的判据。
+
+④ **上一版那行猜测被证实了**：`WebView 首次创建 125ms（主线程）`（该进程内第一次进仓库页），
+之后的创建是 10~24ms —— 进程级的那 ~100ms 就是 Chromium 初始化。它落在
+「进入仓库详情页」那一帧上（1.0.65 日志里对应 `慢帧 272.8ms / 等待 254.2*`）。
+**这一版没动它**：预热要在主线程空闲时提前建一个一次性 WebView，属于新的取舍，留到下一轮
+（现在至少有数字了）。同一份日志里设置页（绘制 61.3 / 48.1ms）与日志页（143.5ms，动画 63.7 +
+绘制 68.1）仍是帧率最低的两处，靶子已记在 `docs/specs/frame-perf-design.md` §5.2。
+
+**钉子**：`RepoOverviewMemoryTest` 5 条（分块落地 / 同名仓库不同 owner 不串 / 后到的块覆盖不丢已有块 /
+超上限淘汰最久未用 / 容量必须是个位数）+ `StartupMarksTest` 2 条（同 key 只放行一次、不同 key 互不连坐）；
+`StartupMarkerTest` 那条改成钉「必须走进程级闸门」并禁止退回 `resumeTick == 1`。app+translate 663 条全绿。
+versionCode 169 → 170（一次提交 +1）。
+
+### 1.0.67
+
+**1.0.65 的失败留痕，上线一小时就答了一个拖了三版的问题** —— 外加修掉 1.0.65 自己引入的一处假标记。
+
+① **`/user/events` 是 404，这个端点根本不存在**。1.0.65 把 `?: break` 的静默失败改成记原始响应之后，
+第二次会话立刻打出：
+
+```
+23:21:43.053 事件源 /user/events 第 1 页失败：ERROR:未知错误: HTTP 404 Not Found: {"message":"Not Found",…}
+```
+
+GitHub 的活动端点里，所谓「List events for the authenticated user」就是
+`GET /users/{username}/events`（[认证成该用户时返回里才含私有活动](https://docs.github.com/en/rest/activity/events)），
+**没有 `/user/events`**。旧实现是「先试 `/user/events`，空了再回退到 `/users/{login}/events`」——
+那条腿不但注定失败（每次进动态页先白等一次往返），回退方向在「看别人的主页」时还写反了
+（会去取**你自己**的活动显示在别人的动态里）。现在只留 `/users/{login}/events` 一条腿，
+`EventSourceMemory`（网络抖动时 5 分钟内不重复踩）保留。这也解释了 1.0.58 那条
+「`/user/events:1` 连续三次未命中」的旧日志：不是权限、不是代理，是端点不存在。
+
+② **修掉 1.0.65 自己引入的假标记**。`HomeScreen` 的「启动 ▸ 首页首帧取数」打在了
+`LaunchedEffect(resumeTick)` 里，而 `resumeTick` 每次「切回首页」都会 +1（初值就是 1）——
+于是它变成一条常驻标记：第二次会话 28 条慢帧里有 **7 条**挂着它（+20s / +22s / +27s 的切 Tab），
+而 `frame-baseline.py` 新增的 `^启动` 桶会把这些帧算成启动帧：**报表看着正常，桶是错的**。
+现在门控在 `resumeTick == 1`（首次组合）。启动阶段的标记只该属于启动。
+
+③ **给「WebView 首次创建」加一行可归因的计时**（本地类目，不进慢帧注脚池）。
+同一份日志里，进程内第一次进仓库页出现 `慢帧 272.8ms（等待 254.2*）` —— 是本次会话里
+最大的非启动帧，怀疑是首次创建 WebView（把 Chromium 拉起来，必须主线程），
+但日志里没有任何一行能证实。这行不是修性能，是**让下一次日志能回答它**。
+
+**钉子**：`EventFetchFailureTest` +1（源码级：ProfileScreen 里不许再出现 `/user/events`，
+唯一的源必须是 `/users/{login}/events`）、`StartupMarkerTest` +1（首页阶段标记必须门控在
+`resumeTick == 1`）。app+translate 656 条全绿。versionCode 168 → 169（一次提交 +1）。
+
+### 1.0.66
+
+**仓库页「很容易重建和重新渲染」** —— 一次进入，整段加载跑三遍；关系态还要空等一次往返。
+
+① **根因：加载 effect 的键里带了分支**。1.0.62 为了让 README 在真实默认分支到手后重取一次，
+把 `repoInfo?.defaultBranch` 塞进了 `RepositoryOverviewContent` 那个 effect 的键 —— 于是
+**整段加载**（仓库信息 / 语言 / 贡献者 / README）都跟着分支重跑。进一次仓库页，外部
+`sharedInfo` 与缓存直出会先后把分支补上，实测 effect 一共跑 **3 遍**（真机日志 22:52:52.538 /
+52.629 / 53.019，形状是同一批 `直出 repo-info ×2 / @main / repo-lang / repo-contrib` 连着三轮）。
+每遍都做两件坏事：(a) 无条件把语言 / 贡献者重新打回加载态 ⇒ **骨架闪 3 次**；
+(b) 换一个 `coroutineScope` ⇒ 上一遍的在途请求被取消，同一份数据**发 3 次、只落最后一份**。
+改法是把 README 拆成独立的 effect（它是唯一真正依赖分支的一块，键跟着
+`val readmeBranch = branch ?: repoInfo?.defaultBranch` 走，分支未知时直接返回、绝不猜），
+与分支无关的那一段只跟 `(owner, repo, refreshTick)` 走；并且**重新打加载态前先看手上有没有数据**
+（手动刷新除外）—— 这条是本轮骨架闪烁的直接来源，同一条约定 `ProfileScreen` 早就写了。
+
+② **关系态（星标双向态 / Watch 档位）先直出再复核**。判定要走「网页会话 → GraphQL」两条腿，
+冷的一次实测 ~800ms（`22:52:52.519 进入仓库页` → `22:52:53.320 判定`），这段时间按钮是空的 ——
+用户看到的就是「先渲染一遍、结论到了再重画一遍」。新增 `RepoActions.cachedRelation`
+（只读含过期），进页面当帧把旧值画上，紧接着回源复核覆盖；复核失败保留旧值而不是清空。
+TTL 只有 5 分钟且第一版就有「过期会把已星标显示成未星标」的顾虑，所以这个取舍写在函数注释里：
+旧值只在**一次往返**的时间窗内可见（1.0.65 起过期行不会被清扫删掉，这条直出才成立）。
+
+**钉子**：新增 `RepoOverviewLoadTest` 4 条（源码级）—— 与分支无关的加载不许带分支键、
+README 必须是独立 effect 且分支未知时直接返回、重新打加载态前必须判「手上有没有数据」、
+关系态必须「先直出、后复核」且复核失败不清空。app+translate 654 条全绿。
+versionCode 167 → 168（一次提交 +1）。
+
+### 1.0.65
+
+**一份真机日志（907 行 / 14 次启动 / 243 条慢帧明细）读出来的五件事**：两处「修了但没生效」，
+一处机制互相抵消，一处列表回收导致的重建 + 跳顶，以及启动段第一次变得可归因。
+
+① **事件源的失败留痕是死代码** —— 1.0.58 想修的「失败源不留痕」从来没生效过。
+`fetchEventPages` 写的是 `PageCache.refresh(...) ?: break`，紧接着一个
+`if (pageJson.startsWith("ERROR:")) Logger.net("事件源 … 失败")`。而 `PageCache.refresh`
+按契约把错误响应**吞成 `null`**（`PageCache.kt` 的 `takeIf { !it.startsWith("ERROR:") }`），
+所以第二行永远到不了：失败全程静默，调用方只看到「空」，然后照样 `markDead` 5 分钟。
+真机证据是数量对不上 —— 3 次 `跳过刚失败过的事件源 /user/events`、**0 次** `事件源 … 第 N 页失败`。
+于是「`/user/events` 为什么总是不走」在日志里一个字都没有：是 401（令牌类型不支持）、
+404（端点没有）、还是断网？三种原因的处置完全不同。
+现在把原始响应截下来，`null` 时补一行，且三种失败**必须分得开**（无响应 / 空响应 / `ERROR:` 原文）；
+`markDead` 的判据也从「`isEmpty()`」改成「**一条都没拿到 + 抓取失败**」——
+源是好的、只是这段时间没数据，不该被拉黑；回退源同样按这个判据记账。
+
+② **个人主页的仓库列表永远暖不起来** —— 回源跟着页面一起被取消。
+`loadRepos` 挂在 `LaunchedEffect` 上，「进主页 → 一眼就点进某个仓库」会在结果回来之前离开，
+协程取消 ⇒ **既不写缓存也不打日志**（连 `GET /user/repos → …` 那行都没有）。
+真机证据：6 次 `未命中 profile:…:repos` 里有 2 次**之后 30 行内没有任何结果行**，且两次都紧跟
+「进入仓库详情页」。新增 `PageCache.refreshDetached`：整段跑在 `NonCancellable` 里 ——
+对**渲染**而言取消是对的（结果没用了），对**缓存**而言是反的（用户离开不代表这份数据不要了）。
+
+③ **清扫把「先直出再回源」删没了** —— 两条机制互相抵消。
+`getStale`（stale-while-revalidate 的直出）服务的正是 `expireAt <= now` 那批行，
+而 `sweepIfDue → deleteExpired(now)` 删的就是它们。于是「直出」只在**上一次清扫之后的 5 分钟内**
+成立：隔一会儿再进页面，日志是 `无缓存可直出`（5 次）而不是 `L2 直出（含过期）`，
+明明上一场会话写过。现在清扫只删「过期超过 `STALE_GRACE_MS`（24h）」的行 ——
+过期不等于没用，过期太久才是；容量另有 `MAX_ENTRIES`（160）的 LRU 兜着。
+`sweepIfDue` 拆出可直调的 `sweepNow`（节流是 `shouldSweep` 的事），口径因此测得动。
+
+④ **自述文件：滚到底再往回滚会重建、并跳回整篇描述的最顶部**（用户反馈）。
+自述文件是 LazyColumn 里**一项 4~6 万 dp 高的 item**（本仓库自己那份实测 45k~58k px），
+滚到页面底部时这一项整体离开视口被回收，而旧的 `DisposableEffect` 会 `webView.destroy()` ——
+`remember` 出来的 WebView 与**测量高度**（1dp 起步）一起没了。往回滚时重新组合：
+(a) 新 WebView + 重新 `wrapHtml` + `loadDataWithBaseURL`（沉浸式翻译也跟着从头来）；
+(b) 在高度测量回来之前这一项只有 **1dp**，4 万多 dp 塌成 1dp ⇒ 外层列表锚点全部错位 ⇒ 跳顶。
+新增 `ReadmeViewHolder`（页面级持有者）：`AndroidView` 的 `onRelease` 只把 WebView **摘下来不销毁**，
+挂回去还是同一个实例、同一份文档（`readmeDocKey` 指纹）、同一个高度；每次进入组合重新登记
+JS 桥（复用时上面挂的是上一轮的桥，闭包指向已回收的组合 ⇒ 点图没反应）。
+只保留一份、不做多份 LRU（一个 WebView 是几 MB 到几十 MB）；发布说明等短正文页不传持有者，
+行为与原来一致。
+
+⑤ **启动段第一次可归因** —— 顺带修掉「打点落在落盘边界之外」。
+真机 14/14 次启动各 1 条启动慢帧（115~266ms，其中**等待段 82~190ms**），
+而注脚 14/14 都是「git TLS 证书初始化完成」—— 那只是启动过程中打的一条日志，
+后面 1.2~2.9 秒的帧全被归到它头上。两处原因：
+- **`LogManager.init` 之前打的日志永远进不了文件**：`appender` 还是 null，导出走「文件优先」。
+  铁证：`NetworkWatch.install` 每次启动都打一行基线，整份日志里 `[Reach]` 只出现过 1 次；
+  `FileAppender` 构造函数里那句「清理历史日志」同样打在自己被赋值之前。
+  现在 `init` 提到 `BranchbaseApp.onCreate`，并在赋值后**把环形缓冲补写一遍**（倒序 = 时间序）；
+- 启动路径补 6 个阶段标记（`启动 ▸ 日志初始化 / 应用装配 / 首选项首载 / JNI 与证书 / 首次组合 /
+  首页取数`）+ `FrameWatch` 的收尾标记 `启动 ■ 首帧已上屏`（注脚是「最近一条 UI 类日志」，
+  没有收尾标记它会**一直粘到交互段**）。`frame-baseline.py` 同步加 `^启动` 桶并排在最前 ——
+  此前启动那一帧落在「其它」里，而它恰恰是全场景最慢的一帧。
+  标记文案刻意避开 `进入/打开/切换到「` 等既有场景前缀，否则会被算进别的桶、数字看着正常却是错的。
+
+**这一版没做的（已定位，等出包 A/B）**：
+- 设置页首帧绘制量的**结构性**解法。归因已经做完：22 条慢帧、绘制累计 893ms，其中 16 条首帧占
+  734.6ms（单帧 22~82ms，均值 45.9ms/次；同期等待段只有 33ms）；`PageSwitcher` 是
+  `AnimatedContent` 且**不保活**，所以每次进入都是「从零组合 + 从零录显示列表」——
+  这是 v1.0.53→v1.0.64 这个数字不动的结构性原因，改过渡形式当然没用。
+  本版只做了两处**行为不变**的减法：禁用行的半透明乘进颜色（去掉 `Modifier.alpha` 那一层
+  RenderNode）、状态胶囊的圆角交给 `background(color, shape)`（不用 `clip`）；
+  以及把 `commitMode` / `gitProxy` 两处**组合期读 prefs** 收进 `remember`。
+  真正的三条靶子（`SubPage.Settings` 保活 / 首屏行数瘦身 / 图标与 R8）见
+  `docs/specs/frame-perf-design.md` §5。
+- 启动段「等待」的**性能**修复（本版只让它可归因）。已经在代码里定位到顺序与证据：
+  主线程串行链 = 首选项首载（`branchbase.xml` 实测 32.6KB）→ `System.loadLibrary`（11MB .so）
+  ＋ 190KB CA 读写（且与后台 `AccountChecks` 线程**抢同一把类初始化锁**）→
+  首次组合里的 `persistAccount`（`Dispatchers.Main.immediate`，与等待段 r=0.957）。
+  候选处置按性价比排在同一份文档里。
+
+**钉子**：新增 4 个测试类共 15 条 —— `EventFetchFailureTest`（4：三种失败分得开、`ERROR:` 原文
+不许吞、超长截断）、`ReadmeDocKeyTest`（7：换分支/换仓库/换正文/换基准目录/换令牌都必须
+**不相等** —— 这个键漏维度不是命中率低，是把另一篇文档当成这一篇）、
+`StartupMarkerTest`（4：六个阶段标记都在、收尾标记的 tag 不是「帧」、不许撞上其它场景桶、
+脚本里 `^启动` 桶必须排在最前）、以及 `SettingsSpecTest` 补 3 条（禁用行不许 `Modifier.alpha`、
+胶囊圆角不许 `clip`、组合期读盘必须进 `remember`）；`SearchCacheManagerTest` 补 2 条
+（清扫不许删「刚过期」的行、宽限期至少小时级）、`PageCacheTest` 补 2 条成对用例
+（`refreshDetached` 取消后仍落盘 / 普通 `refresh` 取消后什么都不写）。
 
 ### 1.0.64
 
@@ -870,11 +1203,31 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（166 → 129）
+## 三、`versionCode` 流水（174 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **174**：文档按代码纠偏（35 处断言 / 11 处悬空引用 / 6 处幽灵路径）+ 根 README 瘦身 417→110 行、
+迁出三份新规格；决策页与仓库页的演示数据换真值（PR 一条龙真提交、合并入口接线、预检与文案诚实化、
+敏感扫描不可用改为拦下）；私有仓库 scope 探测 + 失败卡三出路 + 仓库级凭据（独立 prefs、排除备份、
+设置页仅 PAT 模式）；日志导出包补 `report.md` 索引与锚点词典；新增 9 个测试类、修掉一个 34.9% 失败率的
+flaky 断言（一次提交，故 +1）
+
+- **173**：修日志页闪退 —— LazyColumn 的 key 用了 `时间戳 + 文案`（同毫秒同文案即撞车 ⇒ `IllegalArgumentException: Key … was already used`，自 1.0.42 起），改用 `LogEntry.seq`（进程内单调递增）（一次提交，故 +1）
+
+- **172**：系统返回键的消费改成「默认」—— `PageSwitcher(onBack = …)` 必填 + 每格自动注册兜底，宿主一条穷尽 `when`（仓库页 15 个分支收成 1 个函数，顺带补上漏登记的网页登录页）（一次提交，故 +1）
+
+- **171**：系统栏内边距审计 —— 补上 `JobLogScreen`（唯一漏掉的全屏页）+ 清掉两处误导性的 unused import + `SystemBarInsetsTest` 把「全屏页必须消费系统栏」钉成规则（一次提交，故 +1）
+
+- **170**：修「重进已渲染过的仓库页会闪」—— 首帧快照 `RepoOverviewMemory`（数据本来就全命中，缺的是首帧有没有内容）+ 参与者头像走统一 `Avatar`（首帧同步直出，不再「蓝底→真图」）+ 启动标记改成进程级闸门（`resumeTick == 1` 拦不住页面重建）（一次提交，故 +1）
+
+- **169**：`/user/events` 是 404（端点不存在）⇒ 事件源只留 `/users/{login}/events` 一条腿 + 修 1.0.65 自己引入的假启动标记（首页标记门控在 `resumeTick == 1`）+ WebView 首次创建计时可归因（一次提交，故 +1）
+
+- **168**：修仓库页「一次进入跑三遍」（加载 effect 的键带了分支 ⇒ 数据发 3 次、骨架闪 3 次）+ 关系态先直出再复核（判定冷启 ~800ms 期间按钮不再空着）（一次提交，故 +1）
+
+- **167**：修「失败留痕是死代码」（refresh 吞 ERROR → `?: break` 静默）+ 个人主页取数随页面取消（`refreshDetached`）+ 清扫不再删「刚过期」的行（`STALE_GRACE_MS`）+ 自述文件活过 LazyColumn 回收（`ReadmeViewHolder`）+ 启动段可归因（`LogManager` 落盘边界 + 7 个阶段标记 + 脚本 `^启动` 桶）（一次提交，故 +1）
 
 - **166**：修「正在跑的工作流被判失败」（org.json 的 "null" 伪值：解析归一 + 判定改白名单 + 多状态显示）（一次提交，故 +1）
 

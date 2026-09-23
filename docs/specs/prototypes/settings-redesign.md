@@ -1,6 +1,16 @@
 <!-- 入库副本：正文与 design/settings-redesign/README.md 一致，未做删改，仅加本段头 + 一处路径重写（见下）。 -->
+> **来源**：`design/settings-redesign/README.md`（原型本体 `index.html` / `style.css` / `app.js` / `smoke.js` / `theme-audit.js` 在 `/design/settings-redesign/` 下，按仓库约定**不入库**；DSH 侧边栏「原型预览」面板可直接打开）
+> **为什么只把文档抽进来**：原型 HTML 是一次性草图，跟具体实现绑死、很快过期；
+> 而这份文档里的**现状测绘、行型对照、对比度审计与落地清单**是跨时间有效的设计结论，代码注释会引用它。
+> **维护**：原型再改时请把这份副本一并更新，别让两边分叉；文中提到的文件名相对原始目录。
+> **路径重写**：正文里指向规范正本的仓库根相对链接已按副本位置改写
+> （`../../docs/specs/settings-design.md` → [`docs/specs/settings-design.md`](../settings-design.md)），仅此一处与原始草稿不同。
 
 # 设置页重设计原型 · 说明与落实方案
+
+> **快照说明（2026-09 补）**：本文是**设计当时的记录** —— 文中的「现状测绘」、「`文件:行号`」、
+> 「依据：`xxx.kt`（N 行）」都不会随代码演进更新（只有少数几处加了「2026-09 追记」）。
+> 判断当前行为请以代码与 `docs/specs/` 下的规格为准；落地清单里未落地的项只表示「当时计划过」。
 
 > 目录：`design/settings-redesign/`（`/design/` 在 `.gitignore` 里：原型草图不入库）
 > 本文档的**入库副本**：`docs/specs/prototypes/settings-redesign.md`（改完这里请同步那份）
@@ -278,7 +288,8 @@ node theme-audit.js design/settings-redesign
 原型里 `notify.enabled` 是一个漂亮的三行 mock，落地时才发现 App 根本没有这个布尔值。
 **画原型时把「这个值到底存不存在」标出来**，比把行型画准更省事。
 
-落地后的验收：`SettingsSpecTest` 18 条 + `GitProxyTest` 10 条 + 全量单测绿；
+落地后的验收：`SettingsSpecTest` 18 条 + `GitProxyTest` 10 条 + 全量单测绿
+（设计当时数字；2026-09 追记：`SettingsSpecTest` 现为 **24 条**，`GitProxyTest` 仍 10 条）；
 新增 `Primer.BorderControl` 角色（审计逼出来的，见 §5.2）。
 
 ---

@@ -1,13 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older that API 31
-   See https://developer.android.com/about/versions/12/backup-restore
+  API ≤ 30 的自动备份规则。
+
+  **仓库级凭据（repo_credentials.xml）必须排除**：里面是用户为某个私有仓库单独配的令牌，
+  与账号会话同级敏感 —— 不该跟着云备份 / 设备迁移走。
+  （账号会话本身仍在 SharedPreferences 的 branchbase.xml 里，那份的落盘口径是另一件事，见
+   docs/specs/ 与 review/08-BCD可行性核实.md。）
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <exclude domain="sharedpref" path="repo_credentials.xml" />
 </full-backup-content>

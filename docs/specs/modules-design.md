@@ -37,7 +37,7 @@ Branchbase 把「自成一体、可整体换掉」的能力都收进独立模块
 | 菜单 → 快捷设置 | **本页翻译开关（悬浮球的存在与否由它决定）**、显示方式（对照 / 仅译文）、译文样式（卡片 / 下划线 / 淡灰）、目标语言（中 / 英）、自动翻译正文、本地缓存、保护代码与链接 |
 | 菜单 → 操作 | 重试（失败时出现）、翻译当前视口、翻译全文、清空本页译文、重置悬浮球位置 |
 
-**界面为什么在原生层**（`app/ui/translate/TranslateBubble.kt`）：正文 WebView 的高度等于整篇内容高度
+**界面为什么在原生层**（`app/src/main/java/com/branchbase/ui/translate/TranslateBubble.kt`）：正文 WebView 的高度等于整篇内容高度
 （滚动由外层原生列表负责），页面里的 `position: fixed` 钉的是**整篇文章**的右下角，绝对定位又会被
 WebView 的边界裁掉 —— 结果是「正文比屏幕短时，面板永远长不过正文，只能一直往下滑」。
 搬到原生 Compose 层后，位置锚定**窗口**、面板高度由窗口决定，正文长短与滚动都不再影响它；
@@ -74,7 +74,7 @@ WebView 的边界裁掉 —— 结果是「正文比屏幕短时，面板永远�
 ### 模块划分（`:translate`）
 
 依赖方向单向：`:app → :translate`，模块内不引用任何 App 类型；翻译**后端由 App 注入**
-（`RustTranslateEngine` → `core/src/translate.rs`，默认 MyMemory 匿名接口）。
+（`RustTranslateEngine` → `core/src/translate/`，默认 MyMemory 匿名接口）。
 
 | 文件 | 职责 |
 |------|------|

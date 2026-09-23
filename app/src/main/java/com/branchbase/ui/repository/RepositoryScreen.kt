@@ -50,6 +50,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,6 +67,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import org.json.JSONObject
 import androidx.compose.ui.unit.sp
 import com.branchbase.ui.theme.selectionColor
 import com.branchbase.cache.PreloadStore
@@ -74,7 +76,10 @@ import com.branchbase.cache.RepoPrefetcher
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.GithubWebSession
+import com.branchbase.core.RepoCredentialStore
 import com.branchbase.core.RustBridge
+import com.branchbase.ui.auth.keyTokenCreateUrl
+import com.branchbase.ui.decision.PatInputScreen
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.navigation.NavigationShell
 import com.branchbase.ui.navigation.PageBackHandler
@@ -127,6 +132,7 @@ fun RepositoryScreen(
     onOpenRepo: (owner: String, repo: String) -> Unit,
     initial: RepoDeepLink? = null,
 ) {
+
     val loggedRepo = remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         if (!loggedRepo.value) {
@@ -185,11 +191,37 @@ fun RepositoryScreen(
     var showCommitMode by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+
+    // ── 仓库凭据（D）：账号优先，账号打不开这个仓库时才回退 ──────────────────
+    // 规则（产品口径）：① 账号能访问就一律用账号；② 回退后**读与写都用**这条令牌 ——
+    // 因此这个仓库里的动作身份可能与当前账号不同，页面上必须有可见提示（横幅见下）；
+    // ③ 凭据的增删在「设置 → 仓库凭据」（只在令牌登录模式显示）。
+    val accountHost = remember(sessionJson) { sessionInfo(sessionJson).first }
+    var credentialTick by remember { mutableStateOf(0) }
+    val repoCredential = remember(owner, repo, accountHost, credentialTick) {
+        RepoCredentialStore.find(context, accountHost, owner, repo)
+    }
+    /** 账号被拒后是否已回退到仓库凭据。 */
+    var credentialFallback by remember(owner, repo) { mutableStateOf(false) }
+    /** 用户显式点了「改用账号」：本次不再自动回退（否则会来回打架）。 */
+    var accountOnly by remember(owner, repo) { mutableStateOf(false) }
+    /** 「用访问令牌打开」本次会话的覆盖（不落盘；勾了「记住」才会进仓库凭据）。 */
+    var tokenOverride by remember { mutableStateOf<String?>(null) }
+    var overrideLogin by remember { mutableStateOf<String?>(null) }
+    var showPatInput by remember { mutableStateOf(false) }
+    /** 本次会话真正生效的令牌：手动输入 > 仓库凭据回退 >（null = 用账号）。 */
+    val activeToken = tokenOverride ?: repoCredential?.takeIf { credentialFallback }?.token
+    val activeCredentialLogin = overrideLogin ?: repoCredential?.takeIf { credentialFallback }?.login
+    /** 传给子页面的会话：有覆盖就用覆盖令牌重建的那份（子页面零改动）。 */
+    val session = remember(sessionJson, activeToken) {
+        activeToken?.let { sessionWithToken(sessionJson, it) } ?: sessionJson
+    }
     // 本地 git 相关动作（分支同步页）需要 token
-    val sessionToken = remember(sessionJson) { sessionInfo(sessionJson).second }
+    val sessionToken = remember(session) { sessionInfo(session).second }
     // 作业日志：在仓库页这一层建**一个**，Run 详情与 Job 详情共用 ——
     // 两个页面切来切去不会重复下载、也不会重复切段（取数逻辑在 :joblogs 模块）
-    val jobLogStore = rememberJobLogStore(sessionJson, owner, repo)
+    val jobLogStore = rememberJobLogStore(session, owner, repo)
     // 当前提交模式：**它同时是「Git 悬浮球是否出现」的判据**（只有本地仓库模式才显示），
     // 所以必须是随切换更新的状态；只存 label 字符串就没法参与这个判断了。
     var mode by remember { mutableStateOf<CommitMode?>(commitMode(context)) }
@@ -204,7 +236,7 @@ fun RepositoryScreen(
      * 分支列表先直出缓存（含过期）再回源，最后触发项目页/其他 tab 的预加载。
      */
     LaunchedEffect(owner, repo) {
-        val (h, t, _) = sessionInfo(sessionJson)
+        val (h, t, _) = sessionInfo(session)
         val cacheManager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
         val branchKey = PreloadStore.branchKey(owner, repo)
         val branchType = PreloadStore.TYPE_BRANCH
@@ -267,8 +299,8 @@ fun RepositoryScreen(
     //
     // 判定规则全部收在 [RepoRelationRules]（纯函数），这里只做「取数 → 落地状态 → 反馈」。
     // token 复用上面已解好的 sessionToken（本地 git 动作也要它）
-    val sessionHost = remember(sessionJson) { sessionInfo(sessionJson).first }
-    val sessionLogin = remember(sessionJson) { sessionInfo(sessionJson).third }
+    val sessionHost = remember(session) { sessionInfo(session).first }
+    val sessionLogin = remember(session) { sessionInfo(session).third }
     fun toast(text: String) = Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
 
     /**
@@ -278,7 +310,13 @@ fun RepositoryScreen(
      * 与 Custom 的当前勾选（两样都是 API 拿不到的，见 [RepoActions.loadRelation]）。
      */
     LaunchedEffect(owner, repo, webSessionTick) {
-        relation = RepoActions.loadRelation(context, sessionHost, sessionToken, owner, repo, sessionLogin)
+        // ① 先直出（含过期）：星标 / Watch 的形态当帧就位。判定本身要走
+        //    「网页会话 → GraphQL」两条腿，冷的一次实测 ~800ms（真机日志 22:52:52.519 → 53.320），
+        //    这段时间按钮此前一直是空的 —— 页面先渲染一遍、结论到了再重画一遍。
+        RepoActions.cachedRelation(context, owner, repo, sessionLogin)?.let { relation = it }
+        // ② 再回源复核：拿到新值覆盖；拿不到就保留旧值（总比空着强）
+        RepoActions.loadRelation(context, sessionHost, sessionToken, owner, repo, sessionLogin)
+            ?.let { relation = it }
     }
     // 刷新后服务端计数会重来一遍，乐观增量必须归零，否则数字会越刷越离谱
     LaunchedEffect(owner, repo, refreshTick) { starDelta = 0L }
@@ -347,7 +385,7 @@ fun RepositoryScreen(
     val acting = workflowAction
     if (acting != null) {
         WorkflowActionSheet(
-            sessionJson = sessionJson,
+            sessionJson = session,
             owner = owner,
             repo = repo,
             workflow = acting,
@@ -374,6 +412,7 @@ fun RepositoryScreen(
     // 路由**把页面数据也带上**（而不是让页面现读状态变量）：退场动画期间状态可能已被清空，
     // AnimatedContent 会把旧路由原样交回，页面才不会在退场途中变成空白或换内容。
     val route: RepoRoute = when {
+        showPatInput -> RepoRoute.PatInput
         showReleaseEdit -> RepoRoute.ReleaseEdit(releaseEditTarget)
         releaseDetail != null -> RepoRoute.ReleaseDetail(releaseDetail!!)
         showWebLogin -> RepoRoute.WebLogin
@@ -397,6 +436,39 @@ fun RepositoryScreen(
     // 注册顺序：在按路由分派的 handler 之后、各子页的 handler 之前 ——
     // 子页打开时气泡是收起的，两者不会同时启用。
     PageBackHandler(bubbleExpanded) { bubbleExpanded = false }
+
+    // 打不开仓库时的「出路」：失败卡（ListError）从这里取 —— 见 LocalRepoAccessActions 的说明
+    val repoAccessActions = remember(owner, repo, session) {
+        RepoAccessActions(
+            useToken = { showPatInput = true },
+            reauth = { openInBrowser(context, keyTokenCreateUrl()) },
+            openInBrowser = { openInBrowser(context, "https://${sessionInfo(session).first}/$owner/$repo") },
+            probeScopes = { RustBridge.oauthScopes(sessionInfo(session).first, sessionInfo(session).second) },
+            onAccessDenied = { msg ->
+                val cred = repoCredential
+                when {
+                    // 用户明确要求「只用账号」时不自动回退
+                    accountOnly -> Logger.local("账号打不开 $owner/$repo（用户已选「改用账号」）：${msg.take(80)}", "私有仓库")
+                    cred != null && !credentialFallback && tokenOverride == null -> {
+                        credentialFallback = true
+                        refreshTick++
+                        Logger.local(
+                            "账号打不开 $owner/$repo，回退到仓库凭据 @${cred.login}（读与写都用它）：${msg.take(80)}",
+                            "私有仓库",
+                        )
+                    }
+                    // 覆盖令牌也打不开：要说出来（否则用户只看到「又失败了」，不知道用的是哪条令牌）
+                    tokenOverride != null ->
+                        Logger.warn(
+                            com.branchbase.ui.log.LogCategory.NETWORK,
+                            "私有仓库",
+                            "本次输入的令牌也打不开 $owner/$repo（身份 @${overrideLogin ?: "未知"}）：${msg.take(80)}",
+                        )
+                    cred == null -> Logger.local("账号打不开 $owner/$repo，且未配仓库凭据：${msg.take(80)}", "私有仓库")
+                }
+            },
+        )
+    }
 
     // 底部导航栏由 [NavigationShell] 持有（**不在**下面的 PageSwitcher 里）。
     // 放进切换器里的话，切 Tab 会被同级动效连着整条栏一起播（2026-09 之前那 2% 垂直位移就是这样
@@ -441,14 +513,48 @@ fun RepositoryScreen(
                 .fillMaxSize()
                 .padding(contentPadding),
         ) {
-            PageSwitcher(state = route, modifier = Modifier.fillMaxSize(), label = "repo-page") { r ->
+            /**
+             * 子页的**默认返回**：一条规则，不再每个分支各挂一个 `PageBackHandler`。
+             *
+             * `when` 是穷尽的（`RepoRoute` 是 sealed）⇒ **新增路由时编译器会强制在这里表态** ——
+             * 旧的写法漏挂一个分支只会静默「返回时跳掉一层」（网页登录页就这么漏过一版：
+             * 在那个页面按系统返回会直接退出整个仓库页）。
+             */
+            fun leavePage() {
+                when (route) {
+                    RepoRoute.Tab -> Unit
+                    RepoRoute.BranchSync -> showBranchSync = false
+                    RepoRoute.BranchManage -> showBranchManage = false
+                    RepoRoute.LocalSync -> showLocalSync = false
+                    RepoRoute.WebLogin -> showWebLogin = false
+                    RepoRoute.PatInput -> showPatInput = false
+                    is RepoRoute.BranchCompare -> comparePair = null
+                    is RepoRoute.ReleaseDetail -> releaseDetail = null
+                    is RepoRoute.ReleaseEdit -> showReleaseEdit = false
+                    is RepoRoute.People -> peoplePage = null
+                    is RepoRoute.File -> filePage = null
+                    is RepoRoute.Issue -> issuePage = null
+                    is RepoRoute.Pull -> pullPage = null
+                    is RepoRoute.Commit -> commitPage = null
+                    is RepoRoute.JobDetail -> { jobDetailPage = null; jobDetailStep = null }
+                    is RepoRoute.RunDetail -> runDetailPage = null
+                    is RepoRoute.Dispatch -> dispatchTarget = null
+                    is RepoRoute.WorkflowRuns -> workflowRunsPage = null
+                }
+            }
+
+            PageSwitcher(
+                state = route,
+                onBack = ::leavePage,
+                modifier = Modifier.fillMaxSize(),
+                label = "repo-page",
+            ) { r ->
                 when (r) {
                     // 发布编辑页（全屏；target == null 表示新建）
                     is RepoRoute.ReleaseEdit -> {
                         val releaseTarget = r.target
-                        PageBackHandler { showReleaseEdit = false }
                         ReleaseEditScreen(
-                            sessionJson = sessionJson,
+                            sessionJson = session,
                             owner = owner,
                             repo = repo,
                             existing = releaseTarget,
@@ -465,9 +571,8 @@ fun RepositoryScreen(
                     // 发布详情页（全屏）
                     is RepoRoute.ReleaseDetail -> {
                         val currentRelease = r.release
-                        PageBackHandler { releaseDetail = null }
                         ReleaseDetailScreen(
-                            sessionJson = sessionJson,
+                            sessionJson = session,
                             owner = owner,
                             repo = repo,
                             release = currentRelease,
@@ -480,9 +585,8 @@ fun RepositoryScreen(
 
                     // 分支同步页（全屏）
                     RepoRoute.BranchSync -> {
-                        PageBackHandler { showBranchSync = false }
                         BranchSyncScreen(
-                            sessionJson = sessionJson,
+                            sessionJson = session,
                             owner = owner,
                             repo = repo,
                             onBack = { showBranchSync = false },
@@ -491,9 +595,8 @@ fun RepositoryScreen(
 
                     // 分支管理页（全屏）
                     RepoRoute.BranchManage -> {
-                        PageBackHandler { showBranchManage = false }
                         BranchManageScreen(
-                            sessionJson = sessionJson,
+                            sessionJson = session,
                             owner = owner,
                             repo = repo,
                             defaultBranch = branch ?: "main",
@@ -509,9 +612,8 @@ fun RepositoryScreen(
                     // 分支对比页（全屏）：显示两个分支的代码片段差异
                     is RepoRoute.BranchCompare -> {
                         val comparing = r.pair
-                        PageBackHandler { comparePair = null }
                         BranchCompareScreen(
-                            sessionJson = sessionJson,
+                            sessionJson = session,
                             owner = owner,
                             repo = repo,
                             initialBase = comparing.first,
@@ -526,7 +628,6 @@ fun RepositoryScreen(
 
                     // 本地仓库分支同步页（全屏）
                     RepoRoute.LocalSync -> {
-                        PageBackHandler { showLocalSync = false }
                         LocalBranchSyncScreen(
                             dir = localRepoDir(context, repo),
                             repoName = repo,
@@ -539,13 +640,40 @@ fun RepositoryScreen(
                     // 星标/复刻/关注列表页（全屏，覆盖底部导航）
                     is RepoRoute.People -> {
                         val people = r.type
-                        PageBackHandler { peoplePage = null }
                         PeopleListScreen(
-                            sessionJson = sessionJson,
+                            sessionJson = session,
                             owner = owner,
                             repo = repo,
                             type = people,
                             onBack = { peoplePage = null },
+                        )
+                    }
+
+                    // 私有仓库「用访问令牌打开」：输入的 token 只在本次会话内覆盖，不落盘、不进日志
+                    RepoRoute.PatInput -> {
+                        PatInputScreen(
+                            onBack = { showPatInput = false },
+                            // 先校验：输错当场可见（顺带拿到 @login，用于凭据清单）
+                            validate = { t ->
+                                RustBridge.getCurrentUser(accountHost, t)
+                                    ?.takeIf { !it.startsWith("ERROR:") }
+                                    ?.let { json -> runCatching { JSONObject(json).optString("login") }.getOrNull() }
+                                    ?.takeIf { it.isNotBlank() && it != "null" }
+                            },
+                            rememberLabel = "记住这个仓库的凭据（设置 → 仓库凭据 可删除）",
+                            onConfirm = { token, login, remember ->
+                                tokenOverride = token
+                                overrideLogin = login
+                                credentialFallback = false
+                                showPatInput = false
+                                if (remember) {
+                                    RepoCredentialStore.save(context, accountHost, owner, repo, token, login)
+                                    credentialTick++
+                                }
+                                refreshTick++
+                                // 锚点：`私有仓库` —— 只记「谁在哪用了令牌」，绝不记 token 本身
+                                Logger.local("已用访问令牌打开 $owner/$repo（身份 @$login · 记住=$remember）", "私有仓库")
+                            },
                         )
                     }
 
@@ -568,9 +696,8 @@ fun RepositoryScreen(
                     // 文件查看页（全屏）
                     is RepoRoute.File -> {
                         val file = r.page
-                        PageBackHandler { filePage = null }
                         FileViewerScreen(
-                            sessionJson = sessionJson,
+                            sessionJson = session,
                             owner = owner,
                             repo = repo,
                             path = file.first,
@@ -586,9 +713,8 @@ fun RepositoryScreen(
                     // Issue 详情页
                     is RepoRoute.Issue -> {
                         val issue = r.number
-                        PageBackHandler { issuePage = null }
                         IssueDetailScreen(
-                            sessionJson = sessionJson,
+                            sessionJson = session,
                             owner = owner,
                             repo = repo,
                             number = issue,
@@ -599,9 +725,8 @@ fun RepositoryScreen(
                     // PR 详情页
                     is RepoRoute.Pull -> {
                         val pull = r.number
-                        PageBackHandler { pullPage = null }
                         PullDetailScreen(
-                            sessionJson = sessionJson,
+                            sessionJson = session,
                             owner = owner,
                             repo = repo,
                             number = pull,
@@ -612,9 +737,8 @@ fun RepositoryScreen(
                     // 提交详情页
                     is RepoRoute.Commit -> {
                         val commit = r.sha
-                        PageBackHandler { commitPage = null }
                         CommitDetailScreen(
-                            sessionJson = sessionJson,
+                            sessionJson = session,
                             owner = owner,
                             repo = repo,
                             sha = commit,
@@ -625,9 +749,8 @@ fun RepositoryScreen(
                     // 日志页（最深；原「Job 详情页」演进而来）
                     is RepoRoute.JobDetail -> {
                         val job = r.id
-                        PageBackHandler { jobDetailPage = null; jobDetailStep = null }
                         JobLogScreen(
-                            sessionJson = sessionJson,
+                            sessionJson = session,
                             owner = owner,
                             repo = repo,
                             jobId = job,
@@ -640,9 +763,8 @@ fun RepositoryScreen(
                     // Run 详情（jobs）
                     is RepoRoute.RunDetail -> {
                         val run = r.id
-                        PageBackHandler { runDetailPage = null }
                         RunDetailContent(
-                            sessionJson = sessionJson,
+                            sessionJson = session,
                             owner = owner,
                             repo = repo,
                             runId = run,
@@ -656,9 +778,8 @@ fun RepositoryScreen(
                     // 手动触发工作流（全屏）
                     is RepoRoute.Dispatch -> {
                         val dispatching = r.workflow
-                        PageBackHandler { dispatchTarget = null }
                         WorkflowDispatchScreen(
-                            sessionJson = sessionJson,
+                            sessionJson = session,
                             owner = owner,
                             repo = repo,
                             workflow = dispatching,
@@ -675,9 +796,8 @@ fun RepositoryScreen(
                     // 工作流运行历史
                     is RepoRoute.WorkflowRuns -> {
                         val runs = r.pair
-                        PageBackHandler { workflowRunsPage = null }
                         WorkflowRunsContent(
-                            sessionJson = sessionJson,
+                            sessionJson = session,
                             owner = owner,
                             repo = repo,
                             workflowId = runs.first,
@@ -721,50 +841,66 @@ fun RepositoryScreen(
                                 // 切 Tab 的淡入淡出放在**内容区**自己身上：顶部栏与底部导航栏
                                 // 都不参与这个动效 —— 之前把 page 放进外层路由时，整个骨架（含栏）
                                 // 被同级动效一起播，栏就在切页面时上下跳
+                                if (activeToken != null) {
+                                    // 身份可见性：回退/覆盖后，这个仓库里的**写操作**不再以当前账号执行
+                                    RepoCredentialBanner(
+                                        login = activeCredentialLogin,
+                                        onUseAccount = {
+                                            accountOnly = true
+                                            credentialFallback = false
+                                            tokenOverride = null
+                                            overrideLogin = null
+                                            refreshTick++
+                                            Logger.local("用户选择改用账号：$owner/$repo", "私有仓库")
+                                        },
+                                    )
+                                }
                                 TabSwitcher(
                                     state = page,
                                     modifier = Modifier.fillMaxSize(),
                                     label = "repo-tab",
                                 ) { p ->
                                     // 分支选择器已移到顶部栏（刷新按钮左侧），不再占用一整行
-                                    when (p) {
-                                        RepoPage.Overview -> RepositoryOverviewContent(
-                                            sessionJson = sessionJson, owner = owner, repo = repo, branch = branch, refreshTick = refreshTick,
-                                            sharedInfo = repoInfo,
-                                            relation = relation,
-                                            starCount = repoInfo?.stars?.plus(starDelta),
-                                            forkDecision = forkDecision,
-                                            starBusy = starBusy,
-                                            onLinkClick = { dest -> handleLink(dest, context, onOpenRepo, { path, lines -> filePage = path to lines }) { page = it } },
-                                            // 点击做动作、长按看列表（与网页版的两层交互一致）
-                                            onStarClick = { toggleStar() },
-                                            onStarLongClick = { peoplePage = "star" },
-                                            onWatchClick = { showWatchPanel = true },
-                                            onWatchLongClick = { peoplePage = "watch" },
-                                            onForkClick = { onForkClick() },
-                                            // 分支同步入口在底部栏 ⋮ 气泡里（见 bubbleEntries）
-                                        )
-                                        RepoPage.Code -> RepositoryCodeContent(sessionJson, owner, repo, branch, refreshTick, onOpenFile = { filePage = it to null })
-                                        RepoPage.Issues -> IssueListContent(sessionJson, owner, repo, refreshTick, onItemClick = { issuePage = it.number })
-                                        RepoPage.Workflows -> WorkflowListContent(
-                                            sessionJson, owner, repo, branch, refreshTick,
-                                            onItemClick = { runsWorkflow = it; workflowRunsPage = it.id to it.name },
-                                            onLongPress = { workflowAction = it },
-                                        )
-                                        RepoPage.Releases -> ReleaseListContent(
-                                            sessionJson = sessionJson, owner = owner, repo = repo, refreshTick = refreshTick,
-                                            onOpenDetail = { releaseDetail = it },
-                                            onCreate = { releaseEditTarget = null; showReleaseEdit = true },
-                                        )
-                                        RepoPage.PullRequests -> PullListContent(sessionJson, owner, repo, branch, refreshTick, onItemClick = { pullPage = it.number })
-                                        RepoPage.Commits -> CommitListContent(sessionJson, owner, repo, branch, refreshTick, onItemClick = { commitPage = it.sha })
-                                        RepoPage.Settings -> RepositorySettingsContent(
-                                            sessionJson = sessionJson,
-                                            owner = owner,
-                                            repo = repo,
-                                            branches = branches.map { it.name },
-                                            defaultBranch = branch ?: "main",
-                                        )
+                                    CompositionLocalProvider(LocalRepoAccessActions provides repoAccessActions) {
+                                        when (p) {
+                                            RepoPage.Overview -> RepositoryOverviewContent(
+                                                sessionJson = session, owner = owner, repo = repo, branch = branch, refreshTick = refreshTick,
+                                                sharedInfo = repoInfo,
+                                                relation = relation,
+                                                starCount = repoInfo?.stars?.plus(starDelta),
+                                                forkDecision = forkDecision,
+                                                starBusy = starBusy,
+                                                onLinkClick = { dest -> handleLink(dest, context, onOpenRepo, { path, lines -> filePage = path to lines }) { page = it } },
+                                                // 点击做动作、长按看列表（与网页版的两层交互一致）
+                                                onStarClick = { toggleStar() },
+                                                onStarLongClick = { peoplePage = "star" },
+                                                onWatchClick = { showWatchPanel = true },
+                                                onWatchLongClick = { peoplePage = "watch" },
+                                                onForkClick = { onForkClick() },
+                                                // 分支同步入口在底部栏 ⋮ 气泡里（见 bubbleEntries）
+                                            )
+                                            RepoPage.Code -> RepositoryCodeContent(session, owner, repo, branch, refreshTick, onOpenFile = { filePage = it to null })
+                                            RepoPage.Issues -> IssueListContent(session, owner, repo, refreshTick, onItemClick = { issuePage = it.number })
+                                            RepoPage.Workflows -> WorkflowListContent(
+                                                session, owner, repo, branch, refreshTick,
+                                                onItemClick = { runsWorkflow = it; workflowRunsPage = it.id to it.name },
+                                                onLongPress = { workflowAction = it },
+                                            )
+                                            RepoPage.Releases -> ReleaseListContent(
+                                                sessionJson = session, owner = owner, repo = repo, refreshTick = refreshTick,
+                                                onOpenDetail = { releaseDetail = it },
+                                                onCreate = { releaseEditTarget = null; showReleaseEdit = true },
+                                            )
+                                            RepoPage.PullRequests -> PullListContent(session, owner, repo, branch, refreshTick, onItemClick = { pullPage = it.number })
+                                            RepoPage.Commits -> CommitListContent(session, owner, repo, branch, refreshTick, onItemClick = { commitPage = it.sha })
+                                            RepoPage.Settings -> RepositorySettingsContent(
+                                                sessionJson = session,
+                                                owner = owner,
+                                                repo = repo,
+                                                branches = branches.map { it.name },
+                                                defaultBranch = branch ?: "main",
+                                            )
+                                        }
                                     }
                                 }
 
@@ -922,6 +1058,11 @@ private sealed interface RepoRoute : PageLevel {
      * （OAuth token 会被 302 到登录页）。其余能力一律走官方 API，不打扰用户。
      */
     data object WebLogin : RepoRoute {
+        override val depth: Int get() = 1
+    }
+
+    /** 私有仓库打不开时的「用访问令牌打开」（P0-5）。 */
+    data object PatInput : RepoRoute {
         override val depth: Int get() = 1
     }
 
@@ -1444,6 +1585,39 @@ private fun RowScope.BottomTab(page: RepoPage, icon: ImageVector, selected: Bool
             color = selectionColor(selected, on = Primer.Blue500, off = Primer.TextTertiary),
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             maxLines = 1,
+        )
+    }
+}
+
+/**
+ * 「这个仓库正在用独立凭据」横幅。
+ *
+ * 为什么必须有：回退到仓库凭据后，这个仓库里的**提交 / 开 PR / 合并**都是以那条令牌的身份执行的，
+ * 而导航栏上的账号仍是当前账号 —— 不提示就是**静默换身份**。右侧给一条「改用账号」的退路。
+ */
+@Composable
+private fun RepoCredentialBanner(login: String?, onUseAccount: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(Primer.WarningSurface)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "此仓库使用独立凭据" + (login?.takeIf { it.isNotBlank() }?.let { "（@$it）" } ?: "") +
+                "：读与写都用它，操作身份与当前账号不同。",
+            fontSize = 11.5.sp,
+            color = Primer.WarningText,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            "改用账号",
+            fontSize = 11.5.sp,
+            color = Primer.Blue500,
+            modifier = Modifier
+                .padding(start = 10.dp)
+                .clickable { onUseAccount() },
         )
     }
 }

@@ -79,6 +79,14 @@ private val SectionPadH = 12.dp
 private val SectionPadV = 6.dp
 
 /**
+ * 禁用行的半透明度（规范 §6.3「不可用的行要看得出来」）。
+ *
+ * 乘进**颜色**而不是挂 `Modifier.alpha`：后者是 `graphicsLayer`（`AlphaKt` → `graphicsLayer`），
+ * 一整层 RenderNode 只为了把实色图标与实色文字调淡。乘进颜色是同一帧内的同一个结果，零图层。
+ */
+private const val DisabledAlpha = 0.5f
+
+/**
  * 分组：12sp 小标签 + 卡片容器（规范 §4.4）。
  *
  * 组内分隔线由**每一行自己画在顶部**（`divider = true`），所以每组的第一行要传 `divider = false`。
@@ -442,16 +450,23 @@ fun DisabledNavRow(
             // 与 NavRow 同一条规则：图标按整行垂直居中，不跟着首行文字往上飘（原型 `.row { align-items: center }`）
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.alpha(0.5f)) { Icon(icon, contentDescription = name, tint = Primer.IconSecondary, modifier = Modifier.size(IconSize)) }
+            // 禁用态的半透明乘进颜色里，不用 `Modifier.alpha` ——
+            // `Modifier.alpha` 就是 graphicsLayer（AlphaKt → graphicsLayer），
+            // 而这里只有实色图标与实色文字，乘 alpha 与整层降透明在观感上等价。
+            Icon(
+                icon,
+                contentDescription = name,
+                tint = Primer.IconSecondary.copy(alpha = DisabledAlpha),
+                modifier = Modifier.size(IconSize),
+            )
             Spacer(Modifier.width(IconGap))
             Column(Modifier.weight(1f, fill = false).padding(vertical = 11.dp)) {
                 Text(
                     name,
                     fontSize = 14.sp,
-                    color = Primer.TextPrimary,
+                    color = Primer.TextPrimary.copy(alpha = DisabledAlpha),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.alpha(0.5f),
                 )
                 Spacer(Modifier.height(3.dp))
                 // 原因**不降透明度**：它是这一行唯一能告诉用户「怎么办」的东西
@@ -656,9 +671,12 @@ fun StatusChip(text: String, tone: StatusTone) {
         color = fg,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
+        // 圆角交给 background 自己画（`background(color, shape)` 走 outline，不建图层）；
+        // 这里没有 clickable，用不上 `clip` —— 而 `Modifier.clip` 就是
+        // `graphicsLayer(shape, clip=true)`，白建一层 RenderNode。
+        // （带水波纹的地方**不能**这么换：clip 还负责把水波纹裁进圆角。）
         modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(bg)
+            .background(bg, RoundedCornerShape(999.dp))
             .padding(horizontal = 7.dp, vertical = 2.dp),
     )
 }

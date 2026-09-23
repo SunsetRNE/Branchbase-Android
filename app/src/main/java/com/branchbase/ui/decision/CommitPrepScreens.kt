@@ -45,7 +45,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 // ═══════════════════════════════════════════════════════════════════
-// 提交准备域决策页（对齐 design/decision-commit-prep-prototype.html）
+// 提交准备域决策页（规格见 docs/specs/decision-pages-design.md §4）
 //   · StageCommitScreen      P0-2 暂存勾选 + 提交信息（模式延迟决定收口）
 //   · AuthorIdentityScreen   P0-3 提交身份确认/配置
 //   · SensitiveWarningScreen P0-4 提交前敏感信息警告

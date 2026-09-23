@@ -65,6 +65,7 @@ import com.branchbase.ui.theme.Primer
 import com.branchbase.cache.RepoPrefetcher
 import com.branchbase.ui.notification.NotificationPrefetcher
 import com.branchbase.ui.navigation.rememberPageResumeTick
+import com.branchbase.ui.log.Logger
 import org.json.JSONObject
 
 /**
@@ -125,7 +126,7 @@ fun HomeScreen(
         }
     }
 
-    // 首页仪表盘数据（对齐 design/home-redesign-prototype.html）
+    // 首页仪表盘数据（未读通知 / 待审 PR / 进行中的运行）
     var unreadNotifs by remember { mutableStateOf(0) }
     var reviewRequests by remember { mutableStateOf(0) }
     var assignedIssues by remember { mutableStateOf(0) }
@@ -165,6 +166,17 @@ fun HomeScreen(
     // （每个计数各自走 PageCache：TTL 内直接命中，不联网）。
     val resumeTick = rememberPageResumeTick()
     LaunchedEffect(resumeTick) {
+        // 阶段标记：首帧取数这一段（L2 缓存冷开 + 星标 13.8KB / 通知归档 12.3KB 的 JSON 解析）
+        // 与启动慢帧的「等待」段同刻发生，但此前在日志里完全看不见（见 frame-perf-design.md §9）。
+        //
+        // ⚠️ **每个进程只打一次**。这里踩过两次：
+        // 1.0.65 无条件打 —— 这个 effect 的键是 `resumeTick`，切回首页就会重跑，日志里
+        // 它在 +20s / +22s / +27s 各出现一次；1.0.67 改成 `resumeTick == 1`，
+        // 但 `resumeTick` 是 remember 出来的、页面一被重建就从 1 重来
+        // （1.0.67 真机：+116s 又打了一次，那时用户在仓库页）。两次的后果一样：
+        // 之后几帧的慢帧注脚变成「启动 ▸ …」，`^启动` 场景桶把它们算成启动帧。
+        // 进程级的闸门不受页面生命周期影响，见 [Logger.startupOnce]。
+        Logger.startupOnce("home-first-paint", "启动 ▸ 首页首帧取数（L2 缓存 + 星标/通知解析）")
         // 5 个互不依赖的请求并行（原来是串行：星标 → 活动 → 通知 → 评审 → 指派）
         coroutineScope {
             launch { loadStarred(false) }
