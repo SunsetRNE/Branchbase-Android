@@ -58,3 +58,39 @@ fun TintRole.color(): Color = when (this) {
     TintRole.NEUTRAL_SUBTLE -> Primer.Gray500
     TintRole.EMPHASIS -> Primer.Gray900
 }
+
+/**
+ * 把角色解析成**文字色**（小字标签 / 细图形用；同样只能在 `@Composable` 里调用）。
+ *
+ * ## 为什么 `color()` 不能直接拿来当文字色
+ *
+ * `color()` 给的是**填充色**。填充色压在自己的 12% 浅底上，对比度普遍过不了 WCAG AA 4.5:
+ *
+ * | 角色 | `color()` 压 12% 自色底 | 结论 |
+ * |---|---|---|
+ * | WARNING | `#F66A0A` → **2.6** | 差得最多 |
+ * | DANGER | `#D73A49` → **3.9** | 不达标 |
+ * | ACCENT | `#0969DA` → **4.4** | 差一点点 |
+ *
+ * 真源里本来就有对应的「文字色」角色（`Primer.XXXText`，见 `docs/specs/ui-design.md` 的
+ * 「别拿 Red500 当文字用」），这里只是把它们接进 `TintRole`。
+ * 实测（`TintRoleContrastTest`，阈值 4.5 / 图形 3.0，浅深两套都跑）：
+ * ACCENT 6.25 · SUCCESS 5.08 · DANGER 6.44 · WARNING 6.03 · NEUTRAL_SUBTLE 4.80。
+ *
+ * [TintRole.DONE] 是**唯一**直接塌回填充色的一档：真源里没有 `doneText` 角色，
+ * 而 `Purple500 #6F42C1` 压在 12% 自色底上是 **5.44**（深色 4.89），已过线 —— 就不为它新造色值了。
+ */
+@Composable
+@ReadOnlyComposable
+fun TintRole.textColor(): Color = when (this) {
+    TintRole.ACCENT -> Primer.AccentText
+    TintRole.LINK -> Primer.Link
+    TintRole.SUCCESS -> Primer.SuccessText
+    TintRole.DANGER -> Primer.DangerText
+    // WARNING 用的是**强**警告文字色：warningText（#9A6700）压在 12% 自色底上只有 4.17，差一点点
+    TintRole.WARNING -> Primer.WarningTextStrong
+    TintRole.DONE -> Primer.Purple500
+    TintRole.NEUTRAL -> Primer.TextPrimary
+    TintRole.NEUTRAL_SUBTLE -> Primer.TextTertiary
+    TintRole.EMPHASIS -> Primer.Gray900
+}

@@ -25,7 +25,78 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.75 → 1.0.22）
+## 二、`versionName` 流水（1.0.76 → 1.0.22）
+
+### 1.0.76
+
+**消息列表重绘 —— 一屏 8 条一模一样的 CI 通知折成 1 行**（原型 `design/messages-redesign/list-v2.html`）。
+
+① **根因不是卡片难看，是没有层级**。真机截图里连着 8 条 `Build workflow run failed for main
+branch`：同仓库、同分支、同一天，标题**逐字相同**。任何单行画得再好，重复 8 次都是噪点 ——
+先把重复去掉，再谈好不好看。这与动态页「最近 30 条里 28 条是 PushEvent」是同一个问题。
+
+② **折叠口径照抄动态页的 `collapsePushes`**（`ui/profile/ProfileScreen.kt`，那边有
+`ActivityFeedTest` 12 例），新纯函数 `collapseCiRuns`（`ui/notification/NotificationModels.kt`）：
+
+- 折叠键 = **同一仓库 + 同一 subject.type + 同一工作流 + 同一分支 + 同一天（本地时区）**，
+  且 reason 必须是 `ci_activity`；
+- 只在**相邻**条目之间折叠（输入已按时间倒序），**不跨天** —— 跨天会把「今天 3 次 + 昨天 5 次」
+  写成 8 次，那是编造事实；
+- 工作流名与分支**从标题解析**（复用 `parseCheckSuiteTitle`，CheckSuite 常没有 `subject.url`）；
+  解析不出来就**不参与折叠**，宁可多几行也不猜；
+- `updatedAtMs <= 0`（时间未知）一律判为不同天，避免凭空造出「今天连续失败 N 次」；
+- 组内保留**最新一次**（组内首条）为行代表，`fold.runs` 保留每一次的原始标题与时间 ——
+  行内「展开其余 N 次」可原地铺开，**信息一条不丢**。
+
+③ **折叠行代表 N 条，所有写远端的地方都要打散**（这是本次最容易漏的接线）：
+
+| 路径 | 展开方式 |
+|---|---|
+| 点击已读 / 长按「标记已读」 | `Notification.allIds` |
+| 标记完成 | `allIds`（远端逐条 DELETE） |
+| 批量已读 / 完成 / 静音 | `expandFoldIds(selected)` |
+| 面板「复制链接」「恢复未读」 | 同上 |
+| 顶部「全部已读」 | 端点仍是一次性 `mark-all-read`，但**本地已读集合**要按 id 逐条写全 |
+
+不展开的后果很具体：把一折标为已读后，服务端还剩 7 条未读，刷新回来它们重新组成一个新折叠行
+（表现为「标了已读没生效」）。
+
+④ **折叠行要么整行成功、要么整行回滚**（`rollingBackRows` + 4 例钉子）。一折 8 条只失败 1 条时
+按条回滚，会让这一行显示成「已读」而其中一条在服务端仍是未读 —— 与 `bulkRollbackTargets`
+要解决的「本地与远端不一致」是同一个问题。批量 Toast 与撤销文案一律**按行**计数
+（界面上这一折就是一行，报「成功 8 条」而只动了一行会让人以为误伤了别的消息）。
+
+⑤ **列表从「卡片盒」改成「行 + 1dp 分隔线」**。浅色板里 `canvas` 与 `canvasSubtle`
+**都是纯白**，卡片一直只靠那圈灰边撑着，一屏十几个盒子正是「空格子」观感的来源；
+深色下 `canvasSubtle #161B22` 与页面底本来就有层次差，改成行之后两套都成立。
+未读去掉整片浅蓝底，只留 3dp 竖条 + 加粗标题 + 尾点 —— 竖条仍是 `matchParentSize` + `drawBehind`
+的 overlay 绘制（**不占布局宽度**，未读与已读行的正文宽度逐像素相同，这条硬约束没动）。
+骨架屏同步去掉卡片壳（**骨架与真实行的结构必须一起改**，否则加载完会抖一下）。
+
+⑥ **原因标签只在「需要你动手」时出现**（`Notification.reasonHighSignal`）。保留
+提到了你 / 请求你审查 / 分配给了你 / 安全警报；抑制 CI 运行结果 / 你订阅的 / 评论了 /
+状态更新 / 你创建的 —— 结论已经在标题里，标签只是重复占位。**文案没丢**：长按动作面板仍读
+`reasonLabel`。
+
+⑦ **把「填充色当文字用」这个老错再修一遍**。原因标签原样照抄原型时用了 `TintRole.color()`
+（填充色）压 12% 同色底，实测 **WARNING 2.64 / DANGER 3.85 / ACCENT 4.38** —— 三档全在
+WCAG AA 以下。新增 `TintRole.textColor()`（`ui/theme/TintRole.kt`）把真源里本就存在的
+`AccentText` / `SuccessText` / `DangerText` / `WarningTextStrong` 接进角色系统，实测
+**6.25 / 5.08 / 6.44 / 6.03**。`TintRole.DONE` 是唯一直接塌回填充色的一档（真源没有 `doneText`
+角色，而 `Purple500` 压 12% 自色底是 5.44，已过线，不为它新造色值）。
+行首图标同样改用文字色，并去掉那层 12% 同色底（深色下几乎看不见，白占一层）。
+
+⑧ **钉子 171 例全绿**：`NotificationCiFoldTest`（新，17 例：基本折叠 / 明细留底 /
+不跨天 / 不跨仓库 / 不跨分支 / 不跨工作流 / 不跨 run 类型 / 中间夹别的通知即断开 /
+标题解析不出不折 / 时间未知不合并 / 重绘后总条数不变 / 单条不呈现折叠）、
+`NotificationBulkRollbackTest` 6 → 10（折叠行整行回滚）、
+`ThemeContrastTest` 5 → 8（原因标签必须用文字角色 + 浅深两套实测对比度 + 低信号原因不得挂标签）。
+
+⑨ **验收边界（未做）**：本轮改的是版式与折叠逻辑，**未做真机渲染验证** —— 需要在真机上复看
+「折叠行展开/收起」「未读竖条在圆角行首的裁切」「深色下分隔线的可见度」三处观感。
+原型页（`design/messages-redesign/list-v2.html`）带烟测与对比度审计两个脚本，可先在那里对照。
+
+---
 
 ### 1.0.75
 
@@ -1380,6 +1451,12 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **178**：消息列表重绘 —— CI 通知折叠（`collapseCiRuns`，口径照抄动态页 `collapsePushes`）
++ 卡片盒改行形态 + 原因标签只留高信号 + `TintRole.textColor()`。
+折叠行代表 N 条，所有写远端路径（已读 / 完成 / 静音 / 复制链接 / 全部已读）都要打散成
+`allIds`，回滚一律整行。新增 `NotificationCiFoldTest` 17 例，
+`NotificationBulkRollbackTest` 6 → 10，`ThemeContrastTest` 5 → 8（一次提交，故 +1）
 
 - **177**：产物不再打包 —— `actions/upload-artifact` `@v4` → **`@v7` + `archive: false`**
 （GitHub 2026-02-26 上线；v7 之前一律 zip），publish 侧 `download-artifact` `@v4` → **`@v8`**，

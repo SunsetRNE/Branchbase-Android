@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -48,14 +49,13 @@ import androidx.compose.material.icons.filled.Deselect
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.MarkEmailRead
 import androidx.compose.material.icons.filled.MarkEmailUnread
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.VolumeOff
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -81,6 +81,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -100,6 +101,8 @@ import coil.compose.AsyncImage
 import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.navigation.rememberPageResumeTick
 import com.branchbase.ui.theme.color
+import com.branchbase.ui.theme.textColor
+import com.branchbase.ui.theme.rememberPressFeedback
 import com.branchbase.ui.theme.ProvideShimmer
 import com.branchbase.ui.theme.skeletonBlock
 import com.branchbase.ui.theme.revealExit
@@ -140,6 +143,14 @@ import kotlinx.coroutines.withContext
  * **③ 预渲染 / 预加载提前到首页阶段**
  * 首帧同步读取 [NotifSnapshot]（首页渲染时已由 [NotificationPrefetcher] 填好），
  * 因此进入本页**没有骨架屏这一帧**；网络回源在后台静默进行。
+ *
+ * **④ 列表重绘（1.0.76）：CI 通知折叠 + 卡片盒改行形态**
+ * 真机上连着 8 条 `Build workflow run failed for main branch`（同仓库 / 同分支 / 同一天，
+ * 标题逐字相同），逐条渲染就是一屏一模一样的行 —— 与动态页「30 条里 28 条是 PushEvent」
+ * 同一个问题，因此口径照抄那边的 `collapsePushes`，纯函数在 [collapseCiRuns]。
+ * 同时把「卡片盒」改成「行 + 1dp 分隔线」（浅色板里 canvas 与 canvasSubtle 都是纯白，
+ * 卡片只靠灰边撑着），原因标签只在 [Notification.reasonHighSignal] 时渲染。
+ * 设计依据：`docs/specs/screens-design.md` §3、`docs/specs/VERSION-NOTES.md` 1.0.76。
  *
  * 数据读取复用 `RustBridge.getJson(host, token, "/notifications")`，未新增读接口。
  */
@@ -224,7 +235,98 @@ fun NotificationScreen(
     // issue/PR 内容预览：threadId → 最新评论（作者 + 正文），见 NotificationPreviewLoader.kt。
     // 首页阶段的预取已经把首屏预览填进快照，这里只补增量。
     var previews by remember { mutableStateOf(NotifSnapshot.previewMap) }
+
     val previewRequested = remember { mutableSetOf<String>() }
+
+    // ── 可见数据 ──
+    // ⚠️ 从这里到 [categoryCounts] 这一整段必须在 [markReadRemote] / [runBulk] 等函数**之前**：
+    //    Kotlin 的局部变量不能被声明在它上面的函数前向引用，而那些函数要读 [rows]
+    //    （折叠行代表 N 条，写远端必须打散）。
+    // 计算顺序固定为「分类基准 → 类型/时间维度 → 排序」，三段各自独立、可分别解释；
+    // 之前是「先按类型/时间过滤再各分类各写一遍」，加一个分类就要复制一遍过滤逻辑。
+    val now = System.currentTimeMillis()
+    val liveItems = items.filterNot { it.id in doneIds }
+    val doneItems = remember(archive) { archive.filter { it.isDone }.map { it.toNotification() } }
+
+    val categoryBase: List<Notification> = when (category) {
+        NotifCategory.UNREAD -> liveItems.filter { it.unread }
+        NotifCategory.ALL -> liveItems
+        // 服务端口径优先；尚未拉到（或请求失败）时退回 reason 近似口径：
+        // 近似口径会漏掉「我在该 thread 里评论过但没被 @」的会话，但绝不会漏掉 @我 / 指派给我 / 我发起的。
+        NotifCategory.PARTICIPATING -> participatingItems?.filterNot { it.id in doneIds }
+            ?: liveItems.filter { isParticipating(it.reason) }
+        NotifCategory.DONE -> doneItems
+    }
+    val maxAge = range.maxAgeMs
+    val dimensioned = categoryBase
+        .filter { types.isEmpty() || it.subjectType in types }
+        .filter { maxAge == null || now - it.updatedAtMs <= maxAge }
+    val visible = sortedNotifications(dimensioned, sort)
+
+    /**
+     * 渲染用的行：把「同一仓库 + 同一工作流 + 同一分支 + 同一天」的**相邻** CI 通知折成一行
+     * （见 [collapseCiRuns]）。
+     *
+     * ⚠️ 位置有要求：必须在 [markReadRemote] / [runBulk] 这些函数**之前**声明 ——
+     * 它们要读 [rows]（折叠行代表 N 条，写远端必须打散），而局部变量不能被前向引用。
+     * 值由排序后的可见列表派生 —— 紧跟在 [visible] 之后。
+     */
+    val rows = collapseCiRuns(visible)
+
+    /**
+     * 已展开的折叠行 key（取 [Notification.allIds] 的首个 id）。
+     *
+     * 默认收起：这一屏的噪点正是「8 条一模一样的行」，默认铺开等于没折。
+     * 展开态是**一次浏览动作**，不是用户设置，因此不进 [NotifReadStore] 那类持久层。
+     */
+    var foldExpanded by remember { mutableStateOf(setOf<String>()) }
+
+    /**
+     * 当前**可见**的 id 集合（渲染口径），以及收敛后的选中集合。
+     *
+     * 为什么要收敛：`selectedIds` 是「用户点过的 id」，而列表会因为换分类 / 类型 / 时间范围 /
+     * 下拉刷新 / 「完成」归档而换一批条目。若直接用 `selectedIds`：
+     * - 「全选」判断 `selectedIds.size >= visible.size` 会失真（集合里混着看不见的 id）；
+     * - 批量操作（已读 / 完成 / 静音 / 复制链接）会作用到**屏幕上根本看不到**的条目。
+     * 所以对外一律用 [selected]（= 选中集合 ∩ 可见集合），`selectedIds` 只作为原始记录保留。
+     *
+     * ⚠️ 这里的口径是**行**：折叠行只贡献一个 id（代表那条），因为用户看到的就是一行。
+     * 但「写远端」必须打散成组内全部 id —— 见 [Notification.allIds] 与 [markReadRemote]。
+     */
+    val visibleIds = rows.map { it.id }.toSet()
+    val selected = remember(selectedIds, visibleIds) { effectiveSelection(selectedIds, visibleIds) }
+    val allVisibleSelected = isAllVisibleSelected(selectedIds, visibleIds)
+
+    // 渲染顺序（区间 / 刷选依赖它）：与 [NotificationList] 的分组顺序保持一致
+    val renderOrder = remember(rows, layout.value) { renderOrderIds(rows, layout.value) }
+
+    // 未读数上报（驱动底部导航 badge）：始终基于「全部」列表，不受当前筛选与折叠影响。
+    // 按**行**数而不是条数：折叠行在屏幕上就是一个未读点，报 8 会让底部徽标与眼睛看到的对不上。
+    val unread = collapseCiRuns(liveItems.filter { it.unread }).size
+    LaunchedEffect(unread) { onUnreadCountChange(unread) }
+
+    val allTypes = remember(items.map { it.subjectType }) {
+        items.map { it.subjectType }.distinct().filter { it.isNotBlank() }
+    }
+    val typeCounts = remember(dimensioned, types) { dimensioned.groupingBy { it.subjectType }.eachCount() }
+
+    /** 分类计数：套用当前类型/时间维度，与列表里看到的条数一致 */
+    fun countOf(list: List<Notification>): List<Notification> = list
+        .filter { types.isEmpty() || it.subjectType in types }
+        .filter { maxAge == null || now - it.updatedAtMs <= maxAge }
+
+    val categoryCounts = remember(items, participatingItems, doneItems, types, range) {
+        mapOf(
+            NotifCategory.UNREAD to countOf(liveItems.filter { it.unread }).size,
+            NotifCategory.ALL to countOf(liveItems).size,
+            NotifCategory.PARTICIPATING to countOf(
+                participatingItems?.filterNot { it.id in doneIds }
+                    ?: liveItems.filter { isParticipating(it.reason) },
+            ).size,
+            NotifCategory.DONE to countOf(doneItems).size,
+        )
+    }
+
 
     val listState = rememberLazyListState()
 
@@ -446,16 +548,27 @@ fun NotificationScreen(
     }
 
     /** 单条已读：乐观更新 → 远端 PATCH → 失败回滚。不跳转。 */
+    /**
+     * 把「行 id」展开成「要写远端的全部 thread id」——折叠行代表 N 条，写的时候必须逐条打散。
+     *
+     * 只认折叠行自己的 id：不能靠 `id in n.allIds` 之类反查，那样 `["a","b"]` 碰巧覆盖到
+     * 另一折的 id 时会连带把无关条目也标掉。
+     */
+    fun expandFoldIds(ids: Collection<String>): List<String> =
+        rows.filter { it.id in ids }.flatMap { it.allIds }.distinct()
+
     fun markReadRemote(n: Notification) {
+        val ids = n.allIds
         scope.launch {
-            val ok = RustBridge.markNotificationRead(host, token, n.id)
+            val ok = ids.all { RustBridge.markNotificationRead(host, token, it) }
             if (ok) {
                 invalidateOnRead()
             } else if (n.unread) {
-                // 同一 thread 的其它行不受影响：按 id 精确回滚
-                NotifReadStore.remove(context, listOf(n.id))
-                items = items.map { if (it.id == n.id) it.copy(unread = true) else it }
-                NotifSnapshot.mutate { snap -> snap.map { if (it.id == n.id) it.copy(unread = true) else it } }
+                // 同一 thread 的其它行不受影响：按 id 精确回滚。折叠行整体回滚 ——
+                // 半读的折叠行会让「连续失败 N 次」这句话与视觉状态自相矛盾。
+                NotifReadStore.remove(context, ids)
+                items = items.map { if (it.id in ids) it.copy(unread = true) else it }
+                NotifSnapshot.mutate { snap -> snap.map { if (it.id in ids) it.copy(unread = true) else it } }
                 toast(context, "标记已读失败，请重试")
             }
         }
@@ -603,12 +716,14 @@ fun NotificationScreen(
      * 长按面板的单条「标记完成」是纯本地的空操作（且因为长按接线错，那个按钮当时还点不到）。
      */
     fun markDoneRemote(n: Notification) {
-        val unreadBefore = mapOf(n.id to n.unread)
+        val ids = n.allIds
+        val unreadBefore = n.allIds.associateWith { n.unread }
         val archiveBefore = NotifArchive.entries(context)
         val readBefore = NotifReadStore.ids(context)
         markDoneLocal(listOf(n))
         scope.launch {
-            val ok = RustBridge.markNotificationDone(host, token, n.id)
+            // 折叠行整体写：远端逐条 DELETE（GitHub 的 done 是 per-thread 的）
+            val ok = ids.all { RustBridge.markNotificationDone(host, token, it) }
             if (ok) {
                 invalidateOnRead()
             } else {
@@ -627,7 +742,11 @@ fun NotificationScreen(
      */
     fun runBulk(op: BulkOp, targetIds: Set<String>) {
         if (bulkRunning || targetIds.isEmpty()) return
-        val targets = items.filter { it.id in targetIds }
+        // 「行 id」→ 实际要写的**条目**：折叠行代表 N 条，全部都要写。
+        // 不展开的话，把一折标为已读后有 7 条留在服务端未读，刷新回来又组成一个新的折叠行
+        // （表现为「标了已读没生效」）。
+        val targetIdList = expandFoldIds(targetIds)
+        val targets = items.filter { it.id in targetIdList }
         if (targets.isEmpty()) return
 
         val unreadBefore = targets.associate { it.id to it.unread }
@@ -636,10 +755,18 @@ fun NotificationScreen(
         val seq = ++bulkSeq
 
         bulkRunning = true
-        // ① 本地乐观更新
+        // ① 本地乐观更新：
+        // 列表按 id 逐条改未读标志 **且不以「当前是否未读」为条件** ——
+        // 折叠行在界面上是一个已读点，但组内可能还有几条已经在别处被标过，这里统一改到位；
+        // 「归档」走 thread 粒度，只喂**代表行**（组内 8 条是 8 次运行，留 8 条归档记录没有意义）。
+        val reps = rows.filter { it.id in targetIds }
         when (op) {
-            BulkOp.READ -> markReadLocal(targets)
-            BulkOp.DONE -> markDoneLocal(targets)
+            BulkOp.READ -> {
+                NotifReadStore.add(context, targets.map { it.id })
+                items = items.map { if (it.id in targetIdList) it.copy(unread = false) else it }
+                markReadLocal(reps)
+            }
+            BulkOp.DONE -> markDoneLocal(reps)
             BulkOp.MUTE -> Unit // 静音只动远端，本地不隐藏（用户可能还想看）
         }
 
@@ -655,27 +782,32 @@ fun NotificationScreen(
                 if (!ok) failed += n
                 if (index != targets.lastIndex) delay(NOTIF_BULK_GAP_MS)
             }
-            // ③ 终态：**只回滚失败的那些**（规则见 [bulkRollbackTargets]，纯函数、有单测）。
-            // 整批回滚会把远端已经改成功的条目在本地又变回未读 —— 用户看到「批量失败」，
-            // 过一会儿下拉刷新，其中一部分又自己变回已改；本地与远端在这段窗口里并不一致，
-            // 而「回滚是为了跟远端一致」恰恰是整批回滚的理由。静音不改本地状态，没有可回滚的。
-            val toRollback = bulkRollbackTargets(targets, failed.map { it.id }.toSet(), op)
-            if (toRollback.isNotEmpty()) {
-                rollbackLocal(toRollback, unreadBefore, archiveBefore, readBefore)
+            // ③ 终态：**只回滚失败的那些**（规则见 [bulkRollbackTargets]，纯函数、有单测）；
+            // 折叠行按**整行**回滚（[rollingBackRows]）—— 一折里 8 条只失败 2 条时，
+            // 把折叠行显示成「已读」而其中两条还挂着未读，行状态与「连续失败 N 次」的表述自相矛盾。
+            val failedIds = failed.map { it.id }.toSet()
+            // 要回滚的**行**：折叠行只要有一条失败就整行回滚（判据见 [rollingBackRows]）
+            val rowsDone = rollingBackRows(rows, if (op == BulkOp.MUTE) emptySet() else failedIds)
+            // 要回滚的**条目**：折叠行整行回滚，普通行只有自己
+            val rollbackItems = targets.filter { n -> rowsDone.any { n.id in it.allIds } }
+            if (rollbackItems.isNotEmpty()) {
+                rollbackLocal(rollbackItems, unreadBefore, archiveBefore, readBefore)
             }
             val what = when (op) {
                 BulkOp.READ -> "标记已读"
                 BulkOp.DONE -> "标记完成"
                 BulkOp.MUTE -> "静音"
             }
+            // 计数一律按**行**（折叠行算一条）：界面上一折就是一行，
+            // 报「成功 8 条」而屏幕上只动了一行，会让人以为误伤了别的消息
             if (failed.isNotEmpty()) {
-                toast(context, "$what：成功 ${targets.size - failed.size} 条，失败 ${failed.size} 条")
+                toast(context, "$what：成功 ${reps.size - rowsDone.size} 条，失败 ${rowsDone.size} 条")
             } else {
                 invalidateOnRead()
                 // 静音在本地没有任何可见状态可回退（远端也没有 subscribe 接口），
                 // 因此不给撤销 —— 给一个按下去什么都不变的「撤销」比不给更糟。
                 if (op != BulkOp.MUTE) {
-                    undo = UndoState("${targets.size} 条已$what") {
+                    undo = UndoState("${reps.size} 条已$what") {
                         rollbackLocal(targets, unreadBefore, archiveBefore, readBefore)
                     }
                 }
@@ -689,75 +821,14 @@ fun NotificationScreen(
                 exitSelection()
             } else {
                 // 失败的保留选中：用户可以直接再点一次重试，不用重新一条条勾。
-                selectedIds = failed.map { it.id }.toSet()
+                // 值取**行 id**：折叠行失败时选中的是那一行，而不是组内某一条看不见的 id。
+                selectedIds = rowsDone.map { it.id }.toSet()
                 anchorId = selectedIds.firstOrNull()
             }
         }
     }
 
-    // ── 可见数据 ──
-    // 计算顺序固定为「分类基准 → 类型/时间维度 → 排序」，三段各自独立、可分别解释；
-    // 之前是「先按类型/时间过滤再各分类各写一遍」，加一个分类就要复制一遍过滤逻辑。
-    val now = System.currentTimeMillis()
-    val liveItems = items.filterNot { it.id in doneIds }
-    val doneItems = remember(archive) { archive.filter { it.isDone }.map { it.toNotification() } }
 
-    val categoryBase: List<Notification> = when (category) {
-        NotifCategory.UNREAD -> liveItems.filter { it.unread }
-        NotifCategory.ALL -> liveItems
-        // 服务端口径优先；尚未拉到（或请求失败）时退回 reason 近似口径：
-        // 近似口径会漏掉「我在该 thread 里评论过但没被 @」的会话，但绝不会漏掉 @我 / 指派给我 / 我发起的。
-        NotifCategory.PARTICIPATING -> participatingItems?.filterNot { it.id in doneIds }
-            ?: liveItems.filter { isParticipating(it.reason) }
-        NotifCategory.DONE -> doneItems
-    }
-    val maxAge = range.maxAgeMs
-    val dimensioned = categoryBase
-        .filter { types.isEmpty() || it.subjectType in types }
-        .filter { maxAge == null || now - it.updatedAtMs <= maxAge }
-    val visible = sortedNotifications(dimensioned, sort)
-
-    /**
-     * 当前**可见**的 id 集合（渲染口径），以及收敛后的选中集合。
-     *
-     * 为什么要收敛：`selectedIds` 是「用户点过的 id」，而列表会因为换分类 / 类型 / 时间范围 /
-     * 下拉刷新 / 「完成」归档而换一批条目。若直接用 `selectedIds`：
-     * - 「全选」判断 `selectedIds.size >= visible.size` 会失真（集合里混着看不见的 id）；
-     * - 批量操作（已读 / 完成 / 静音 / 复制链接）会作用到**屏幕上根本看不到**的条目。
-     * 所以对外一律用 [selected]（= 选中集合 ∩ 可见集合），`selectedIds` 只作为原始记录保留。
-     */
-    val visibleIds = visible.map { it.id }.toSet()
-    val selected = remember(selectedIds, visibleIds) { effectiveSelection(selectedIds, visibleIds) }
-    val allVisibleSelected = isAllVisibleSelected(selectedIds, visibleIds)
-
-    // 渲染顺序（区间 / 刷选依赖它）：与 [NotificationList] 的分组顺序保持一致
-    val renderOrder = remember(visible, layout.value) { renderOrderIds(visible, layout.value) }
-
-    // 未读数上报（驱动底部导航 badge）：始终基于「全部」列表，不受当前筛选影响
-    val unread = liveItems.count { it.unread }
-    LaunchedEffect(unread) { onUnreadCountChange(unread) }
-
-    val allTypes = remember(items.map { it.subjectType }) {
-        items.map { it.subjectType }.distinct().filter { it.isNotBlank() }
-    }
-    val typeCounts = remember(dimensioned, types) { dimensioned.groupingBy { it.subjectType }.eachCount() }
-
-    /** 分类计数：套用当前类型/时间维度，与列表里看到的条数一致 */
-    fun countOf(list: List<Notification>): List<Notification> = list
-        .filter { types.isEmpty() || it.subjectType in types }
-        .filter { maxAge == null || now - it.updatedAtMs <= maxAge }
-
-    val categoryCounts = remember(items, participatingItems, doneItems, types, range) {
-        mapOf(
-            NotifCategory.UNREAD to countOf(liveItems.filter { it.unread }).size,
-            NotifCategory.ALL to countOf(liveItems).size,
-            NotifCategory.PARTICIPATING to countOf(
-                participatingItems?.filterNot { it.id in doneIds }
-                    ?: liveItems.filter { isParticipating(it.reason) },
-            ).size,
-            NotifCategory.DONE to countOf(doneItems).size,
-        )
-    }
 
     /** 生效中的筛选维度数（FAB 徽标） */
     val activeDims = (if (category != NotifCategory.UNREAD) 1 else 0) +
@@ -807,11 +878,18 @@ fun NotificationScreen(
                     unread = unread,
                     onRefresh = { load(force = true) },
                     onMarkAllRead = {
-                        val targets = items.filter { it.unread }
-                        // 操作前这些条目都是未读；回滚要按 id 精确恢复，不能整表替换
-                        val unreadBefore = targets.associate { it.id to true }
+                        // 走 mark-all-read 端点（服务端一次清空），因此这里只要能**报准数**即可；
+                        // 但本地已读集合必须按 id 逐条写全（折叠行代表组内 N 条），
+                        // 否则刷新后剩下那几条会重新组一折冒出来。
+                        // markReadLocal 只覆盖代表行，组内其余 id 要在这里补齐。
+                        val targets = rows.filter { it.unread }
+                        val ids = targets.flatMap { it.allIds }
+                        val extraIds = ids.filterNot { id -> targets.any { it.id == id } }
+                        // 这些条目操作前都是未读；回滚要按 id 精确恢复，不能整表替换
+                        val unreadBefore = ids.associateWith { true }
                         val readBefore = NotifReadStore.ids(context)
                         val archiveBefore = NotifArchive.entries(context)
+                        NotifReadStore.add(context, extraIds)
                         markReadLocal(targets)
                         scope.launch {
                             val ok = RustBridge.markAllNotificationsRead(host, token)
@@ -854,7 +932,7 @@ fun NotificationScreen(
             ) {
                 NotificationList(
                     state = loadState,
-                    rows = visible,
+                    rows = rows,
                     category = category,
                     layout = layout.value,
                     expandedGroups = expandedGroups.value,
@@ -871,6 +949,10 @@ fun NotificationScreen(
                     previews = previews,
                     selectedIds = selected,
                     listState = listState,
+                    foldExpanded = foldExpanded,
+                    onToggleFold = { key ->
+                        foldExpanded = if (key in foldExpanded) foldExpanded - key else foldExpanded + key
+                    },
                     onClick = { onNotifClick(it) },
                     // 长按 → 快捷动作面板（**不是**直接进多选）：想「只把这一条标成已读」时，
                     // 先长按进多选再点「已读」多一步、且列表结构已经变了。多选是面板里的一个显式选项。
@@ -992,7 +1074,13 @@ fun NotificationScreen(
             onDismiss = { sheetTarget = null },
             onMarkRead = { markReadLocal(listOf(target)); markReadRemote(target); sheetTarget = null },
             onMarkUnread = {
-                if (bulkMode) markUnreadLocal(items.filter { it.id in selected }) else markUnreadLocal(listOf(target))
+                // 折叠行整行恢复未读：组内 N 条都要动，只动代表那条会让折叠行「半读」
+                if (bulkMode) {
+                    val ids = expandFoldIds(selected).toSet()
+                    markUnreadLocal(items.filter { it.id in ids })
+                } else {
+                    markUnreadLocal(items.filter { it.id in target.allIds.toSet() })
+                }
                 sheetTarget = null
             },
             onMarkDone = {
@@ -1000,15 +1088,17 @@ fun NotificationScreen(
                 sheetTarget = null
             },
             onMute = {
+                // 折叠行代表 N 条，逐条静音 —— 只静音代表那条，其余几条下次仍会推送
+                val ids = expandFoldIds(if (bulkMode) selected else setOf(target.id))
                 scope.launch {
-                    val ok = RustBridge.unsubscribeThread(host, token, target.id)
+                    val ok = ids.all { RustBridge.unsubscribeThread(host, token, it) }
                     if (ok) toast(context, "已静音该会话") else toast(context, "静音失败，请重试")
                 }
                 sheetTarget = null
             },
             onCopyLink = {
-                if (bulkMode) copyLinks(context, items.filter { it.id in selected })
-                else copyThreadLink(context, target)
+                if (bulkMode) copyLinks(context, items.filter { it.id in expandFoldIds(selected).toSet() })
+                else copyLinks(context, items.filter { it.id in target.allIds.toSet() })
                 sheetTarget = null
             },
             onOpenBrowser = { openInBrowser(context, target); sheetTarget = null },
@@ -1159,6 +1249,8 @@ private fun NotificationList(
     previews: Map<String, NotificationPreview>,
     selectedIds: Set<String>,
     listState: LazyListState,
+    foldExpanded: Set<String>,
+    onToggleFold: (String) -> Unit,
     onClick: (Notification) -> Unit,
     onLongClick: (Notification) -> Unit,
     onToggleSelection: (String) -> Unit,
@@ -1210,8 +1302,10 @@ private fun NotificationList(
             // 多选态把整个列表标记为「可选择集合」：读屏会把每个 selectable 行播报成
             // 「第 x 项，共 y 项」，否则每行都是孤立控件，用户不知道自己在列表里的位置。
             .then(if (selectionEnabled) Modifier.selectableGroup() else Modifier),
-        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 110.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        // 列表用**行 + 分隔线**，不给每行套卡片盒：浅色主题下卡片底与页面底都是纯白，
+        // 卡片其实只靠那圈灰边撑着，一屏十几个盒子就是「空格子」观感的来源。
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 110.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         when (state) {
             LoadState.Loading -> {
@@ -1233,12 +1327,16 @@ private fun NotificationList(
                 if (rows.isEmpty()) {
                     item(key = "__empty__") { EmptyState(category, typeFiltered) }
                 } else {
+                    // 末行 id：分隔线只在行与行之间画，列表底不该多一条线
+                    val lastRowId = rows.lastOrNull()?.id
                     val rowContent: @Composable (Notification) -> Unit = { n ->
                         NotificationRow(
                             n = n,
                             preview = previews[n.id],
                             selectionEnabled = selectionEnabled,
                             selected = n.id in selectedIds,
+                            foldOpen = n.id in foldExpanded,
+                            onToggleFold = { onToggleFold(n.id) },
                             onClick = { onClick(n) },
                             // 多选态下长按交给容器做区间/刷选，行不再触发「进入多选」
                             onLongClick = if (selectionEnabled) null else ({ onLongClick(n) }),
@@ -1250,7 +1348,13 @@ private fun NotificationList(
                         NotifLayout.FLAT -> {
                             items(rows, key = { it.id }) { n ->
                                 // 增删动画：拉到新通知时滑入、已读移除时收起（列表带 key，位置动画才有意义）
-                                Box(Modifier.animateItem()) { rowContent(n) }
+                                Box(Modifier.animateItem()) {
+                                    Column {
+                                        rowContent(n)
+                                        // 末行不画分隔线（下面就是列表底）
+                                        if (n.id != lastRowId) RowDivider()
+                                    }
+                                }
                             }
                         }
                         NotifLayout.GROUP_BY_REPO -> {
@@ -1386,8 +1490,24 @@ internal fun groupSelectedState(ids: List<String>, selected: Set<String>): Group
 
 internal enum class GroupSelectState { NONE, ALL, MIXED }
 
+/** 行分隔线：行形态下用它代替「每张卡一圈边框」，只做分组提示，刻意画得极轻。 */
+@Composable
+private fun RowDivider() {
+    // 在组合里取色：drawBehind 的 lambda 不是 @Composable
+    val color = Primer.Gray150
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .drawBehind { drawRect(color = color) },
+    )
+}
+
 /**
  * 单条消息行。
+ *
+ * 形态是**行 + 分隔线**，不是卡片盒：浅色主题下卡片底与页面底都是纯白（`canvas = canvasSubtle`），
+ * 卡片原本只靠那圈灰边撑着，一屏十几个盒子就是「空格子」观感的来源。
  *
  * 识别特征保留「类型图标块」；未读额外有左侧 3dp 蓝色竖条 + 极浅蓝底 + 加粗标题 + 尾点
  * （多重视觉冗余，不依赖单一信号，色弱 / 灰度屏也能区分）。
@@ -1399,12 +1519,11 @@ internal enum class GroupSelectState { NONE, ALL, MIXED }
  * 先给坐标再读标题；预览仍是「要不要点进去」的依据，但标题必须是第一眼看到的那一行。
  *
  * ```
- * ┌ Card ─────────────────────────────────────────────┐
- * │▍ ┌──────┐  仓库 #号 · 原因 · 时间                   │
- * │▍ │ 识别 │  标题（最多 2 行）                        │
- * │▍ │ 槽位 │  评论预览（作者：正文）                    │
- * │▍ └──────┘                                         │
- * └───────────────────────────────────────────────────┘
+ *  ▍┌──────┐  仓库 #号 · [原因]              2 天前
+ *  ▍│ 识别 │  标题（最多 2 行）
+ *  ▍│ 槽位 │  评论预览（作者：正文）
+ *  ▍└──────┘  ⌄ 展开其余 7 次        ← 折叠行才有（见 FoldExpandRow）
+ * ─────────────────────────────────────────────────  ← 1dp 分隔线
  *  ▍ = 未读竖条（overlay 绘制，不占布局宽度）
  * ```
  *
@@ -1433,15 +1552,35 @@ private fun NotificationRow(
     preview: NotificationPreview? = null,
     selectionEnabled: Boolean,
     selected: Boolean,
+    /** 折叠行是否已展开（见 [NotifFold]；普通行恒为 false） */
+    foldOpen: Boolean,
+    onToggleFold: () -> Unit,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)?,
     onToggleSelection: () -> Unit,
     onSwipeRead: () -> Unit,
 ) {
+    val haptics = LocalHapticFeedback.current
+    // 按下反馈：缩放值在 graphicsLayer 里读，只在绘制阶段消费（不触发每帧重组）。
+    // ⚠️ graphicsLayer 必须排在 clip/background **之前** —— 否则只缩内容不缩底。
+    val press = rememberPressFeedback(pressedScale = 0.985f)
+    val rowShape = RoundedCornerShape(8.dp)
     SwipeToReadRow(enabled = !selectionEnabled && n.unread, onRead = onSwipeRead) {
-        Card(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .graphicsLayer {
+                    scaleX = press.scale.value
+                    scaleY = press.scale.value
+                }
+                .clip(rowShape)
+                .background(
+                    when {
+                        selected -> Primer.Blue500.copy(alpha = 0.08f)
+                        n.unread -> Primer.Blue500.copy(alpha = 0.04f)
+                        else -> Color.Transparent
+                    },
+                )
                 // 多选态用 selectable + Role.Checkbox：读屏会播报「已选中 / 未选中，复选框」；
                 // 只画一个方框（不带语义）时，无障碍用户完全不知道行处于什么选择状态。
                 .then(
@@ -1449,38 +1588,39 @@ private fun NotificationRow(
                         Modifier.selectable(
                             selected = selected,
                             role = Role.Checkbox,
+                            interactionSource = press.interaction,
+                            indication = null,
                             onClick = onToggleSelection,
                         )
                     } else {
-                        Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                        Modifier.combinedClickable(
+                            interactionSource = press.interaction,
+                            indication = null,
+                            // 长按 → 快捷动作面板，补一次触觉确认：
+                            // 没有反馈就分不清「长按没生效」还是「这一行本来就没反应」
+                            onLongClick = onLongClick?.let { action ->
+                                {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    action()
+                                }
+                            },
+                            onClick = onClick,
+                        )
                     },
                 ),
-            shape = RoundedCornerShape(8.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = when {
-                    selected -> Primer.Blue500.copy(alpha = 0.08f)
-                    n.unread -> Primer.Blue500.copy(alpha = 0.04f)
-                    else -> Primer.BackgroundSecondary
-                },
-            ),
-            // 已读行靠 1dp 边框与极浅蓝底区分，不靠投影（通知列表密度高，投影会糊成一片）
-            border = BorderStroke(
-                1.dp,
-                when {
-                    selected -> Primer.Blue500
-                    n.unread -> Primer.Blue500.copy(alpha = 0.20f)
-                    else -> Primer.Gray150
-                },
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         ) {
-            val unreadBar = Primer.Blue500
+            val unreadBar = Primer.AccentText
             Box(Modifier.fillMaxWidth()) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp),
                     verticalAlignment = Alignment.Top,
                 ) {
-                    NotificationLead(selectionEnabled = selectionEnabled, selected = selected, n = n)
+                    NotificationLead(
+                        selectionEnabled = selectionEnabled,
+                        selected = selected,
+                        n = n,
+                        foldCount = n.fold?.count ?: 1,
+                    )
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         // 元信息行（仓库 #号 · 原因 · 时间）提到标题**上方** —— 排布对齐 DioHub - Dev：
@@ -1495,21 +1635,25 @@ private fun NotificationRow(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f, fill = false),
                             )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                n.reasonLabel,
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = n.reasonColor.color(),
-                                maxLines = 1,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(9.dp))
-                                    .background(n.reasonColor.color().copy(alpha = 0.12f))
-                                    .padding(horizontal = 7.dp, vertical = 1.dp),
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            // 相对时间在**渲染期**由原始时间戳算出：快照 / 缓存里的时间不会失真
-                            Text(relativeTimeOf(n.updatedAtMs), fontSize = 11.sp, color = Primer.TextTertiary)
+                            // 原因标签只在「这条通知要我动手」时出现（见 Notification.reasonHighSignal）：
+                            // 同屏 8 个「CI 运行结果」只是重复占位，结论已经在标题里。
+                            // 文案没丢 —— 长按动作面板仍会读 reasonLabel。
+                            if (n.reasonHighSignal) {
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    n.reasonLabel,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    // 用**文字色**角色而不是填充色：填充色压在自己的 12% 浅底上
+                                    // 过不了 WCAG AA（WARNING 只有 2.6、DANGER 3.9、ACCENT 4.4）
+                                    color = n.reasonColor.textColor(),
+                                    maxLines = 1,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(9.dp))
+                                        .background(n.reasonColor.textColor().copy(alpha = 0.12f))
+                                        .padding(horizontal = 7.dp, vertical = 1.dp),
+                                )
+                            }
                         }
                         Spacer(Modifier.height(4.dp))
                         Text(
@@ -1520,6 +1664,22 @@ private fun NotificationRow(
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
+                        // 折叠行：展开其余运行的入口。没有这个入口，用户会以为消息被吞了 ——
+                        // 收起时也必须让人看出「这里其实是 N 条」。
+                        // isFolded ⟺ fold != null（见 Notification.isFolded），这里一次收口，
+                        // 免得在行渲染里堆 !! 与 ?. 两种写法
+                        val fold = n.fold
+                        if (n.isFolded && fold != null) {
+                            Spacer(Modifier.height(6.dp))
+                            FoldExpandRow(
+                                fold = fold,
+                                open = foldOpen,
+                                onToggle = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onToggleFold()
+                                },
+                            )
+                        }
                         // 动态预览（最新评论「作者：正文」）下移到标题**下方** —— 对齐 DioHub - Dev，
                         // 它把「最新动态」放在卡片最底。预览仍是「要不要点进去」的关键依据，
                         // 但标题永远是第一眼看到的那一行。未取到（未预取 / 取失败 / 正文为空）时整行不占位。
@@ -1544,9 +1704,14 @@ private fun NotificationRow(
                             }
                         }
                     }
-                    if (n.unread && !selectionEnabled) {
-                        Spacer(Modifier.width(8.dp))
-                        Box(Modifier.padding(top = 6.dp).size(8.dp).clip(CircleShape).background(Primer.Blue500))
+                    Spacer(Modifier.width(8.dp))
+                    Column(horizontalAlignment = Alignment.End) {
+                        // 相对时间在**渲染期**由原始时间戳算出：快照 / 缓存里的时间不会失真
+                        Text(relativeTimeOf(n.updatedAtMs), fontSize = 11.sp, color = Primer.TextTertiary)
+                        if (n.unread && !selectionEnabled) {
+                            Spacer(Modifier.height(5.dp))
+                            Box(Modifier.size(8.dp).clip(CircleShape).background(unreadBar))
+                        }
                     }
                 }
                 // 未读竖条：overlay 画在最上层，不参与测量（正文宽度与已读行完全一致）
@@ -1563,26 +1728,131 @@ private fun NotificationRow(
 }
 
 /**
+ * 折叠行的「展开其余 N 次 / 收起」控件 + 展开后的逐条运行明细。
+ *
+ * 明细里保留每一次运行的**原始标题与时间**，所以折叠不丢信息：收起来是「今天挂了几次」，
+ * 展开是「哪几次、什么时候」。
+ */
+@Composable
+private fun FoldExpandRow(fold: NotifFold, open: Boolean, onToggle: () -> Unit) {
+    // 在组合里取色（drawBehind 的 lambda 不是 @Composable，里面读不到 Primer）
+    val railColor = Primer.Gray200
+    Column(Modifier.fillMaxWidth()) {
+        Surface(
+            shape = RoundedCornerShape(7.dp),
+            color = Color.Transparent,
+            border = BorderStroke(1.dp, if (open) Primer.Blue500.copy(alpha = 0.35f) else Primer.Gray200),
+            modifier = Modifier
+                .clip(RoundedCornerShape(7.dp))
+                .clickable(onClick = onToggle),
+        ) {
+            Row(
+                Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    if (open) "收起" else "展开其余 ${fold.count - 1} 次",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Primer.AccentText,
+                )
+                Spacer(Modifier.width(4.dp))
+                val rotation by animateFloatAsState(if (open) 180f else 0f, label = "fold-chevron")
+                Icon(
+                    Icons.Filled.ExpandMore,
+                    contentDescription = null,
+                    tint = Primer.AccentText,
+                    modifier = Modifier.size(13.dp).rotate(rotation),
+                )
+            }
+        }
+        AnimatedVisibility(visible = open, enter = revealEnter(), exit = revealExit()) {
+            Column(
+                Modifier
+                    .padding(top = 6.dp, start = 2.dp)
+                    .drawBehind {
+                        // 左侧 2dp 竖线：把明细「挂在」折叠行下面，而不是看起来像新的几条消息
+                        drawRect(
+                            color = railColor,
+                            size = Size(width = 2.dp.toPx(), height = size.height),
+                        )
+                    }
+                    .padding(start = 9.dp),
+            ) {
+                fold.runs.forEach { run ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            run.title,
+                            fontSize = 11.5.sp,
+                            color = Primer.TextTertiary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(relativeTimeOf(run.updatedAtMs), fontSize = 11.sp, color = Primer.TextTertiary)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
  * 行首「识别槽」——固定 32dp，**任何模式下都占位**。
  *
  * 固定宽度的意义有两条：
  * 1. 普通态 ↔ 多选态切换时**标题左边界不动**（旧版 32dp 图标 → 24dp 复选框，标题会左右跳）；
  * 2. 让「方框压到标题」在结构上不可能发生 —— 方框最大 20dp，槽位 32dp，正文从槽位右侧 10dp 才开始。
+ *
+ * [foldCount] > 1 时（折叠行）图标块右下角挂一个「×N」计数徽标，并补一层错位的圆角描边 ——
+ * 一眼看出「这里其实是 N 条」。**不加底色**：图标用文字色后不需要同色底来衬，
+ * 而深色主题下那层 12% 同色底几乎看不见，白占一层。
  */
 @Composable
-private fun NotificationLead(selectionEnabled: Boolean, selected: Boolean, n: Notification) {
+private fun NotificationLead(selectionEnabled: Boolean, selected: Boolean, n: Notification, foldCount: Int) {
     Box(Modifier.size(32.dp), contentAlignment = Alignment.TopStart) {
         if (selectionEnabled) {
             SelectionCheckbox(checked = selected, modifier = Modifier.padding(top = 2.dp))
         } else {
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(n.tint.color().copy(alpha = 0.12f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(n.icon, contentDescription = n.subjectType, tint = n.tint.color(), modifier = Modifier.size(18.dp))
+            Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+                if (foldCount > 1) {
+                    // 只做「还有几条」的暗示：不参与语义（读屏从行文案就能知道条数）
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .offset(x = 2.5.dp, y = 2.5.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(1.dp, Primer.Gray200, RoundedCornerShape(8.dp)),
+                    )
+                }
+                Icon(
+                    n.icon,
+                    contentDescription = n.subjectType,
+                    tint = n.tint.textColor(),
+                    modifier = Modifier.size(18.dp),
+                )
+                if (foldCount > 1) {
+                    Box(
+                        Modifier
+                            .align(Alignment.BottomEnd)
+                            .offset(x = 5.dp, y = 4.dp)
+                            .clip(RoundedCornerShape(7.dp))
+                            .background(Primer.Blue500)
+                            .padding(horizontal = 4.5.dp, vertical = 2.5.dp),
+                    ) {
+                        Text(
+                            "×$foldCount",
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            lineHeight = 9.5.sp,
+                        )
+                    }
+                }
             }
         }
     }
@@ -1801,7 +2071,10 @@ private fun ErrorState(message: String, onRetry: () -> Unit) {
 
 /**
  * 骨架行：**结构与尺寸都与 [NotificationRow] 一一对应**
- * （同 Card 圆角 8dp / 同边框 / 同内边距 10dp / 图标 32dp / 标题行 18dp + 间隔 5dp + meta 行 15dp）。
+ * （同行高：内边距 12/11dp / 图标 32dp / meta 行 15dp + 间隔 5dp + 标题行 18dp）。
+ *
+ * 注意行形态之后**没有卡片盒了**，骨架也不该再画一圈边框 —— 否则加载完会「抖」一下：
+ * 骨架看起来是一叠卡片、结果是分隔线列表。骨架屏与真实行的结构必须同步改，这是老坑。
  *
  * 现在只在一件事上会看到它：首页阶段没有预取到快照（计费网络 / 关闭了预加载开关 / 刚登录）。
  */
@@ -1811,29 +2084,21 @@ private fun NotificationSkeleton() {
     // 占位块一律用 [skeletonBlock]：微光值在绘制期读。
     // 早先的写法是 `background(color.copy(alpha = shimmer))` —— 组合期读状态，
     // 6 行骨架各挂一条无限动画，加载时每帧把整块骨架重组一遍。
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = Primer.BackgroundSecondary),
-        border = BorderStroke(1.dp, Primer.Gray150),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.Top,
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.Top,
-        ) {
-            Box(
-                Modifier
-                    .size(32.dp)
-                    .skeletonBlock(cornerRadius = 8.dp),
-            )
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                // 顺序与真实卡片一致：元信息行（仓库 · 时间）在上，标题在下
-                Box(Modifier.fillMaxWidth(0.42f).height(15.dp).skeletonBlock())
-                Spacer(Modifier.height(5.dp))
-                Box(Modifier.fillMaxWidth(0.72f).height(18.dp).skeletonBlock())
-            }
+        Box(
+            Modifier
+                .size(32.dp)
+                .skeletonBlock(cornerRadius = 8.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            // 顺序与真实行一致：元信息行（仓库 · 时间）在上，标题在下
+            Box(Modifier.fillMaxWidth(0.42f).height(15.dp).skeletonBlock())
+            Spacer(Modifier.height(5.dp))
+            Box(Modifier.fillMaxWidth(0.72f).height(18.dp).skeletonBlock())
         }
     }
 }
@@ -1987,6 +2252,20 @@ internal fun bulkRollbackTargets(
     op: BulkOp,
 ): List<Notification> =
     if (op == BulkOp.MUTE) emptyList() else targets.filter { it.id in failedIds }
+
+/**
+ * 批量失败后要整行回滚的**行**（纯函数，钉子在 `NotificationBulkRollbackTest`）。
+ *
+ * 折叠行是一个「汇总」：它显示的未读点与「连续失败 N 次」是一句话。组内 8 条只失败 2 条时，
+ * 若按条回滚，界面会显示这一折仍是「已读」而其中两条在服务端还是未读 ——
+ * 刷新后它们会重新组一折冒出来，与 [bulkRollbackTargets] 要解决的「本地与远端不一致」是同一个问题。
+ * 所以折叠行**要么整行成功、要么整行回滚**。
+ *
+ * 返回的是行（[Notification]）而不是 id：调用方既要用它回滚条目，也要用它把「失败的行」留在选中态。
+ */
+internal fun rollingBackRows(rows: List<Notification>, failedIds: Set<String>): List<Notification> =
+    if (failedIds.isEmpty()) emptyList()
+    else rows.filter { row -> row.allIds.any { it in failedIds } }
 
 /** 批量操作顺序执行时每条之间的间隔（毫秒）：避免同一秒内连发多次写请求触发二级速率限制 */
 private const val NOTIF_BULK_GAP_MS = 120L

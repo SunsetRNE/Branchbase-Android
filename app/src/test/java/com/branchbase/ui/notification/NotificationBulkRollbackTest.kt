@@ -71,4 +71,54 @@ class NotificationBulkRollbackTest {
         assertTrue(bulkRollbackTargets(emptyList(), setOf("1"), BulkOp.READ).isEmpty())
         assertTrue(bulkRollbackTargets(emptyList(), emptySet(), BulkOp.DONE).isEmpty())
     }
+
+    // ───────────────── 折叠行：整行回滚（[rollingBackRows]） ─────────────────
+
+    private fun ci(id: String, ms: Long) = notificationOf(
+        id = id,
+        unread = true,
+        reason = "ci_activity",
+        subjectType = "CheckSuite",
+        title = "Build workflow run failed for main branch",
+        url = "https://api.github.com/repos/o/r/check-suites/$id",
+        latestCommentUrl = null,
+        repoFullName = "o/r",
+        updatedAtMs = ms,
+    )
+
+    /** 造一条「8 次运行折成一行」的行（固定时刻，避免跨天随机失败）。 */
+    private fun foldedRow(): Notification {
+        val day = 1_770_000_000_000L
+        return collapseCiRuns((1..8).map { ci("$it", day - it * 60_000L) })[0]
+    }
+
+    @Test
+    fun `折叠行里只失败一条时整行回滚`() {
+        // 一折 8 条只失败 1 条：按条回滚会让这一行显示成「已读」而其中一条在服务端还是未读，
+        // 刷新后它会重新组一折冒出来 —— 与「本地跟远端一致」是同一个问题。
+        val row = foldedRow()
+        assertEquals(8, row.allIds.size)
+        val rows = rollingBackRows(listOf(row), setOf("3"))
+        assertEquals(listOf(row.id), rows.map { it.id })
+        // 整行的 8 条 id 都要参与回滚
+        assertEquals(row.allIds.toSet(), rows.flatMap { it.allIds }.toSet())
+    }
+
+    @Test
+    fun `折叠行全部成功时不回滚`() {
+        assertTrue(rollingBackRows(listOf(foldedRow()), emptySet()).isEmpty())
+    }
+
+    @Test
+    fun `失败的是别的行时不牵连折叠行`() {
+        val row = foldedRow()
+        val other = n("999")
+        assertEquals(listOf("999"), rollingBackRows(listOf(row, other), setOf("999")).map { it.id })
+    }
+
+    @Test
+    fun `普通行仍按条回滚`() {
+        val rows = listOf(n("1"), n("2"), n("3"))
+        assertEquals(listOf("2"), rollingBackRows(rows, setOf("2")).map { it.id })
+    }
 }

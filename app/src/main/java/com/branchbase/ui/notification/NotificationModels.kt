@@ -78,14 +78,58 @@ data class Notification(
     val tint: TintRole,
     val reasonLabel: String,
     val reasonColor: TintRole,
+    // 「这条通知是否在等我动手」：列表里只给高信号的挂原因标签，低信号的（CI 结果 / 你订阅的 /
+    // 评论了…）不挂 —— 同一屏里 8 个「CI 运行结果」只是重复占位，结论已经在标题里了。
+    // 与 [_reasonHighSignal] 同源，文案本身不丢：长按动作面板仍在读 reasonLabel。
+    val reasonHighSignal: Boolean,
     val owner: String,
     val repo: String,
     val targetNumber: Long?,        // issue/PR/run/release 编号
     val targetSha: String?,         // commit sha
+    // ── 折叠（见 [collapseCiRuns]；由页面渲染前派生，不来自网络）──
+    val fold: NotifFold? = null,
 ) {
     /** issue / PR 这两类才有「内容预览」与「过往 Issue」语义。 */
     val issueLike: Boolean get() = subjectType == "Issue" || subjectType == "PullRequest"
+
+    /**
+     * 这一行**代表**的全部 thread id（折叠行 = 组内所有 id，普通行 = 只有自己）。
+     *
+     * 所有「按已读/完成写远端」的路径都必须用它，不能用 `id`：
+     * 折叠行显示的是「N 次运行」的**汇总状态**，只把代表那条标为已读，
+     * 刷新后剩下 N-1 条会重新组成一个新的折叠行冒出来（表现为「标记已读没生效」）。
+     */
+    val allIds: List<String> get() = fold?.ids ?: listOf(id)
+
+    /**
+     * 这一行**是不是**折叠行（组内 ≥ 2 条）。
+     *
+     * 判据必须是「count > 1」而不是「fold != null」：单条 CI 也带着 [fold]（组信息要留给
+     * 合并时用），但它不该呈现折叠 —— 否则界面上会渲染出「展开其余 0 次」这种不成立的说法。
+     */
+    val isFolded: Boolean get() = (fold?.count ?: 1) > 1
 }
+
+/**
+ * 折叠信息（**只在渲染层存在**，`GET /notifications` 不返回这个概念）。
+ *
+ * @param ids 组内全部 thread id，**首条是最新的那一次**（输入按时间倒序）
+ * @param workflowName 工作流名（从标题解析；解析不出时为 null，此时整组不折叠）
+ * @param branch 分支（同上）
+ * @param runs 组内每一次运行的标题 + 时间，供展开后逐条显示
+ */
+data class NotifFold(
+    val ids: List<String>,
+    val workflowName: String,
+    val branch: String,
+    val runs: List<NotifFoldRun>,
+) {
+    /** 组内条数（含代表那条）。 */
+    val count: Int get() = ids.size
+}
+
+/** 折叠组里的一次运行（标题与时间都取原始值，时间在渲染期算相对时间）。 */
+data class NotifFoldRun(val title: String, val updatedAtMs: Long)
 
 /** subject.type → (kind, 图标, 语义色, 标签) */
 private data class TypeMeta(val kind: NotifKind, val icon: ImageVector, val tint: TintRole, val label: String)
@@ -105,15 +149,28 @@ private val TYPE_META: Map<String, TypeMeta> = mapOf(
 
 private val FALLBACK_TYPE = TypeMeta(NotifKind.MESSAGE, Icons.Filled.Adjust, TintRole.NEUTRAL, "Notification")
 
-/** reason → (中文文案, 胶囊色) */
-private data class ReasonMeta(val label: String, val color: TintRole)
+/** reason → (中文文案, 标签色, 是否高信号) */
+/**
+ * reason → (中文文案, 标签色, 是否高信号)。
+ *
+ * [highSignal] 是**构造参数**而不是类体属性：调用点用命名参数写 `highSignal = true`，
+ * 写成类体属性则命名参数不成立（编译期直接报「No parameter with name」）。
+ */
+private data class ReasonMeta(val label: String, val color: TintRole, val highSignal: Boolean = false)
 
+/**
+ * 需要你**动手**的 reason 才在列表行里挂标签；其余（CI 结果 / 你订阅的 / 评论了 / 状态更新…）
+ * 一律不挂 —— 一屏 8 个「CI 运行结果」只是重复占位，而结论已经在标题里。
+ *
+ * 判据是「这条通知是否要求我做点什么」：被 @ / 被指派 / 被请求审查 / 安全警报都要求；
+ * 「你订阅的」与「CI 结果」只要求知道，不要求动作。
+ */
 private val REASON_META: Map<String, ReasonMeta> = mapOf(
-    "mention" to ReasonMeta("提到了你", TintRole.ACCENT),
-    "team_mention" to ReasonMeta("提到了你的团队", TintRole.ACCENT),
-    "review_requested" to ReasonMeta("请求你审查", TintRole.DONE),
-    "assign" to ReasonMeta("分配给了你", TintRole.WARNING),
-    "security_alert" to ReasonMeta("安全警报", TintRole.DANGER),
+    "mention" to ReasonMeta("提到了你", TintRole.ACCENT, highSignal = true),
+    "team_mention" to ReasonMeta("提到了你的团队", TintRole.ACCENT, highSignal = true),
+    "review_requested" to ReasonMeta("请求你审查", TintRole.DONE, highSignal = true),
+    "assign" to ReasonMeta("分配给了你", TintRole.WARNING, highSignal = true),
+    "security_alert" to ReasonMeta("安全警报", TintRole.DANGER, highSignal = true),
     "ci_activity" to ReasonMeta("CI 运行结果", TintRole.WARNING),
     "state_change" to ReasonMeta("状态更新", TintRole.SUCCESS),
     "comment" to ReasonMeta("评论了", TintRole.NEUTRAL_SUBTLE),
@@ -168,6 +225,115 @@ fun relativeTimeOf(ms: Long, nowMs: Long = System.currentTimeMillis()): String {
 }
 
 /**
+ * 折叠「同一仓库 + 同一工作流 + 同一分支 + 同一天」的**相邻** CI 通知（纯函数，钉子见
+ * `NotificationCiFoldTest`）。
+ *
+ * ## 为什么必须折叠
+ *
+ * 真机上（就是主分支上的一个仓库）连着 8 条 `Build workflow run failed for main branch`：
+ * 同仓库、同分支、同一天，标题逐字相同。逐条渲染就是一屏一模一样的行 —— 读不出「今天挂了几次」，
+ * 也不像消息列表。这与动态页「最近 30 条里 28 条是 PushEvent」是同一个问题，口径照抄
+ * [com.branchbase.ui.profile.collapsePushes]。
+ *
+ * ## 边界（与 collapsePushes 逐条对齐）
+ *
+ * - **只在相邻条目之间折叠**：输入必须已按时间倒序排好（页面走 [sortedNotifications]），
+ *   中间夹了别的通知就断开；
+ * - **不跨天**（本地时区）：跨天合并会把「今天 3 次 + 昨天 5 次」写成 8 次，那是在编造事实；
+ * - **工作流名与分支必须一致**：两者都从标题解析（[parseCheckSuiteTitle]）。解析不出来的
+ *   （标题格式变了 / 不是工作流通知）**不参与折叠** —— 宁可多几行，也不要猜错把两次不同的运行并成一条；
+ * - 组内保留**最新一次**（输入倒序 ⇒ 组内首条），它是这一组里唯一有定位价值的东西。
+ *
+ * 折叠后的代表行：`title` 换成汇总文案（`Build workflow 连续失败 · main`），`fold.count` 给出条数，
+ * `fold.runs` 保留每一次的原始标题与时间 —— 展开后逐条可读，信息一条不丢。
+ */
+fun collapseCiRuns(list: List<Notification>): List<Notification> {
+    val out = ArrayList<Notification>(list.size)
+    list.forEach { n ->
+        val last = out.lastOrNull()
+        // ⚠️ 与上一条比较时**不能**重新解析 last.title：折叠行的标题已经被改写成汇总文案
+        // （`Build workflow 连续失败 · main`），再解析必然失败 —— 那样任何一组都永远折不起来。
+        // 工作流名与分支随 fold 一起存着，直接比它。
+        val prev = last?.fold
+        val hint = ciRunHint(n)
+        if (last != null && prev != null && hint != null && sameRunGroup(last, prev, n, hint)) {
+            val runs = prev.runs + NotifFoldRun(n.title, n.updatedAtMs)
+            val ids = prev.ids + n.id
+            out[out.lastIndex] = last.copy(
+                fold = prev.copy(ids = ids, runs = runs),
+                title = foldedCiTitle(prev.workflowName, prev.branch, ids.size),
+            )
+        } else {
+            out += if (hint == null) {
+                n
+            } else {
+                n.copy(
+                    title = foldedCiTitle(hint.workflowName, hint.branch, 1),
+                    fold = NotifFold(
+                        ids = listOf(n.id),
+                        workflowName = hint.workflowName,
+                        branch = hint.branch,
+                        runs = listOf(NotifFoldRun(n.title, n.updatedAtMs)),
+                    ),
+                )
+            }
+        }
+    }
+    return out
+}
+
+/**
+ * 这一条能不能参与折叠：reason 必须是 `ci_activity`，且标题能解析出工作流名与分支。
+ *
+ * 解析不出来就返回 null —— 宁可多几行，也不要猜错把两次不同的运行并成一条。
+ * `reason` 也要卡：任何理由都可能挂着工作流形态的标题（例如 `subscribed`），
+ * 那些不是「CI 结果」，不该被折成「连续失败 N 次」。
+ */
+private fun ciRunHint(n: Notification): CheckSuiteHint? {
+    if (n.reason != CI_ACTIVITY) return null
+    return parseCheckSuiteTitle(n.title)
+}
+
+/** 相邻两条是否属于同一组折叠（同仓库 + 同类型 + 同工作流 + 同分支 + 同一天）。 */
+private fun sameRunGroup(
+    last: Notification,
+    prev: NotifFold,
+    n: Notification,
+    hint: CheckSuiteHint,
+): Boolean =
+    last.subjectType == n.subjectType &&
+        last.repoFullName == n.repoFullName &&
+        prev.workflowName == hint.workflowName &&
+        prev.branch == hint.branch &&
+        sameDay(last.updatedAtMs, n.updatedAtMs)
+
+/** CI 通知的 reason（GitHub 对「工作流跑完了」一律给这个）。 */
+private const val CI_ACTIVITY = "ci_activity"
+
+/** 折叠行的汇总标题（`Build workflow 连续失败 · main`）。 */
+private fun foldedCiTitle(workflow: String, branch: String, count: Int): String =
+    if (count > 1) "$workflow 连续失败 · $branch" else "$workflow · $branch"
+
+/**
+ * 是否同一天（本地时区）。
+ *
+ * 时间未知（[Notification.updatedAtMs] <= 0）时**一律判为不同天**：
+ * `parseIsoMs` 解析失败返回 0，把一批「时间未知」的通知并成一组会凭空造出一个
+ * 「今天连续失败 N 次」的结论 —— 与「不跨天」是同一条原则。
+ */
+private fun sameDay(aMs: Long, bMs: Long): Boolean {
+    if (aMs <= 0L || bMs <= 0L) return false
+    return localDay(aMs) == localDay(bMs)
+}
+
+/** 本地时区的「日」键（与 `collapsePushes` 的 `localDay` 同口径）。 */
+private fun localDay(ms: Long): Long {
+    val c = java.util.Calendar.getInstance()
+    c.timeInMillis = ms
+    return c.get(java.util.Calendar.YEAR) * 1000L + c.get(java.util.Calendar.DAY_OF_YEAR)
+}
+
+/**
  * 由「原始字段 + 派生规则」构造 [Notification]。
  *
  * 统一入口的意义：网络解析与本地归档回读（[ArchivedThread.toNotification]）
@@ -203,6 +369,7 @@ fun notificationOf(
         tint = tm.tint,
         reasonLabel = rm.label,
         reasonColor = rm.color,
+        reasonHighSignal = rm.highSignal,
         owner = repoFullName.substringBefore('/'),
         repo = repoFullName.substringAfter('/', ""),
         targetNumber = extractNumber(url),
