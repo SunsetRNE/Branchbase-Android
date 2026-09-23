@@ -10,7 +10,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -1595,11 +1594,21 @@ private fun NotificationRow(
                     scaleY = press.scale.value
                 }
                 .clip(rowShape)
-                .background(
-                    when {
-                        selected -> Primer.Blue500.copy(alpha = 0.08f)
-                        n.unread -> Primer.Blue500.copy(alpha = 0.04f)
-                        else -> Color.Transparent
+                // ⚠️ **未读不铺底**（真机复看后的修正）。
+                //
+                // 原型里给未读行铺了一层 4% 蓝底、推荐给用户时也说了「未读靠竖条+粗标题+圆点」，
+                // 但真机上这一层底是**净负收益**：一屏里未读常常是多数，于是每一行都带底色、
+                // 整片都「被高亮」，读过的和没读过的反而更难分 —— 高亮失去对比对象就不再是高亮。
+                // 现在未读只由三个冗余信号表达（左侧竖条 + 加粗标题 + 尾部圆点），
+                // 已读行保持干净白底，一屏里有没有未读一眼可数。
+                .background(if (selected) Primer.Blue500.copy(alpha = 0.06f) else Color.Transparent)
+                // 选中态另加一圈描边：多选时底色只差 6%，只有底没有边的话，
+                // 在浅色屏 / 强光下几乎看不出哪几行被选中了
+                .then(
+                    if (selected) {
+                        Modifier.border(1.5.dp, Primer.BorderControl, rowShape)
+                    } else {
+                        Modifier
                     },
                 )
                 // 多选态用 selectable + Role.Checkbox：读屏会播报「已选中 / 未选中，复选框」；
@@ -1735,11 +1744,13 @@ private fun NotificationRow(
                         }
                     }
                 }
-                // 未读竖条：overlay 画在最上层，不参与测量（正文宽度与已读行完全一致）
+                // 未读竖条：overlay 画在最上层，不参与测量（正文宽度与已读行完全一致）。
+                // 宽度 3 → **4dp**：去掉未读底之后它是主要的未读信号，3dp 在真机上偏细
+                // （已读行是干净白底，4dp 的蓝条边界清楚，不需要靠底色再衬一层）。
                 if (n.unread) {
                     Spacer(
                         Modifier.matchParentSize().drawBehind {
-                            drawRect(color = unreadBar, size = Size(width = 3.dp.toPx(), height = size.height))
+                            drawRect(color = unreadBar, size = Size(width = 4.dp.toPx(), height = size.height))
                         },
                     )
                 }
@@ -1753,46 +1764,49 @@ private fun NotificationRow(
  *
  * 明细里保留每一次运行的**原始标题与时间**，所以折叠不丢信息：收起来是「今天挂了几次」，
  * 展开是「哪几次、什么时候」。
+ *
+ * ## 真机复看后的两处修正
+ *
+ * 1. **去掉胶囊边框**：原先是带描边的小胶囊，真机上它压在标题下方、每折都出现一次，
+ *    读起来像「第二个标题」，把本已收起来的重复又加回来一层。现在只是一行安静的蓝色文字 +
+ *    箭头 —— 它是动作，不是内容。
+ * 2. **明细从属于父行**：明细用三级文字色 + 左侧导轨，且**父行不再铺未读底**（见
+ *    [NotificationRow]），于是「1 条汇总 + N 条明细」的层次在视觉上真正成立；此前父行带底色时，
+ *    明细跟着继承同一片底色，整块连成一片、层次被抹平。
  */
 @Composable
 private fun FoldExpandRow(fold: NotifFold, open: Boolean, onToggle: () -> Unit) {
     // 在组合里取色（drawBehind 的 lambda 不是 @Composable，里面读不到 Primer）
     val railColor = Primer.Gray200
     Column(Modifier.fillMaxWidth()) {
-        Surface(
-            shape = RoundedCornerShape(7.dp),
-            color = Color.Transparent,
-            border = BorderStroke(1.dp, if (open) Primer.Blue500.copy(alpha = 0.35f) else Primer.Gray200),
-            modifier = Modifier
-                .clip(RoundedCornerShape(7.dp))
-                .clickable(onClick = onToggle),
+        Row(
+            Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .clickable(onClick = onToggle)
+                .padding(horizontal = 4.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    if (open) "收起" else "展开其余 ${fold.count - 1} 次",
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Primer.AccentText,
-                )
-                Spacer(Modifier.width(4.dp))
-                val rotation by animateFloatAsState(if (open) 180f else 0f, label = "fold-chevron")
-                Icon(
-                    Icons.Filled.ExpandMore,
-                    contentDescription = null,
-                    tint = Primer.AccentText,
-                    modifier = Modifier.size(13.dp).rotate(rotation),
-                )
-            }
+            Text(
+                if (open) "收起" else "展开其余 ${fold.count - 1} 次",
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Primer.AccentText,
+            )
+            Spacer(Modifier.width(3.dp))
+            val rotation by animateFloatAsState(if (open) 180f else 0f, label = "fold-chevron")
+            Icon(
+                Icons.Filled.ExpandMore,
+                contentDescription = null,
+                tint = Primer.AccentText,
+                modifier = Modifier.size(13.dp).rotate(rotation),
+            )
         }
         AnimatedVisibility(visible = open, enter = revealEnter(), exit = revealExit()) {
             Column(
                 Modifier
-                    .padding(top = 6.dp, start = 2.dp)
+                    .padding(top = 5.dp, start = 1.dp)
                     .drawBehind {
-                        // 左侧 2dp 竖线：把明细「挂在」折叠行下面，而不是看起来像新的几条消息
+                        // 左侧 2dp 导轨：把明细「挂在」折叠行下面，而不是看起来像新的几条消息
                         drawRect(
                             color = railColor,
                             size = Size(width = 2.dp.toPx(), height = size.height),
