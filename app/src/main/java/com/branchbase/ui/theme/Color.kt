@@ -85,6 +85,10 @@ object Primer {
      *  与 [Border]（装饰性描边）分开：前者要过 WCAG 1.4.11 的 3:1，后者豁免。 */
     val BorderControl: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.borderControl
 
+    /** **强调描边**（首页 / 个人页三 Tab / 设置页的卡片框与分隔线）。
+     *  浅色 `#000000`，深色 `#30363D`（与 [Border] 同值 —— 纯黑在深色底上会消失）。 */
+    val BorderEmphasis: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.borderEmphasis
+
     // ── 浅底彩块（chip / 横幅底；深色下自动压暗）──
     val SuccessSurface: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.successSurface
     val SuccessSurfaceSoft: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.successSurfaceSoft

@@ -415,7 +415,7 @@ private fun TodoCard(
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp)
             .clip(RoundedCornerShape(10.dp))
-            .border(1.dp, Primer.Border, RoundedCornerShape(10.dp)),
+            .border(1.dp, Primer.BorderEmphasis, RoundedCornerShape(10.dp)),
     ) {
         if (unread + reviews + assigned == 0) {
             Box(Modifier.fillMaxWidth().padding(vertical = 22.dp), contentAlignment = Alignment.Center) {
@@ -469,7 +469,7 @@ private fun TodoRow(
         }
         Text("›", fontSize = 15.sp, color = Primer.TextTertiary)
     }
-    if (!last) Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Border.copy(alpha = 0.4f)))
+    if (!last) Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.BorderEmphasis.copy(alpha = 0.4f)))
 }
 
 /** 进行中任务卡片（数据来自本地 TaskStore，零网络）。 */
@@ -479,7 +479,7 @@ private fun RunningTasksCard(tasks: List<com.branchbase.ui.task.TaskRecord>) {
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp)
             .clip(RoundedCornerShape(10.dp))
-            .border(1.dp, Primer.Border, RoundedCornerShape(10.dp)),
+            .border(1.dp, Primer.BorderEmphasis, RoundedCornerShape(10.dp)),
     ) {
         shown.forEachIndexed { index, t ->
             Column(Modifier.padding(horizontal = 12.dp, vertical = 11.dp)) {
@@ -520,7 +520,7 @@ private fun RunningTasksCard(tasks: List<com.branchbase.ui.task.TaskRecord>) {
                 }
             }
             if (index < shown.lastIndex) {
-                Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Border.copy(alpha = 0.4f)))
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.BorderEmphasis.copy(alpha = 0.4f)))
             }
         }
     }

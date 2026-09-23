@@ -114,7 +114,7 @@ fun SettingsSection(
                 .clip(RoundedCornerShape(CardRadius))
                 .background(Primer.BackgroundSecondary)
                 // 卡片描边是**装饰性**的，用 Gray200（neutralBorder）而不是 BorderControl
-                .border(1.dp, Primer.Gray200, RoundedCornerShape(CardRadius)),
+                .border(1.dp, Primer.BorderEmphasis, RoundedCornerShape(CardRadius)),
             content = content,
         )
     }
@@ -123,7 +123,7 @@ fun SettingsSection(
 /** 组内分隔线（画在行的**顶部**；每组第一行不画）。 */
 @Composable
 private fun SettingsRowDivider() {
-    Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Gray200))
+    Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.BorderEmphasis))
 }
 
 /**

@@ -23,7 +23,9 @@ import androidx.compose.ui.graphics.Color
  * | [textPrimary]/[textSecondary]/[textTertiary] | 深→浅灰 | 浅→中灰 | 正文 / 次要 / 说明 |
  * | [iconPrimary] | 纯黑 | 纯白 | 常态图标（见下「图标去灰」） |
  * | [iconSecondary] | 中灰 | 亮灰 | 次要 / 禁用图标 |
- * | [border] | #BFC1C9 | #30363D | 描边（**只做 stroke**） |
+ * | [border] | #BFC1C9 | #30363D | 描边（**只做 stroke**）；其余 24 个文件、55 处仍在用 |
+ * | [borderControl] | #000000 | #6E7681 | **可交互控件**边界（输入框 / 圆点 / 分段控件），须过 WCAG 1.4.11 |
+ * | [borderEmphasis] | #000000 | #30363D | **强调描边**：首页 / 个人页三 Tab / 设置页的卡片框与分隔线 |
  * | [neutralFill]/[neutralFillStrong]/[neutralBorder] | 浅灰阶 | 深灰阶 | chip / 代码底 / 未选中底 |
  * | [emphasisFill] + [onEmphasis] | 深底 + 白字 | **浅底 + 深字** | 高强调胶囊（注意是成对翻转的） |
  * | [accent]/[link] | #0969DA | #1F6FEB / #2F81F7 | 填充用蓝 / 文字链接用蓝（分开！） |
@@ -81,6 +83,17 @@ data class PrimerPalette(
      * 出处：`docs/specs/settings-design.md` §9、`design/settings-redesign` 的对比度审计。
      */
     val borderControl: Color,
+    /**
+     * **强调描边**：首页 / 个人页三 Tab（概览 · 仓库 · 动态）/ 设置页的卡片框与分隔线。
+     *
+     * 与 [border] 的差别**只在浅色**：这里是 `#000000`（21:1 on #FFFFFF），[border] 是
+     * `#BFC1C9`（1.80:1）。深色下两者**同为 `#30363D`** —— 纯黑压在 `#0D1117` / `#161B22`
+     * 上对比度只有约 1.1:1，等于边框凭空消失，所以深色板不跟随浅色一起拉黑。
+     *
+     * 为什么不直接把 [border] 改黑：`border` 另外还在 24 个文件里被引用 55 处，并经由
+     * `Theme.kt` 注入 Material 的 `outline`，改它会外溢到全项目与 Material 组件。
+     */
+    val borderEmphasis: Color,
     // ── 中性填充（浅色是浅灰、深色是深灰）──
     val neutralFill: Color,
     val neutralFillStrong: Color,
@@ -160,7 +173,9 @@ val LightPrimerPalette = PrimerPalette(
     iconPrimary = Color(0xFF000000),
     iconSecondary = Color(0xFF9194A1),
     border = Color(0xFFBFC1C9),
-    borderControl = Color(0xFF8B8E99),   // 3.27:1 on #FFFFFF（1.4.11 达标）
+    borderControl = Color(0xFF000000),   // 21:1 on #FFFFFF（1.4.11 达标）
+    // 首页 / 个人页三 Tab / 设置页的卡片框与分隔线。深色板保持 #30363D（见 borderEmphasis 注释）。
+    borderEmphasis = Color(0xFF000000),
     neutralFill = Color(0xFFF7F7F9),
     neutralFillStrong = Color(0xFFEFF0F5),
     neutralBorder = Color(0xFFE3E4E8),
@@ -239,6 +254,8 @@ val DarkPrimerPalette = PrimerPalette(
     iconSecondary = Color(0xFF8B949E),
     border = Color(0xFF30363D),
     borderControl = Color(0xFF6E7681),   // 3.77:1 on #161B22 · 4.12:1 on #0D1117（1.4.11 达标）
+    // 与浅色板**同值**（而不是跟随浅色拉黑）：纯黑在这种底色上只有约 1.1:1，边界会消失。
+    borderEmphasis = Color(0xFF30363D),
     neutralFill = Color(0xFF161B22),
     neutralFillStrong = Color(0xFF21262D),
     neutralBorder = Color(0xFF30363D),

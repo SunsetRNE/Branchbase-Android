@@ -460,7 +460,7 @@ private fun ProfileOverview(
                 Spacer(Modifier.height(14.dp))
                 Box(
                     Modifier.fillMaxWidth().height(32.dp).clip(RoundedCornerShape(6.dp)).background(Primer.Gray150)
-                        .border(1.dp, Primer.Border, RoundedCornerShape(6.dp)).clickable { onEdit() },
+                        .border(1.dp, Primer.BorderEmphasis, RoundedCornerShape(6.dp)).clickable { onEdit() },
                     contentAlignment = Alignment.Center,
                 ) {
                     Text("编辑资料", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Primer.TextPrimary)
@@ -518,7 +518,7 @@ private fun ProfileRepositories(repos: List<RepoItem>, loading: Boolean, onOpenR
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         // 搜索框
-        Box(Modifier.fillMaxWidth().height(36.dp).clip(RoundedCornerShape(6.dp)).background(Primer.Gray150).border(1.dp, Primer.Border, RoundedCornerShape(6.dp)).padding(horizontal = 12.dp), contentAlignment = Alignment.CenterStart) {
+        Box(Modifier.fillMaxWidth().height(36.dp).clip(RoundedCornerShape(6.dp)).background(Primer.Gray150).border(1.dp, Primer.BorderEmphasis, RoundedCornerShape(6.dp)).padding(horizontal = 12.dp), contentAlignment = Alignment.CenterStart) {
             Text("🔍 查找仓库…", fontSize = 13.sp, color = Primer.TextTertiary)
         }
         Spacer(Modifier.height(10.dp))
@@ -555,7 +555,7 @@ private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
             .background(selectionColor(selected, on = Primer.Blue500, off = Primer.Gray150))
             .border(
                 1.dp,
-                selectionColor(selected, on = Primer.Blue500, off = Primer.Border),
+                selectionColor(selected, on = Primer.Blue500, off = Primer.BorderEmphasis),
                 RoundedCornerShape(14.dp),
             )
             .clickable { onClick() }
@@ -1130,7 +1130,7 @@ private fun StatCardSkeleton(modifier: Modifier = Modifier) {
     Column(
         modifier
             .clip(RoundedCornerShape(8.dp))
-            .border(1.dp, Primer.Border, RoundedCornerShape(8.dp))
+            .border(1.dp, Primer.BorderEmphasis, RoundedCornerShape(8.dp))
             .padding(vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -1171,7 +1171,7 @@ private fun SkeletonPanel(content: @Composable () -> Unit) {
     Column(
         Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .border(1.dp, Primer.Border, RoundedCornerShape(10.dp))
+            .border(1.dp, Primer.BorderEmphasis, RoundedCornerShape(10.dp))
             .padding(horizontal = 10.dp, vertical = 10.dp),
     ) { content() }
 }
@@ -1298,7 +1298,7 @@ private fun StatCard(label: String, value: String, modifier: Modifier = Modifier
     Column(
         modifier
             .clip(RoundedCornerShape(8.dp))
-            .border(1.dp, Primer.Border, RoundedCornerShape(8.dp))
+            .border(1.dp, Primer.BorderEmphasis, RoundedCornerShape(8.dp))
             .padding(vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -1346,7 +1346,7 @@ private fun ActivityHeatmap(events: List<ActivityEvent>) {
     Column(
         Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .border(1.dp, Primer.Border, RoundedCornerShape(10.dp))
+            .border(1.dp, Primer.BorderEmphasis, RoundedCornerShape(10.dp))
             .padding(horizontal = 10.dp, vertical = 10.dp),
     ) {
         BoxWithConstraints(Modifier.fillMaxWidth()) {
@@ -1535,11 +1535,11 @@ private val moreBubbleItems = listOf(
  * ## 与「当前设计」对齐的三处修正（原本不一致）
  *
  * 1. **手柄填充色**：原来用 `Primer.Border`（描边色，0xFFBFC1C9）当**填充**用，
- *    与设计里「中性面用 Gray150」的规则冲突；现在收起态是 `Gray150` + `Border` 描边，
+ *    与设计里「中性面用 Gray150」的规则冲突；现在收起态是 `Gray150` + `BorderEmphasis` 描边，
  *    展开态是 `Blue500` 实心 + 白图标；
  * 2. **弹层不再是 Material 默认色**：原来用 `DropdownMenu`，容器色 / 文字色 / 图标色
  *    全走 Material 主题（既不是 Primer 池，也与 App 其它弹层不一致）。现在是
- *    `Popup` + `Primer.BackgroundPrimary` 白底 + `Primer.Border` 描边 + 16dp 圆角 + 阴影，
+ *    `Popup` + `Primer.BackgroundPrimary` 白底 + `Primer.BorderEmphasis` 描边 + 16dp 圆角 + 阴影，
  *    与 `EdgeNavigationBar` 的气泡规格同源（文件头的「同源」注释这才成立）；
  * 3. **缩放原点**：Material 菜单是「从上边缘往下长」，而气泡是从手柄**向上**弹出，
  *    现在用 [bubbleEnter] 从右下角锚点缩放，观感上像是从手柄里冒出来。
@@ -1601,7 +1601,7 @@ private fun ProfileBubbleNavigationBar(
                     .clip(CircleShape)
                     .border(
                         1.dp,
-                        selectionColor(expanded, on = Primer.Blue500, off = Primer.Border),
+                        selectionColor(expanded, on = Primer.Blue500, off = Primer.BorderEmphasis),
                         CircleShape,
                     )
                     .background(selectionColor(expanded, on = Primer.Blue500, off = Primer.Gray150))
@@ -1643,7 +1643,7 @@ private fun ProfileBubbleNavigationBar(
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = Primer.BackgroundPrimary,
-                        border = BorderStroke(1.dp, Primer.Border.copy(alpha = 0.6f)),
+                        border = BorderStroke(1.dp, Primer.BorderEmphasis.copy(alpha = 0.6f)),
                         shadowElevation = 12.dp,
                         modifier = Modifier.width(196.dp),
                     ) {
@@ -1862,7 +1862,7 @@ private const val PROFILE_REPO_SKELETON_COUNT = 3
 private fun RepoCardSkeleton() {
     Column(
         Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(6.dp))
-            .border(1.dp, Primer.Border, RoundedCornerShape(6.dp)).padding(12.dp),
+            .border(1.dp, Primer.BorderEmphasis, RoundedCornerShape(6.dp)).padding(12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             // 仓库名（左，可伸缩）与星数（右，固定宽度）—— 对齐 RepoCard 的 weight(1f) + 尾部计数
@@ -1884,7 +1884,7 @@ private fun RepoCardSkeleton() {
 @Composable
 private fun RepoCard(repo: RepoItem, onClick: () -> Unit) {
     Column(
-        Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(6.dp)).border(1.dp, Primer.Border, RoundedCornerShape(6.dp)).clickable { onClick() }.padding(12.dp),
+        Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(6.dp)).border(1.dp, Primer.BorderEmphasis, RoundedCornerShape(6.dp)).clickable { onClick() }.padding(12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(repo.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500, modifier = Modifier.weight(1f))

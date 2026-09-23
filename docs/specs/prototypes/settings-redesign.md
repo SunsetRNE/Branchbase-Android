@@ -158,6 +158,14 @@ node design/settings-redesign/theme-audit.js design/settings-redesign  # 期望�
 > `--select-dot` 与 `--danger-btn-bg` 是**同一个角色在不同主题下的取值差异**，
 > 在 Compose 里就是 `Primer` 已有的主题化取值，不需要新角色 ——
 > 但原型必须把这件事显式写出来，否则「浅色照抄深色的红」这类问题在真机上才会暴露。
+>
+> **⚠️ 落地后的偏离（2026-09，原型 CSS 不回改）**：App 里这两个位置的**浅色**取值都拉到了 `#000000` ——
+> `Primer.BorderControl` 浅 `#000000`（21:1）/ 深 `#6E7681`（未变）；原型里 `--border-soft` 承担的
+> 「设置页卡片描边与行分隔线」，在 App 里改走**新增角色** `Primer.BorderEmphasis`
+> （浅 `#000000` / 深 `#30363D`），不再用 `Primer.Gray200`。**深色取值全部未变**
+> （纯黑压深色底只有约 1.1:1，会消失）。
+> 本文件与其镜像 `design/settings-redesign/README.md` 记录的是**原型当时的设计**，不是 App 现状；
+> App 侧的权威描述见 `docs/specs/settings-design.md` §九与 §十四末。
 
 ### 5.3 审计结果
 

@@ -178,7 +178,7 @@ L1 设置（唯一入口）
 | 图标与文字间距 | **12dp** | |
 | 名称 | **14sp**，`TextPrimary` | 单行，超长省略 |
 | 值与说明 | **12sp**，`TextTertiary` | 值单行省略；说明可折行，`lineHeight = 17.sp` |
-| 分隔线 | `1dp`，`Primer.Gray200` | 行间；**组内**才有，组与组之间靠间距区分 |
+| 分隔线 | `1dp`，`Primer.BorderEmphasis` | 行间；**组内**才有，组与组之间靠间距区分 |
 
 **必须**：名称**永远**优先于值显示完整 —— 值负责省略（现状 `SettingsItem` 已用两个权重盒实现，
 即 `Modifier.weight(1f, fill = false)` 给名称、`weight(1f)` 给值）。**禁止**让值去挤名称。
@@ -193,7 +193,7 @@ L1 设置（唯一入口）
 
 ### 4.4 分组卡片的视觉（可选，但一旦用就要统一）
 
-原型采用**分组卡片**（`Primer.BackgroundSecondary` 底 + `Primer.Gray200` 描边 + 8dp 圆角，
+原型采用**分组卡片**（`Primer.BackgroundSecondary` 底 + `Primer.BorderEmphasis` 描边 + 8dp 圆角，
 卡片间距 12dp），取代现状的「12sp 灰色分节标题 + 平铺行」。理由：
 
 - 卡片让「组」变成**可扫读的块**（卡片边界 + 组内分隔线），而标题只是一行灰字；
@@ -454,7 +454,8 @@ L1 设置（唯一入口）
 | 名称 | `Primer.TextPrimary` |
 | 值 / 说明 | `Primer.TextTertiary` |
 | 图标 | `Primer.IconSecondary` |
-| 分隔线 / 卡片描边 | `Primer.Gray200` |
+| 分隔线 / 卡片描边 | `Primer.BorderEmphasis`（**不是** `Primer.Gray200`） |
+| 可交互控件边界（分段控件 / 圆点 / 次级按钮） | `Primer.BorderControl`（须过 WCAG 1.4.11 的 3:1，见 §十四末） |
 | 危险文字 | `Primer.DangerText`（**不是** `Primer.Red500`） |
 | 权限/状态胶囊 | `Primer.SuccessTextStrong` / `DangerText` / `WarningText` / `AccentText` + 对应 `*Surface` |
 | 选中圆点 / 开关轨道 | `Primer.SuccessTextStrong` / `Primer.Blue500` |
@@ -565,6 +566,7 @@ L1 设置（唯一入口）
 | v2 | 2026-09 | 落地第一轮：新增 `ui/settings/` 四个文件（行组件 / 键 / 代理纯逻辑 / 代理页）；`SettingsScreen` 与 `NotificationSettingsScreen` 重写；删掉 `SettingsItem` 等三处重复组件；新增 `Primer.BorderControl` 角色；补 `SettingsSpecTest`(18) + `GitProxyTest`(10)。偏离与待办见 §十四 |
 | v4 | 2026-09 | 新增「仓库凭据」条件行 + 二级页（`ui/settings/RepoCredentialsScreen.kt`）：账户组内、仅在 `AuthKind.PAT` 时出现；删除走 `DangerRow` + 二次确认；凭据存独立 prefs（已排除云备份与设备迁移）。见 §3.2.1 |
 | v3 | 2026-09 | 账户卡修复：`AccountRow` 原来是写死的灰底首字母，改成统一 `theme/Avatar`（本地缓存 → `avatar_url` → 首字母兜底，圆形裁切），新增 `avatar` 参数；账号侧补 `Account.avatarUrl`（快照缺失回落会话 `user.avatar_url`），`MainActivity` 预热同源；`SettingsSpecTest` 新增两条钉子；偏离表补第 4 条。见 §十四 |
+| v5 | 2026-09 | 设置树描边改为纯黑（**仅浅色**）：卡片描边与行分隔线由 `Primer.Gray200`（`#E3E4E8`）改走**新增角色** `Primer.BorderEmphasis`（浅 `#000000` / 深 `#30363D`）；`Primer.BorderControl` 浅色由 `#8B8E99` 改为 `#000000`（深色仍 `#6E7681`）。受影响断言：无 —— `SettingsSpecTest` 本轮**未新增钉子**，因为「无写死色值」那条已覆盖（改的是角色引用，不是字面量）。见 §十四末 |
 
 ---
 
@@ -610,14 +612,24 @@ L1 设置（唯一入口）
 4. **200% 字号验证** —— 原型与实现都没有压过系统字体缩放，只能在真机上验。
 5. **仓库级设置（#11 / #12）** 未纳入 —— 本规范只对它们有两条例外约束（§4.6 / §7）。
 
-### 新增的令牌：`borderControl`
+### 新增的令牌：`borderControl` 与 `borderEmphasis`
 
 对比度审计（`design/settings-redesign/theme-audit.js`）报了 6 组不达标，其中两组的根因是
 **一个取值被两种语义共用**。落地时按审计结论拆开：
 
 | 角色 | 浅色 | 深色 | 用在哪 | 为什么不能复用 `border` |
 |---|---|---|---|---|
-| `Primer.BorderControl` | `#8B8E99` | `#6E7681` | 分段控件容器、单选圆点未选中描边、次级按钮描边 | `border`（`#BFC1C9` / `#30363D`）当可交互控件边界只有 **1.80 / 1.55:1**，低于 1.4.11 的 3:1；而它当分隔线与卡片描边是合适的（装饰性描边豁免） |
+| `Primer.BorderControl` | `#000000` | `#6E7681` | 分段控件容器、单选圆点未选中描边、次级按钮描边 | `border`（`#BFC1C9` / `#30363D`）当可交互控件边界只有 **1.80 / 1.55:1**，低于 1.4.11 的 3:1；而它当分隔线与卡片描边是合适的（装饰性描边豁免） |
+| `Primer.BorderEmphasis` | `#000000` | `#30363D` | 设置页的**卡片描边**与**行分隔线**（即原型 `--border-soft` 的位置） | 浅色下 `border` 只有 1.80:1，压在纯白卡片底上几乎看不出边界；`BorderEmphasis` 拉到 21:1 |
+
+**浅色取值是后续调整过来的**：`BorderControl` 初版为 `#8B8E99`（3.27:1，刚好过 1.4.11），
+后与 `BorderEmphasis` 一并改为 `#000000`。
+
+**深色两档都没有跟着拉黑**，这是刻意的：纯黑压在 `#0D1117` / `#161B22` 上只有约 **1.1:1**，
+边界会直接消失、等于没画。所以深色下 `BorderEmphasis` 与 `border` 同值（`#30363D`），
+`BorderControl` 保持 `#6E7681`（3.77 / 4.12:1，仍满足 1.4.11）。
+
+> 换句话说：**「拉黑」这件事只发生在浅色**。深色板在本轮改动里逐位未变。
 
 另外两处直接用现成角色解决，**没有**新增令牌：
 
