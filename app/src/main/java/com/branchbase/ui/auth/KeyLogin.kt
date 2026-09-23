@@ -47,7 +47,17 @@ internal fun buildKeySession(host: String, token: String, user: JSONObject): Str
  * 只有密钥填写页有上一级（它从密钥介绍页进来）；其余中间态都直接回欢迎页。
  * 欢迎页本身不在拦截范围内 —— 那一步交给系统默认行为（退出 App）。
  */
-internal fun loginBackTarget(current: LoginState): LoginState = when (current) {
+internal fun loginBackTarget(current: LoginState, addingAccount: Boolean = false): LoginState = when (current) {
     is LoginState.KeyInput -> LoginState.KeyIntro
+    // 新增流程里的「介绍页 / 授权中 / 换 token / 2FA / 出错」按返回 → 回**新增欢迎页**。
+    // 少了这一支就会掉到未登录的 Idle 欢迎页：用户本来登录着，却看到一个「去登录」的界面，
+    // 而且 Idle 不拦返回键 —— 再按一下直接退出 App。
+    is LoginState.OAuthIntro, is LoginState.KeyIntro,
+    is LoginState.Authorizing, is LoginState.ExchangingToken,
+    is LoginState.NeedTwoFactor, is LoginState.Error,
+    -> if (addingAccount) LoginState.AddAccountWelcome else LoginState.Idle
+    // 「新增账号」的欢迎页在这里只交回 Idle，**真实会话由 [LoginViewModel.back] 走 endAddAccount 补上**；
+    // 纯函数读不到 prefs，若在这里写 `LoggedIn("")` 会把一个空会话送进 LoggedInGate。
+    is LoginState.AddAccountWelcome -> LoginState.Idle
     else -> LoginState.Idle
 }

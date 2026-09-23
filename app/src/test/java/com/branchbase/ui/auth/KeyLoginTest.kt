@@ -69,6 +69,30 @@ class KeyLoginTest {
         assertEquals(LoginState.Idle, loginBackTarget(LoginState.Authorizing("u", "v")))
         assertEquals(LoginState.Idle, loginBackTarget(LoginState.NeedTwoFactor))
         assertEquals(LoginState.Idle, loginBackTarget(LoginState.Error("boom")))
+        // 默认（不在新增流程里）退到未登录欢迎页 —— 上面这些就是既有行为，不能变
+        assertEquals(LoginState.Idle, loginBackTarget(LoginState.AddAccountWelcome))
+    }
+
+    @Test
+    fun `新增流程里按返回回新增欢迎页而不是未登录欢迎页`() {
+        // 用户本来登录着，从账号页进的「添加账号」。若退到 Idle（未登录欢迎页）：
+        // ① 显示一个与真实登录状态不符的界面；② Idle 不拦返回键 → 再按一下直接退出 App。
+        listOf(
+            LoginState.OAuthIntro,
+            LoginState.KeyIntro,
+            LoginState.Authorizing("u", "v"),
+            LoginState.ExchangingToken,
+            LoginState.NeedTwoFactor,
+            LoginState.Error("boom"),
+        ).forEach { from ->
+            assertEquals(
+                "新增流程里 ${from::class.simpleName} 的返回目标应是 AddAccountWelcome",
+                LoginState.AddAccountWelcome,
+                loginBackTarget(from, addingAccount = true),
+            )
+        }
+        // 填写密钥页仍先回介绍页（两级返回不跳级）
+        assertEquals(LoginState.KeyIntro, loginBackTarget(LoginState.KeyInput, addingAccount = true))
     }
 
     @Test

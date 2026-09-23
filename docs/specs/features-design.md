@@ -74,7 +74,13 @@
 3. **兜底过期**：进了流程又中途离开（切 Tab / 返回设置）会留下标记，账号页**进入时**
    调 `dropIfStale()` 丢掉超过 2 分钟的残留。
 
-> ⚠️ **根布局必须收集 `LoginViewModel.addingAccount`，不要直接读 `AddAccountFlow` 的 Compose 状态。**
+> ⚠️ **页面切换一律交给登录状态机（`LoginState.AddAccountWelcome`），不要在根布局里做条件替换整屏。**
+> 1.0.79–1.0.82 连栽四次，形式各不相同但根因同一个：**都在假设「某个状态变了，根布局就会按我
+> 想的方式重渲染」**。三种形式分别败于 `onDispose` 自取消、`AnimatedContent` 的 contentKey
+> 不变、旁路状态没被订阅。现在状态一变 `PageSwitcher` 必然换页 —— 那是本文件里唯一一处被
+> 反复验证过的换页机制，不需要对组合行为做任何假设。
+>
+> ⚠️ **（历史）根布局曾必须收集 `LoginViewModel.addingAccount`**，而不要直接读 `AddAccountFlow` 的 Compose 状态。
 > 1.0.81 的真机日志证明了这一点：标记确实置上了（`新增流程标记 = true`），但根布局
 > **一次都没重组**（它那条诊断从未重放）。而根布局对 `LoginState` 的变化是确定会重组的，
 > 所以把同一事实经 `LoginViewModel` 的 StateFlow 转发一次 —— 真源仍只有 `AddAccountFlow`

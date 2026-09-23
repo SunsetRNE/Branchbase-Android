@@ -48,6 +48,25 @@ sealed interface LoginState : PageLevel {
         override val depth: Int get() = 0
     }
 
+    /**
+     * 「为已有账号**新增**一个登录」的欢迎页（1.0.83）。
+     *
+     * ## 为什么它是一个独立状态，而不是根布局里的一个 if
+     *
+     * 前三次都栽在同一件事上：用户本来就登录着（`state == LoggedIn`），
+     * 而我试图在**同一个状态格子里**把主界面换成登录界面 —— 先撞 `AnimatedContent`
+     * 的 `contentKey` 不变（1.0.81），再撞「标记置上了但根布局没重组」（1.0.82）。
+     *
+     * 换页这件事本来就有现成机制：**状态一变，[com.branchbase.ui.navigation.PageSwitcher]
+     * 必然换页**（`contentKey = it::class`）。所以让状态机自己表达「正在新增」，
+     * 页面切换就回到那条已经被验证过无数次的路径上，不再需要对组合机制做任何假设。
+     *
+     * depth = 0 与 [Idle] 同档：它同样是「欢迎页」，只是出口不同。
+     */
+    data object AddAccountWelcome : LoginState {
+        override val depth: Int get() = 0
+    }
+
     /** 「授权登录」流程要点介绍页（含口令验证说明 + 渲染动画） */
     data object OAuthIntro : LoginState {
         override val depth: Int get() = 1
@@ -201,14 +220,36 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun addAccount() {
         AddAccountFlow.begin()
-        _addingAccount.value = AddAccountFlow.active
+        _addingAccount.value = true
+        // 状态机自己表达「正在新增」—— 页面切换交给 PageSwitcher（见 AddAccountWelcome 的注释）
+        _state.value = LoginState.AddAccountWelcome
     }
 
-    /** 结束新增流程（用户返回 / 离开账号页时由调用方收尾）。 */
-    fun endAddAccount() {
+    /**
+     * 只收「新增流程」这个标记，**不动登录状态**。
+     *
+     * 用在「登录成功」那条路径上：账号页 `persistAccount` 已把 state 置成 [LoginState.LoggedIn]，
+     * 这里只要把两条通道一起清干净即可。少了它，`AddAccountFlow` 清了而 `_addingAccount`
+     * 还挂着 true —— 下次进账号页判定就不一致了。
+     */
+    fun finishAddAccount() {
         AddAccountFlow.finish()
         _addingAccount.value = false
     }
+
+    /** 结束新增流程，回到已登录的主界面。 */
+    fun endAddAccount() {
+        finishAddAccount()
+        // 已登录就回主界面；没登录（理论上不会发生）回欢迎页
+        _state.value = if (prefs.getString(KEY_SESSION, null).isNullOrBlank()) {
+            LoginState.Idle
+        } else {
+            LoginState.LoggedIn(prefs.getString(KEY_SESSION, "").orEmpty())
+        }
+    }
+
+    /** 新增流程中、且当前停在「新增欢迎页」——根布局据此决定返回键交给谁。 */
+    val inAddAccountWelcome: Boolean get() = _state.value is LoginState.AddAccountWelcome
 
     /** 欢迎页「授权登录」→ 流程要点介绍页 */
     fun showOAuthIntro() {
@@ -427,7 +468,14 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
      * - 欢迎页本身不拦截返回（由系统的默认行为退出 App）。
      */
     fun back() {
-        _state.value = loginBackTarget(_state.value)
+        // 从「新增账号」的欢迎页返回 = 放弃新增，回**已登录的主界面**。
+        // 不能直接退到 Idle：未登录的欢迎页不拦返回键，用户会莫名其妙退出 App；
+        // 而且用户本来就是登录着的，退到未登录的界面与真实状态不符。
+        if (_state.value is LoginState.AddAccountWelcome) {
+            endAddAccount()
+            return
+        }
+        _state.value = loginBackTarget(_state.value, addingAccount = _addingAccount.value)
     }
 
     /** 消费错误后回到初始态 */
