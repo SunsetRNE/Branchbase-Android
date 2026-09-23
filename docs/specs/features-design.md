@@ -74,6 +74,12 @@
 3. **兜底过期**：进了流程又中途离开（切 Tab / 返回设置）会留下标记，账号页**进入时**
    调 `dropIfStale()` 丢掉超过 2 分钟的残留。
 
+> ⚠️ **根布局必须收集 `LoginViewModel.addingAccount`，不要直接读 `AddAccountFlow` 的 Compose 状态。**
+> 1.0.81 的真机日志证明了这一点：标记确实置上了（`新增流程标记 = true`），但根布局
+> **一次都没重组**（它那条诊断从未重放）。而根布局对 `LoginState` 的变化是确定会重组的，
+> 所以把同一事实经 `LoginViewModel` 的 StateFlow 转发一次 —— 真源仍只有 `AddAccountFlow`
+> 一处，是换通道而不是双写。`AddAccountFlowTest` 有两条**源码级**断言钉住它。
+
 > ⚠️ **不要在账号页的 `onDispose` 里清这个标记**。第一版正是这么写的，结果
 > 「添加账号」**完全没反应**：`begin()` 置位后根布局不再组合主界面（这是刻意的，
 > 否则账号页与登录界面叠两层），主界面一撤账号页立刻 dispose → `onDispose` 马上
