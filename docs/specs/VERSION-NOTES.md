@@ -25,7 +25,46 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.77 → 1.0.22）
+## 二、`versionName` 流水（1.0.78 → 1.0.22）
+
+### 1.0.78
+
+**账号身份 = host + login + 登录方式 —— 修掉「密钥登录伪覆盖 OAuth 记录」**（用户反馈）。
+
+用户报了三件相关的事，查下来是**同一段代码**（`AccountStore.add`）：
+
+```
+account = all[exist].copy(session = session, auth = auth,
+                          lastCheck = 0L, status = AccountStatus.UNKNOWN)
+```
+
+① **伪覆盖**：原来只按 `login + host` 匹配已有账号 → 「已经用 OAuth 登录过，再用密钥登录同一个
+账号」会**原地覆盖**那一条的 session。用户看到的：账号列表里 OAuth 那条消失、只剩「PAT 令牌」，
+像切换了登录方式；实际后果不可逆 —— OAuth 的 token 已被丢掉，下一次覆盖会把密钥那条也换掉，
+**两种登录方式无法共存**（`session` 是全局单键，覆盖即永失）。
+现在把 `auth` 算进身份（`indexOfSameIdentity`，纯函数 + 13 例钉子）：同方式 = 同一条（重新授权 /
+token 刷新），不同方式 = **两条**，各自独立，可在账号页切换或单独删除。
+本地数据不受影响 —— 仓库与任务按 **login** 隔离（`repos/{login}/…`），两条指向同一份。
+
+②③ **「启动的检查结果与设置页不共通」+「检测时机」**：原来每次 `add` 都把
+`lastCheck = 0 / status = UNKNOWN` 写死，而 `AccountChecks.isStale` 正是以 `lastCheck` 判
+「结论是否陈旧」—— 于是**每次登录都让「刚查过」作废**，设置页必然重探一遍。真机日志的形状：
+启动探测 20:32:33 → 93 秒后又探一次（同一枚 token，指纹一致）。现在保留原有 `lastCheck` /
+`status`：token 若真失效，下一次探测自然会纠偏。
+
+两条兜底规则（都为了「不让凭据被静默丢掉」）：
+
+- **老记录（`auth` 缺失 → `UNKNOWN`）是通配，但精确优先**：先找精确匹配，找不到才退回 UNKNOWN
+  那条并就地升级 auth。否则老记录只要排在前面，就会抢走本该命中具体方式那条的机会；
+- **账号 id 生成显式避让已占用值**（原先是 `acc-<36进制时间>-<0..999 随机>`，撞了会让
+  `current_account` 指不到任何记录）。
+
+另外：删除确认框点名是**哪一种**登录方式，并说明「这次只删这一条」。
+
+新增 `AccountStoreIdentityTest` 13 例；app 745 例全绿；`assembleDebug` 通过。
+规则进 [`features-design.md` §1](features-design.md)。versionCode 179 → 180（一次提交 +1）。
+
+---
 
 ### 1.0.77
 
@@ -1530,6 +1569,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **180**：账号身份加「登录方式」维度 —— 密钥登录不再伪覆盖 OAuth 记录（两种方式可共存）；
+`add` 不再重置 `lastCheck`/`status`（启动检查的结果到设置页就作废、必然重探的根因）；
+老记录 `UNKNOWN` 走两轮匹配（精确优先）；账号 id 避让。`AccountStoreIdentityTest` 13 例
+（一次提交，故 +1）
 
 - **179**：账号探测补「为什么失效」—— 独立 `HEAD /` 探针读
 `GitHub-Authentication-Token-Expiration`（响应头此前被整条链路丢掉），产出

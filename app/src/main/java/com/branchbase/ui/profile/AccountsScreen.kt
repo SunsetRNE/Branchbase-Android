@@ -96,9 +96,15 @@ fun AccountsScreen(
     LaunchedEffect(Unit) {
         Logger.ui("进入账号管理页", "Compose")
         reload()
-        // 进入即探测，但**只探结论陈旧的**（见 AccountChecks.isStale）：原来只跳过「已检查过」
-        // 的账号，而结论一旦是「令牌已失效」，用户每次进设置都会被再报一次同样的事 ——
-        // 同一件事反复说，主观上就成了「老是报失效」。结论应当稳定，翻案交给「全部检查」。
+        // 进入即探测，但**只探结论陈旧的**（见 AccountChecks.isStale）。
+        //
+        // 两处改动的理由（1.0.77，真机日志）：
+        // ① 原来只跳过「已检查过」的账号，结论一旦是「令牌已失效」，用户每次进设置都会被再报
+        //    一次同样的事 —— 同一件事反复说，主观上就成了「老是报失效」；
+        // ② 更要紧的是**启动检查的结果原本不生效**：`AccountStore.add` 每次登录都把
+        //    `lastCheck` 重置为 0 / `status` 重置为 UNKNOWN，于是启动时那次检查（`MainActivity`
+        //    后台线程写在同一个 store 里）刚到设置页就被当成「没查过」，必然重探一遍。
+        //    根因已在那侧修掉（见 `AccountStore.add` 的注释），这里靠 isStale 的时间窗口兜住。
         val stale = accounts.filter {
             com.branchbase.core.AccountChecks.isStale(it.status, it.lastCheck)
         }
@@ -183,12 +189,32 @@ fun AccountsScreen(
     }
 
     deleteTarget?.let { target ->
+        // 同一账号可能同时存在两种登录方式（OAuth + 密钥，见 AccountStore.indexOfSameIdentity），
+        // 所以标题与说明都必须点名**哪一种** —— 只说「删除账号 @X」会让人以为两条一起没了
+        val sameLoginOthers = accounts.count { it.login.equals(target.login, ignoreCase = true) } - 1
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
-            title = { Text("删除账号「${target.login}」？", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary) },
+            title = {
+                Text(
+                    "删除「${target.login} · ${target.auth.label}」？",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Primer.TextPrimary,
+                )
+            },
             text = {
                 Column {
                     Text("@${target.login} · ${target.auth.label}", fontSize = 12.5.sp, color = Primer.TextSecondary)
+                    if (sameLoginOthers > 0) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "同一账号还有 ${sameLoginOthers} 条其它登录方式的记录（账号列表里单独一行），" +
+                                "这次只删这一条。",
+                            fontSize = 12.sp,
+                            color = Primer.TextSecondary,
+                            lineHeight = 18.sp,
+                        )
+                    }
                     Spacer(Modifier.height(10.dp))
                     Text(
                         "该账号名下的本地仓库（${LocalRepos.count(context, target.login)} 个）与任务记录会保留，" +
@@ -204,7 +230,7 @@ fun AccountsScreen(
                     val login = target.login
                     AccountStore.remove(context, target.id)
                     reload()
-                    feedback = "已删除账号 @$login"
+                    feedback = "已删除 $login · ${target.auth.label}"
                     deleteTarget = null
                 }) { Text("删除", color = Primer.DangerText) }
             },

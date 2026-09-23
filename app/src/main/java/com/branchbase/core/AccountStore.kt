@@ -120,7 +120,29 @@ object AccountStore {
     // ───────────────────────── 写入 ─────────────────────────
 
     /**
-     * 新增账号（已存在同 host + login 则更新其 session 并返回该账号）。
+     * 新增账号（**同 host + 同 login + 同登录方式**才算同一个账号，更新其 session；否则另记一条）。
+     *
+     * ## 为什么登录方式要参与身份判定（1.0.77 修）
+     *
+     * 原来只按 `login + host` 匹配，于是「已经用 OAuth 登录过，再用密钥登录同一个账号」会
+     * **原地覆盖**那一条记录的 session —— 实测后果（用户报的「伪覆盖」）：
+     *
+     * - 账号列表里 OAuth 记录消失，只剩一条「PAT 令牌」，看起来像切换了登录方式；
+     * - 但 OAuth 的 token 已经被丢掉，而下一次覆盖（比如刷新后再走一遍密钥登录）会把
+     *   密钥那条也换掉 —— **两种登录方式无法共存**，且切换不可逆；
+     * - 同一账号的本地仓库与任务按 **login** 隔离（不是按账号 id），所以两条记录指向同一份
+     *   数据，共存不会把数据切成两半。
+     *
+     * 现在 [shouldReuse] 把 `auth` 也算进身份：同方式 = 同一条（token 刷新/重新授权走更新），
+     * 不同方式 = **两条**，各自独立，用户可以在账号页切换或删除。
+     *
+     * ## 为什么不再重置检查结果
+     *
+     * 原来每次 add 都把 `lastCheck = 0 / status = UNKNOWN` 写死。而 [AccountChecks.isStale]
+     * 以 `lastCheck` 判「结论是否陈旧」—— 于是**每次登录都会让「刚查过」的记录作废**，
+     * 下次进设置页必然重探一遍（真机日志：启动探测 → 93 秒后再探一次）。现在保留原有的
+     * `lastCheck` 与 `status`：token 若真失效，下一次探测/过期扫描自然会纠偏；
+     * 只是换了登录方式这种「换了一枚 token」的情形由 [AccountChecks.isStale] 的时间窗口兜住。
      *
      * @return 新账号（写入失败返回 null）
      */
@@ -136,20 +158,21 @@ object AccountStore {
         if (login.isBlank()) return null
         val all = accounts(context).toMutableList()
         val now = System.currentTimeMillis()
-        val exist = all.indexOfFirst { it.login.equals(login, ignoreCase = true) && it.host == host }
+        val exist = indexOfSameIdentity(all, login, host, auth)
         val account: Account
         if (exist >= 0) {
             account = all[exist].copy(
                 session = session,
                 avatar = avatar ?: all[exist].avatar,
+                // auth 用**实际登录方式**写回：老记录是 UNKNOWN（字段缺失）时，
+                // 这次登录正好把它升级成具体值 —— 否则它会一直是通配，看不出用的是哪种方式
                 auth = auth,
-                lastCheck = 0L,
-                status = AccountStatus.UNKNOWN,
+                // lastCheck / status 保持不变 —— 见上面的说明
             )
             all[exist] = account
         } else {
             account = Account(
-                id = "acc-" + now.toString(36) + "-" + (0..999).random(),
+                id = newAccountId(now, all.map { it.id }.toSet()),
                 login = login,
                 host = host,
                 avatar = avatar,
@@ -165,6 +188,44 @@ object AccountStore {
             syncLegacySession(context, account)
         }
         return account
+    }
+
+    /**
+     * 身份判定：同一账号 = **同 host + 同 login（忽略大小写）+ 同登录方式**（纯函数，有单测）。
+     *
+     * 抽出来的理由：这是「两条记录还是更新一条」的**唯一**判据，
+     * 判错的后果不可逆（旧 session 被丢掉就找不回来），不该埋在 I/O 里靠真机才发现。
+     *
+     * ## 两轮匹配：精确优先，通配兜底
+     *
+     * [AuthKind.UNKNOWN] 是通配 —— 老记录（`auth` 字段缺失或损坏）在 [fromJson] 里回落成它。
+     * 若把 UNKNOWN 当普通值参与相等判断，那种记录永远匹配不上，每次登录都会新增一条重复账号。
+     *
+     * 但**不能**简单地把 UNKNOWN 混进同一次 `indexOfFirst`：那样只要老记录排在前面，
+     * 它就会抢走本该命中「具体方式」那条的机会 —— 用户明明有 OAuth 记录，登录却去更新了一条
+     * 身份不明的老记录。所以分两轮：先找**精确匹配**（同 host + 同 login + 同 auth），
+     * 找不到才退回 UNKNOWN 那条（并在复用时就地把 auth 升级成实际登录方式）。
+     */
+    fun indexOfSameIdentity(list: List<Account>, login: String, host: String, auth: AuthKind): Int {
+        fun sameWho(it: Account) = it.login.equals(login, ignoreCase = true) && it.host == host
+        val exact = list.indexOfFirst { sameWho(it) && it.auth == auth }
+        if (exact >= 0) return exact
+        return list.indexOfFirst { sameWho(it) && it.auth == AuthKind.UNKNOWN }
+    }
+
+    /**
+     * 生成不与他人冲突的账号 id。
+     *
+     * 随机后缀可能撞（原实现是 `acc-<36进制时间>-<0..999 随机>`），而 id 一变，
+     * `current_account` 就指不到任何记录（表现为「登录了但当前账号为空」）。
+     * 显式让开已占用的 id，比事后兜底便宜。
+     */
+    private fun newAccountId(now: Long, taken: Set<String>): String {
+        val base = "acc-" + now.toString(36)
+        if (base !in taken) return base
+        var i = 2
+        while ("$base-$i" in taken) i++
+        return "$base-$i"
     }
 
     /** 删除账号记录（保留其本地仓库与任务）。 */
