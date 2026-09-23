@@ -117,10 +117,14 @@ jobs:
           # 官方自动生成说明（合并的 PR + 贡献者 + 完整变更链接），分类见 .github/release.yml
           generate_release_notes: true
           previous_tag: ${{ steps.notes.outputs.previous }}
+          # ⚠️ 用**显式路径**而不是 `*.apk`：glob 一个都没匹配到时，action-gh-release
+          # **默认仍算成功**（`fail_on_unmatched_files` 默认 false）—— release 建出来了、
+          # 附件一个没有、CI 全绿。正式版是用户实际下载的唯一来源，这种静默失败代价最大。
           files: |
-            *.apk
+            Branchbase-${{ needs.build.outputs.standardVersion }}.apk
             signature.txt
             source-${{ needs.build.outputs.versionName }}.tar.gz
+          fail_on_unmatched_files: true
           prerelease: false
           draft: false
           # 正式版设为 latest（Beta 是 pre-release，不会抢占）
@@ -148,4 +152,23 @@ jobs:
             echo "| 签名 | Release 签名 |"
           } > final-body.md
           gh release edit "$TAG" --repo "${{ github.repository }}" --notes-file final-body.md
-          echo "✅ 版本信息已追加到发布页末尾" 
+          echo "✅ 版本信息已追加到发布页末尾"
+
+      # 附件数校验（最后一道防线）。理由与 build-beta.yml 同名步骤相同：
+      # `fail_on_unmatched_files` 只能挡「glob 没匹配到」，挡不住「匹配到了却没传上去」。
+      # 正式版尤其不能静默 —— 用户下载不到 APK 会直接表现为「发布页是空的」。
+      - name: 校验发布附件齐全
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ needs.build.outputs.versionName }}"
+          echo "附件清单："
+          gh release view "$TAG" --repo "${{ github.repository }}" --json assets -q '.assets[].name'
+          # 用**字符串比较**而不是 `-ne`：取不到时 N 为空，而 `[ "" -ne 3 ]` 会报错返回非 0，
+          # 在 `if` 条件里被当作「条件不成立」→ 校验形同虚设。空值必须走失败分支。
+          N=$(gh release view "$TAG" --repo "${{ github.repository }}" --json assets -q '.assets | length' | tr -dc '0-9')
+          if [ "$N" != "3" ]; then
+            echo "::error title=发布附件缺失::$TAG 期望 3 个附件（release APK / signature.txt / 源码包），实际 '${N:-取不到}' 个"
+            exit 1
+          fi
+          echo "✅ 附件齐全（$N 个）"

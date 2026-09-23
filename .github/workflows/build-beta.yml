@@ -154,9 +154,15 @@ jobs:
           generate_release_notes: true
           # 让官方的「完整变更」链接也锚定上一个 beta 标签，而不是 GitHub 自行挑选的基准
           previous_tag: ${{ steps.notes.outputs.previous }}
+          # ⚠️ 用**显式路径**而不是 `*.apk`：glob 一个都没匹配到时，action-gh-release
+          # **默认仍算成功**（`fail_on_unmatched_files` 默认 false）—— 于是 release 建出来了、
+          # 附件一个没有、CI 全绿，页面上就是「什么都没有」。v1.0.73-beta 正是这么丢的。
+          # 两道防线：这里的显式路径 + 下面 `fail_on_unmatched_files`，末尾还有一道附件数校验。
           files: |
-            *.apk
+            Branchbase-${{ needs.build.outputs.standardVersion }}-debug.apk
+            Branchbase-${{ needs.build.outputs.standardVersion }}-perfBeta.apk
             verify/signature.txt
+          fail_on_unmatched_files: true
           prerelease: true
           draft: false
 
@@ -184,4 +190,25 @@ jobs:
             echo "| 签名 | Debug 签名（测试版专用） |"
           } > final-body.md
           gh release edit "$TAG" --repo "${{ github.repository }}" --notes-file final-body.md
-          echo "✅ 版本信息已追加到发布页末尾" 
+          echo "✅ 版本信息已追加到发布页末尾"
+
+      # 附件数校验（最后一道防线）。
+      #
+      # `fail_on_unmatched_files` 挡的是「glob 没匹配到文件」，挡不住「匹配到了、但上传阶段
+      # 没真正发生」。发布页少东西必须让 CI 红 —— 而不是等人去点开看一眼才发现。
+      # 这次（v1.0.73-beta）就是全绿 + 0 附件，靠人肉比对 29 个历史 release 才发现的。
+      - name: 校验发布附件齐全
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          echo "附件清单："
+          gh release view "$TAG" --repo "${{ github.repository }}" --json assets -q '.assets[].name'
+          # 用**字符串比较**而不是 `-ne`：取不到时 N 为空，而 `[ "" -ne 3 ]` 会报错返回非 0，
+          # 在 `if` 条件里被当作「条件不成立」→ 校验形同虚设。空值必须走失败分支。
+          N=$(gh release view "$TAG" --repo "${{ github.repository }}" --json assets -q '.assets | length' | tr -dc '0-9')
+          if [ "$N" != "3" ]; then
+            echo "::error title=发布附件缺失::$TAG 期望 3 个附件（debug APK / perfBeta APK / signature.txt），实际 '${N:-取不到}' 个"
+            exit 1
+          fi
+          echo "✅ 附件齐全（$N 个）"
