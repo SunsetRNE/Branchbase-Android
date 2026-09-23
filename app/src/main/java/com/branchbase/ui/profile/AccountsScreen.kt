@@ -96,8 +96,13 @@ fun AccountsScreen(
     LaunchedEffect(Unit) {
         Logger.ui("进入账号管理页", "Compose")
         reload()
-        // 进入即对未检查过的账号做一次探测（启动后的首次检查也走这里）
-        accounts.filter { it.status == AccountStatus.UNKNOWN }.forEach { check(it) }
+        // 进入即探测，但**只探结论陈旧的**（见 AccountChecks.isStale）：原来只跳过「已检查过」
+        // 的账号，而结论一旦是「令牌已失效」，用户每次进设置都会被再报一次同样的事 ——
+        // 同一件事反复说，主观上就成了「老是报失效」。结论应当稳定，翻案交给「全部检查」。
+        val stale = accounts.filter {
+            com.branchbase.core.AccountChecks.isStale(it.status, it.lastCheck)
+        }
+        stale.forEach { check(it) }
     }
 
     Column(
