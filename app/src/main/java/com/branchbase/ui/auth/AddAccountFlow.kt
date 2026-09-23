@@ -39,7 +39,29 @@ object AddAccountFlow {
 
     private val _active: MutableState<Boolean> = mutableStateOf(false)
 
-    /** 当前是否处于「新增账号」流程（根布局据此决定登录界面要不要接管整屏）。 */
+    /**
+     * 流程开始时刻（毫秒）—— 用于**兜底过期**，见 [begin] 的「为什么需要过期」。
+     */
+    private var beganAt: Long = 0L
+
+    /**
+     * 兜底过期时长。
+     *
+     * 它只防一种残留：用户进了新增流程、中途离开账号页、之后再回来 ——
+     * 此时标记不该还挂着（用户并没有要新增）。之所以用「过期」而不是「离开账号页时清」，
+     * 见 [begin] 里那段踩坑记录：登录界面接管整屏时账号页会被 dispose，
+     * 任何挂在它 onDispose 上的清理都会**把流程立刻取消掉**。
+     */
+    internal const val STALE_MS = 2 * 60 * 1000L
+
+    /**
+     * 当前是否处于「新增账号」流程（根布局据此决定登录界面要不要接管整屏）。
+     *
+     * **纯标记，不含时间判定**：过期只在账号页进入时由 [dropIfStale] 显式结算。
+     * 早先把它写成「标记 && 未过期」，结果 getter 用真实时钟、[begin] 用可注入时钟，
+     * 两者混用 —— 单测里一 begin 就立刻被判过期（测试直接红了）。时间判定留在一个地方，
+     * 才好推也好测。
+     */
     val active: Boolean get() = _active.value
 
     /**
@@ -50,9 +72,40 @@ object AddAccountFlow {
      */
     val activeState: State<Boolean> get() = _active
 
-    /** 从账号页进入新增流程。 */
-    fun begin() {
+    /**
+     * 从账号页进入新增流程。
+     *
+     * ## 踩坑记录：不要在账号页的 `onDispose` 里清这个标记
+     *
+     * 第一版在 `AccountsScreen` 上挂了 `DisposableEffect { onDispose { finish() } }`，
+     * 想在「用户中途离开账号页」时收尾。结果**功能完全失效、界面毫无反应**：
+     *
+     * 1. `begin()` 置位 → 根 `LoginFlow` 判定「新增流程中」，于是**不再组合主界面**
+     *    （这是刻意的：否则账号页会与登录界面叠两层）；
+     * 2. 主界面一撤，`AccountsScreen` 立刻被 dispose → `onDispose` 马上调 `finish()`；
+     * 3. 标记被清 → 又渲染主界面 → 看起来什么都没发生。
+     *
+     * 也就是说：**「登录界面接管整屏」与「在账号页 onDispose 里清理」在结构上互斥**，
+     * 那个 onDispose 的清理对象恰恰是它自己触发的。
+     * 残留改用 [STALE_MS] 兜底过期处理（账号页进入时调用 [dropIfStale]）。
+     */
+    fun begin(now: Long = System.currentTimeMillis()) {
+        beganAt = now
         _active.value = true
+    }
+
+    private fun expired(now: Long = System.currentTimeMillis()): Boolean =
+        _active.value && beganAt > 0L && now - beganAt > STALE_MS
+
+    /**
+     * 账号页进入时调用：残留过一次「进了新增流程又中途离开」的标记就丢掉。
+     *
+     * @return true 表示这次确实丢掉了一个残留标记（调用方可据此记一行日志）
+     */
+    fun dropIfStale(now: Long = System.currentTimeMillis()): Boolean {
+        if (!expired(now)) return false
+        _active.value = false
+        return true
     }
 
     /**
@@ -60,13 +113,18 @@ object AddAccountFlow {
      *
      * 幂等：登录成功与用户返回可能几乎同时发生（例如授权完成后立刻按返回），
      * 重复调用不该有任何副作用。
+     *
+     * ⚠️ 只有**用户真的走完或退出**新增流程时才调它。不要在账号页的 `onDispose` 里调 ——
+     * 见 [begin] 的踩坑记录，那会把流程在自己开始的同一刻取消掉。
      */
     fun finish() {
         _active.value = false
+        beganAt = 0L
     }
 
     /** 仅供单测：把状态复位（进程内单例不该在测试之间串味）。 */
     internal fun resetForTest() {
         _active.value = false
+        beganAt = 0L
     }
 }

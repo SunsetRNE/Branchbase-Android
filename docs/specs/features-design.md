@@ -67,11 +67,18 @@
 账号页 `begin()` → 登录界面接管整屏（`LoginFlow` 把 `LoggedIn` 那一格换成欢迎页，
 因此主界面根本不组合）→ 登录成功或用户返回时 `finish()`。
 
-三条收尾路径都必须成立，否则会把用户**永久留在登录页**：
+两条收尾路径（外加一条兜底过期）：
 
 1. 登录成功（`LaunchedEffect` 观察到 `LoginState.LoggedIn`）；
 2. 在欢迎页按返回（`PageBackHandler`，仅新增流程中启用）→ 回账号列表；
-3. **离开账号页**（`DisposableEffect.onDispose`）→ 中途切 Tab / 返回设置也不会把标记留成 true。
+3. **兜底过期**：进了流程又中途离开（切 Tab / 返回设置）会留下标记，账号页**进入时**
+   调 `dropIfStale()` 丢掉超过 2 分钟的残留。
+
+> ⚠️ **不要在账号页的 `onDispose` 里清这个标记**。第一版正是这么写的，结果
+> 「添加账号」**完全没反应**：`begin()` 置位后根布局不再组合主界面（这是刻意的，
+> 否则账号页与登录界面叠两层），主界面一撤账号页立刻 dispose → `onDispose` 马上
+> `finish()` → 标记被清 → 又渲染主界面。**那个清理的对象恰恰是它自己触发的**。
+> 这个坑写在 `AddAccountFlow.begin` 的注释里，不要在重构时“顺手加回一个 DisposableEffect”。
 
 配套的「谁该成为当前账号」规则收在 `AccountStore.planUpsert`（纯函数有单测）：
 

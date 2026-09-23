@@ -3,6 +3,8 @@ package com.branchbase.ui.profile
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,13 +26,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -101,15 +103,17 @@ fun AccountsScreen(
         if (!addingAccount) reload()
     }
 
-    // 离开本页时一定要清掉标记：否则「进新增流程 → 中途切到别的 Tab / 返回设置」
-    // 会把标记留成 true，下次进账号页直接被扔进登录界面，而用户并没有要新增。
-    // 登录成功那条路径已经清了，这里清是幂等的。
-    DisposableEffect(Unit) {
-        onDispose { com.branchbase.ui.auth.AddAccountFlow.finish() }
-    }
+    // ⚠️ 这里**不能**用 `DisposableEffect { onDispose { finish() } }` 顺手清理 ——
+    // 第一版就是这么写的，结果「添加账号」完全没反应：登录界面接管整屏时本页会被
+    // dispose，那个 onDispose 恰好把刚置上的标记清掉（等于自己取消自己）。
+    // 残留改用「进入时丢弃过期标记」兜底，见 AddAccountFlow.begin 的踩坑记录。
 
     LaunchedEffect(Unit) {
         Logger.ui("进入账号管理页", "Compose")
+        // 上一次「进了新增流程又中途离开」的残留标记在这里丢掉（见 add 的说明）
+        if (com.branchbase.ui.auth.AddAccountFlow.dropIfStale()) {
+            Logger.ui("丢弃过期的「新增账号」标记（上次进入后未完成）", "Compose")
+        }
         reload()
         // 进入即探测，但**只探结论陈旧的**（见 AccountChecks.isStale）。
         //
@@ -180,7 +184,11 @@ fun AccountsScreen(
                         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)
                             .clip(RoundedCornerShape(10.dp))
                             .border(1.dp, Primer.Border, RoundedCornerShape(10.dp))
-                            .clickable { onAdd() }.padding(vertical = 13.dp),
+                            .clickable {
+                            // 记一行：这个功能出过一次「点了没反应」，当时日志里查不到任何线索
+                            Logger.ui("点「添加账号」→ 进入新增登录流程", "Compose")
+                            onAdd()
+                        }.padding(vertical = 13.dp),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -322,8 +330,14 @@ private fun AccountCard(
         }
 
         Spacer(Modifier.height(10.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Badge(if (isChecking) "检查中…" else "● ${account.status.label}", statusFg(account.status), statusBg(account.status), Primer.Border)
+        // 徽标**横向可滚**：这几个徽标的宽度取决于 login 长度 / 仓库数 / 时间文案，
+        // 窄屏（360dp）上本来就会挤到行尾之外。溢出会让整行换行、卡片高度跳动 ——
+        // 用户看到的就是「检查时 UI 明显被撑高」。可滚之后宽度变化只影响滚不滚，不影响高度。
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            StatusBadge(status = account.status, checking = isChecking)
             Spacer(Modifier.width(6.dp))
             Badge(account.auth.label, Primer.TextTertiary, Primer.Gray150, Primer.Border)
             Spacer(Modifier.width(6.dp))
@@ -332,6 +346,44 @@ private fun AccountCard(
                 Spacer(Modifier.width(6.dp))
                 Badge(relativeCheck(account.lastCheck), Primer.TextTertiary, Primer.Gray150, Primer.Border)
             }
+        }
+    }
+}
+
+/**
+ * 账号状态徽标。
+ *
+ * ## 为什么不再把文案换成「检查中…」
+ *
+ * 原来检查时整块换成 `检查中…`：文案、底色、前景全变，徽标宽度也跟着变 ——
+ * 而这一行还有「登录方式 / N 个本地仓库 / X 分钟前检查」几个徽标，宽度一变整行就重排，
+ * 窄屏上直接溢出到行外，卡片高度随之跳动。用户的观感是「一检查 UI 就被撑高一下」。
+ *
+ * 现在**文案与配色始终是状态本身**，只在前面加一个固定 10dp 的转圈槽位；
+ * 不检查时槽位用等宽 Spacer 占着，于是「检查中」这个状态的变化**完全不改变布局**。
+ * 顺带一个好处：检查过程中用户仍能看到**上一次的结论**，而不是被一句「检查中」盖掉。
+ */
+@Composable
+private fun StatusBadge(status: AccountStatus, checking: Boolean) {
+    val fg = statusFg(status)
+    val bg = statusBg(status)
+    Box(
+        Modifier.clip(RoundedCornerShape(10.dp)).background(bg).border(1.dp, Primer.Border, RoundedCornerShape(10.dp))
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // 固定槽位：无论检不检查都占同样宽度
+            Box(Modifier.size(10.dp), contentAlignment = Alignment.Center) {
+                if (checking) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(9.dp),
+                        color = fg,
+                        strokeWidth = 1.5.dp,
+                    )
+                }
+            }
+            Spacer(Modifier.width(4.dp))
+            Text("● ${status.label}", fontSize = 10.5.sp, color = fg)
         }
     }
 }
