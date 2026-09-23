@@ -302,7 +302,11 @@ fun NotificationScreen(
 
     // 未读数上报（驱动底部导航 badge）：始终基于「全部」列表，不受当前筛选与折叠影响。
     // 按**行**数而不是条数：折叠行在屏幕上就是一个未读点，报 8 会让底部徽标与眼睛看到的对不上。
-    val unread = collapseCiRuns(liveItems.filter { it.unread }).size
+    //
+    // ⚠️ 语义见 [unreadRowCount]：折叠行只要**组内有任意一条未读**就算一个未读点。
+    //    先筛未读再折叠是错的 —— 组里已读的那几条被抽走后组不再成立，于是「8 条折成 1 行」
+    //    在这里退回 3 行，屏幕上明明只有一个点、徽标却报 3。
+    val unread = unreadRowCount(liveItems)
     LaunchedEffect(unread) { onUnreadCountChange(unread) }
 
     val allTypes = remember(items.map { it.subjectType }) {
@@ -1444,6 +1448,23 @@ private fun NotificationList(
             }
         }
     }
+}
+
+/**
+ * 「全部」列表的未读**行**数（驱动底部导航的徽标；纯函数，见 `NotificationCiFoldTest`）。
+ *
+ * 为什么按行而不按条：折叠行在屏幕上就是一个未读点，报 8 会让徽标与眼睛看到的对不上。
+ *
+ * ⚠️ 顺序要求：必须**先折叠再筛未读**。反过来先把未读挑出来的话，组里已读的那几条被抽走、
+ * 折叠组不再成立 —— 「8 条折成 1 行」在这里会退回 3 行，徽标报 3 而屏幕上只有一个点。
+ *
+ * 输入需要已按时间倒序（与其他折叠调用同一前提）；顺序不对只会让折叠被切成几段、
+ * 结果偏大，不会漏报未读。
+ */
+internal fun unreadRowCount(list: List<Notification>): Int {
+    val unreadIds = list.filterTo(mutableSetOf()) { it.unread }.mapTo(mutableSetOf()) { it.id }
+    if (unreadIds.isEmpty()) return 0
+    return collapseCiRuns(list).count { row -> row.allIds.any { it in unreadIds } }
 }
 
 /**

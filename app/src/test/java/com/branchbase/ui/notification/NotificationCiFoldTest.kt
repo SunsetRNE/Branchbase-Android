@@ -224,4 +224,43 @@ class NotificationCiFoldTest {
         assertNull(n.fold)
         assertEquals(listOf("7"), n.allIds)
     }
+
+    // ───────────────── 未读行数（驱动底部徽标） ─────────────────
+
+    @Test
+    fun `未读行数按行而不是按条`() {
+        // 8 条未读的 CI 折成一行 → 徽标报 1，屏幕上也是 1 个未读点
+        val list = (1..8).map { ci("$it", ms = at(0, 12) - it * 60_000L) }
+        assertEquals(1, unreadRowCount(list))
+    }
+
+    @Test
+    fun `组内只要有一条未读整行就算未读`() {
+        // 后 5 条已读、前 3 条未读：仍是同一折（折叠键不含未读标志），屏幕上是一个未读点。
+        // ⚠️ 这里正是「先筛未读再折叠」会算错的地方 —— 那样只剩 3 条且不再相邻成组，报 3。
+        val list = (1..8).map { ci("$it", ms = at(0, 12) - it * 60_000L) }
+            .mapIndexed { i, n -> if (i >= 3) n.copy(unread = false) else n }
+        assertEquals(1, unreadRowCount(list))
+    }
+
+    @Test
+    fun `组内全部已读时不计入`() {
+        val list = (1..8).map { ci("$it", ms = at(0, 12) - it * 60_000L).copy(unread = false) }
+        assertEquals(0, unreadRowCount(list))
+    }
+
+    @Test
+    fun `未读与已读的普通行分别计数`() {
+        val list = listOf(
+            issue("1").copy(unread = true),
+            issue("2").copy(unread = false),
+            issue("3").copy(unread = true),
+        )
+        assertEquals(2, unreadRowCount(list))
+    }
+
+    @Test
+    fun `空列表的未读行数为 0`() {
+        assertEquals(0, unreadRowCount(emptyList()))
+    }
 }
