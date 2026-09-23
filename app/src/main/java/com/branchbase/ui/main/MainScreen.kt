@@ -33,10 +33,13 @@ import com.branchbase.ui.notification.NotifSnapshot
 import com.branchbase.ui.notification.NotifTarget
 import com.branchbase.ui.notification.SecurityAlertScreen
 import com.branchbase.ui.profile.ProfileScreen
+import com.branchbase.ui.profile.SubPage
 import com.branchbase.ui.repository.RepoDeepLink
 import com.branchbase.ui.repository.RepoPage
 import com.branchbase.ui.repository.RepositoryScreen
 import com.branchbase.ui.search.SearchScreen
+import com.branchbase.ui.log.Logger
+import androidx.compose.ui.platform.LocalContext
 
 /**
  * 主界面骨架：底部导航（2 Tab：首页 / 消息）+ 内容区。
@@ -70,6 +73,28 @@ fun MainScreen(
 ) {
     var selected by remember { mutableStateOf(NavDestination.Home) }
     var showProfile by remember { mutableStateOf(false) }
+
+    // 「添加账号」的登录页整屏接管时，state 一变这棵子树会被销毁；返回时重建，
+    // 导航状态全丢 —— 用户从「设置 → 账号管理」进去的，回来却落在别处。
+    // 落点寄存在 MainNavMemory（进程内，不受销毁影响），这里**消费一次**即恢复：
+    // 读走就清空，否则用户下次正常启动还会被拽回「账号管理」。
+    var pendingSubPage by remember { mutableStateOf<SubPage?>(null) }
+    LaunchedEffect(Unit) {
+        MainNavMemory.consume()?.let { route ->
+            selected = when (route.tab) {
+                MainNavMemory.MainTab.MESSAGES -> NavDestination.Notifications
+                MainNavMemory.MainTab.HOME -> NavDestination.Home
+            }
+            if (route.onProfile) {
+                showProfile = true
+                // 子页名认不出来就停在个人页主页，总比落错页好
+                pendingSubPage = route.profileSubPage?.let { name ->
+                    SubPage.entries.firstOrNull { it.name == name }
+                }
+            }
+            Logger.ui("恢复上次落点：tab=${route.tab} 个人页=${route.onProfile} 子页=${route.profileSubPage}", "Compose")
+        }
+    }
     var showSearch by remember { mutableStateOf(false) }
     var showRepo by remember { mutableStateOf<RepoDeepLink?>(null) }
     var showSecurity by remember { mutableStateOf<NotifTarget.Security?>(null) }
@@ -177,6 +202,10 @@ fun MainScreen(
                     // 个人页（头像进入）
                     MainRoute.Profile -> ProfileScreen(
                         sessionJson = sessionJson,
+                        // 从寄存点恢复个人页里的子页（例如「设置 → 账号管理」）。
+                        // 用户自己按返回时清空它，否则下次进个人页会被拽回旧子页。
+                        initialSubPage = pendingSubPage,
+                        initialSubPageConsumed = { pendingSubPage = null },
                         onBack = { showProfile = false },
                         onLogout = onLogout,
                         onOpenRepo = { fullName ->

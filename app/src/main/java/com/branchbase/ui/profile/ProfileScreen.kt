@@ -143,6 +143,15 @@ fun ProfileScreen(
     onBack: () -> Unit,
     onLogout: () -> Unit,
     onOpenRepo: (String) -> Unit,
+    /**
+     * 从寄存点恢复的初始子页（例如「设置 → 账号管理」）。
+     *
+     * 场景：「添加账号」的登录页整屏接管时本页会被销毁，返回时重建 —— 没有它就会落在个人页主页，
+     * 而用户的直觉是「回到我离开的那一页」。
+     */
+    initialSubPage: SubPage? = null,
+    /** 消费掉初始子页后回调，宿主据此清空寄存点（否则下次进个人页会被拽回旧子页）。 */
+    initialSubPageConsumed: () -> Unit = {},
 ) {
     val loggedProfile = remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -225,7 +234,14 @@ fun ProfileScreen(
     val publicRepos = user?.optLong("public_repos") ?: 0L
 
     var tab by remember { mutableStateOf(ProfileTab.Overview) }
-    var subPage by remember { mutableStateOf<SubPage?>(null) }
+    // 初始值取自寄存点（一次性）：消费后回调宿主清空，避免下次又被拽回来
+    var subPage by remember { mutableStateOf(initialSubPage) }
+    LaunchedEffect(Unit) {
+        if (initialSubPage != null) {
+            Logger.ui("个人页恢复子页：${initialSubPage.label}", "Compose")
+            initialSubPageConsumed()
+        }
+    }
 
     // 唯一路由：子页栈（depth>0）或主页三 Tab（depth=0）。
     // 原来是 `if (currentSubPage != null) { when(...); return }` —— 状态一变整棵树换掉、无过渡；

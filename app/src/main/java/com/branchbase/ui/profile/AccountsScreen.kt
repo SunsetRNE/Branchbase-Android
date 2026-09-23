@@ -191,6 +191,15 @@ fun AccountsScreen(
                             .clickable {
                             // 记一行：这个功能出过一次「点了没反应」，当时日志里查不到任何线索
                             Logger.ui("点「添加账号」→ 进入新增登录流程", "Compose")
+                            // 先寄存「我在哪」：新增登录页会整屏接管，本页与整个主界面子树都会被销毁，
+                            // 返回时靠这份寄存恢复回来（否则落在个人页主页，而不是这里）
+                            com.branchbase.ui.main.MainNavMemory.remember(
+                                com.branchbase.ui.main.MainNavMemory.Route(
+                                    tab = com.branchbase.ui.main.MainNavMemory.MainTab.HOME,
+                                    onProfile = true,
+                                    profileSubPage = SubPage.Accounts.name,
+                                ),
+                            )
                             // 两条都发：loginViewModel 那条是给根布局的（已验证会重组的通道），
                             // AddAccountFlow 是真源；onAdd 保留给宿主做别的钩子
                             loginViewModel.addAccount()
