@@ -61,15 +61,16 @@ jobs:
           cp app/build/outputs/apk/release/*.apk dist/ || true
           ls -la dist/
 
-      # 一个 APK 一个 artifact（理由同 build-beta.yml：产物是发布页之外的第二条取包通道，
-      # 需要「名字能认出是哪个包」+「下载的 zip 里只有一个 .apk」）。
-      - name: Upload artifacts（release APK）
-        uses: actions/upload-artifact@v4
+      # 一个 APK 一个 artifact，且**不打包**（理由与两条硬约束同 build-beta.yml：
+      # 产物是发布页之外的第二条取包通道；`archive: false` 只能传单个文件，
+      # 且产物名直接取文件名 —— 所以不写 `name:`，`.apk` 后缀由 outputFileName 保证）。
+      - name: Upload artifacts（release APK，不打包）
+        uses: actions/upload-artifact@v7
         with:
-          name: Branchbase-${{ steps.ver.outputs.standardVersion }}
           path: dist/*.apk
           retention-days: 30
           if-no-files-found: error
+          archive: false
 
   publish:
     runs-on: ubuntu-latest
@@ -81,12 +82,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 按前缀取回 build 的产物，`merge-multiple` 让 APK 落在工作区根目录
-      # （不加它会被解到以 artifact 命名的子目录里，下面的 `files:` 就找不到）
+      # 取回 build 的产物。`@v8` 是 `archive: false` 的必要条件；
+      # `merge-multiple` 让它直接落在工作区根目录（不加会被放进以 artifact 命名的子目录，
+      # 下面的 `files:` 就找不到）。产物名就是文件名，取回来即 `Branchbase-<sv>.apk`。
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
-          pattern: Branchbase-*
+          pattern: '*'
           merge-multiple: true
 
       # 改动记录：锚定上一个**正式版**标签（排除 beta），逐条列出提交 + 完整对比链接。

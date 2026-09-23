@@ -453,8 +453,9 @@ private fun FilterSegment(label: String, on: Boolean, onClick: () -> Unit) {
  * 产物行：名字 + 大小 + 「已过期」 + 行尾**一个主动作**。
  *
  * 动作随下载状态走，与发布附件行同一套：下载 → 取消 / 重试 / **安装**。
- * 安装那一步要先把 zip 解开 —— Actions 的产物**下载时永远是 zip**（平台约束，绕不过），
- * 所以「拿产物当第二条取包通道」的最后一环落在 App 这边，见 [installWorkflowArtifact]。
+ * 安装那一步：工作流侧用 `archive: false` 上传，产物**下载回来就是裸 APK**，直接交给安装器；
+ * 存量（v7 之前上传的）产物则是个 zip，需要先解出里面那个包 —— 两种形态由
+ * [installWorkflowArtifact] 统一处理。
  *
  * 下载走 `:downloader`（前台服务 + 通知进度 + 重定向鉴权都是现成的）；
  * `archive_download_url` 需要鉴权，由 `:downloader` 的 `AuthProvider` 按 host 注入。
@@ -519,7 +520,10 @@ private fun ArtifactRow(
                         DownloadRequest(
                             id = artifactTaskId(artifact.id),
                             url = artifact.archiveDownloadUrl,
-                            fileName = "${artifact.name}.zip",
+                            // 不拼 `.zip`：工作流侧用 `archive: false` 上传，产物名就是文件名
+                            // （`Branchbase-…-perfBeta.apk`），下载回来的**是裸 APK**。
+                            // 拼上 `.zip` 会让安装器拿到一个 MIME 对不上的文件。
+                            fileName = artifact.name,
                             title = artifact.name,
                             sizeHint = artifact.sizeInBytes,
                         ),

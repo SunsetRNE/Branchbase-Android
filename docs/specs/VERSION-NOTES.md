@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只留格式契约 + 写法样板（3 个经典示例）；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.74**）
-与 §三 `versionCode` 流水（129 → **176**）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.75**）
+与 §三 `versionCode` 流水（129 → **177**）。
 
 ---
 
@@ -25,7 +25,44 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.74 → 1.0.22）
+## 二、`versionName` 流水（1.0.75 → 1.0.22）
+
+### 1.0.75
+
+**产物不再打包 —— 浏览器直接下到裸 APK**（1.0.74 的收尾：那条通道原来仍是个装不了的 zip）。
+
+① **为什么还有这一版**。1.0.74 把产物拆成了「一个 APK 一个 artifact」，但**下载下来仍是 zip** ——
+我当时按「GitHub Actions 的产物下载永远打包」下的结论，**这个结论是错的**：
+`actions/upload-artifact` **v7 起支持 `archive: false`**（GitHub 2026-02-26 上线，
+见 [官方 changelog](https://github.blog/changelog/2026-02-26-github-actions-now-supports-uploading-and-downloading-non-zipped-artifacts/)），
+浏览器直接下到裸文件。原来用的 `@v4` 属于旧行为。
+
+② **改法**。两个工作流的 `actions/upload-artifact` 由 `@v4` 升到 **`@v7`** 并加 `archive: false`；
+publish 侧的 `actions/download-artifact` 由 `@v4` 升到 **`@v8`**（v7 上传的非打包产物只有 v8 能取回）。
+
+`archive: false` 有两条硬约束，写错会直接失败或名字对不上：
+
+- **只能传单个文件** —— 所以仍然一个文件一个 step（这正是 1.0.74 拆产物带来的便利）；
+- **产物名直接取文件名，`name:` 参数被忽略** —— 所以两处都删掉了 `name:`（留着也不生效，
+  只会误导）。APK 的 `.apk` 后缀因此是必需的，由 `build.gradle.kts` 的 `outputFileName` 保证。
+
+publish 的下载同步改：`pattern: Branchbase-*` → `pattern: '*'`（非打包产物的名字不再带统一前缀，
+变成 `Branchbase-<sv>-debug.apk` / `-perfBeta.apk` / `libbranchbase_core.so`），仍配
+`merge-multiple: true`。取回来后正好是 `files:` 与 `cp libbranchbase_core.so` 期望的那三个路径。
+
+③ **App 侧跟着改**（这是本版为什么还要 +1 versionCode）：
+
+- 下载文件名不再拼 `.zip`（改成 `fileName = artifact.name`，它已经以 `.apk` 结尾）——
+  拼上会让安装器拿到一个 MIME 对不上的文件；
+- `extractSingleApk` 改成**两种形态都认**：`looksLikeApk`（根目录有 `AndroidManifest.xml`）→
+  原样返回；否则按「装着唯一一个 APK 的 zip」解出来。
+  **APK 本身就是 zip，光看魔数分不出这两种**，所以判据取 `AndroidManifest.xml`。
+  存量（旧行为上传的）产物同样能装，不必区分版本。
+- 钉子 `ArtifactInstallTest` 11 → **13**。
+
+④ **测试**。`:app` 编译通过，`com.branchbase.ui.repository.*` 全绿。
+
+---
 
 ### 1.0.74
 
@@ -59,6 +96,10 @@ GitHub 全局故障：`neovim/neovim` 3.7 小时前的 release（13 个附件）
 发布附件  →  下载 .apk  →  有「安装」
 CI 产物   →  下载 .zip  →  结束（`app`/`downloader`/`core` 里 ZipFile 零命中，手机上解不了）
 ```
+
+> ⚠️ **本条下面这句结论是错的，已在 1.0.75 更正，保留原文以便对照**：
+> 「Actions 的产物下载时永远是 zip」—— 那是 `upload-artifact` **v7 之前**的行为；
+> v7 起支持 `archive: false`（GitHub 2026-02-26 上线），浏览器直接下到裸文件。见 §二 1.0.75。
 
 Actions 的产物**下载时永远是 zip**，去不掉这层壳。既然去不掉，就把壳做成确定性的：
 
@@ -1310,11 +1351,18 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（176 → 129）
+## 三、`versionCode` 流水（177 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **177**：产物不再打包 —— `actions/upload-artifact` `@v4` → **`@v7` + `archive: false`**
+（GitHub 2026-02-26 上线；v7 之前一律 zip），publish 侧 `download-artifact` `@v4` → **`@v8`**，
+下载 pattern 改 `*`。App 侧跟着改：不再给产物拼 `.zip` 后缀；`extractSingleApk` 两种形态都认
+（裸 APK 靠根目录 `AndroidManifest.xml` 判定，否则按「装着唯一 APK 的 zip」解出）。
+更正 1.0.74 里「产物下载永远是 zip」的错误结论。`ArtifactInstallTest` 11 → 13
+（一次提交，故 +1）
 
 - **176**：「刚发布的版本在 App 里看不到附件」—— 补两条断点。①App 读的列表接口对刚发布的
 release 会返回空 `assets`（窗口约 1.5~2.6 小时，单体接口与网页始终正确），改在报空时回源单体

@@ -19,8 +19,16 @@ import org.junit.Test
  * 发布附件下载 `.apk` 能直接装，产物下载的是 `.zip`，而 `app` / `downloader` / `core`
  * 三个模块里 `ZipFile` / `ZipInputStream` **零命中**，手机上根本没有解它的能力。
  *
- * Actions 的产物**下载时永远是 zip**，去不掉这层壳。既然去不掉，就把壳做成确定性的：
- * 工作流侧拆成「一个 APK 一个 artifact」，App 侧只在**恰好一个 APK** 时才动手。
+ * Actions 的产物在 **2026-02 之前**一律打包成 zip（`upload-artifact` v7 起才有 `archive: false`，
+ * GitHub 2026-02-26 上线）。所以这段代码要同时认两种形态：
+ *
+ * | 产物形态 | 来源 | 怎么处理 |
+ * |---|---|---|
+ * | 裸 `.apk` | `archive: false`（**现在的工作流**） | 原样返回 |
+ * | 装着唯一一个 `.apk` 的 zip | v7 之前的行为 / 存量产物 | 解出来 |
+ *
+ * 而「一个 APK 一个 artifact」仍然必要 —— 它保证**无歧义**：
+ * 混装产物里有两个 APK 时，App 无从判断该装哪个。
  *
  * ## 这个文件钉的是什么
  *
@@ -79,6 +87,25 @@ class ArtifactInstallTest {
     @Test
     fun `大小写不敏感`() {
         assertEquals("A.APK", pickSingleApkEntry(listOf("A.APK")))
+    }
+
+    // ── 一之二、产物「本身就是 APK」────────（upload-artifact@v7 的 archive: false）──
+
+    @Test
+    fun `看起来是不是 apk 自身`() {
+        // APK 本身就是 zip，光看魔数分不出「这是个 apk」还是「这是个装着 apk 的 zip」；
+        // 可靠的区别是 APK 根目录必有 AndroidManifest.xml
+        assertTrue(looksLikeApk(listOf("AndroidManifest.xml", "classes.dex", "res/layout/a.xml")))
+        assertTrue(!looksLikeApk(listOf("a.apk", "b.txt")))
+        assertTrue(!looksLikeApk(emptyList()))
+    }
+
+    @Test
+    fun `产物本身就是 apk 时原样返回`() {
+        val apk = zipOf("AndroidManifest.xml" to "<manifest/>", "classes.dex" to "dex")
+        val dir = Files.createTempDirectory("wf").toFile()
+        val out = extractSingleApk(apk, dir)
+        assertEquals("不该再解一层", apk.canonicalPath, out?.canonicalPath)
     }
 
     // ── 二、真解一个 zip ──────────────────────────────────────────────

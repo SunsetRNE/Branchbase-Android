@@ -79,38 +79,46 @@ jobs:
           cp app/src/main/jniLibs/arm64-v8a/libbranchbase_core.so dist/ || true
           ls -la dist/
 
-      # ── 产物上传：**一个 APK 一个 artifact**，不再混装成一个 zip ──
+      # ── 产物上传：**一个 APK 一个 artifact，且不打包** ──
       #
       # 为什么拆开：产物是发布页之外的**第二条取包通道**。列表接口对刚发布的 release 会有一段
-      # 空 assets 的缓存窗口（见 `releasesNeedingAssetBackfill` 的注释），那段时间里只能靠产物。
-      # 而「靠产物」要求两条：① 名字能认出是哪个包；② 下载下来的 zip 里**只有一个** .apk ——
-      # App 侧「解出唯一 APK 并安装」才有无歧义的判断依据（`pickSingleApkEntry`）。
-      # 原来混装成 `beta-artifacts`（debug + perfBeta + .so，58MB）两条都不满足。
+      # 空 assets 的缓存窗口（约 1.5~2.6 小时，见 `releasesNeedingAssetBackfill` 的注释），
+      # 那段时间里只能靠产物。原来混装成一个 `beta-artifacts`（debug + perfBeta + .so，58MB），
+      # 名字认不出是哪个包、下载下来还得自己挑。
+      #
+      # 为什么不打包：`actions/upload-artifact` **v7 起支持 `archive: false`**
+      # （GitHub 2026-02-26 上线，v7 之前的行为是「一律 zip」）。不打包之后浏览器直接下到
+      # **裸 .apk**，不再是一个装不了的 zip。
+      # ⚠️ `archive: false` 有两条硬约束，写错了产物会直接失败或名字对不上：
+      #   ① 只能传**单个文件**，所以这里一个文件一个 step；
+      #   ② **产物名直接取文件名，`name:` 参数被忽略** —— 所以下面不写 `name:`
+      #      （写了也不生效，留着只会误导）。APK 的 `.apk` 后缀因此是必需的，
+      #      `build.gradle.kts` 里的 outputFileName 已经带上。
       #
       # `if-no-files-found: error`：这条通道是兜底，静默产出空产物等于兜底也没了。
-      - name: Upload artifacts（debug APK）
-        uses: actions/upload-artifact@v4
+      - name: Upload artifacts（debug APK，不打包）
+        uses: actions/upload-artifact@v7
         with:
-          name: Branchbase-${{ steps.ver.outputs.standardVersion }}-debug
           path: dist/*-debug.apk
           retention-days: 30
           if-no-files-found: error
+          archive: false
 
-      - name: Upload artifacts（perfBeta APK）
-        uses: actions/upload-artifact@v4
+      - name: Upload artifacts（perfBeta APK，不打包）
+        uses: actions/upload-artifact@v7
         with:
-          name: Branchbase-${{ steps.ver.outputs.standardVersion }}-perfBeta
           path: dist/*-perfBeta.apk
           retention-days: 30
           if-no-files-found: error
+          archive: false
 
-      - name: Upload artifacts（Rust core .so）
-        uses: actions/upload-artifact@v4
+      - name: Upload artifacts（Rust core .so，不打包）
+        uses: actions/upload-artifact@v7
         with:
-          name: Branchbase-${{ steps.ver.outputs.standardVersion }}-core-so
           path: dist/libbranchbase_core.so
           retention-days: 30
           if-no-files-found: error
+          archive: false
 
   publish:
     runs-on: ubuntu-latest
@@ -122,14 +130,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      # build 任务把产物拆成了三个 artifact（一个 APK 一个），这里按前缀全取回来。
-      # `merge-multiple: true` 是关键：不加它，每个 artifact 会解到**以自己命名的子目录**里，
-      # 于是 `*.apk` / `libbranchbase_core.so` 都不在工作区根目录 —— 发布步骤与
-      # 「代码变更整合」会一起找不到文件（后者直接 `cp` 失败）。
+      # 取回 build 的三个产物（一个 APK 一个，且未打包）。
+      #
+      # `@v8` 是 `archive: false` 的**必要条件** —— v7 上传的非打包产物只有 v8 能正确取回。
+      # `merge-multiple: true` 让它们直接落在工作区根目录；不加会被放进以 artifact 命名的
+      # 子目录，发布步骤与「代码变更整合」的 `cp libbranchbase_core.so` 会一起找不到文件。
+      # 产物名就是文件名（`archive: false` 的规则），所以取回来正好是那三个文件本身：
+      #   Branchbase-<sv>-debug.apk · Branchbase-<sv>-perfBeta.apk · libbranchbase_core.so
+      # 这也正是下面 `files:` 与 `cp` 期望的路径。
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
-          pattern: Branchbase-*
+          pattern: '*'
           merge-multiple: true
 
       - name: Generate signature file
