@@ -61,7 +61,11 @@ token 刷新），不同方式 = **两条**，各自独立，可在账号页切�
 
 另外：删除确认框点名是**哪一种**登录方式，并说明「这次只删这一条」。
 
-新增 `AccountStoreIdentityTest` 13 例；app 745 例全绿；`assembleDebug` 通过。
+新增 `AccountStoreIdentityTest` **24 例**（13 例判据 + 11 例端到端 `planUpsert`：
+「已有 OAuth 再用密钥登录 → 变两条且旧 session 不丢」「同方式再登录 → 更新同一条不新增」
+「登录不再重置检查结果」「老记录就地升级 auth」「同一毫秒创建的 id 不冲突」）；
+`add` 因此瘦成「读 → planUpsert → 写」，决策本体成了不碰 Context 的纯函数。
+app 全绿；`assembleDebug` 通过。
 规则进 [`features-design.md` §1](features-design.md)。versionCode 179 → 180（一次提交 +1）。
 
 ---
@@ -1572,7 +1576,7 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 - **180**：账号身份加「登录方式」维度 —— 密钥登录不再伪覆盖 OAuth 记录（两种方式可共存）；
 `add` 不再重置 `lastCheck`/`status`（启动检查的结果到设置页就作废、必然重探的根因）；
-老记录 `UNKNOWN` 走两轮匹配（精确优先）；账号 id 避让。`AccountStoreIdentityTest` 13 例
+老记录 `UNKNOWN` 走两轮匹配（精确优先）；账号 id 避让。`AccountStoreIdentityTest` 24 例
 （一次提交，故 +1）
 
 - **179**：账号探测补「为什么失效」—— 独立 `HEAD /` 探针读

@@ -155,39 +155,64 @@ object AccountStore {
         auth: AuthKind = AuthKind.OAUTH,
         makeCurrent: Boolean = true,
     ): Account? {
-        if (login.isBlank()) return null
-        val all = accounts(context).toMutableList()
-        val now = System.currentTimeMillis()
-        val exist = indexOfSameIdentity(all, login, host, auth)
-        val account: Account
-        if (exist >= 0) {
-            account = all[exist].copy(
-                session = session,
-                avatar = avatar ?: all[exist].avatar,
-                // auth 用**实际登录方式**写回：老记录是 UNKNOWN（字段缺失）时，
-                // 这次登录正好把它升级成具体值 —— 否则它会一直是通配，看不出用的是哪种方式
-                auth = auth,
-                // lastCheck / status 保持不变 —— 见上面的说明
-            )
-            all[exist] = account
-        } else {
-            account = Account(
-                id = newAccountId(now, all.map { it.id }.toSet()),
-                login = login,
-                host = host,
-                avatar = avatar,
-                auth = auth,
-                session = session,
-                addedAt = now,
-            )
-            all += account
-        }
-        save(context, all)
+        val planned = planUpsert(accounts(context), login, session, host, avatar, auth, System.currentTimeMillis())
+            ?: return null
+        save(context, planned.accounts)
+        val account = planned.account
         if (makeCurrent || prefs(context).getString(KEY_CURRENT, null) == null) {
             prefs(context).edit().putString(KEY_CURRENT, account.id).apply()
             syncLegacySession(context, account)
         }
         return account
+    }
+
+    /** [planUpsert] 的产物：这次登录对应的账号 + 变更后的完整列表。 */
+    data class UpsertPlan(val account: Account, val accounts: List<Account>)
+
+    /**
+     * 「这次登录该更新哪一条、列表变成什么样」（**纯函数，不碰 Context，有单测**）。
+     *
+     * 抽出来的理由：这是整个「伪覆盖」修复的**决策本体** —— 判错的代价是不可逆的
+     * （旧 session 被丢掉就找不回来），而它原先埋在 `add` 的 I/O 之间，只能靠真机发现。
+     * 现在 `add` 只剩「读 → [planUpsert] → 写」三件事。
+     *
+     * @return null 表示 login 为空（不登记）
+     */
+    fun planUpsert(
+        existing: List<Account>,
+        login: String,
+        session: String,
+        host: String,
+        avatar: String?,
+        auth: AuthKind,
+        now: Long,
+    ): UpsertPlan? {
+        if (login.isBlank()) return null
+        val all = existing.toMutableList()
+        val exist = indexOfSameIdentity(all, login, host, auth)
+        if (exist >= 0) {
+            val account = all[exist].copy(
+                session = session,
+                avatar = avatar ?: all[exist].avatar,
+                // auth 用**实际登录方式**写回：老记录是 UNKNOWN（字段缺失）时，
+                // 这次登录正好把它升级成具体值 —— 否则它会一直是通配，看不出用的是哪种方式
+                auth = auth,
+                // lastCheck / status 保持不变 —— 见 add 的注释（重置它会让「刚查过」作废）
+            )
+            all[exist] = account
+            return UpsertPlan(account, all)
+        }
+        val account = Account(
+            id = newAccountId(now, all.map { it.id }.toSet()),
+            login = login,
+            host = host,
+            avatar = avatar,
+            auth = auth,
+            session = session,
+            addedAt = now,
+        )
+        all += account
+        return UpsertPlan(account, all)
     }
 
     /**

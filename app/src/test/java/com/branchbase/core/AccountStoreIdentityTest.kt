@@ -138,6 +138,132 @@ class AccountStoreIdentityTest {
         assertEquals("没有具体匹配才用通配兜底", 0, AccountStore.indexOfSameIdentity(list, "SunsetRNE", "github.com", AuthKind.PAT))
     }
 
+    // ───────────────── 端到端：登录后列表变成什么样（planUpsert） ─────────────────
+    //
+    // 上面测的是「判据」，这里测「判据用对了没有」—— 用户报的伪覆盖就发生在这一步。
+
+    private fun plan(
+        existing: List<Account>,
+        login: String = "SunsetRNE",
+        auth: AuthKind,
+        session: String = "new-session",
+        avatar: String? = null,
+        now: Long = 1000L,
+    ) = AccountStore.planUpsert(existing, login, session, "github.com", avatar, auth, now)!!
+
+    @Test
+    fun `已有 OAuth 时用密钥登录_新增一条而不是覆盖`() {
+        // 用户报的原始场景
+        val existing = listOf(acc("oauth", "SunsetRNE", auth = AuthKind.OAUTH, session = "oauth-token"))
+        val p = plan(existing, auth = AuthKind.PAT, session = "pat-token")
+
+        assertEquals("必须变成两条", 2, p.accounts.size)
+        val oauth = p.accounts.first { it.auth == AuthKind.OAUTH }
+        val pat = p.accounts.first { it.auth == AuthKind.PAT }
+        assertEquals("原有 OAuth 的 session 不能被丢掉", "oauth-token", oauth.session)
+        assertEquals("新密钥登录写进新那条", "pat-token", pat.session)
+        assertEquals("返回的是新那条", "pat-token", p.account.session)
+        assertNotEquals("两条 id 必须不同", oauth.id, pat.id)
+    }
+
+    @Test
+    fun `已有密钥时用 OAuth 登录_同样新增一条`() {
+        val existing = listOf(acc("pat", "SunsetRNE", auth = AuthKind.PAT, session = "pat-token"))
+        val p = plan(existing, auth = AuthKind.OAUTH, session = "oauth-token")
+        assertEquals(2, p.accounts.size)
+        assertEquals("pat-token", p.accounts.first { it.auth == AuthKind.PAT }.session)
+        assertEquals("oauth-token", p.accounts.first { it.auth == AuthKind.OAUTH }.session)
+    }
+
+    @Test
+    fun `同方式再登录_更新同一条且不新增`() {
+        // OAuth token 续期走的这条路：不能变成两条
+        val existing = listOf(acc("oauth", "SunsetRNE", auth = AuthKind.OAUTH, session = "old"))
+        val p = plan(existing, auth = AuthKind.OAUTH, session = "renewed")
+        assertEquals(1, p.accounts.size)
+        assertEquals("renewed", p.accounts[0].session)
+        assertEquals("id 保持不变", "oauth", p.account.id)
+    }
+
+    @Test
+    fun `登录不再重置检查结果_这是老是重探的根因`() {
+        // lastCheck / status 被重置 → AccountChecks.isStale 判定「没查过」→ 设置页必然重探。
+        // 真机日志：启动探测 20:32:33 写回结果，20:35:03 密钥登录后归零，下次进设置页再探一遍。
+        val existing = listOf(
+            acc("oauth", "SunsetRNE", auth = AuthKind.OAUTH, session = "old", lastCheck = 777L, status = AccountStatus.OK),
+        )
+        val p = plan(existing, auth = AuthKind.OAUTH, session = "renewed")
+        assertEquals("lastCheck 必须保留", 777L, p.accounts[0].lastCheck)
+        assertEquals("status 必须保留", AccountStatus.OK, p.accounts[0].status)
+    }
+
+    @Test
+    fun `新增记录时不动已有记录的检查结果`() {
+        val existing = listOf(
+            acc("oauth", "SunsetRNE", auth = AuthKind.OAUTH, session = "old", lastCheck = 777L, status = AccountStatus.OK),
+        )
+        val p = plan(existing, auth = AuthKind.PAT, session = "pat")
+        val oauth = p.accounts.first { it.auth == AuthKind.OAUTH }
+        assertEquals(777L, oauth.lastCheck)
+        assertEquals(AccountStatus.OK, oauth.status)
+        // 新记录自然是「未检查」
+        assertEquals(AccountStatus.UNKNOWN, p.accounts.first { it.auth == AuthKind.PAT }.status)
+    }
+
+    @Test
+    fun `老记录 UNKNOWN 时_升级它的 auth 而不是新增`() {
+        val existing = listOf(acc("legacy", "SunsetRNE", auth = AuthKind.UNKNOWN, session = "old"))
+        val p = plan(existing, auth = AuthKind.PAT, session = "pat")
+        assertEquals("老记录必须被就地升级，不能变成两条", 1, p.accounts.size)
+        assertEquals(AuthKind.PAT, p.accounts[0].auth)
+        assertEquals("pat", p.accounts[0].session)
+    }
+
+    @Test
+    fun `avatar 为空时保留原有头像`() {
+        val existing = listOf(acc("oauth", "SunsetRNE", auth = AuthKind.OAUTH).copy(avatar = "https://a/1.png"))
+        val p = plan(existing, auth = AuthKind.OAUTH, session = "new", avatar = null)
+        assertEquals("https://a/1.png", p.accounts[0].avatar)
+    }
+
+    @Test
+    fun `avatar 有值时覆盖`() {
+        val existing = listOf(acc("oauth", "SunsetRNE", auth = AuthKind.OAUTH).copy(avatar = "https://a/1.png"))
+        val p = plan(existing, auth = AuthKind.OAUTH, session = "new", avatar = "https://a/2.png")
+        assertEquals("https://a/2.png", p.accounts[0].avatar)
+    }
+
+    @Test
+    fun `login 为空时不登记`() {
+        assertEquals(null, AccountStore.planUpsert(emptyList(), "", "tok", "github.com", null, AuthKind.OAUTH, 1L))
+        assertEquals(null, AccountStore.planUpsert(emptyList(), "   ", "tok", "github.com", null, AuthKind.OAUTH, 1L))
+    }
+
+    @Test
+    fun `新账号 id 不与已有 id 冲突`() {
+        // 原实现是 acc-<36进制时间>-<0..999 随机>，撞了会让 current_account 指不到任何记录。
+        // 这里让三批账号都用同一个 now 创建，id 必须各不相同。
+        var list = emptyList<Account>()
+        repeat(3) {
+            val p = AccountStore.planUpsert(list, "u$it", "tok$it", "github.com", null, AuthKind.OAUTH, 42L)!!
+            list = p.accounts
+        }
+        assertEquals(3, list.size)
+        assertEquals("同一毫秒创建的账号 id 必须互不相同", 3, list.map { it.id }.toSet().size)
+    }
+
+    @Test
+    fun `两条记录存在时按方式各自更新_不会互相踩`() {
+        val existing = listOf(
+            acc("oauth", "SunsetRNE", auth = AuthKind.OAUTH, session = "o1"),
+            acc("pat", "SunsetRNE", auth = AuthKind.PAT, session = "p1"),
+        )
+        val afterPat = plan(existing, auth = AuthKind.PAT, session = "p2").accounts
+        assertEquals("oauth 那条不动", "o1", afterPat.first { it.auth == AuthKind.OAUTH }.session)
+        assertEquals("pat 那条更新", "p2", afterPat.first { it.auth == AuthKind.PAT }.session)
+        assertEquals(2, afterPat.size)
+    }
+
     // ───────────────── 两种登录方式指向同一份本地数据 ─────────────────
 
     @Test
