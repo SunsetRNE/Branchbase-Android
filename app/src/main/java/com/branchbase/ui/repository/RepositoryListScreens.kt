@@ -740,8 +740,8 @@ fun ReleaseListContent(
             if (!shownStale) error = loadFailure("发布", json?.removePrefix("ERROR:"), owner, repo)
         } else {
             var parsed = parseReleases(json)
-            // 列表接口对**刚发布**的 release 会在一段时间内返回空 assets（实测窗口约 1~2 小时，
-            // 见 `releasesNeedingAssetBackfill` 的注释），而同一时刻单体接口已经是对的。
+            // 列表接口对**刚发布**的 release 会返回空 assets（GitHub 多副本数据不一致，实测约 2.5
+            // 小时后收敛；见 `releasesNeedingAssetBackfill` 的注释），而同一时刻单体接口已经是对的。
             // 只对这几条回源补齐 —— 否则「刚发完版想立刻装」这个最常见的动作恰好看到「没有附件」，
             // 而那正是最需要看到附件的时候。
             val need = releasesNeedingAssetBackfill(parsed)

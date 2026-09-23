@@ -10,7 +10,8 @@ import java.util.zip.ZipFile
  * ## 为什么需要这一段
  *
  * 产物是发布页之外的**第二条取包通道**。列表接口对刚发布的 release 会有一段空 assets 的
- * 缓存窗口（约 1~2 小时，见 `releasesNeedingAssetBackfill` 的注释），那段时间里发布页上
+ * 缓存窗口（GitHub 多副本数据不一致，实测约 2.5 小时后收敛，见 `releasesNeedingAssetBackfill`
+ * 的注释），那段时间里发布页上
  * 什么附件都没有 —— 这时候只能靠 CI 产物。
  *
  * 但产物这条路原来**走到一半就断了**：
