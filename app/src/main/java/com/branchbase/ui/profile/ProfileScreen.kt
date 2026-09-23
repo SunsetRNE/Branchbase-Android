@@ -84,7 +84,6 @@ import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.AvatarCache
-import com.branchbase.ui.auth.AddAccountFlow
 import com.branchbase.ui.navigation.NavigationShell
 import com.branchbase.ui.navigation.PageLevel
 import com.branchbase.ui.navigation.PageSwitcher
@@ -280,9 +279,12 @@ fun ProfileScreen(
                         SubPage.NotificationSettings -> NotificationSettingsScreen(onBack = { subPage = SubPage.Settings })
                         SubPage.Translate -> TranslateSettingsScreen(onBack = { subPage = SubPage.Settings })
                         SubPage.Tasks -> com.branchbase.ui.task.TaskScreen(onBack = { subPage = null })
-                        // onAdd 不再接 onLogout：那等于「点添加账号就把自己登出」（用户报的「回不去」），
-                        // 现在进新增流程（见 AddAccountFlow），当前账号的凭据不动
-                        SubPage.Accounts -> AccountsScreen(onBack = { subPage = SubPage.Settings }, onAdd = { AddAccountFlow.begin() })
+                        // onAdd 不再接 onLogout：那等于「点添加账号就把自己登出」。新增流程由
+                        // 账号页自己用 LoginViewModel.addAccount() 触发（它持有同一实例的 viewModel），
+                        // 这里的 onAdd 只留给宿主做别的钩子。
+                        // ⚠️ 必须写成**单行**：SettingsSpecTest 会断言「二级页的返回目标与路由同一行」，
+                        //    那是防止返回目标与路由走散的既有约定，别为了排版拆行。
+                        SubPage.Accounts -> AccountsScreen(onBack = { subPage = SubPage.Settings }, onAdd = {})
                         SubPage.CommitMode -> CommitModeScreen(onBack = { subPage = SubPage.Settings })
                         SubPage.GitProxy -> GitProxyScreen(onBack = { subPage = SubPage.Settings })
                         // 返回目标不写死：走 [profileBackTarget]（本页 depth = 2 → SubPage.Settings），

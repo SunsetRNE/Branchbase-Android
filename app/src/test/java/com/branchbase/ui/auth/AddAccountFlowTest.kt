@@ -112,8 +112,38 @@ class AddAccountFlowTest {
         assertTrue(AddAccountFlow.active)
     }
 
+    // ───────────────── 根布局必须走「已验证会重组」的那条通道 ─────────────────
+    //
+    // 现场：真机日志显示标记**确实置上了**（`新增流程标记 = true`），但根布局那条诊断
+    // 一次都没重放 —— 根布局没有因它重组、界面不动。而根布局对 LoginState 的变化是
+    // 确定会重组的。所以新增流程改由 LoginViewModel 转发一条流（见其 addAccount 注释），
+    // 这里把它钉在源码上：根布局**不许**再直接读单例的 Compose 状态。
+
+    private fun source(path: String) = java.io.File(path).readText()
+
     @Test
-    fun `activeState 与 active 同步_根布局读的是前者`() {
+    fun `根布局通过 LoginViewModel 收集新增流程标记`() {
+        val src = source("src/main/java/com/branchbase/ui/auth/LoginFlow.kt")
+        assertTrue(
+            "LoginFlow 必须收集 viewModel.addingAccount（与 state 同一条通道）",
+            src.contains("viewModel.addingAccount.collectAsState()"),
+        )
+        assertTrue(
+            "LoginFlow 不该再直接读 AddAccountFlow.activeState —— 那条通道在真机上没触发重组",
+            !src.contains("AddAccountFlow.activeState"),
+        )
+    }
+
+    @Test
+    fun `LoginViewModel 转发新增流程并在结束时同步收尾`() {
+        val src = source("src/main/java/com/branchbase/ui/auth/LoginViewModel.kt")
+        assertTrue("要暴露可观察的 addingAccount 流", src.contains("val addingAccount: StateFlow<Boolean>"))
+        assertTrue("addAccount() 要同时置真源与发流", src.contains("AddAccountFlow.begin()"))
+        assertTrue("endAddAccount() 要同时收真源与流", src.contains("AddAccountFlow.finish()"))
+    }
+
+    @Test
+    fun `activeState 与 active 同步`() {
         // 根布局必须读 activeState（可观察），读普通 getter 不会订阅变化 →
         // 登录成功清标记那一下不触发重组，界面会卡在登录页
         AddAccountFlow.begin()

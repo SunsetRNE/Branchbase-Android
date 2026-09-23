@@ -110,6 +110,16 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow<LoginState>(LoginState.Idle)
     val state: StateFlow<LoginState> = _state.asStateFlow()
 
+    /**
+     * 「正在为已有账号新增一个登录」。
+     *
+     * 它**不是**登录态（登录态只有 `session` 键与 [state]），只回答「当前这个登录界面
+     * 是为了新增，还是因为本来就没登录」。真源仍是 [AddAccountFlow]，这里只是把它的变化
+     * 转成一条 ViewModel 自己发的事件流 —— 原因见 [addAccount]。
+     */
+    private val _addingAccount = MutableStateFlow(false)
+    val addingAccount: StateFlow<Boolean> = _addingAccount.asStateFlow()
+
     /** 密钥校验中（按钮转圈 / 输入框锁定）。 */
     private val _keyBusy = MutableStateFlow(false)
     val keyBusy: StateFlow<Boolean> = _keyBusy.asStateFlow()
@@ -174,6 +184,31 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // ───────────────────────── 两种登录模式的入口 ─────────────────────────
+
+    /**
+     * 账号页点「添加账号」→ 进入新增流程。
+     *
+     * ## 为什么标记要由 ViewModel 转发一次
+     *
+     * 原来只有 [AddAccountFlow] 一个进程内单例，根布局直接读它的 `mutableStateOf`。
+     * 真机日志显示：标记**确实置上了**（`新增流程标记 = true`），但根布局那条诊断
+     * **一次都没重放** —— 也就是根布局根本没有因它重组，界面不动。
+     *
+     * 而根布局对 [state] 的变化是**确定会重组**的（冷启动 `Idle → LoggedIn` 每次都重绘）。
+     * 所以这里把同一个事实**再经 [addingAccount] 这条已被验证的通道发一次**：
+     * 真源仍只有 [AddAccountFlow] 一处，根布局改听这条流。
+     * 这是绕开「某个旁路 state 在真实组合树里没被订阅」的务实做法，不是双写。
+     */
+    fun addAccount() {
+        AddAccountFlow.begin()
+        _addingAccount.value = AddAccountFlow.active
+    }
+
+    /** 结束新增流程（用户返回 / 离开账号页时由调用方收尾）。 */
+    fun endAddAccount() {
+        AddAccountFlow.finish()
+        _addingAccount.value = false
+    }
 
     /** 欢迎页「授权登录」→ 流程要点介绍页 */
     fun showOAuthIntro() {

@@ -25,7 +25,47 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.81 → 1.0.22）
+## 二、`versionName` 流水（1.0.82 → 1.0.22）
+
+### 1.0.82
+
+**「添加账号」第三次仍无响应 —— 改用已验证会重组的观察通道**（用户反馈 + 真机日志）。
+
+1.0.81 让新增流程绕过 `PageSwitcher`、直接渲染欢迎页，并加了两句诊断。用户装上后日志给出
+**决定性的半边**：
+
+```
+00:12:02.250  点「添加账号」→ 进入新增登录流程
+00:12:02.250  新增流程标记 = true              ← 标记确实置上了
+              （「登录根布局：…」那一行**一次都没重放**）
+```
+
+也就是说：**根布局根本没有因这个标记重组**。而根布局对 `LoginState` 的变化是确定会重组的
+（冷启动 `Idle → LoggedIn` 每次都会重绘，日志里那条就在）。诊断代码本身也在部署的提交里
+（已核对 `git show`），`Logger` 在 Release 下不过滤 —— 排除了「日志没打」的可能。
+
+结论：那个进程内单例的 Compose 状态，在这棵真实组合树里**没有被订阅到**。
+不再继续猜它的原因，改走**已经被证明会触发重组的那条通道**：
+
+- `LoginViewModel` 新增 `addingAccount: StateFlow<Boolean>` 与 `addAccount()` / `endAddAccount()`；
+  真源仍只有 `AddAccountFlow` 一处，ViewModel 只是把同一事实转发一次（**不是双写**）；
+- 根布局由 `AddAccountFlow.activeState` 改为 `viewModel.addingAccount.collectAsState()`
+  —— 与 `state` 同一条流；
+- 账号页自己 `viewModel()` 取同一实例（Activity 作用域）来触发。
+
+诊断加厚到三处，下次日志能一路定位：`登录根布局：新增流程=… 状态=… 接管=…`、
+`新增流程：接管整屏，渲染欢迎页`、`新增流程标记 = …`。
+
+钉子：`AddAccountFlowTest` 补两条**源码级**断言 —— 根布局必须收集 `viewModel.addingAccount`、
+**不得**再直接读 `AddAccountFlow.activeState`（防止以后改回那条不可靠的通道）。
+
+> 顺带修一处被自己碰红的既有测试：`SettingsSpecTest` 要求「二级页的返回目标与路由**同一行**」
+> （防止返回目标与路由走散）。我把 `SubPage.Accounts` 那行拆成多行时踩了它 —— 已改回单行，
+> 并在代码里留了注释说明为什么不能为了排版拆行。
+
+app 89 类 / 775 例全绿；`assembleDebug` 通过。versionCode 183 → 184（一次提交 +1）。
+
+---
 
 ### 1.0.81
 
@@ -1674,6 +1714,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **184**：「添加账号」第三次仍无响应 —— 诊断证明「标记置上了但根布局没重组」，
+改用已验证会重组的通道（`LoginViewModel.addingAccount` 转发，根布局收集它）；
+诊断加厚到三处；`AddAccountFlowTest` 补两条源码级断言钉住这条通道
+（一次提交，故 +1）
 
 - **183**：「添加账号」仍无响应 —— `PageSwitcher`（`AnimatedContent`）的 `contentKey`
 取 `state::class`，而新增流程中 state 仍是 `LoggedIn`、key 没变，内容不重放。

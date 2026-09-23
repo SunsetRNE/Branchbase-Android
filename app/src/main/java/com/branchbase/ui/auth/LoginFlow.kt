@@ -95,7 +95,8 @@ fun LoginFlow(
     //
     // 登录**成功**时收尾：清掉标记，让主界面接管（新增的账号若被设为当前，主界面就是新账号的）。
     // 用 LaunchedEffect 而不是在渲染里写 state：写状态要放在副作用里。
-    val addingAccount by AddAccountFlow.activeState
+    // 走 ViewModel 发的流，与 [state] 同一条**已验证会重组**的通道 —— 见 LoginViewModel.addAccount
+    val addingAccount by viewModel.addingAccount.collectAsState()
     // 登录成功即收尾：清掉标记，主界面接管。用 LaunchedEffect 而不是在渲染里写 ——
     // 写状态要放在副作用里，否则重组期间改状态会引发下一帧再重组。
     LaunchedEffect(addingAccount, state) {
@@ -118,16 +119,15 @@ fun LoginFlow(
     // 「点了添加账号」，完全分不清是「标记没置上」还是「置上了但这一层没重组」。
     //
     // 只在**值变化**时记：登录页播放动画期间这一层会频繁重组，每帧一行会把日志刷满。
-    val watch = remember { mutableStateOf("") }
     LaunchedEffect(addingAccount, state::class) {
-        val now = "新增流程=$addingAccount 状态=${state::class.simpleName} 接管=$addingInProgress"
-        if (watch.value != now) {
-            watch.value = now
-            Logger.ui("登录根布局：$now", "Compose")
-        }
+        Logger.ui(
+            "登录根布局：新增流程=$addingAccount 状态=${state::class.simpleName} 接管=$addingInProgress",
+            "Compose",
+        )
     }
 
     if (addingInProgress) {
+        LaunchedEffect(Unit) { Logger.ui("新增流程：接管整屏，渲染欢迎页", "Compose") }
         // ⚠️ 这里**不走 [PageSwitcher]**，直接渲染欢迎页。
         //
         // 原因是实测出来的：`PageSwitcher` 底层是 `AnimatedContent`，而它的 `contentKey`

@@ -76,6 +76,9 @@ fun AccountsScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // Activity 作用域：与根 [com.branchbase.ui.auth.LoginFlow] 拿到的是**同一个**实例，
+    // 所以这里触发的新增流程，根布局那条流也会收到（见 LoginViewModel.addAccount）
+    val loginViewModel: com.branchbase.ui.auth.LoginViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
 
     var accounts by remember { mutableStateOf(AccountStore.accounts(context)) }
     var currentId by remember { mutableStateOf(AccountStore.current(context)?.id) }
@@ -113,6 +116,7 @@ fun AccountsScreen(
         // 上一次「进了新增流程又中途离开」的残留标记在这里丢掉（见 add 的说明）
         if (com.branchbase.ui.auth.AddAccountFlow.dropIfStale()) {
             Logger.ui("丢弃过期的「新增账号」标记（上次进入后未完成）", "Compose")
+            loginViewModel.endAddAccount()   // 两条通道一起收，避免不一致
         }
         reload()
         // 进入即探测，但**只探结论陈旧的**（见 AccountChecks.isStale）。
@@ -187,6 +191,9 @@ fun AccountsScreen(
                             .clickable {
                             // 记一行：这个功能出过一次「点了没反应」，当时日志里查不到任何线索
                             Logger.ui("点「添加账号」→ 进入新增登录流程", "Compose")
+                            // 两条都发：loginViewModel 那条是给根布局的（已验证会重组的通道），
+                            // AddAccountFlow 是真源；onAdd 保留给宿主做别的钩子
+                            loginViewModel.addAccount()
                             onAdd()
                             Logger.ui(
                                 "新增流程标记 = ${com.branchbase.ui.auth.AddAccountFlow.active}",
