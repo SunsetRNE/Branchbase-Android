@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只留格式契约 + 写法样板（3 个经典示例）；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.87**）
-与 §三 `versionCode` 流水（129 → **189**）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.88**）
+与 §三 `versionCode` 流水（129 → **190**）。
 
 ---
 
@@ -25,7 +25,42 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.87 → 1.0.22）
+## 二、`versionName` 流水（1.0.88 → 1.0.22）
+
+### 1.0.88
+
+**项目声明改为 MIT；非 MIT 的第三方内容单独声明来源**（治理，非功能改动）。
+
+原先 README 的「许可证」一节写着「（待补充）」，仓库里既没有 `LICENSE`，也没有任何第三方声明 ——
+而这期间已经引入了两处**非 MIT** 的内容，一起打进 APK：`:editor` 封装的 Sora Editor 是
+**LGPL-2.1**，Rust 侧 vendored 编译的 libgit2 是 **GPL-2.0（附 LINKING EXCEPTION）**。
+没有声明的后果不是「不好看」，而是**义务跟着二进制走、仓库里却查不到任何依据**。
+
+新增两份文件，并把规矩写死：
+
+- **`LICENSE`**：标准 MIT 全文（`Copyright (c) 2026 SunsetRNE`）。
+- **`THIRD-PARTY-NOTICES.md`**：分两类列非自研内容 ——
+  **§一 vendored**（本体在仓库里的文件：Feather Icons 的 `git-branch` 图标、按 Primer 裁剪重写的
+  `github-markdown-light.css`、`README_DARK_CSS`、Primer 令牌、通知小图标的 `file_download` 形状），
+  **§二 构建依赖**（会进 APK 的二进制：AndroidX / Compose / Material 3 / Room / Coil / coroutines 为
+  Apache-2.0，JUnit 为 EPL-1.0（仅测试），org.json 为 Public Domain，Rust 侧 197 个 crate 为
+  MIT 或 Apache-2.0 系）。规则是**每一条都要指到证据**（Gradle 缓存的 POM `<licenses>`、
+  crates.io 的 `license` 字段、libgit2 的 `COPYING`、`openssl-src` 的 `LICENSE.txt`），
+  取证口径写在该文件 §三。
+
+两处非 MIT 的合规姿势也写进 §2.1，避免后来者「顺手改用法」把它破坏掉：
+Sora Editor 以**未修改的库 + 动态链接**使用（第三方库只在 `:editor` 声明，换库/删除只动一个模块）；
+libgit2 的**链接例外**明确允许链接进其它程序并分发，本项目未修改其源码。
+另加一条维护规则：新增非宽松许可的依赖（GPL/AGPL/SSPL…）必须回该文件单列一行，
+不允许用「见 Cargo.lock」含糊带过。
+
+配套（用户可见）：README「许可证」一节补齐（MIT + 两处非 MIT 的表格 + 名称/图标不在授权范围的说明）；
+关于页新增「开源协议 MIT」与「第三方声明」两个入口（直达仓库根那两份文件）——
+用户装的是 APK 而不是仓库，声明得能在 App 里点到。新增两条资源（中英成对）。
+
+`assembleDebug` + `testDebugUnitTest` + `tools/i18n/check-i18n.py` 通过。versionCode 189 → 190（一次提交 +1）。
+
+---
 
 ### 1.0.87
 
@@ -1953,11 +1988,16 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（189 → 129）
+## 三、`versionCode` 流水（190 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **190**：项目声明改为 MIT —— 新增 `LICENSE`（MIT 全文）与 `THIRD-PARTY-NOTICES.md`
+（非自研内容分「vendored 文件 / 构建依赖」两类逐条声明来源；其中 Sora Editor 为 LGPL-2.1、
+libgit2 为 GPL-2.0 + 链接例外，是仅有的两处非 MIT，合规姿势与取证口径一并写下）；
+README「许可证」补齐；关于页新增「开源协议 / 第三方声明」两个入口（一次提交，故 +1）
 
 - **189**：设置页行尾控件贴右（`weight(1f, fill = false)` 让主轴盒子缩到文字宽度、空白留行尾 ——
 四处改 `weight(1f)`）+ 消息页显示模式单一真源（两个入口各持一份 `remember`，导致「选了平铺仍按仓库分组」；

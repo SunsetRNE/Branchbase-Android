@@ -1892,6 +1892,19 @@ fun AboutScreen(onBack: () -> Unit) {
                 AboutVerifyNote(copy.detail, fg)
             }
 
+            // 开源协议 + 第三方声明：关于页是用户核对「这个包是什么、里面装了什么」的地方，
+            // 所以声明也放在这里 —— 而不是只躺在仓库根目录（用户装的是 APK，不是仓库）。
+            // 两份文件都是仓库根的真源：LICENSE（MIT）与 THIRD-PARTY-NOTICES.md（非 MIT 内容逐条列来源）
+            AboutCard(topGap = 10.dp) {
+                AboutLinkRow(stringResource(R.string.label_open_source_license), "MIT") {
+                    openExternal(context, LICENSE_URL)
+                }
+                AboutRowDivider()
+                AboutLinkRow(stringResource(R.string.label_third_party_notices), "THIRD-PARTY-NOTICES.md") {
+                    openExternal(context, NOTICES_URL)
+                }
+            }
+
             // 项目主页 + 开发交流群：关于页是用户找「去哪儿反馈」的地方，链接统一从这里出去。
             // QQ 群链接里的 authKey 会过期，所以群号也直接写在行里（过期了按号搜索即可）。
             AboutCard(topGap = 10.dp) {
@@ -1974,6 +1987,18 @@ private fun AboutVerifyNote(text: String, fg: Color) {
 
 /** 项目主页（仓库地址，同时说明只做 Android）。 */
 private const val REPO_URL = "https://github.com/SunsetRNE/Branchbase-Android"
+
+/** 开源协议全文（仓库根 `LICENSE`，MIT）。 */
+private const val LICENSE_URL = "$REPO_URL/blob/main/LICENSE"
+
+/**
+ * 第三方内容声明（仓库根 `THIRD-PARTY-NOTICES.md`）。
+ *
+ * 逐条列出非自研内容 + 上游仓库，其中 Sora Editor（LGPL-2.1）与 libgit2（GPL-2.0 + 链接例外）
+ * 是本项目里仅有的两处非 MIT —— 关于页给的是**直达入口**，真正的真源在那份文件里，
+ * 不要在 UI 里另抄一份清单（抄一份就有一份会过期）。
+ */
+private const val NOTICES_URL = "$REPO_URL/blob/main/THIRD-PARTY-NOTICES.md"
 
 /**
  * 开发交流 QQ 群的加群链接（群「Branchbase开发交流」· 790735040）。

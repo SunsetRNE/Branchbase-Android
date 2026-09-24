@@ -107,4 +107,23 @@ cd core && cargo build --release  # 生成 libbranchbase_core.so
 
 ## 📄 许可证
 
-（待补充）
+本项目以 **MIT** 发布 —— 全文见 [`LICENSE`](LICENSE)（`Copyright (c) 2026 SunsetRNE`）。
+你可以自由使用、修改、分发（含商用），只需保留版权与许可声明。
+
+**第三方内容单独声明**：非本项目自研的内容（vendored 文件与构建依赖）**允许**随仓库分发，
+但**必须**在 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) 里单独声明，并写清来源于哪个仓库。
+其中两处**不是 MIT**，看代码或许可证前先读那两条：
+
+| 组件 | 许可证 | 上游 |
+|---|---|---|
+| **Sora Editor**（`:editor` 模块封装的代码编辑器） | LGPL-2.1 | [Rosemoe/sora-editor](https://github.com/Rosemoe/sora-editor) |
+| **libgit2**（clone / pull / push 的 C 库，随 `git2` crate vendored 编译） | GPL-2.0（附 LINKING EXCEPTION） | [libgit2/libgit2](https://github.com/libgit2/libgit2) |
+
+两者的当前用法（未修改 + 动态链接）、合规依据与「换用法时要重新判什么」都写在
+[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) §2.1；新增第三方内容时按那份文档 §三 的
+维护规则同步加行。
+
+> 关于「Branchbase」这个名字与图标：名称与图标是本项目的标识，**不在 MIT 授权范围内**
+> （MIT 覆盖的是代码与随仓库分发的文档）；fork 后请换成你自己的名称与图标，
+> 以免与官方构建混淆 —— 官方 Beta/正式包带签名校验（设置 → 关于 可核对）。
+

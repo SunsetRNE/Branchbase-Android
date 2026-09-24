@@ -1578,4 +1578,8 @@
     <string name="fork_error_not_logged_in">需要登录后才能复刻</string>
     <string name="fork_error_own_repository">不能复刻自己的仓库</string>
     <string name="fork_error_already_forked">你已经复刻过这个仓库</string>
+
+    <!-- 关于页的开源协议与第三方声明入口（真源在仓库根 LICENSE / THIRD-PARTY-NOTICES.md）。 -->
+    <string name="label_open_source_license">开源协议</string>
+    <string name="label_third_party_notices">第三方声明</string>
 </resources>

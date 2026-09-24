@@ -1536,4 +1536,8 @@
     <string name="fork_error_not_logged_in">Sign in to fork this repository</string>
     <string name="fork_error_own_repository">You cannot fork your own repository</string>
     <string name="fork_error_already_forked">You have already forked this repository</string>
+
+    <!-- About page entries for the license and the third-party notices (sources live at the repo root). -->
+    <string name="label_open_source_license">License</string>
+    <string name="label_third_party_notices">Third-party notices</string>
 </resources>
