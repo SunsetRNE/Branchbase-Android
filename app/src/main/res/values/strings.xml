@@ -521,7 +521,7 @@
     <string name="state_pushing">推送中…</string>
     <string name="label_upstream_branch_name">上游分支名</string>
     <string name="action_turn_off_gitify">关闭 Git 化</string>
-    <string name="action_keep_and_desktop">保留并引导桌面</string>
+    <string name="action_keep_local_only">保留本地</string>
     <string name="note_first_commit_no_undo">这是仓库的第一个提交：没有可撤销的上一次提交（reset --soft 必然失败；reset --hard 会清空本地历史，本页也不提供）。仍可修改提交信息。</string>
     <string name="note_amend_recreates">amend 会重建这次提交（提交 sha 变化），但作者与提交时间沿用原提交 —— 刻意设计，不改时间戳。</string>
     <string name="label_new_commit_message">新的提交信息</string>
@@ -545,7 +545,7 @@
     <string name="note_gitify_off">「Git 化」是 ③ 的子开关（D10）。关闭后提交将走 App REST（①②），本地 .git 的处理方式请选择。</string>
     <string name="error_remote_url_required">请填写远端 URL</string>
     <string name="state_discard_available">放弃本地可用</string>
-    <string name="state_kept_local_desktop">已保留本地提交 · 引导桌面解决</string>
+    <string name="state_kept_local_for_now">已保留本地提交 · 远端未动</string>
     <string name="state_discarded_local">已放弃本地提交</string>
     <string name="state_kept_git">已保留 .git（偏好普通文件夹）</string>
     <string name="label_remote_url">远端 URL</string>
@@ -555,7 +555,7 @@
     <string name="label_revert_method">回退方式</string>
     <string name="error_push_failed_result">推送失败：%1$s</string>
     <string name="note_keep_git_desc">仅记录「偏好普通文件夹」，仓库与历史完好，可随时重新开启 Git 化。无损。</string>
-    <string name="note_keep_local_workspace">本地工作区原样保留，App 不删除任何数据。请复制仓库路径到桌面端解决。</string>
+    <string name="note_keep_local_workspace">本地提交与工作区原样保留，远端不动，App 也不删除任何数据。App 不做 merge / rebase：这条分叉需要你自己决定怎么合（改动可逐文件查看 / 复制）。</string>
     <string name="label_push_method">推送方式</string>
     <string name="toast_pushed_set_upstream">已推送并设为上游分支 origin/%1$s</string>
     <string name="state_undo_discarded">已撤销并丢弃改动</string>
@@ -563,7 +563,7 @@
     <string name="warning_remove_git_loss">将永久丢失 %1$s 个未推送提交与全部历史。</string>
     <string name="note_do_nothing">不做任何操作。</string>
     <string name="note_delete_whole_repo_desc">跳转「删除本地仓库」确认（含未推送警告升级）。</string>
-    <string name="action_keep_local_desktop">保留本地提交，引导桌面解决</string>
+    <string name="action_keep_local_for_now">保留本地提交（暂不处理）</string>
     <string name="action_amend_message">修改提交信息（amend）</string>
     <string name="label_repo_long_press">%1$s · 长按触发</string>
     <string name="state_removed_git">已移除 .git，文件保留</string>
@@ -597,7 +597,7 @@
     <string name="label_remove_git_keep_files">移除 .git，保留文件</string>
     <string name="label_ahead_commits">%1$s 个提交（未推送）</string>
     <string name="label_commit_sha">提交 sha（或 HEAD）</string>
-    <string name="confirm_discard_unpushed_body">将丢弃本地 %1$s 个未推送提交，改动不可恢复。建议先到桌面端备份。</string>
+    <string name="confirm_discard_unpushed_body">将丢弃本地 %1$s 个未推送提交，改动不可恢复。App 不提供导出，请确认这些改动已不再需要。</string>
     <string name="label_ahead_of_remote">领先远端</string>
     <string name="state_all_caught_up">你已看完所有消息 🎉</string>
     <string name="error_mark_read_failed">标记已读失败，请重试</string>

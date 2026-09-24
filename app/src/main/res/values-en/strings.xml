@@ -516,7 +516,7 @@
     <string name="state_pushing">Pushing…</string>
     <string name="label_upstream_branch_name">Upstream branch name</string>
     <string name="action_turn_off_gitify">Turn off gitify</string>
-    <string name="action_keep_and_desktop">Keep and resolve on desktop</string>
+    <string name="action_keep_local_only">Keep local</string>
     <string name="note_first_commit_no_undo">This is the repository\'s first commit, so there is no previous commit to undo (reset --soft would always fail, and reset --hard would wipe the local history, which this page does not offer). The message can still be edited.</string>
     <string name="note_amend_recreates">Amending recreates the commit (its SHA changes), but the author and commit time are carried over from the original — deliberate, timestamps are not rewritten.</string>
     <string name="label_new_commit_message">New commit message</string>
@@ -540,7 +540,7 @@
     <string name="note_gitify_off">“Gitify” is a sub-switch of ③ (D10). Once it is off, commits go through the app\'s REST path (①②); choose what to do with the local .git.</string>
     <string name="error_remote_url_required">Enter the remote URL</string>
     <string name="state_discard_available">Discard local available</string>
-    <string name="state_kept_local_desktop">Kept the local commit · resolve on desktop</string>
+    <string name="state_kept_local_for_now">Kept the local commit · remote untouched</string>
     <string name="state_discarded_local">Discarded the local commit</string>
     <string name="state_kept_git">Kept .git (prefers a plain folder)</string>
     <string name="label_remote_url">Remote URL</string>
@@ -550,7 +550,7 @@
     <string name="label_revert_method">Revert method</string>
     <string name="error_push_failed_result">Push failed: %1$s</string>
     <string name="note_keep_git_desc">Only records a preference for a plain folder; the repository and its history stay intact and gitify can be turned back on at any time. Lossless.</string>
-    <string name="note_keep_local_workspace">The local working tree is left exactly as it is and the app deletes nothing. Copy the repository path and resolve it on desktop.</string>
+    <string name="note_keep_local_workspace">The local commits and working tree stay exactly as they are, the remote is not touched, and the app deletes nothing. The app does not merge or rebase: resolving this divergence is up to you (changes can be viewed or copied file by file).</string>
     <string name="label_push_method">Push method</string>
     <string name="toast_pushed_set_upstream">Pushed and set origin/%1$s as upstream</string>
     <string name="state_undo_discarded">Undone and changes discarded</string>
@@ -558,7 +558,7 @@
     <string name="warning_remove_git_loss">%1$s unpushed commits and the entire history will be lost permanently.</string>
     <string name="note_do_nothing">Do nothing.</string>
     <string name="note_delete_whole_repo_desc">Opens the “delete local repository” confirmation (including the unpushed-commits warning).</string>
-    <string name="action_keep_local_desktop">Keep the local commit and resolve on desktop</string>
+    <string name="action_keep_local_for_now">Keep the local commit (for now)</string>
     <string name="action_amend_message">Edit the commit message (amend)</string>
     <string name="label_repo_long_press">%1$s · triggered by long-press</string>
     <string name="state_removed_git">Removed .git; files kept</string>
@@ -592,7 +592,7 @@
     <string name="label_remove_git_keep_files">Remove .git, keep the files</string>
     <string name="label_ahead_commits">%1$s commits (unpushed)</string>
     <string name="label_commit_sha">Commit SHA (or HEAD)</string>
-    <string name="confirm_discard_unpushed_body">%1$s unpushed local commits will be discarded and their changes cannot be recovered. Back them up on desktop first.</string>
+    <string name="confirm_discard_unpushed_body">%1$s unpushed local commits will be discarded and their changes cannot be recovered. The app cannot export them — make sure you no longer need these changes.</string>
     <string name="label_ahead_of_remote">Ahead of remote</string>
     <string name="state_all_caught_up">You have read everything 🎉</string>
     <string name="error_mark_read_failed">Failed to mark as read; try again</string>

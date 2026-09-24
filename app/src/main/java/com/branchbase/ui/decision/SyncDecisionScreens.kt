@@ -206,7 +206,7 @@ fun ForkDecisionScreen(
 
     fun doResolve() {
         when (option) {
-            0 -> onResolved(context.getString(R.string.state_kept_local_desktop))
+            0 -> onResolved(context.getString(R.string.state_kept_local_for_now))
             1 -> {
                 // 兜底（正常路径下该选项已禁用）：预检不通过就不执行，也不编造原因
                 discardBlock?.let { feedback = it; return }
@@ -261,7 +261,7 @@ fun ForkDecisionScreen(
         FactCard(stringResource(R.string.label_handling)) {
             Column {
                 DecisionOptionRow(
-                    title = stringResource(R.string.action_keep_local_desktop),
+                    title = stringResource(R.string.action_keep_local_for_now),
                     desc = stringResource(R.string.note_keep_local_workspace),
                     selected = option == 0,
                     tag = OptionTag.RECOMMENDED,
@@ -314,7 +314,7 @@ fun ForkDecisionScreen(
             colors = if (option == 1 && discardBlock == null) ButtonDefaults.buttonColors(containerColor = Primer.Red500) else ButtonDefaults.buttonColors(containerColor = Primer.Green500),
             modifier = Modifier.weight(1f),
         ) {
-            Text(if (option == 1) stringResource(R.string.confirm_discard_local_commit_title) else if (option == 0) stringResource(R.string.action_keep_and_desktop) else stringResource(R.string.action_back_to_worktree), color = Color.White)
+            Text(if (option == 1) stringResource(R.string.confirm_discard_local_commit_title) else if (option == 0) stringResource(R.string.action_keep_local_only) else stringResource(R.string.action_back_to_worktree), color = Color.White)
         }
     })
 }

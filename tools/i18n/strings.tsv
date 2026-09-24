@@ -422,7 +422,7 @@ ${com.branchbase.editor.EditorModuleInfo.NAME} ${com.branchbase.editor.EditorMod
 开发交流（QQ 群）	Community (QQ group)	label_community_qq
 放弃本地被拦：$it	Discard local blocked: %1$s	state_discard_blocked
 放弃本地可用	Discard local available	state_discard_available
-已保留本地提交 · 引导桌面解决	Kept the local commit · resolve on desktop	state_kept_local_desktop
+已保留本地提交 · 远端未动	Kept the local commit · remote untouched	state_kept_local_for_now
 已放弃本地提交	Discarded the local commit	state_discarded_local
 同步失败 · 分叉	Sync failed · diverged	state_sync_failed_diverged
 本地与远端各领先对方，无法快进合并（non-fast-forward）。App 不做 merge/rebase（对齐 D11），请选择如何处理。	Local and remote have each moved ahead, so this cannot fast-forward. The app does not merge or rebase (per D11); choose how to proceed.	note_diverged_explain
@@ -434,14 +434,14 @@ ahead ${status?.ahead ?: 0} · 未推送	ahead %1$s · unpushed	label_ahead_unpu
 ahead ${status?.behind ?: 0} · 他人新提交	ahead %1$s · new commits from others	label_behind_new_commits
 本地未推送提交（放弃将永久丢失）	Local unpushed commits (discarding them loses them permanently)	label_local_unpushed_commits
 （无数据）	(no data)	state_no_data
-保留本地提交，引导桌面解决	Keep the local commit and resolve on desktop	action_keep_local_desktop
-本地工作区原样保留，App 不删除任何数据。请复制仓库路径到桌面端解决。	The local working tree is left exactly as it is and the app deletes nothing. Copy the repository path and resolve it on desktop.	note_keep_local_workspace
+保留本地提交（暂不处理）	Keep the local commit (for now)	action_keep_local_for_now
+本地提交与工作区原样保留，远端不动，App 也不删除任何数据。App 不做 merge / rebase：这条分叉需要你自己决定怎么合（改动可逐文件查看 / 复制）。	The local commits and working tree stay exactly as they are, the remote is not touched, and the app deletes nothing. The app does not merge or rebase: resolving this divergence is up to you (changes can be viewed or copied file by file).	note_keep_local_workspace
 回到工作区，保持 ahead 状态，稍后可再处理。	Return to the working tree with the ahead state intact; you can deal with it later.	note_back_to_worktree_ahead
-将丢弃本地 ${status?.ahead ?: 0} 个未推送提交，改动不可恢复。建议先到桌面端备份。	%1$s unpushed local commits will be discarded and their changes cannot be recovered. Back them up on desktop first.	confirm_discard_unpushed_body
+将丢弃本地 ${status?.ahead ?: 0} 个未推送提交，改动不可恢复。App 不提供导出，请确认这些改动已不再需要。	%1$s unpushed local commits will be discarded and their changes cannot be recovered. The app cannot export them — make sure you no longer need these changes.	confirm_discard_unpushed_body
 我确认放弃这些提交	I confirm discarding these commits	confirm_discard_commits_checkbox
 加载仓库状态…	Loading repository status…	state_loading_repo_status
 确认放弃本地提交	Confirm discarding the local commit	confirm_discard_local_commit_title
-保留并引导桌面	Keep and resolve on desktop	action_keep_and_desktop
+保留本地	Keep local	action_keep_local_only
 已保留 .git（偏好普通文件夹）	Kept .git (prefers a plain folder)	state_kept_git
 已移除 .git，文件保留	Removed .git; files kept	state_removed_git
 移除失败	Removal failed	error_remove_failed

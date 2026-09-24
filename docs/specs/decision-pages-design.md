@@ -26,7 +26,7 @@
 
 **不做**：
 
-- **不 merge / rebase**：分叉只给「保留本地（引导桌面）/ 放弃本地」（对齐 D11，
+- **不 merge / rebase**：分叉只给「保留本地（暂不处理）/ 放弃本地」（对齐 D11，
   [`local-git-engine-design.md`](local-git-engine-design.md) §5、`SyncDecisionScreens.kt:101`）；**不改写已推送历史**
   —— 已推送提交只给 revert（`SyncDecisionScreens.kt:488-505`）。
 - **不隐藏危险**：删除类操作靠**先勾选确认**再放开按钮（`DangerConfirmCard`，`DecisionComponents.kt:126-170`）；
@@ -79,7 +79,12 @@
 事实区：分叉示意（本地绿节点带 `ahead`、远端蓝节点带 `behind`，`:109-113`）+ 未推送提交清单（空则
 「（无数据）」，`:118-125`）。选项：保留本地 / 放弃本地 / 取消 —— 只有「放弃本地」会动手
 `gitResetHardRemote(repoDir, branch)`（`:87`）且必须先勾选（`:155-160`）；「保留本地」只回一句
-`onResolved("已保留本地提交 · 引导桌面解决")`，**不改任何文件**（`:81`）。
+`onResolved("已保留本地提交 · 远端未动")`，**不改任何文件**（`:81`）。
+> **文案修正（1.0.92）**：这一页原先写「引导桌面解决」并让人「复制仓库路径到桌面端」，
+> 而仓库在 1.0.91 起位于**内部存储**（`noBackupFilesDir/repos`，见
+> [`local-git-engine-design.md`](local-git-engine-design.md) §4.2），那句承诺彻底不可兑现
+> —— 现在如实说明「远端未动、App 不做 merge/rebase、改动可逐文件查看 / 复制」。
+> 真正的处理场所留给「仓库内 Git 模式」（设计见 [`git-mode-design.md`](git-mode-design.md)）。
 **预检（2026-09 加）**：`hasRemoteRef == false` 时「放弃本地提交」渲染成**禁用行 + 原因**
 （「本地还没有 `origin/{branch}` 的记录（未获取过）：先执行一次获取」），不让用户点了才失败；
 `status == null` 时文案是「无法读取仓库状态（目录无效或状态读取失败）」——不再归因「引擎不可用」。

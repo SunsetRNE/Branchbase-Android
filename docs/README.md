@@ -128,6 +128,7 @@ README.md                          ← 项目门面 + 下载与上手 + 文档�
 | [`specs/decision-pages-design.md`](specs/decision-pages-design.md) | **决策页面**：14 页体系 / 四要素组件 / §4.5 PR 一条龙 / §6 本地支持 API / §8.4 执行层 / 已知缺口 | `ui/decision/*.kt`、`core/src/git/mod.rs:582`、`core/src/bridge/jni.rs:1285`、`core/src/api/github.rs:678` |
 | [`specs/local-git-engine-design.md`](specs/local-git-engine-design.md) | **本地 Git 引擎**：§3 稳定接口（20 个 `pub fn`）/ §4 `nff:` 错误归一 / 证书与代理 / 已知边界 | `core/src/git/mod.rs:3` |
 | [`specs/html-parser-design.md`](specs/html-parser-design.md) | 链接如何归一化成跳转目标：§3 规则表、§5.1 末尾斜杠判目录、§6 已知边界 | `core/src/html/mod.rs:6`、`matcher.rs:6`、`ui/repository/ReadmeWebView.kt:534` |
+| [`specs/git-mode-design.md`](specs/git-mode-design.md) | **仓库内 Git 模式（草稿 · 未落地）**：设置里的仓库列表只做统筹、真正的 Git 工作回到仓库内工作台（四档视图 + 动作分层 + 冲突解决 + 引擎缺口 + 分期） | 待落地（暂无真源）；与 `git-version-tree-design.md`（可视化子设计）、`decision-pages-design.md`（危险动作落点）互相引用 |
 | [`specs/git-version-tree-design.md`](specs/git-version-tree-design.md) | **版本管理树（草稿 · 未落地）**：提交 DAG 图 / 引用树 / 文件历史树三视图、双源分层、`log_graph` + `fetch_deepen` 新增接口、分阶段计划与登记清单 | 待落地（暂无真源；落地后指向 `CommitGraphLayout.kt` / `CommitGraphContent.kt`） |
 | [`specs/NAVIGATION-NOTES.md`](specs/NAVIGATION-NOTES.md) | 返回键只有一条链路：`PageBackHandler` + 两个切换器都下发 `LocalPageActive` | 根 `README.md`、`ui/navigation/` 各页、`BackConsumptionTest` |
 | [`specs/BUILD-NOTES.md`](specs/BUILD-NOTES.md) | AGP 9.0 的 `VariantOutputImpl` 坑 + 版本号体系 + JNI 签名与 locale + §六 编译流水线为什么这么定 | 根 `README.md` 构建一节、`tools/env/*`、`.github/workflows/*` |
