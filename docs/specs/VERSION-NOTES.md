@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只留格式契约 + 写法样板（3 个经典示例）；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.90**）
-与 §三 `versionCode` 流水（129 → **192**）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.91**）
+与 §三 `versionCode` 流水（129 → **193**）。
 
 ---
 
@@ -25,7 +25,52 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.90 → 1.0.22）
+## 二、`versionName` 流水（1.0.91 → 1.0.22）
+
+### 1.0.91
+
+**兼容处理：本地仓库搬到内部存储（绕开外部存储那棵 FUSE 子树的锁文件不兼容）+ 锁文件失败现场取证。1.0.90 留下的「未解」到此闭环**。
+
+① **锁文件名终于露出来了**。1.0.90 的 beta 在真机上复现，失败原因不再被截断，锁文件是
+`.git/HEAD.lock`：
+
+```
+failed to lock file '…/Android/data/com.branchbase/files/repos/SunsetRNE/Branchbase-Android/.git/HEAD.lock' for writing
+```
+
+一次 clone 会把 `HEAD` 写**两次** —— `git_repository_init` 建仓库时写一次（unborn HEAD），
+收尾 `git_repository_set_head` 再写一次（libgit2 `clone.c` 的 `update_head_to_new_branch`）——
+第二次撞上第一次留下的 `.git/HEAD.lock`。而同一台机器上，ext4（容器里 `/tmp`）与
+`/sdcard/Download`（**同一个 FUSE、另一棵策略子树**）用同一份 libgit2 都克隆成功，
+只有「App 私有的外部存储目录」必现。结论：**问题在这棵 FUSE 子树对 git 锁文件语义的兼容性**，
+不在 libgit2 的用法上。
+
+② **为什么不能只修 clone**：git 的每一次写都是「建 `<path>.lock` → 写完 rename」。
+这条路不兼容，坏掉的就不只是 clone —— commit / pull / push 迟早会坏在 `.git/index.lock`、
+`.git/refs/…lock` 上。所以把仓库根目录整体换到**内部存储** `noBackupFilesDir/repos`（`/data` 分区，ext4）：
+`LocalRepos.base()` 改写 + 启动时**一次性搬迁**外部存储时代的仓库
+（`migrateFromExternal`：跨文件系统时递归复制 + 删源，同名目标不覆盖，失败保留原目录、下次启动继续；
+全部搬完才写标记）。结果落一行 `[本地] [Repos]` 日志（根目录在哪、这次搬了几个）——
+下一份日志包能直接看出仓库落在哪。
+
+用 `noBackupFilesDir` 而不是 `filesDir`：仓库可能几百 MB，而 `filesDir` 会进云备份 / 设备迁移
+（`res/xml/backup_rules.xml`）—— 外部存储时代它不参与备份，换过来不该顺手改掉这条语义。
+代价：仓库不再落在能用文件管理器翻到的目录里。但在 Android 11+ 上 `Android/data/`
+本来就不对文件管理器与 MTP 开放，这条「路径可被桌面端访问」的承诺早就是空的。
+
+③ **引擎侧加现场取证**：clone 失败时先 `clear_stale_locks`（只扫 `.git`、跳过
+`objects/`/`modules/`/`lfs/`、只删普通文件），把「清掉了哪几个 `.lock`」写进错误文案。
+这一条是给**下一次**用的：清单为空 ⇒ 锁是文件系统层面的假象（重试无用，得换文件系统）；
+清单非空 ⇒ 真有残留文件。两种可能的处置完全不同，文案必须能区分。
+
+新增/改动：`core/LocalRepos.kt`（内部存储 + `migrateFromExternal` + `moveTree`/`copyTree`，
+5 例单测 `LocalReposMigrationTest`，含**源码级钉子：`base()` 不许改回外部存储**）、
+`MainActivity.kt`（启动后台迁移 + `[Repos]` 日志）、`core/src/git/mod.rs`
+（`clear_stale_locks` + `map_clone_error` 现场清单，新增 3 例单测）、
+`docs/specs/local-git-engine-design.md` §4.2（事故闭环记录）。
+
+`cargo test`（78 单测 + 4 集成）+ `:app:testDebugUnitTest` + `tools/i18n/check-i18n.py --min-coverage 100`
+通过。versionCode 192 → 193（一次提交 +1）。
 
 ### 1.0.90
 
@@ -73,6 +118,8 @@ JNI 加两条只读接口（`nativeGitCloneProgress` / `nativeGitCloneCancel`）
 所以这一版给的是「更好的诊断 + 能重试 + 不留半成品」，不是根因修复。
 `local-git-engine-design.md` §4.1 / §8 已按这个口径登记；下一次日志会带上完整路径，
 届时可以定位到具体是哪个 `.lock`。
+→ **已闭环（1.0.91）**：锁文件是 `.git/HEAD.lock`（一次 clone 写 HEAD 两次），
+兼容处理是把仓库搬到内部存储 —— 见 1.0.91 条目与 `local-git-engine-design.md` §4.2。
 
 新增/改动：`core/src/git/progress.rs`（新文件，6 例单测）、`core/src/git/mod.rs`（预检 / 清场 / 错误归一 +
 8 例单测）、`core/src/bridge/jni.rs`（两条导出）、`CloneProgress.kt`（app 侧进度模型，新，11 例单测）、
@@ -2136,6 +2183,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **193**：本地仓库搬到内部存储（外部存储那棵 FUSE 子树对 git 锁文件语义不兼容 ——
+`.git/HEAD.lock`；`LocalRepos` 内部存储 + 启动一次性搬迁 `migrateFromExternal`）
++ clone 锁文件失败现场取证（`clear_stale_locks`，清单为空 = 文件系统假象）
+（一次提交，故 +1）
 
 - **192**：拉取仓库的进度弹窗（引擎侧进度快照 + `nativeGitCloneProgress` / `nativeGitCloneCancel`、
 模态弹窗、可取消、失败停在原地给原因与重试）+ clone 目标目录预检与失败清场（含 `.git` 拒绝、

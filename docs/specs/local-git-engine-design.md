@@ -114,14 +114,39 @@ clone 不做 `nff:` 这类分支判定，但有两件**必须由引擎收口**�
 |---|---|---|
 | 目标目录预检 | 不存在 → 放行；**含 `.git` → 拒绝且一个字节都不动**；存在但不含 `.git` → 整体删掉重建 | 半成品目录会让 libgit2 回一句 `'…' exists and is not an empty directory`，用户界面上没有任何出路；含 `.git` 的目录是**别人的仓库**，引擎无权代删 |
 | 失败清场 | 失败即删掉这次留下的目录 | 半个 `.git` 既不能用、又挡住下一次 clone |
-| 锁文件报错 | `failed to lock file '<path>' for writing` 原样保留**完整路径**，前面加一句可照做的处置 | 真机上这条被上层 `take(120)` 截成了 `…/Branchbase-An`，**正好切掉文件名** —— 唯一能定位「哪个文件锁上了」的线索没了（上层已改成与其它写操作一致的 300 字符：`engineErrorOrNull`） |
+| 锁文件报错 | `failed to lock file '<path>' for writing` 原样保留**完整路径**，并附**现场取证**（清掉了哪几个 `*.lock`） | ① 真机上这条被上层 `take(120)` 截成了 `…/Branchbase-An`，**正好切掉文件名**（已改成与其它写操作一致的 300 字符）；② 「真残留」与「文件系统假象」处置完全不同，清单为空就是后者的判据 |
 | 取消 | `Err("clone 已取消")` | 与「真的失败」分开：UI 不该为自己按的取消弹一条红字失败 |
+| 残留锁清理 | `clear_stale_locks(dir)`：只扫 `.git`、跳过 `objects/`/`modules/`/`lfs/`、只删普通文件；**只在失败路径上调用** | 操作进行中清理会把别人正在用的锁删掉 |
 
-> **已知未解**：真机日志里出现过两次 `failed to lock file`（2026-09-25，OnePlus PJD110 / Android 16，
-> 目标目录在 `Android/data/com.branchbase.files/repos/…`）。目录在失败后被 libgit2 自己删干净、
-> 重试仍复现，说明锁文件是**同一次 clone 内**留下的，而不是上一次的残留。
-> 上面三条规约能让用户重试、能让下一次日志留下完整路径，但**根因还在 libgit2 / 该文件系统**，
-> 别把这份文档读成「已修好」。
+### 4.2 已知事故：`.git/HEAD.lock`（FUSE 子树不兼容）—— 已定位 + 已绕开
+
+真机（2026-09-25，OnePlus PJD110 / Android 16）上 clone 稳定失败。1.0.90 把失败原因补全之后，
+锁文件名终于露出来了：
+
+```
+failed to lock file '…/Android/data/com.branchbase/files/repos/SunsetRNE/Branchbase-Android/.git/HEAD.lock' for writing
+```
+
+**为什么是 HEAD**：一次 clone 会把 `HEAD` 写两次 —— `git_repository_init` 建仓库时写一次（unborn HEAD），
+收尾 `git_repository_set_head` 再写一次（`clone.c` 的 `update_head_to_new_branch`）。
+第二次撞上了第一次留下的 `HEAD.lock`；同一份 libgit2 代码在同一台机器上，
+ext4（容器里 `/tmp`）与 `/sdcard/Download`（**同一个 FUSE、另一棵策略子树**）都能克隆成功，
+只有「App 私有的外部存储目录」这棵子树必现 —— 所以根因落在**该 FUSE 子树对 git 锁文件语义的兼容性**上，
+不在 libgit2 的用法上。
+
+**为什么不能只修 clone**：git 的每一次写都是「建 `<path>.lock` → 写完 rename」。
+这条路不兼容，坏掉的就不只是 clone —— commit / pull / push 迟早会坏在 `.git/index.lock`、
+`.git/refs/…lock` 上。
+
+**兼容处理（1.0.91）**：本地仓库根目录从 `getExternalFilesDir(null)/repos` 换到
+**内部存储** `noBackupFilesDir/repos`（`core/LocalRepos.kt` 的 `base()`，理由与取舍都写在它的 KDoc 里），
+外部存储时代的仓库在启动时**一次性搬迁**过去（`LocalRepos.migrateFromExternal`，跨文件系统时复制 + 删源，
+失败保留原目录、下次启动继续）。搬迁会在日志里留一行 `[本地] [Repos]`：根目录在哪、这次搬了几个。
+
+> **这条结论的边界**：内部存储是 `/data` 分区（ext4），git 的锁语义正常；
+> 若将来有人把 `base()` 改回外部存储，这台机器上的 clone/commit 会**再次**坏在锁文件上，
+> 而且**只会在真机上坏**（JVM 单测发现不了）—— `LocalReposMigrationTest` 用源码级钉子钉住了这一点。
+
 
 ## 5. 既定决策登记（代码里只剩裸编号的那些）
 
@@ -156,23 +181,31 @@ clone 不做 `nff:` 这类分支判定，但有两件**必须由引擎收口**�
    但**这一版没做** —— 别看着 `nativeGitCloneProgress` 以为 pull 也有进度。
 8. **进度是进程内快照，不跨进程**：`snapshot_json` 读的是本次进程的内存状态；
    App 被杀之后没有任何「上次拉到哪」的残留（下一次 clone 从零开始）。
+9. **仓库根目录在内部存储**：`noBackupFilesDir/repos`（1.0.91 起，见 §4.2）。
+   它不参与云备份 / 设备迁移（与外部存储时代一致），也不再能被文件管理器翻到 ——
+   代价与理由写在 `LocalRepos.base()` 的 KDoc 里。
+   遗留（待产品决定）：分叉决策页那句「请复制仓库路径到桌面端解决」现在**真的**不可兑现了
+   （外部存储时代在 Android 11+ 上其实也访问不到，只是没人挑明）——
+   要么改文案，要么给一条真正能取走仓库的出路（例如导出 zip）。
 
 ## 8. 钉子与验收
 
-- **单测**：`core/src/git/mod.rs` 内 `mod tests` 共 **23** 个 `#[test]`、`core/src/git/progress.rs` 内 **6** 个
-  （`cargo test` 会连集成测试一起跑：**75** 个单测 + 4 个 `core/tests/deepseek_http.rs`）。
+- **单测**：`core/src/git/mod.rs` 内 `mod tests` 共 **26** 个 `#[test]`、`core/src/git/progress.rs` 内 **6** 个
+  （`cargo test` 会连集成测试一起跑：**78** 个单测 + 4 个 `core/tests/deepseek_http.rs`）。
   与决策页相关的是 `scan_sensitive`（5 条）、`map_push_error`（2 条）、
   `repo_status`（3 条：`dirty` 顺序、父子提交与完整 sha、远端 ref 三态含悬挂符号引用）；
   与 clone 相关的是 `prepare_clone_target`（3 条）、`discard_partial_clone`（1 条）、
-  `map_clone_error`（3 条：锁文件保留完整路径、其余原样、取消要能区分）、取消标记（1 条），
+  `clear_stale_locks`（2 条：只删锁文件 / 没有 `.git` 时是空操作）、
+  `map_clone_error`（4 条：锁文件保留完整路径 + 现场清单、其余原样、取消要能区分）、取消标记（1 条），
   以及 `progress.rs` 的阶段/百分比/JSON（6 条）。
 - **Kotlin 侧**：`CloneProgressTest`（11 例：解析容错、阶段百分比、越界夹紧、单调性）、
   `CloneProgressDialogTest`（2 例：分母未知不编号）、`CloneErrorDiagnosticsTest`（2 例：源码级钉住
-  「clone 失败原因不许再被单独截短」）。
+  「clone 失败原因不许再被单独截短」）、`LocalReposMigrationTest`（5 例：搬迁不丢东西、
+  跨文件系统复制路径成立、源不存在不许假成功，以及**源码级钉住 `base()` 不回到外部存储**）。
 - **改这块时要跑的**：`cd core && cargo test`；若是接口（签名/返回约定）改动，
   还要 `./gradlew :app:testDebugUnitTest`（`JniSignatureTest` 逐参数比对，见 [`BUILD-NOTES.md`](BUILD-NOTES.md) §四）
   并重建 `.so`。
-- **没有钉子、只能靠 review / 真机的**：真实远端上的 clone/pull/push 行为（需要网络与凭据）；
-  以及 `failed to lock file` 那条真机失败的**根因**（见 §4.1 的「已知未解」——
-  在容器里按同样的 uid / 同样的 FUSE 树复现不出来：ext4 上成功、`/sdcard/Download` 上成功，
-  只有 App 自己的 `Android/data/<pkg>/files/repos/…` 会失败）。
+- **没有钉子、只能靠真机的**：真实远端上的 clone/pull/push 行为（需要网络与凭据）；
+  以及 §4.2 那条 FUSE 兼容结论本身 —— 它是在真机上量出来的（容器里 ext4 与
+  `/sdcard/Download` 都成功、只有 App 私有外部目录失败），JVM 单测只能钉住「别再改回外部存储」。
+

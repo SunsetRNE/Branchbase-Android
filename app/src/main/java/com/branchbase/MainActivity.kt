@@ -66,6 +66,24 @@ class MainActivity : ComponentActivity() {
             kotlinx.coroutines.runBlocking { com.branchbase.ui.task.TaskStore.prune(applicationContext) }
         }.start()
 
+        // 本地仓库目录迁移：外部存储 → 内部存储（1.0.91 的兼容处理，理由见 LocalRepos.base 的说明）。
+        // 后台线程：跨文件系统时要把整棵树复制一遍，可能几百 MB —— 不能压在启动路径上。
+        // 结果落一行日志：下一次日志包能直接看出仓库现在落在哪、这次搬迁搬了几个。
+        Thread {
+            val ctx = applicationContext
+            val migration = com.branchbase.core.LocalRepos.migrateFromExternal(ctx)
+            val root = com.branchbase.core.LocalRepos.base(ctx).absolutePath
+            Logger.local(
+                when {
+                    migration.failed > 0 ->
+                        "本地仓库迁移未完成：成功 ${migration.moved} / 失败 ${migration.failed}（下次启动继续）；根目录 $root"
+                    migration.alreadyDone -> "本地仓库根目录 $root（已迁移过）"
+                    else -> "本地仓库已迁到内部存储：${migration.moved} 个；根目录 $root"
+                },
+                "Repos",
+            )
+        }.start()
+
         // 账号健康检查（启动后跑一次；之后由用户在「设置 → 账号管理」手动检查）
         Thread {
             kotlinx.coroutines.runBlocking { com.branchbase.core.AccountChecks.checkAll(applicationContext) }

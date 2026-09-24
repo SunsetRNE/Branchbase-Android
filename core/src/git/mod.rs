@@ -22,7 +22,7 @@ pub mod progress;
 ///    `'<path>' exists and is not an empty directory` —— 用户看到的是一句英文，界面上
 ///    也没有任何出路。所以入口先走 [`prepare_clone_target`] 收口。
 /// 2. **含 `.git` 的目录绝不代删**：那是另一个仓库（或上一次成功的 clone）。
-/// 宁可报错交给用户决定，也不替他把可能还有未推送提交的目录删掉。
+///    宁可报错交给用户决定，也不替他把可能还有未推送提交的目录删掉。
 /// 3. **失败不留半成品**：失败路径上目录里可能只剩半个 `.git`（对象不全 / 没有 HEAD），
 ///    App 用不了，下一次 clone 又会被它挡住 → 失败即 [`discard_partial_clone`] 清场。
 ///
@@ -96,8 +96,12 @@ pub fn clone_repo(url: &str, into: &str, branch: Option<&str>, token: Option<&st
         }
         Err(e) => {
             progress::complete(false);
+            // 失败路径先取证再清场：`failed to lock file` 这句到底对应「真有一个残留锁文件」
+            // 还是「文件系统把已经 rename 掉的锁当成还在」，只有**现场清单**能回答。
+            // 清场本身会把整个目录删掉，所以取证必须在它之前。
+            let stale = clear_stale_locks(into);
             discard_partial_clone(into);
-            Err(map_clone_error(&e))
+            Err(map_clone_error(&e, &stale))
         }
     }
 }
@@ -118,26 +122,70 @@ pub fn request_cancel() {
     CANCEL_REQUESTED.store(true, Ordering::SeqCst);
 }
 
-/// clone 失败归一：保留 libgit2 原文（诊断全靠它），只对**残留锁文件**这一句
-/// 追加一句用户能照做的处置。
+/// clone 失败归一：保留 libgit2 原文（诊断全靠它），并对 `failed to lock file` 这一句
+/// 追加**现场取证**。
 ///
-/// 为什么单挑这一句：`failed to lock file '<path>' for writing` 的字面意思
-/// （「加锁失败」）对用户零信息量，而它的真身是「`<path>.lock` 这个残留文件还在」——
-/// 上一次 git 操作被系统掐掉（进程冻结 / 低内存回收 / 用户强停）就会留下它，
-/// 而 libgit2 **自己不会清理**，于是每一次操作都以同一句话失败。
-/// 路径原文一个字都不能省：日志包里的那一行是唯一能定位到具体锁文件的线索。
-fn map_clone_error(e: &git2::Error) -> CoreError {
+/// 为什么单挑这一句：字面意思（「加锁失败」）对用户零信息量，而它背后有且只有两种可能，
+/// 处置完全不同：
+///
+/// | 可能 | 现场会看到 |
+/// |---|---|
+/// | 真有残留锁文件（上一次操作被系统掐掉留下的） | `clear_stale_locks` 删到了文件，清单跟在文案后面 |
+/// | 文件系统层面的假象（锁文件其实已被 rename 掉，stat 却还说它存在） | 清单为空 —— 这时**重试也不会好**，得换文件系统 |
+///
+/// 路径原文一个字都不能省：真机日志里这一行曾经被上层截断，切掉的正好是锁文件名。
+fn map_clone_error(e: &git2::Error, stale_locks: &[String]) -> CoreError {
     let msg = e.message();
     if msg.contains("failed to lock file") {
-        return CoreError::Other(format!(
-            "clone 失败: 仓库目录里有残留锁文件（上一次操作被中断留下的）：\
-             请重试一次；若仍然失败，请把这条错误连同路径一起反馈。原始错误: {msg}"
-        ));
+        let scene = if stale_locks.is_empty() {
+            "现场没有找到锁文件（锁是文件系统层面的假象，不是残留文件）".to_string()
+        } else {
+            format!("现场已清掉 {} 个残留锁文件：{}", stale_locks.len(), stale_locks.join("、"))
+        };
+        return CoreError::Other(format!("clone 失败: {msg}｜{scene}"));
     }
     if cancelled() {
         return CoreError::Other("clone 已取消".to_string());
     }
     CoreError::Other(format!("clone 失败: {msg}"))
+}
+
+/// git 的锁文件后缀：写 `<path>` 时先建 `<path>.lock`，写完 rename 覆盖。
+const LOCK_SUFFIX: &str = ".lock";
+
+/// 删掉仓库目录里残留的 `*.lock`，返回被删掉的路径（相对 `.git`，便于日志阅读与断言）。
+///
+/// 调用时机只有一处：clone 失败路径上取证 + 兜底（见 [`clone_repo`]）。
+/// **不要在操作进行中调用** —— 那会把另一个正在使用的锁删掉。
+///
+/// 只扫 `.git`，跳过 `objects/`（对象库可能有几十万个文件，且里面不会有锁）、`modules/`、`lfs/`；
+/// 只删**普通文件**：万一有人把目录命名成 `x.lock`，删它会连带删掉里面的东西。
+pub fn clear_stale_locks(dir: &str) -> Vec<String> {
+    let git_dir = std::path::Path::new(dir).join(".git");
+    let mut removed = Vec::new();
+    remove_locks_under(&git_dir, &git_dir, &mut removed);
+    removed.sort();
+    removed
+}
+
+fn remove_locks_under(dir: &std::path::Path, base: &std::path::Path, out: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        let Ok(kind) = entry.file_type() else { continue };
+        if kind.is_dir() {
+            if matches!(name.as_str(), "objects" | "modules" | "lfs") {
+                continue;
+            }
+            remove_locks_under(&path, base, out);
+        } else if kind.is_file() && name.ends_with(LOCK_SUFFIX) {
+            if std::fs::remove_file(&path).is_ok() {
+                let shown = path.strip_prefix(base).unwrap_or(&path);
+                out.push(shown.display().to_string());
+            }
+        }
+    }
 }
 
 /// clone 入口的目标目录预检（见 [`clone_repo`] 的「三条规矩」）。
@@ -1541,18 +1589,72 @@ mod tests {
     /// 锁文件错误：**完整路径必须留在文案里**（日志里那一行是唯一定位线索），
     /// 并附带一句用户能照做的处置。
     #[test]
-    fn clone_error_keeps_lock_path_and_adds_hint() {
-        let raw = "failed to lock file '/storage/emulated/0/Android/data/com.branchbase/files/repos/SunsetRNE/Branchbase-Android/.git/config.lock' for writing";
-        let text = other_message(map_clone_error(&git2::Error::from_str(raw)));
-        assert!(text.contains("/repos/SunsetRNE/Branchbase-Android/.git/config.lock"), "路径不能被截断或改写: {text}");
-        assert!(text.contains("残留锁文件"), "应点明这是残留锁文件: {text}");
-        assert!(text.contains("重试"), "应给出一句可照做的处置: {text}");
+    fn clone_error_keeps_lock_path_and_reports_scene() {
+        // 真机 1.0.90 日志里的原文（HEAD.lock 那一条）
+        let raw = "failed to lock file '/storage/emulated/0/Android/data/com.branchbase/files/repos/SunsetRNE/Branchbase-Android/.git/HEAD.lock' for writing";
+        let text = other_message(map_clone_error(&git2::Error::from_str(raw), &[]));
+        assert!(
+            text.contains("/repos/SunsetRNE/Branchbase-Android/.git/HEAD.lock"),
+            "路径不能被截断或改写: {text}"
+        );
+        assert!(text.contains("现场没有找到锁文件"), "空清单要如实说「没有锁文件」: {text}");
+    }
+
+    /// 现场真的删到了锁文件时，清单要进文案 —— 这一行决定了「重试有没有用」。
+    #[test]
+    fn clone_error_lists_cleaned_locks() {
+        let raw = "failed to lock file '/tmp/r/.git/HEAD.lock' for writing";
+        let cleaned = vec!["HEAD.lock".to_string(), "refs/heads/main.lock".to_string()];
+        let text = other_message(map_clone_error(&git2::Error::from_str(raw), &cleaned));
+        assert!(text.contains("已清掉 2 个残留锁文件"), "实际: {text}");
+        assert!(text.contains("HEAD.lock"), "清单要能看出是哪个文件: {text}");
+        assert!(text.contains("refs/heads/main.lock"), "实际: {text}");
+    }
+
+    /// 清锁只清锁：非锁文件、对象库、以及「叫 x.lock 的目录」都不许碰。
+    #[test]
+    fn clear_stale_locks_only_removes_lock_files() {
+        let dir = temp_dir("locks");
+        std::fs::create_dir_all(dir.join(".git/refs/heads")).unwrap();
+        std::fs::create_dir_all(dir.join(".git/objects/pack")).unwrap();
+        std::fs::create_dir_all(dir.join(".git/lfs")).unwrap();
+        std::fs::create_dir_all(dir.join(".git/weird.lock")).unwrap();
+
+        std::fs::write(dir.join(".git/HEAD.lock"), "ref: refs/heads/main\n").unwrap();
+        std::fs::write(dir.join(".git/refs/heads/main.lock"), "").unwrap();
+        std::fs::write(dir.join(".git/config"), "[core]\n").unwrap();
+        std::fs::write(dir.join(".git/objects/pack/tmp.lock"), "对象库里的同名文件").unwrap();
+        std::fs::write(dir.join(".git/lfs/x.lock"), "lfs 不扫").unwrap();
+        std::fs::write(dir.join(".git/weird.lock/inner.txt"), "目录不是锁").unwrap();
+
+        let removed = clear_stale_locks(dir.to_str().unwrap());
+        assert_eq!(removed, vec!["HEAD.lock".to_string(), "refs/heads/main.lock".to_string()]);
+        assert!(!dir.join(".git/HEAD.lock").exists());
+        assert!(!dir.join(".git/refs/heads/main.lock").exists());
+        assert!(dir.join(".git/config").exists(), "非锁文件不能被删");
+        assert!(dir.join(".git/objects/pack/tmp.lock").exists(), "对象库要跳过");
+        assert!(dir.join(".git/lfs/x.lock").exists(), "lfs 要跳过");
+        assert!(dir.join(".git/weird.lock/inner.txt").exists(), "目录不是锁文件，不能被删");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 没有 `.git` 时是空操作（clone 目标目录本来就还没有仓库）。
+    #[test]
+    fn clear_stale_locks_is_noop_without_git_dir() {
+        let dir = temp_dir("no-git");
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(clear_stale_locks(dir.to_str().unwrap()).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// 其余失败原样透出（只加 `clone 失败: ` 前缀），不做二次解释。
     #[test]
     fn clone_error_keeps_other_failures_verbatim() {
-        let text = other_message(map_clone_error(&git2::Error::from_str("authentication required but no callback set")));
+        let text = other_message(map_clone_error(
+            &git2::Error::from_str("authentication required but no callback set"),
+            &[],
+        ));
         assert_eq!(text, "clone 失败: authentication required but no callback set");
     }
 
@@ -1561,7 +1663,7 @@ mod tests {
     #[test]
     fn clone_error_reports_cancel() {
         CANCEL_REQUESTED.store(true, Ordering::SeqCst);
-        let text = other_message(map_clone_error(&git2::Error::from_str("callback returned non-zero")));
+        let text = other_message(map_clone_error(&git2::Error::from_str("callback returned non-zero"), &[]));
         CANCEL_REQUESTED.store(false, Ordering::SeqCst);
         assert_eq!(text, "clone 已取消");
     }
