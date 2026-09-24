@@ -3,7 +3,11 @@
 //! 对齐 `docs/specs/local-git-engine-design.md` §3（稳定接口）/ §4（错误归一）。
 //! HTTPS 走 vendored OpenSSL（见 Cargo.toml）。
 
+use std::sync::atomic::Ordering;
+
 use crate::error::{CoreError, Result};
+
+pub mod progress;
 
 /// 浅 clone 仓库到本地目录。
 ///
@@ -11,12 +15,50 @@ use crate::error::{CoreError, Result};
 /// - `into`：本地目标目录（绝对路径）。
 /// - `branch`：要检出的分支（`None` = 默认分支）。
 /// - `token`：可选的 PAT（私有仓库用；`None` = 匿名）。
+///
+/// ## 目标目录的三条规矩（每条都对应一次真机事故）
+///
+/// 1. **只允许落在「不存在」或空目录上**：这是 libgit2 的硬要求，撞上别的它只回
+///    `'<path>' exists and is not an empty directory` —— 用户看到的是一句英文，界面上
+///    也没有任何出路。所以入口先走 [`prepare_clone_target`] 收口。
+/// 2. **含 `.git` 的目录绝不代删**：那是另一个仓库（或上一次成功的 clone）。
+/// 宁可报错交给用户决定，也不替他把可能还有未推送提交的目录删掉。
+/// 3. **失败不留半成品**：失败路径上目录里可能只剩半个 `.git`（对象不全 / 没有 HEAD），
+///    App 用不了，下一次 clone 又会被它挡住 → 失败即 [`discard_partial_clone`] 清场。
+///
+/// ## 进度
+///
+/// 全过程往 [`progress`] 写快照（阶段 + 计数），UI 侧轮询它画进度条。
+/// 取消走 [`request_cancel`]：回调一旦看到取消标记就让 libgit2 中断传输，
+/// 失败路径照常清场。
 pub fn clone_repo(url: &str, into: &str, branch: Option<&str>, token: Option<&str>) -> Result<()> {
-    use git2::build::RepoBuilder;
+    use git2::build::{CheckoutBuilder, RepoBuilder};
     use git2::{FetchOptions, RemoteCallbacks};
+
+    // 任何一次 clone 尝试都从「清空上一次的进度」开始 —— 包括被预检拦下的那次：
+    // 否则上层会读到上一次的 done/failed 快照，进度条在弹窗刚打开时闪一下 100%。
+    progress::begin();
+    CANCEL_REQUESTED.store(false, Ordering::SeqCst);
+    if let Err(e) = prepare_clone_target(into) {
+        progress::complete(false);
+        return Err(e);
+    }
 
     let mut callbacks = RemoteCallbacks::new();
     callbacks.certificate_check(check_cert);
+    // 进度 + 取消都挂在同一个回调上：libgit2 用「回调返回 false」表示中断。
+    callbacks.transfer_progress(|stats| {
+        if cancelled() {
+            return false;
+        }
+        progress::transfer(
+            stats.received_objects(),
+            stats.total_objects(),
+            stats.indexed_objects(),
+            stats.received_bytes() as u64,
+        );
+        true
+    });
     if let Some(tk) = token {
         let tk = tk.to_string();
         callbacks.credentials(move |_url, username, allowed| {
@@ -36,16 +78,103 @@ pub fn clone_repo(url: &str, into: &str, branch: Option<&str>, token: Option<&st
     let mut fo = FetchOptions::new();
     fo.remote_callbacks(callbacks).depth(1); // 浅 clone，减体积
 
+    // 检出阶段也报进度（大仓库最后那一段「检出文件」同样会等很久）；
+    // 只挂回调，策略保持 libgit2 默认（SAFE），行为与旧实现逐字一致。
+    let mut checkout = CheckoutBuilder::new();
+    checkout.progress(|_path, done, total| progress::checkout(done, total));
+
     let mut builder = RepoBuilder::new();
-    builder.fetch_options(fo);
+    builder.fetch_options(fo).with_checkout(checkout);
     if let Some(b) = branch {
         builder.branch(b);
     }
 
-    builder
-        .clone(url, std::path::Path::new(into))
-        .map_err(|e| CoreError::Other(format!("clone 失败: {e}")))?;
-    Ok(())
+    match builder.clone(url, std::path::Path::new(into)) {
+        Ok(_) => {
+            progress::complete(true);
+            Ok(())
+        }
+        Err(e) => {
+            progress::complete(false);
+            discard_partial_clone(into);
+            Err(map_clone_error(&e))
+        }
+    }
+}
+
+/// 取消标记：置位后，正在跑的 clone 会在**下一次回调**里中断。
+///
+/// 为什么不做「立刻掐断」：libgit2 没有取消句柄，唯一的官方中断点是回调返回值；
+/// 而回调只在有数据流动时触发。所以取消是「尽快」而不是「立刻」——
+/// 网络完全静默时它会等到下一次超时/回调才生效（UI 用「正在取消…」如实表达）。
+static CANCEL_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn cancelled() -> bool {
+    CANCEL_REQUESTED.load(Ordering::SeqCst)
+}
+
+/// 请求取消正在进行的 clone（没有 clone 在跑时是空操作）。
+pub fn request_cancel() {
+    CANCEL_REQUESTED.store(true, Ordering::SeqCst);
+}
+
+/// clone 失败归一：保留 libgit2 原文（诊断全靠它），只对**残留锁文件**这一句
+/// 追加一句用户能照做的处置。
+///
+/// 为什么单挑这一句：`failed to lock file '<path>' for writing` 的字面意思
+/// （「加锁失败」）对用户零信息量，而它的真身是「`<path>.lock` 这个残留文件还在」——
+/// 上一次 git 操作被系统掐掉（进程冻结 / 低内存回收 / 用户强停）就会留下它，
+/// 而 libgit2 **自己不会清理**，于是每一次操作都以同一句话失败。
+/// 路径原文一个字都不能省：日志包里的那一行是唯一能定位到具体锁文件的线索。
+fn map_clone_error(e: &git2::Error) -> CoreError {
+    let msg = e.message();
+    if msg.contains("failed to lock file") {
+        return CoreError::Other(format!(
+            "clone 失败: 仓库目录里有残留锁文件（上一次操作被中断留下的）：\
+             请重试一次；若仍然失败，请把这条错误连同路径一起反馈。原始错误: {msg}"
+        ));
+    }
+    if cancelled() {
+        return CoreError::Other("clone 已取消".to_string());
+    }
+    CoreError::Other(format!("clone 失败: {msg}"))
+}
+
+/// clone 入口的目标目录预检（见 [`clone_repo`] 的「三条规矩」）。
+///
+/// - 不存在 → 放行；
+/// - 存在且含 `.git` → **拒绝**（不删）；
+/// - 存在且不含 `.git` → 上一次留下的半成品 / 空目录，删掉重建（返回删除的顶层条目数）。
+fn prepare_clone_target(into: &str) -> Result<usize> {
+    let path = std::path::Path::new(into);
+    if !path.exists() {
+        return Ok(0);
+    }
+    if path.join(".git").exists() {
+        return Err(CoreError::Other(format!(
+            "目标目录里已经有一个仓库（{into}）。先删除本地副本，或换一个目录再拉取。"
+        )));
+    }
+    Ok(remove_tree(path))
+}
+
+/// clone 失败后的清场：删掉这次尝试留下的目录（返回删除的顶层条目数）。
+///
+/// 只可能在 [`prepare_clone_target`] 放行之后调用 —— 也就是说，这里的目录要么是
+/// 本次 clone 新建的，要么是预检时确认过**没有 `.git`** 的半成品，不含用户数据。
+fn discard_partial_clone(into: &str) -> usize {
+    let path = std::path::Path::new(into);
+    if !path.exists() {
+        return 0;
+    }
+    remove_tree(path)
+}
+
+/// 递归删除目录；返回删除前它有几个顶层条目（给日志与单测用，删除失败按 0 计）。
+fn remove_tree(dir: &std::path::Path) -> usize {
+    let entries = std::fs::read_dir(dir).map(|rd| rd.count()).unwrap_or(0);
+    let _ = std::fs::remove_dir_all(dir);
+    entries
 }
 
 /// pull：fetch origin 并 fast-forward 当前分支到远端。
@@ -1349,5 +1478,101 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ───────────── clone 目标目录预检 / 失败清场 / 错误归一 ─────────────
+
+    /// 独立的临时目录（cargo 单测同进程并行，目录名必须带 tag 区分）。
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("bb-clone-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    /// 目录不存在时预检放行，且**不创建**任何东西（创建是 libgit2 的事）。
+    #[test]
+    fn clone_target_prepare_allows_missing_dir() {
+        let dir = temp_dir("missing");
+        assert_eq!(prepare_clone_target(dir.to_str().unwrap()).unwrap(), 0);
+        assert!(!dir.exists(), "预检不该顺手把目录建出来");
+    }
+
+    /// 空目录 / 只有零散文件的半成品目录：清掉重建 ——
+    /// 否则用户永远卡在 libgit2 那句 `exists and is not an empty directory` 上。
+    #[test]
+    fn clone_target_prepare_clears_partial_dir() {
+        let dir = temp_dir("partial");
+        std::fs::create_dir_all(dir.join("nested")).unwrap();
+        std::fs::write(dir.join("nested/leftover.txt"), "x").unwrap();
+        assert_eq!(prepare_clone_target(dir.to_str().unwrap()).unwrap(), 1);
+        assert!(!dir.exists(), "半成品目录应被整体删除");
+    }
+
+    /// 含 `.git` 的目录是**另一个仓库**：预检必须拒绝，而且一个字节都不能动。
+    #[test]
+    fn clone_target_prepare_refuses_existing_repo() {
+        let dir = temp_dir("has-git");
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        std::fs::write(dir.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        std::fs::write(dir.join("keep.txt"), "未推送的工作区改动").unwrap();
+
+        let err = prepare_clone_target(dir.to_str().unwrap()).unwrap_err();
+        assert!(
+            other_message(err).contains("已经有一个仓库"),
+            "应给出「目录里已有仓库」的可读原因"
+        );
+        assert!(dir.join(".git/HEAD").exists(), "拒绝之后仓库必须原样保留");
+        assert!(dir.join("keep.txt").exists(), "工作区文件不能被预检碰掉");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 失败清场：把这次 clone 留下的目录整体删掉（下一次才能从零开始）。
+    #[test]
+    fn clone_failure_cleanup_removes_partial_repo() {
+        let dir = temp_dir("cleanup");
+        std::fs::create_dir_all(dir.join(".git/objects")).unwrap();
+        std::fs::write(dir.join(".git/objects/tmp_pack_x"), "half").unwrap();
+        assert_eq!(discard_partial_clone(dir.to_str().unwrap()), 1);
+        assert!(!dir.exists(), "失败后不该留半个仓库");
+        // 目录本来就不存在时是空操作
+        assert_eq!(discard_partial_clone(dir.to_str().unwrap()), 0);
+    }
+
+    /// 锁文件错误：**完整路径必须留在文案里**（日志里那一行是唯一定位线索），
+    /// 并附带一句用户能照做的处置。
+    #[test]
+    fn clone_error_keeps_lock_path_and_adds_hint() {
+        let raw = "failed to lock file '/storage/emulated/0/Android/data/com.branchbase/files/repos/SunsetRNE/Branchbase-Android/.git/config.lock' for writing";
+        let text = other_message(map_clone_error(&git2::Error::from_str(raw)));
+        assert!(text.contains("/repos/SunsetRNE/Branchbase-Android/.git/config.lock"), "路径不能被截断或改写: {text}");
+        assert!(text.contains("残留锁文件"), "应点明这是残留锁文件: {text}");
+        assert!(text.contains("重试"), "应给出一句可照做的处置: {text}");
+    }
+
+    /// 其余失败原样透出（只加 `clone 失败: ` 前缀），不做二次解释。
+    #[test]
+    fn clone_error_keeps_other_failures_verbatim() {
+        let text = other_message(map_clone_error(&git2::Error::from_str("authentication required but no callback set")));
+        assert_eq!(text, "clone 失败: authentication required but no callback set");
+    }
+
+    /// 取消：回调中断之后 libgit2 只会给一句笼统的失败，
+    /// 上层要能区分「用户取消」与「真的失败」（前者不该报红字错误）。
+    #[test]
+    fn clone_error_reports_cancel() {
+        CANCEL_REQUESTED.store(true, Ordering::SeqCst);
+        let text = other_message(map_clone_error(&git2::Error::from_str("callback returned non-zero")));
+        CANCEL_REQUESTED.store(false, Ordering::SeqCst);
+        assert_eq!(text, "clone 已取消");
+    }
+
+    /// 取消标记的生命周期：`clone_repo` 开始时清、请求时置位。
+    #[test]
+    fn cancel_flag_round_trip() {
+        CANCEL_REQUESTED.store(false, Ordering::SeqCst);
+        assert!(!cancelled());
+        request_cancel();
+        assert!(cancelled());
+        CANCEL_REQUESTED.store(false, Ordering::SeqCst);
     }
 }

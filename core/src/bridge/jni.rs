@@ -907,6 +907,28 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitClone<'local
     into_jstring(&mut env, result)
 }
 
+/// 当前 clone 进度（单行 JSON；没有 clone 在跑时 `phase` 为 `idle`）
+///
+/// 为什么是「查询」而不是「回调」：见 `core/src/git/progress.rs` 的模块文档。
+/// 字段契约也在那里（`phase` 字符串是稳定契约，文案由 UI 翻）。
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitCloneProgress<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> jstring {
+    into_jstring(&mut env, Ok(crate::git::progress::snapshot_json()))
+}
+
+/// 请求取消正在进行的 clone（空串=已受理；没有 clone 在跑时是空操作）
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitCloneCancel<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> jstring {
+    crate::git::request_cancel();
+    into_jstring(&mut env, Ok(String::new()))
+}
+
 /// pull 仓库（返回空串=成功，ERROR:=失败）
 /// 参数：dir, token(可空)
 #[no_mangle]

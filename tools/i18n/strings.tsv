@@ -1234,3 +1234,13 @@ http://127.0.0.1:7890 或 socks5://127.0.0.1:1080	http://127.0.0.1:7890 or socks
 三	Wed	weekday_wed_short
 五	Fri	weekday_fri_short
 译	Tr	bubble_translate_char
+正在准备…	Preparing…	clone_phase_preparing
+正在连接远端…	Connecting…	clone_phase_connecting
+正在接收对象 $count	Receiving objects %1$s	clone_phase_receiving
+正在解析增量 $count	Resolving deltas %1$s	clone_phase_resolving
+正在检出文件 $count	Checking out files %1$s	clone_phase_checkout
+正在写入引用…	Writing refs…	clone_phase_finalizing
+正在取消…	Cancelling…	clone_phase_cancelling
+拉取失败	Clone failed	clone_failed_title
+已接收 $size	Received %1$s	clone_bytes_received
+已取消拉取 $name	Cancelled cloning %1$s	toast_clone_cancelled

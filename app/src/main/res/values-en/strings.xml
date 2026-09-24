@@ -384,6 +384,17 @@
     <string name="label_choose_repo_to_clone">Choose a repository to clone</string>
     <string name="state_cloning">Cloning…</string>
     <string name="toast_cloned">Cloned %1$s</string>
+    <string name="clone_percent">%1$d%%</string>
+    <string name="clone_bytes_received">Received %1$s</string>
+    <string name="clone_failed_title">Clone failed</string>
+    <string name="clone_phase_preparing">Preparing…</string>
+    <string name="clone_phase_connecting">Connecting…</string>
+    <string name="clone_phase_receiving">Receiving objects %1$s</string>
+    <string name="clone_phase_resolving">Resolving deltas %1$s</string>
+    <string name="clone_phase_checkout">Checking out files %1$s</string>
+    <string name="clone_phase_finalizing">Writing refs…</string>
+    <string name="clone_phase_cancelling">Cancelling…</string>
+    <string name="toast_clone_cancelled">Cancelled cloning %1$s</string>
     <string name="note_frame_watch_disabled">When off, no more slow frames are recorded; what is already in the log is unaffected.</string>
     <string name="label_repo_count">%1$s</string>
     <string name="confirm_sign_out_body">Clears the credentials stored on this device and returns to the signed-out state.\nLocal repository folders, downloaded content and in-app notifications are unaffected.\nThis cannot be undone — you will need to authorise again to restore access.</string>

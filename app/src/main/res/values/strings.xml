@@ -389,6 +389,17 @@
     <string name="label_choose_repo_to_clone">选择要拉取的仓库</string>
     <string name="state_cloning">正在克隆…</string>
     <string name="toast_cloned">已拉取 %1$s</string>
+    <string name="clone_percent">%1$d%%</string>
+    <string name="clone_bytes_received">已接收 %1$s</string>
+    <string name="clone_failed_title">拉取失败</string>
+    <string name="clone_phase_preparing">正在准备…</string>
+    <string name="clone_phase_connecting">正在连接远端…</string>
+    <string name="clone_phase_receiving">正在接收对象 %1$s</string>
+    <string name="clone_phase_resolving">正在解析增量 %1$s</string>
+    <string name="clone_phase_checkout">正在检出文件 %1$s</string>
+    <string name="clone_phase_finalizing">正在写入引用…</string>
+    <string name="clone_phase_cancelling">正在取消…</string>
+    <string name="toast_clone_cancelled">已取消拉取 %1$s</string>
     <string name="note_frame_watch_disabled">关闭后不再记录慢帧；已经写进日志的内容不受影响。</string>
     <string name="label_repo_count">%1$s 个</string>
     <string name="confirm_sign_out_body">将清除本机保存的凭据，并切回未登录状态。\n本地仓库目录、已下载内容与站内通知不受影响。\n此操作不可撤销 —— 需要重新走一次授权才能恢复。</string>

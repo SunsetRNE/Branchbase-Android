@@ -185,6 +185,10 @@ object RustBridge {
 
     private external fun nativeGitClone(url: String, into: String, branch: String, token: String): String
 
+    private external fun nativeGitCloneProgress(): String
+
+    private external fun nativeGitCloneCancel(): String
+
     private external fun nativeGitPull(dir: String, token: String): String
 
     private external fun nativeGitCommit(dir: String, message: String, authorName: String, authorEmail: String): String
@@ -822,16 +826,41 @@ object RustBridge {
             !nativeGitClone(url, into, branch, token).startsWith("ERROR:")
         }
 
-    /** clone 三态（决策页/反馈用）：null=成功，其他=具体失败原因（透出 ERROR: 后文本）。 */
+    /**
+     * clone 三态（决策页/反馈用）：null=成功，其他=具体失败原因（透出 ERROR: 后文本）。
+     *
+     * 截断口径与其它写操作一致（`engineErrorOrNull` = 300 字符）。这里曾经是 **120**：
+     * 真机日志里那条 `failed to lock file '<路径>' for writing` 正好被截在
+     * `.../repos/SunsetRNE/Branchbase-An` —— **被截掉的正是锁文件的文件名**，
+     * 也就是唯一能定位问题的线索。失败原因是要给人看的，宁可长一点。
+     */
     suspend fun gitCloneDetailed(url: String, into: String, branch: String = "", token: String = ""): String? =
         withContext(Dispatchers.IO) {
             try {
-                val r = nativeGitClone(url, into, branch, token)
-                if (r.isBlank()) null else r.removePrefix("ERROR:").take(120)
+                engineErrorOrNull(nativeGitClone(url, into, branch, token))
             } catch (e: Throwable) {
-                "引擎不可用"
+                ENGINE_UNAVAILABLE
             }
         }
+
+    /**
+     * 当前 clone 进度（没有 clone 在跑时 `phase` 是 `idle`）。
+     *
+     * 解析失败返回 `null`：调用方保持上一次的界面状态，而不是把进度打回 0%。
+     */
+    suspend fun gitCloneProgress(): CloneProgress? = withContext(Dispatchers.IO) {
+        runCatching { CloneProgress.parse(nativeGitCloneProgress()) }.getOrNull()
+    }
+
+    /**
+     * 请求取消正在进行的 clone（没有 clone 在跑时是空操作）。
+     *
+     * 引擎没有「立刻掐断」的句柄：取消在下一次进度回调里生效（见 `git/progress.rs`），
+     * 所以 UI 要先进入「正在取消…」再等结果，不能假装已经停了。
+     */
+    fun gitCloneCancel() {
+        runCatching { nativeGitCloneCancel() }
+    }
 
     /** pull（fetch + fast-forward）本地仓库（返回是否成功）。 */
     suspend fun gitPull(dir: String, token: String = ""): Boolean =

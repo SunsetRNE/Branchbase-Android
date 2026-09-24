@@ -60,9 +60,33 @@
 | 证书 / 代理 | `init_ssl_certs:924` · `set_git_proxy:979` | `init_ssl_certs` 全局生效一次；`set_git_proxy` 写全局 gitconfig 的 `[http] proxy`（空串 = 清除） |
 | 决策页面支持 | `repo_status` · `reset_soft` · `reset_hard_to_remote` · `amend_message` · `revert_commit` · `push_set_upstream` · `scan_sensitive`（同一段注释之下，按名字找） | 条款写在 [`decision-pages-design.md`](decision-pages-design.md) §6，本文不重复 |
 
-JNI 侧对应导出（`core/src/bridge/jni.rs`）：`nativeGitClone:867`、`nativeGitPull:890`、`nativeGitCommit:992`、
-`nativeGitPush:1013`、`nativeGitStatus:1290`、`nativeGitResetSoft:1303`、`nativeGitResetHardRemote:1317`、
-`nativeGitAmend:1333`、`nativeGitRevert:1349`、`nativeGitPushSetUpstream:1371`、`nativeGitInitSsl:1405`。
+JNI 侧对应导出（`core/src/bridge/jni.rs`）：`nativeGitClone`、`nativeGitPull`、`nativeGitCommit`、
+`nativeGitPush`、`nativeGitStatus`、`nativeGitResetSoft`、`nativeGitResetHardRemote`、
+`nativeGitAmend`、`nativeGitRevert`、`nativeGitPushSetUpstream`、`nativeGitInitSsl`、
+以及进度用的 `nativeGitCloneProgress` / `nativeGitCloneCancel`（见 §4.1）。
+
+### 3.1 clone 进度与取消（两条只读接口 + 一份快照）
+
+clone 是**分钟级**的操作（浅 clone 一个中等仓库在手机上也要几十秒），而它此前对上层**完全不透明**：
+UI 只能挂一句「正在克隆…」。现在引擎往外报进度，口径如下。
+
+| 出口 | 位置 | 约定 |
+|---|---|---|
+| `progress::snapshot_json()` | `core/src/git/progress.rs` | 单行 JSON：`phase` · `received` · `total` · `indexed` · `bytes` · `checkoutDone` · `checkoutTotal`，文件顶部有完整契约表 |
+| `request_cancel()` | 同文件 | 置取消标记；正在跑的 clone 在**下一次回调**里中断 |
+| `nativeGitCloneProgress()` | `core/src/bridge/jni.rs` | 上面那份快照的 JNI 出口（Kotlin 侧每 200ms 轮询一次） |
+| `nativeGitCloneCancel()` | 同上 | 请求取消（没有 clone 在跑时是空操作） |
+
+三条不许改的口径：
+
+1. **`phase` 字符串是稳定契约**（`idle` / `connect` / `receive` / `resolve` / `checkout` / `finalize` / `done` / `failed`），
+   翻译成文案是 UI 的事。改了字符串，UI 会退化成「正在准备…」而不是崩（`CloneProgress.Phase.UNKNOWN` 兜底），
+   但用户就再也看不到「卡在哪一步」。
+2. **没有分母就不给百分比**：`total == 0`（远端没报总数）时 UI 必须走**不确定进度条**，
+   而不是拿 `received / 1` 编一个数 —— 真机上「进度条冲到 100% 然后不动」比没有进度条更让人以为卡死。
+   百分比口径（阶段加权，5→70→85→100）写在 `CloneProgress.percent` 的 KDoc 里，纯函数、有单测。
+3. **取消是「尽快」不是「立刻」**：libgit2 没有取消句柄，唯一的中断点是回调返回值，
+   所以网络完全静默时会等到下一次回调才停。UI 必须显示「正在取消…」并继续等结果，不能假装已经停了。
 
 ## 4. 错误归一：`nff:` 前缀 = 分叉决策页的触发信号
 
@@ -81,6 +105,23 @@ fn map_push_error(msg: &str) -> CoreError { ... }
 - **上层依赖这个前缀**：`nff:` 出现即弹**分叉决策页（P0-1）**，其余错误按普通失败提示；
 - 改动风险：把 `nff:` 改掉 / 改成别的文案，分叉决策页**再也不会被触发**，
   用户看到的是「推送失败」而不是「要你选合并还是覆盖」。
+
+### 4.1 clone 侧的错误归一与目标目录规约
+
+clone 不做 `nff:` 这类分支判定，但有两件**必须由引擎收口**的事（`clone_repo` 的文档注释里也写了）：
+
+| 事项 | 规则 | 为什么 |
+|---|---|---|
+| 目标目录预检 | 不存在 → 放行；**含 `.git` → 拒绝且一个字节都不动**；存在但不含 `.git` → 整体删掉重建 | 半成品目录会让 libgit2 回一句 `'…' exists and is not an empty directory`，用户界面上没有任何出路；含 `.git` 的目录是**别人的仓库**，引擎无权代删 |
+| 失败清场 | 失败即删掉这次留下的目录 | 半个 `.git` 既不能用、又挡住下一次 clone |
+| 锁文件报错 | `failed to lock file '<path>' for writing` 原样保留**完整路径**，前面加一句可照做的处置 | 真机上这条被上层 `take(120)` 截成了 `…/Branchbase-An`，**正好切掉文件名** —— 唯一能定位「哪个文件锁上了」的线索没了（上层已改成与其它写操作一致的 300 字符：`engineErrorOrNull`） |
+| 取消 | `Err("clone 已取消")` | 与「真的失败」分开：UI 不该为自己按的取消弹一条红字失败 |
+
+> **已知未解**：真机日志里出现过两次 `failed to lock file`（2026-09-25，OnePlus PJD110 / Android 16，
+> 目标目录在 `Android/data/com.branchbase.files/repos/…`）。目录在失败后被 libgit2 自己删干净、
+> 重试仍复现，说明锁文件是**同一次 clone 内**留下的，而不是上一次的残留。
+> 上面三条规约能让用户重试、能让下一次日志留下完整路径，但**根因还在 libgit2 / 该文件系统**，
+> 别把这份文档读成「已修好」。
 
 ## 5. 既定决策登记（代码里只剩裸编号的那些）
 
@@ -110,13 +151,28 @@ fn map_push_error(msg: &str) -> CoreError { ... }
 4. **远端跟踪匹配有优先级**：先 upstream 配置、同名兜底 —— 避免「本地 `main` 跟踪 `origin/other`」被误判（`:266-268`）。
 5. **`discard_all_changes` 会删未跟踪文件**：这是「撤销工作区」的完整语义，调用方必须二次确认（`:430-433`）。
 6. **主分支保护只在 UI**：引擎层只拒绝删当前分支，`main`/`master` 的置灰是调用方的责任（`:413`）。
+7. **进度只有 clone 有**：pull / push / commit 仍然只有「开始 / 结束」两个状态点。
+   进度快照的骨架（`progress.rs`）是通用的，pull 接进来只是多挂两个回调的事，
+   但**这一版没做** —— 别看着 `nativeGitCloneProgress` 以为 pull 也有进度。
+8. **进度是进程内快照，不跨进程**：`snapshot_json` 读的是本次进程的内存状态；
+   App 被杀之后没有任何「上次拉到哪」的残留（下一次 clone 从零开始）。
 
 ## 8. 钉子与验收
 
-- **单测**：`core/src/git/mod.rs` 内 `mod tests` 共 **15** 个 `#[test]`（`cargo test` 会连集成测试一起跑：
-  60 个单测 + 4 个 `core/tests/deepseek_http.rs`）。与决策页相关的是 `scan_sensitive`（5 条）、
-  `map_push_error`（2 条）、`repo_status`（3 条：`dirty` 顺序、父子提交与完整 sha、远端 ref 三态含悬挂符号引用）。
+- **单测**：`core/src/git/mod.rs` 内 `mod tests` 共 **23** 个 `#[test]`、`core/src/git/progress.rs` 内 **6** 个
+  （`cargo test` 会连集成测试一起跑：**75** 个单测 + 4 个 `core/tests/deepseek_http.rs`）。
+  与决策页相关的是 `scan_sensitive`（5 条）、`map_push_error`（2 条）、
+  `repo_status`（3 条：`dirty` 顺序、父子提交与完整 sha、远端 ref 三态含悬挂符号引用）；
+  与 clone 相关的是 `prepare_clone_target`（3 条）、`discard_partial_clone`（1 条）、
+  `map_clone_error`（3 条：锁文件保留完整路径、其余原样、取消要能区分）、取消标记（1 条），
+  以及 `progress.rs` 的阶段/百分比/JSON（6 条）。
+- **Kotlin 侧**：`CloneProgressTest`（11 例：解析容错、阶段百分比、越界夹紧、单调性）、
+  `CloneProgressDialogTest`（2 例：分母未知不编号）、`CloneErrorDiagnosticsTest`（2 例：源码级钉住
+  「clone 失败原因不许再被单独截短」）。
 - **改这块时要跑的**：`cd core && cargo test`；若是接口（签名/返回约定）改动，
   还要 `./gradlew :app:testDebugUnitTest`（`JniSignatureTest` 逐参数比对，见 [`BUILD-NOTES.md`](BUILD-NOTES.md) §四）
   并重建 `.so`。
-- **没有钉子、只能靠 review 的**：真实远端上的 clone/pull/push 行为（需要网络与凭据）。
+- **没有钉子、只能靠 review / 真机的**：真实远端上的 clone/pull/push 行为（需要网络与凭据）；
+  以及 `failed to lock file` 那条真机失败的**根因**（见 §4.1 的「已知未解」——
+  在容器里按同样的 uid / 同样的 FUSE 树复现不出来：ext4 上成功、`/sdcard/Download` 上成功，
+  只有 App 自己的 `Android/data/<pkg>/files/repos/…` 会失败）。

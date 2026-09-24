@@ -73,10 +73,14 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.repository.RepoRelation
+import com.branchbase.ui.repository.CloneDialogState
+import com.branchbase.ui.repository.CloneProgressDialog
+import com.branchbase.ui.repository.clonePhaseText
 import com.branchbase.ui.theme.selectionColor
 import com.branchbase.BuildConfig
 import com.branchbase.R
 import com.branchbase.core.AccountStatus
+import com.branchbase.core.CloneProgress
 import com.branchbase.core.AuthKind
 import com.branchbase.core.RepoCredentialStore
 import com.branchbase.ui.settings.currentAppLanguageTag
@@ -135,6 +139,8 @@ import com.branchbase.ui.decision.RepoStats
 import com.branchbase.ui.decision.parseGitStatus
 import com.branchbase.ui.decision.parseRepoStats
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -977,6 +983,17 @@ private sealed interface LocalPage {
     data class Sync(val name: String) : LocalPage
 }
 
+/** 一次「拉取仓库」的现场：弹窗显示谁、失败重试要重放什么。 */
+private data class CloneRun(val fullName: String, val name: String)
+
+/**
+ * clone 进度轮询间隔。
+ *
+ * 200ms 是「进度条看着连贯」与「不白烧电」的折中：读的是一份**进程内快照**
+ * （`nativeGitCloneProgress` 不碰磁盘、不发网络），但轮询本身会唤醒 UI 线程。
+ */
+private const val CLONE_POLL_MS = 200L
+
 /**
  * 本地仓库列表页。每个仓库独立 Git（更新/删除），「＋拉取仓库」列出我的仓库并浅 clone。
  * clone 通过 `RustBridge.gitClone`（libgit2）。
@@ -1001,9 +1018,17 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
     var myRepos by remember { mutableStateOf<List<RepoItem>>(emptyList()) }
     var showPicker by remember { mutableStateOf(false) }
     var loadingRepos by remember { mutableStateOf(false) }
-    var cloning by remember { mutableStateOf(false) }
     var feedback by remember { mutableStateOf<String?>(null) }
     var deleteTarget by remember { mutableStateOf<String?>(null) }
+
+    // 「拉取仓库」的现场与进度弹窗（口径见 CloneProgressDialog 的说明）：
+    // cloneRun = 弹窗显示谁（null = 不显示），cloneActive = 引擎里真的在跑，
+    // cloneError = 失败态停留（非空即弹窗切到失败态，不再自动消失）。
+    var cloneRun by remember { mutableStateOf<CloneRun?>(null) }
+    var cloneActive by remember { mutableStateOf(false) }
+    var cloneProgress by remember { mutableStateOf<CloneProgress?>(null) }
+    var cloneError by remember { mutableStateOf<String?>(null) }
+    var cloneCancelling by remember { mutableStateOf(false) }
 
     // 决策页状态机
     var page by remember { mutableStateOf<LocalPage>(LocalPage.List) }
@@ -1340,8 +1365,13 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
         }
     }
 
-    // clone 一个仓库
+    // clone 一个仓库：进度弹窗 + 可取消；失败停在原地给原因与重试。
+    //
+    // 这里**不再**提前判「目标目录已存在」：含 `.git` 的目录是另一个仓库（拒绝、不代删），
+    // 不含 `.git` 的是上次中断留下的半成品（清掉重建）——两种处置不同，
+    // 判据的唯一真源在引擎侧（`core/src/git/mod.rs` 的 `prepare_clone_target`）。
     fun doClone(fullName: String, name: String) {
+        if (cloneActive) return // 引擎同一时刻只允许一次拉取：重复点击直接忽略
         showPicker = false
         // repos 根目录必须存在（libgit2 clone 不会自动创建父目录）
         if (!repoRoot.exists() && !repoRoot.mkdirs()) {
@@ -1349,20 +1379,57 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
             return
         }
         val target = File(repoRoot, name)
-        if (target.exists()) {
-            feedback = context.getString(R.string.error_already_exists, name)
-            return
-        }
+        cloneRun = CloneRun(fullName, name)
+        cloneProgress = null
+        cloneError = null
+        cloneCancelling = false
         scope.launch {
-            cloning = true
+            cloneActive = true
             feedback = null
             val taskId = TaskStore.start(context, TaskKind.CLONE, context.getString(R.string.action_clone_repo, fullName))
+            // 进度：clone 是阻塞调用，进度只能从引擎的快照里轮询（见 core/src/git/progress.rs）。
+            // 三个终态（idle / done / failed）不参与：它们属于上一次拉取，
+            // 读到只会让进度条在弹窗刚打开时闪一下 100%（或打回不确定态）。
+            val ticker = launch {
+                while (isActive) {
+                    val p = RustBridge.gitCloneProgress()?.takeIf {
+                        it.phase != CloneProgress.Phase.IDLE &&
+                            it.phase != CloneProgress.Phase.DONE &&
+                            it.phase != CloneProgress.Phase.FAILED
+                    }
+                    if (p != null) {
+                        cloneProgress = p
+                        TaskStore.progress(context, taskId, p.percent ?: -1, clonePhaseText(context, p))
+                    }
+                    delay(CLONE_POLL_MS)
+                }
+            }
             val error = RustBridge.gitCloneDetailed("https://github.com/$fullName", target.absolutePath, "", token)
-            if (error == null) TaskStore.success(context, taskId, context.getString(R.string.toast_cloned_to, target.name))
-            else TaskStore.fail(context, taskId, error)
-            Logger.remote(if (error == null) "git clone $fullName 完成" else "git clone $fullName 失败：$error", "libgit2")
-            cloning = false
-            feedback = if (error == null) context.getString(R.string.toast_cloned, name) else context.getString(R.string.error_clone_failed, error)
+            ticker.cancel()
+            cloneActive = false
+            when {
+                error == null -> {
+                    TaskStore.success(context, taskId, context.getString(R.string.toast_cloned_to, target.name))
+                    Logger.remote("git clone $fullName 完成", "libgit2")
+                    cloneRun = null
+                    feedback = context.getString(R.string.toast_cloned, name)
+                }
+                // 用户自己按的取消：不再弹一条红字失败，说清「已取消」就够
+                cloneCancelling -> {
+                    TaskStore.cancel(context, taskId)
+                    Logger.remote("git clone $fullName 已取消", "libgit2")
+                    cloneRun = null
+                    feedback = context.getString(R.string.toast_clone_cancelled, name)
+                }
+                // 失败：弹窗停在失败态把原因摊开（不再走三秒就消失的 Snackbar）
+                else -> {
+                    TaskStore.fail(context, taskId, error)
+                    Logger.remote("git clone $fullName 失败：$error", "libgit2")
+                    cloneError = error
+                }
+            }
+            cloneProgress = null
+            cloneCancelling = false
             repos = listLocalRepos(repoRoot)
         }
     }
@@ -1392,10 +1459,6 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
                 Spacer(Modifier.width(4.dp))
                 Text(stringResource(R.string.action_clone_repository), fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color.White)
             }
-        }
-
-        if (cloning) {
-            Text(stringResource(R.string.state_cloning), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp))
         }
 
         if (repos.isEmpty()) {
@@ -1467,6 +1530,30 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
         SnackbarHost(
             snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
+        )
+    }
+
+    // 拉取仓库进度弹窗：运行中不可点外部/返回键关闭（关掉不等于停止，要停就点取消）
+    cloneRun?.let { run ->
+        val err = cloneError
+        CloneProgressDialog(
+            repoFullName = run.fullName,
+            state = if (err != null) {
+                CloneDialogState.Failed(err)
+            } else {
+                CloneDialogState.Running(cloneProgress, cloneCancelling)
+            },
+            onCancel = {
+                cloneCancelling = true
+                RustBridge.gitCloneCancel()
+            },
+            onRetry = { doClone(run.fullName, run.name) },
+            onDismiss = {
+                cloneRun = null
+                cloneError = null
+                cloneProgress = null
+                cloneCancelling = false
+            },
         )
     }
 

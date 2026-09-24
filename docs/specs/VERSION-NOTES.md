@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只留格式契约 + 写法样板（3 个经典示例）；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.89**）
-与 §三 `versionCode` 流水（129 → **191**）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.90**）
+与 §三 `versionCode` 流水（129 → **192**）。
 
 ---
 
@@ -25,7 +25,65 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.89 → 1.0.22）
+## 二、`versionName` 流水（1.0.90 → 1.0.22）
+
+### 1.0.90
+
+**「拉取仓库」从小字提示改成带真实进度的模态弹窗；clone 的目标目录与失败清场收口到引擎；失败原因不再被截断**。
+
+起因是一份真机日志包（1.0.89 / OnePlus PJD110 / Android 16）：两次拉取都失败在同一句话上 ——
+
+```
+00:09:39 [远端] [libgit2] git clone SunsetRNE/Branchbase-Android 失败：未知错误: clone 失败:
+         failed to lock file '/storage/emulated/0/Android/data/com.branchbase/files/repos/SunsetRNE/Branchbase-An
+```
+
+① **进度：从「一行小字」改成模态弹窗**。旧实现在列表上方挂一行「正在克隆…」+ 一闪而过的 Snackbar，
+两个后果都很实在：浅 clone 在手机上要几十秒，**正常但慢**与**已经卡死**在界面上长得一模一样；
+失败原因活不过三秒，而它恰恰是用户唯一能拿去判断「要不要重试 / 反馈什么」的东西。
+现在引擎把 libgit2 的 `transfer_progress` / checkout 回调写成一份进程内快照
+（新增 `core/src/git/progress.rs`，阶段契约 `idle/connect/receive/resolve/checkout/finalize/…`），
+JNI 加两条只读接口（`nativeGitCloneProgress` / `nativeGitCloneCancel`），Kotlin 每 200ms 轮询一次：
+
+| 弹窗上有什么 | 数据来源 |
+|---|---|
+| 确定进度条（阶段加权 5% → 70% → 85% → 99% → 100%） | `received/total` → `indexed/total` → `checkoutDone/checkoutTotal` → 收尾 |
+| 阶段文案（连接远端 / 接收对象 142/380 / 解析增量 / 检出文件 / 写入引用） | `phase` + 三个计数，唯一真源 `clonePhaseText()` |
+| 已接收字节数 | `bytes` |
+
+**分母未知（远端没报总数）时给不确定进度条，不编百分比** —— 真机上「进度条冲到 100% 然后不动」
+比没有进度条更让人以为卡死。运行中**不可点外部 / 不可返回键关闭**（关掉不等于停止），
+要停只有「取消」：libgit2 没有取消句柄，唯一的中断点是回调返回值，所以先显示「正在取消…」，
+等引擎真的停下。失败态**停在原地**把原因整段摊开，并给「重试」。
+
+② **诊断：clone 的失败原因不再被单独截短**。上面那条日志恰好 **120 个字符** ——
+`gitCloneDetailed` 当时写的是 `.take(120)`，**切掉的正是锁文件名**（唯一能定位「哪个文件锁上了」的线索）。
+现在与其它写操作统一走 `engineErrorOrNull`（300 字符），并由源码级钉子
+`CloneErrorDiagnosticsTest` 钉住（谁再把它单独截短，单测就红）。
+
+③ **引擎侧的三条规约**（`core/src/git/mod.rs` 的 `clone_repo` 文档注释里是完整版）：
+目录预检（**含 `.git` 的目录拒绝且一个字节都不动**；不含 `.git` 的半成品目录整体删掉重建 ——
+旧 UI 用 `target.exists()` 一律回「已存在」，用户除了手动去文件管理器删没有别的出路）；
+失败即清场（半个 `.git` 既不能用、又挡住下一次 clone）；锁文件报错保留完整路径并附一句可照做的处置。
+
+**未解（已登记，不许读成已修好）**：`failed to lock file` 的**根因**。
+失败后目录被 libgit2 自己删干净、两次尝试都复现，说明锁文件是**同一次 clone 内**留下的、
+不是上一次的残留；而容器里按 ext4 / `/sdcard/Download` / 同 uid 三种配置都**复现不出来**
+（分别成功），只有 App 自己的 `Android/data/<pkg>/files/repos/…` 会失败 ——
+所以这一版给的是「更好的诊断 + 能重试 + 不留半成品」，不是根因修复。
+`local-git-engine-design.md` §4.1 / §8 已按这个口径登记；下一次日志会带上完整路径，
+届时可以定位到具体是哪个 `.lock`。
+
+新增/改动：`core/src/git/progress.rs`（新文件，6 例单测）、`core/src/git/mod.rs`（预检 / 清场 / 错误归一 +
+8 例单测）、`core/src/bridge/jni.rs`（两条导出）、`CloneProgress.kt`（app 侧进度模型，新，11 例单测）、
+`ui/repository/CloneProgressDialog.kt`（新，2 例单测）、`ui/profile/SubPageScreens.kt`（接线）、
+`core/RustBridge.kt`（进度 / 取消 / 截断口径）、中英资源 11 条 + `strings.tsv` 同步、
+`CloneErrorDiagnosticsTest`（新，2 例）。
+
+`cargo test`（75 单测 + 4 集成）+ `:app:testDebugUnitTest`（826 例，含本次新增 15 例）+
+`tools/i18n/check-i18n.py --min-coverage 100` + `assembleDebug` 通过；`.so` 已重建
+（`nm` 能看到 `nativeGitCloneProgress` / `nativeGitCloneCancel` 两个新导出）。
+versionCode 191 → 192（一次提交 +1）。
 
 ### 1.0.89
 
@@ -2078,6 +2136,10 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **192**：拉取仓库的进度弹窗（引擎侧进度快照 + `nativeGitCloneProgress` / `nativeGitCloneCancel`、
+模态弹窗、可取消、失败停在原地给原因与重试）+ clone 目标目录预检与失败清场（含 `.git` 拒绝、
+半成品删除）+ 失败原因截断 120 → 300（`CloneErrorDiagnosticsTest`）（一次提交，故 +1）
 
 - **191**：沉浸式翻译判定引擎 —— 一致即跳过（译后一致校验 + 判定缓存，不再插与原文逐字相同的卡片）
 + 混排段落匹配性翻译（只翻段内片段、按「片段 → 译文」配对展示，`TranslateDecision.kt` 新文件）
