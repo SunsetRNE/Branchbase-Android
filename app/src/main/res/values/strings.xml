@@ -1471,4 +1471,111 @@
     <string name="state_never_used">还没用过</string>
     <string name="state_just_used">刚刚使用</string>
     <string name="last_used_at">上次使用 %1$s</string>
+    <!--
+        主题三档（`ThemeMode` 的 `labelRes`）。原先写死在枚举构造参数里
+        （`SYSTEM("system", "跟随系统")`），而枚举不是 @Composable ——
+        界面切英文后，设置页的三档按钮与登录页主题开关的读屏文案仍是中文。
+        现在枚举只带 `@StringRes`，解析留给调用方（§5.1 路径 A′）。
+        `storageKey`（system/light/dark）是落盘值，与本组资源是两件事。
+    -->
+    <string name="theme_mode_system">跟随系统</string>
+    <string name="theme_mode_light">浅色</string>
+    <string name="theme_mode_dark">深色</string>
+    <!--
+        系统通知状态（`SystemNotificationState`）。两条信息都必须**按状态分开写**：
+        - `labelRes`：状态胶囊里的短词。`state_notifications_off`「通知未开启」是横幅标题，
+          比胶囊长，所以短词另立一条，不要合并；
+        - `hintRes`：设置页那一行的说明。三句话的出路不一样（已开启＝没有待办；
+          没授权＝点一下弹系统授权框；被系统关掉＝只能去系统设置，再点「开启」不会有反应），
+          合并成一句就把「点了没反应」留给用户；
+        - `actionRes`：出路按钮的动词，随状态在 `action_enable`「开启」与 `action_open_settings`
+          「去设置」之间变 —— 直接复用既有资源，它们本来就是同一个按钮的两种形态。
+    -->
+    <string name="state_notifications_on">已开启</string>
+    <string name="state_notifications_off_short">未开启</string>
+    <string name="note_notifications_on">系统通知已开启：下载进度、下载完成提醒会出现在通知栏。</string>
+    <string name="note_notifications_need_grant">还没有授予通知权限。开启后，下载进度与完成提醒才会显示在通知栏（不影响下载本身）。</string>
+    <string name="note_notifications_blocked">通知已在系统里被关闭（权限可能仍是授予状态）。请到系统设置里重新打开。</string>
+
+    <!--
+        提交模式三档（`CommitMode` 的 labelRes / titleRes / descRes）。三档原先都是枚举构造参数里的
+        写死中文，于是**英文模式下只有这三行还是中文**（2026-09 真机截图：设置页「提交模式」右侧
+        写着「单个文件」，提交模式页三张卡片也全是中文）。枚举只带 `@StringRes`，解析在调用方。
+        长度分工见枚举的 KDoc：label＝状态位短名，title＝整行卡片标题，desc＝卡片副标题。
+    -->
+    <string name="commit_mode_single_file_label">单个文件</string>
+    <string name="commit_mode_single_file_title">单个文件更改，单个提交</string>
+    <string name="commit_mode_single_file_desc">官方客户端行为 · 编辑即提交</string>
+    <string name="commit_mode_multi_file_label">多文件合并</string>
+    <string name="commit_mode_multi_file_title">多个文件更改，合并一次提交</string>
+    <string name="commit_mode_multi_file_desc">网页端行为 · 暂存区统一提交</string>
+    <string name="commit_mode_local_repo_label">本地仓库（Git）</string>
+    <string name="commit_mode_local_repo_title">文件拉取到本地仓库，由本地 git 管理提交推送</string>
+    <string name="commit_mode_local_repo_desc">Git 命令行习惯</string>
+    <!--
+        底部导航（`NavDestination`）。「消息」复用既有的 `nav_messages`，这里只补「首页」。
+        这两个词是全 App 最先被看到的中文：英文模式下它们不跟语言走，等于整屏没切。
+    -->
+    <string name="nav_home">首页</string>
+    <!--
+        账号状态（`AccountStatus`）与认证方式（`AuthKind`）。未知态复用既有的
+        `workflow_status_unknown`「未知」—— 同一个词全局共用一个资源，不再立新条目。
+    -->
+    <string name="account_status_unchecked">未检查</string>
+    <string name="account_status_ok">正常</string>
+    <string name="account_status_token_invalid">令牌已失效</string>
+    <string name="account_status_suspended">账号已被封禁</string>
+    <string name="account_status_rate_limited">触发限流</string>
+    <string name="account_status_unreachable">无法连接</string>
+    <string name="auth_kind_oauth">OAuth 授权</string>
+    <string name="auth_kind_pat">PAT 令牌</string>
+    <!--
+        发布变体（`ReleaseVariant`，关于页「发布版本」那一行）。
+        注意与 `ReleaseType`（发版时的三档）不是一回事：那个是「正式发布 / 预发布 / 草稿」。
+    -->
+    <string name="release_variant_release">正式版</string>
+    <string name="release_variant_beta">测试版</string>
+    <string name="release_variant_abnormal">异常</string>
+    <!-- 发版三档（`ReleaseType`）：「预发布 / 草稿」复用 `label_prerelease` / `label_draft`，这里补正式发布与三条说明。 -->
+    <string name="release_type_stable">正式发布</string>
+    <string name="release_type_stable_hint">所有人可见，并占据仓库的「最新发布」</string>
+    <string name="release_type_prerelease_hint">所有人可见，但不会被标为「最新发布」</string>
+    <string name="release_type_draft_hint">仅自己和有写权限的人可见，尚未公开</string>
+    <!--
+        任务状态与筛选（`TaskStatus` / `TaskFilter`）。运行中 / 已完成 / 失败 / 已取消 / 全部
+        都复用既有资源（`label_running` / `state_completed` / `workflow_status_failure` /
+        `workflow_status_cancelled` / `filter_all`）—— 同一个词不立第二条。
+    -->
+    <!-- Issue 时间线筛选（`TlFilter`）：「全部」复用 `filter_all`。 -->
+    <string name="issue_timeline_comments_only">仅评论</string>
+    <string name="issue_timeline_events_only">仅事件</string>
+    <!-- 仓库 Watch 档位的三条说明。档位**标题**按约定保持网页版英文原样（不译），只有说明跟语言走。 -->
+    <string name="watch_level_participating_desc">仅在我参与或被 @ 提及的会话里收到通知。</string>
+    <string name="watch_level_all_desc">接收这个仓库的全部通知。</string>
+    <string name="watch_level_ignore_desc">永不接收这个仓库的通知。</string>
+    <string name="watch_level_custom_desc">在「参与 + @ 提及」之外，再挑选要接收的事件类型。</string>
+    <!-- 危险操作二次确认卡的默认标题（`DangerConfirmCard`）：8 个调用点都不传 title，默认值必然上屏。 -->
+    <string name="confirm_default_title">二次确认 · 不可恢复</string>
+    <!-- 应用图标的默认无障碍名（`AppIcon`）：4 个调用点都不传 contentDescription。 -->
+    <string name="label_app_icon">应用图标</string>
+    <!-- 双击返回退出（`TopLevelBack`）：`const val` 里的中文曾直接进 Toast。 -->
+    <string name="hint_press_back_again">再按一次返回退出应用</string>
+
+    <!--
+        消息页「丢弃」（`NotifDiscard`）。只出现在**已完成**分类：那是归档区的清理动作 —
+        删掉这条归档记录并不再显示（远端不动，撤销就是把 id 从本地丢弃集合里去掉）。
+        放在收件箱分类里会与「完成」抢语义：用户分不清哪个才是「收拾干净」。
+    -->
+    <string name="action_discard">丢弃</string>
+    <string name="hint_discard_hidden">从「已完成」移除，不再显示</string>
+    <string name="state_discarded">已丢弃「%1$s」</string>
+
+    <!-- 侧边导航「固定」气泡按钮（`EdgeNavigationBar.extraActions`）：图标是 PushPin，动作是固定到顶部。 -->
+    <string name="action_pin">固定</string>
+
+    <!-- 复刻被拒的四条原因（网页 `forkabilityError` → `RepoRelationRules.forkErrorText`）。
+         "forking_disabled" 复用既有的 state_fork_disabled（同一句话）。 -->
+    <string name="fork_error_not_logged_in">需要登录后才能复刻</string>
+    <string name="fork_error_own_repository">不能复刻自己的仓库</string>
+    <string name="fork_error_already_forked">你已经复刻过这个仓库</string>
 </resources>

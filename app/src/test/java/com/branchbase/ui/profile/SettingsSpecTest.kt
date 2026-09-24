@@ -26,6 +26,47 @@ class SettingsSpecTest {
 
     private fun source(path: String) = File(path).readText()
 
+    /**
+     * 去掉 Kotlin 注释后的源码。
+     *
+     * 有些钉子钉的正是「代码里不许出现某个写法」，而那个写法**恰好要写在注释里**
+     * （`SettingsRow.kt` 的「别写 `fill = false`，否则行尾控件乱跑」）。
+     * 直接扫原文会让「把坑写下来」这个好习惯变成假红 —— 而假红比没有检查更坏：
+     * 它训练人忽略这套钉子。字符串字面量原样保留（`"http://…"` 里的 `//` 不是注释）。
+     */
+    private fun stripComments(src: String): String {
+        val out = StringBuilder(src.length)
+        var i = 0
+        while (i < src.length) {
+            val c = src[i]
+            when {
+                c == '/' && src.startsWith("//", i) -> while (i < src.length && src[i] != '\n') i++
+                c == '/' && src.startsWith("/*", i) -> {
+                    var depth = 1
+                    i += 2
+                    while (i < src.length && depth > 0) {
+                        when {
+                            src.startsWith("/*", i) -> { depth++; i += 2 }
+                            src.startsWith("*/", i) -> { depth--; i += 2 }
+                            else -> i++
+                        }
+                    }
+                }
+                c == '"' -> {
+                    out.append(c)
+                    i++
+                    while (i < src.length && src[i] != '"') {
+                        if (src[i] == '\\') { out.append(src[i]); i++ }
+                        if (i < src.length) { out.append(src[i]); i++ }
+                    }
+                    if (i < src.length) { out.append(src[i]); i++ }
+                }
+                else -> { out.append(c); i++ }
+            }
+        }
+        return out.toString()
+    }
+
     /** 设置树参与渲染的全部源文件。 */
     private val settingsTree = listOf(
         "src/main/java/com/branchbase/ui/settings/SettingsRow.kt",
@@ -270,9 +311,15 @@ class SettingsSpecTest {
     fun `值负责省略而不是挤名称`() {
         val row = source(rowComponentsPath)
         val text = row.substring(row.indexOf("private fun RowScope.SettingsText("))
-        assertTrue("名称要有权重盒（fill = false）", text.contains("weight(1f, fill = false)"))
+        assertTrue("名称要有自己的权重盒（份额一人一半）", text.contains("Modifier.weight(1f).padding(vertical = 11.dp)"))
         assertTrue("值要有独立的权重盒并右对齐", text.contains("contentAlignment = Alignment.CenterEnd"))
         assertTrue("值要能省略", text.contains("TextOverflow.Ellipsis"))
+        // 份额必须**吃掉**（`fill` 默认 true）。写成 `fill = false` 时名称块缩到文字宽度，
+        // 值列停在文字后面、不贴右 —— 见 ⑬ `设置树里没有缩到文字宽度的主轴盒子`
+        assertFalse(
+            "名称的权重盒不许缩到文字宽度（fill = false）",
+            text.contains("Column(Modifier.weight(1f, fill = false)"),
+        )
     }
 
     // ── ⑨ 控件选型（§5.2） ─────────────────────────────────────────────
@@ -405,5 +452,74 @@ class SettingsSpecTest {
             "不许把 displayGitProxy(gitProxy(…)) 直接当参数写进 item 的组合体（每次滚回来读一次 prefs）",
             page.contains("value = displayGitProxy("),
         )
+    }
+
+    // ── ⑬ 行尾控件贴右（2026-09-24 真机截图圈选处） ────────────────────────
+
+    /**
+     * 圈选处的形态：同一个 `›` 在设置页每行停在不同位置 —— 「日志」紧跟名称、「语言」跟在值后、
+     * 「Git 代理」因为说明折行才碰巧贴右；账户卡的状态胶囊与 `›` 也停在登录名后面。
+     *
+     * 成因是**主轴盒子写了 `fill = false`**：`Row` 的权重盒在 `fill = false` 时缩到**文字宽度**，
+     * 没花掉的份额变成行尾的空白（`Arrangement.Start` 把空白留在最后），
+     * 于是排在它后面的值列与行尾控件（`›` / `Switch` / 分段控件 / 胶囊 / 「去设置」）全部
+     * 停在文字后面，而不是落在行的 16dp 内边距上。
+     *
+     * 规格要的是原型 `.row .txt { flex: 1 1 auto }` 的语义（`design/settings-redesign/style.css`）：
+     * 中间那块**吃掉**份额，尾控件由 `SettingsRowShell` 顶到行尾。名称/值各自的**上限没变**
+     * （还是一人一半），所以这条不是新的排版选择，而是「行尾那截空白归谁」。
+     */
+    @Test
+    fun `设置树里没有缩到文字宽度的主轴盒子`() {
+        // 扫**去注释**的源码：这条规则本身写在 SettingsRow.kt 的注释里（教后来者别踩），
+        // 扫原文会把那句注释判红 —— 假红比没有检查更坏
+        mapOf(
+            rowComponentsPath to stripComments(source(rowComponentsPath)),
+            settingsPagePath to stripComments(settingsRegion()),
+        ).forEach { (path, src) ->
+            assertFalse(
+                "$path 里出现了 `weight(…, fill = false)`：主轴盒子会缩到文字宽度，" +
+                    "空白留在行尾 —— 值列与行尾控件停在文字后面，每行一个位置（规范 §4.2）",
+                Regex("""weight\([^)]*fill\s*=\s*false""").containsMatchIn(src),
+            )
+        }
+    }
+
+    @Test
+    fun `名称列吃掉份额_值列右对齐在文本块末尾`() {
+        val row = source(rowComponentsPath)
+        assertTrue(
+            "名称列的权重盒必须吃掉份额（`Modifier.weight(1f)`）：只缩到文字宽度时，" +
+                "值列的右边缘就落在文字后面，而不是文本块末尾（规范 §4.2）",
+            row.contains("Column(Modifier.weight(1f).padding(vertical = 11.dp))"),
+        )
+        assertTrue(
+            "值列要在自己的权重盒里右对齐（右边缘 ＝ 文本块末尾 ＝ 行尾控件左侧）",
+            row.contains("Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd)"),
+        )
+    }
+
+    /**
+     * 行尾控件的落点由 [SettingsRowShell] 唯一决定（16dp 内边距 + 主轴盒子吃份额）。
+     * 某个行型自己起一个 `Row` 放 `›`、或页面自制行，都会把「贴右」重新变成「跟着文字跑」。
+     */
+    @Test
+    fun `每种行型的行尾控件都走同一个骨架`() {
+        // 去注释之后再找函数：`SettingsRow.kt` 的文档里大量提到这些行型的名字，
+        // 而「名字 + 左括号」才是调用/定义（`ChoiceRow` 是泛型，签名是 `fun <T> ChoiceRow(`，
+        // 写成 `fun ChoiceRow(` 会永远找不到 —— 那是测试假红，第一版就踩过）
+        val row = stripComments(source(rowComponentsPath))
+        listOf(
+            "NavRow(", "SwitchRow(", "ChoiceRow(", "ActionRow(",
+            "DangerRow(", "InfoRow(", "DisabledNavRow(", "AccountRow(",
+        ).forEach { fn ->
+            val at = row.indexOf(fn)
+            assertTrue("找不到 $fn", at >= 0)
+            val body = row.substring(at).substringBefore("\n}\n")
+            assertTrue(
+                "$fn 没有走 SettingsRowShell：行尾控件的落点就跑掉了（规范 §4.2）",
+                body.contains("SettingsRowShell("),
+            )
+        }
     }
 }

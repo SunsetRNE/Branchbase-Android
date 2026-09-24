@@ -1,5 +1,8 @@
 package com.branchbase.ui.repository
 
+import androidx.annotation.StringRes
+import com.branchbase.R
+import com.branchbase.ui.LocalizedText
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -29,12 +32,12 @@ enum class WatchLevel(
     val id: String,
     /** 与网页版一致的原样文案（截图里就是这样）。 */
     val title: String,
-    val description: String,
+    @StringRes val descRes: Int,
 ) {
-    PARTICIPATING("none", "Participating and @mentions", "仅在我参与或被 @ 提及的会话里收到通知。"),
-    ALL_ACTIVITY("watching", "All Activity", "接收这个仓库的全部通知。"),
-    IGNORE("ignoring", "Ignore", "永不接收这个仓库的通知。"),
-    CUSTOM("custom", "Custom", "在「参与 + @ 提及」之外，再挑选要接收的事件类型。");
+    PARTICIPATING("none", "Participating and @mentions", R.string.watch_level_participating_desc),
+    ALL_ACTIVITY("watching", "All Activity", R.string.watch_level_all_desc),
+    IGNORE("ignoring", "Ignore", R.string.watch_level_ignore_desc),
+    CUSTOM("custom", "Custom", R.string.watch_level_custom_desc);
 
     companion object {
         /** 未知/缺失一律按 GitHub 的默认档「参与 + @提及」处理。 */
@@ -238,7 +241,7 @@ enum class ForkMode {
     DISABLED,
 }
 
-data class ForkDecision(val mode: ForkMode, val reason: String? = null)
+data class ForkDecision(val mode: ForkMode, val reason: LocalizedText? = null)
 
 /**
  * 复刻按钮的判定。
@@ -335,14 +338,20 @@ object RepoRelationRules {
         else -> """{"subscribed":false,"ignored":false}"""
     }
 
-    /** 网页 `forkabilityError` → 给用户看的原因。 */
-    private fun forkErrorText(code: String?): String? = when (code) {
+    /**
+     * 网页 `forkabilityError` → 给用户看的原因。
+     *
+     * 返回 [LocalizedText] 而不是 `String`：这段文案会进 Toast（`RepositoryScreen`），
+     * 写死中文的话英文界面下弹的仍是中文。**未知 code 原样透出**（`LocalizedText(raw = …)`）——
+     * 后端新增一个原因时不能被吞掉，也不能猜一个词顶上（同 `stateLabelResOrNull` 的口径）。
+     */
+    private fun forkErrorText(code: String?): LocalizedText? = when (code) {
         null, "" -> null
-        "not_logged_in" -> "需要登录后才能复刻"
-        "own_repository" -> "不能复刻自己的仓库"
-        "forking_disabled" -> "该仓库已关闭复刻"
-        "already_forked" -> "你已经复刻过这个仓库"
-        else -> code
+        "not_logged_in" -> LocalizedText(R.string.fork_error_not_logged_in)
+        "own_repository" -> LocalizedText(R.string.fork_error_own_repository)
+        "forking_disabled" -> LocalizedText(R.string.state_fork_disabled)
+        "already_forked" -> LocalizedText(R.string.fork_error_already_forked)
+        else -> LocalizedText(raw = code)
     }
 }
 

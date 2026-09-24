@@ -1,11 +1,12 @@
 package com.branchbase.ui.notification
 
 import android.content.Context
+import com.branchbase.ui.settings.SettingsKeys
 import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * 消息页的**本地状态**（两份，都落在 `branchbase` SharedPreferences）。
+ * 消息页的**本地状态**（三份，都落在 `branchbase` SharedPreferences：已读 / 归档 / 已丢弃）。
  *
  * 为什么必须有本地状态：
  * - GitHub 的 REST API 只有「标记已读 / 标记 done」两个写操作，**没有「标记未读」**，
@@ -80,6 +81,61 @@ object NotifReadStore {
         ids.forEach { arr.put(it) }
         context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
             .edit().putString(KEY, arr.toString()).apply()
+    }
+}
+
+/**
+ * 本地「已丢弃」thread 集合（键：[SettingsKeys.NOTIF_DISCARDED]，JSON 数组保序，上限 [MAX]）。
+ *
+ * 「丢弃」的语义是**不再出现在任何分类里**（含「已完成」与面板的「过往 Issue」），
+ * 但**不删远端、不删归档**：
+ * - 不删远端：GitHub 没有「永久隐藏」这类接口，而用户要的是「别再让我看见它」——
+ *   本地覆盖层本来就承担这个职责（和「未读」「done」同一套口径）；
+ * - 不删归档：撤销就是把 id 从这份集合里去掉，归档条目原样还在（删了就找不回来了）。
+ *
+ * ⚠️ 为什么不能靠「从归档里删掉」实现丢弃：归档只是本地留存，**远端照样返回这条通知** ——
+ * 删归档之后它会从「已完成」掉回收件箱（看起来像「丢弃反而把它叫回来了」）。
+ */
+object NotifDiscard {
+
+    /** 条数上限：与 [NotifReadStore] 同一口径（读集合会随使用无限增长，超了丢最早写入的）。 */
+    private const val MAX = 500
+
+    fun ids(context: Context): Set<String> = ordered(context).toSet()
+
+    private fun ordered(context: Context): List<String> {
+        val raw = SettingsKeys.prefs(context).getString(SettingsKeys.NOTIF_DISCARDED, null) ?: return emptyList()
+        return runCatching {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } }
+        }.getOrDefault(emptyList())
+    }
+
+    fun add(context: Context, ids: Collection<String>): Set<String> {
+        if (ids.isEmpty()) return ids(context)
+        // LinkedHashSet：已存在的不改变位置，新加的排在最后 → takeLast(MAX) 才是「淘汰最旧的」
+        val next = LinkedHashSet(ordered(context))
+        next.addAll(ids)
+        val kept = if (next.size > MAX) next.toList().takeLast(MAX) else next.toList()
+        write(context, kept)
+        return kept.toSet()
+    }
+
+    fun remove(context: Context, ids: Collection<String>): Set<String> {
+        if (ids.isEmpty()) return ids(context)
+        val set = ids.toSet()
+        val next = ordered(context).filterNot { it in set }
+        write(context, next)
+        return next.toSet()
+    }
+
+    /** 撤销路径：整表替换回操作前的集合（顺序已丢失，只能原样写回）。 */
+    fun replace(context: Context, ids: Set<String>) = write(context, ids.toList())
+
+    private fun write(context: Context, ids: List<String>) {
+        val arr = JSONArray()
+        ids.forEach { arr.put(it) }
+        SettingsKeys.prefs(context).edit().putString(SettingsKeys.NOTIF_DISCARDED, arr.toString()).apply()
     }
 }
 

@@ -186,7 +186,7 @@ private fun WatchLevelRow(
         Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f)) {
             Text(level.title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
-            Text(level.description, fontSize = 11.5.sp, color = Primer.TextTertiary, lineHeight = 16.sp)
+            Text(stringResource(level.descRes), fontSize = 11.5.sp, color = Primer.TextTertiary, lineHeight = 16.sp)
         }
         if (level == WatchLevel.CUSTOM) {
             Icon(

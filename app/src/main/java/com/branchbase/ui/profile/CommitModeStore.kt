@@ -81,7 +81,7 @@ internal fun CommitModePickerDialog(
                                 .background(if (selected == m) Primer.Green500 else Color.Transparent),
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text(m.title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+                        Text(stringResource(m.titleRes), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
                     }
                 }
             }

@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Deselect
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.ErrorOutline
@@ -69,6 +70,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -203,7 +205,10 @@ fun NotificationScreen(
     // ── 筛选 / 视图维度（全部由右下角面板驱动）──
     var category by remember { mutableStateOf(NotifCategory.UNREAD) }
     var types by remember { mutableStateOf<Set<String>>(emptySet()) }
-    val layout = remember { mutableStateOf(readNotifLayout(context)) }
+    // 显示模式的**单一真源**（`NotifLayoutRuntime`）：设置 → 通知 那个入口也在写同一份，
+    // 各页各持一份 `remember { readNotifLayout() }` 的话，在设置页改成「平铺」后退回这里
+    // 仍是旧布局 —— 用户看到的是「选了平铺，列表还是按仓库分组」。
+    val layout = NotifLayoutRuntime.layout.collectAsState()
     var range by remember { mutableStateOf(NotifRange.ALL) }
     var sort by remember { mutableStateOf(NotifSort.NEWEST) }
     var panelOpen by remember { mutableStateOf(false) }
@@ -222,6 +227,10 @@ fun NotificationScreen(
     var archiveVersion by remember { mutableStateOf(0) }
     val archive = remember(archiveVersion) { NotifArchive.entries(context) }
     val doneIds = remember(archive) { archive.filter { it.isDone }.map { it.id }.toSet() }
+
+    // ── 本地「已丢弃」（见 NotifDiscard：不再出现在任何分类，但不动远端与归档）──
+    var discardVersion by remember { mutableStateOf(0) }
+    val discardedIds = remember(discardVersion) { NotifDiscard.ids(context) }
 
     // ── 多选状态机 ──
     // 只以「选中集合」为状态本身，进入/退出都由它推导，避免两个状态不同步
@@ -247,18 +256,20 @@ fun NotificationScreen(
     // 计算顺序固定为「分类基准 → 类型/时间维度 → 排序」，三段各自独立、可分别解释；
     // 之前是「先按类型/时间过滤再各分类各写一遍」，加一个分类就要复制一遍过滤逻辑。
     val now = System.currentTimeMillis()
-    val liveItems = items.filterNot { it.id in doneIds }
+    // 归档条目还原成与网络同构的行；「已丢弃」的在 [notifCategoryBase] 里统一滤掉
     val doneItems = remember(archive) { archive.filter { it.isDone }.map { it.toNotification() } }
+    val liveItems = items.filterNot { it.id in doneIds || it.id in discardedIds }
 
-    val categoryBase: List<Notification> = when (category) {
-        NotifCategory.UNREAD -> liveItems.filter { it.unread }
-        NotifCategory.ALL -> liveItems
-        // 服务端口径优先；尚未拉到（或请求失败）时退回 reason 近似口径：
-        // 近似口径会漏掉「我在该 thread 里评论过但没被 @」的会话，但绝不会漏掉 @我 / 指派给我 / 我发起的。
-        NotifCategory.PARTICIPATING -> participatingItems?.filterNot { it.id in doneIds }
-            ?: liveItems.filter { isParticipating(it.reason) }
-        NotifCategory.DONE -> doneItems
-    }
+    // 分类过滤是纯函数（`notifCategoryBase`）：三条本地覆盖 × 四个分类的矩阵有单测钉住，
+    // 别把 when 挪回组合体里 —— 那正是「丢弃完在别的分类里复活」这类 bug 的温床。
+    val categoryBase = notifCategoryBase(
+        category = category,
+        items = items,
+        doneItems = doneItems,
+        participatingItems = participatingItems,
+        doneIds = doneIds,
+        discardedIds = discardedIds,
+    )
     val maxAge = range.maxAgeMs
     val dimensioned = categoryBase
         .filter { types.isEmpty() || it.subjectType in types }
@@ -321,16 +332,14 @@ fun NotificationScreen(
         .filter { types.isEmpty() || it.subjectType in types }
         .filter { maxAge == null || now - it.updatedAtMs <= maxAge }
 
-    val categoryCounts = remember(items, participatingItems, doneItems, types, range) {
-        mapOf(
-            NotifCategory.UNREAD to countOf(liveItems.filter { it.unread }).size,
-            NotifCategory.ALL to countOf(liveItems).size,
-            NotifCategory.PARTICIPATING to countOf(
-                participatingItems?.filterNot { it.id in doneIds }
-                    ?: liveItems.filter { isParticipating(it.reason) },
-            ).size,
-            NotifCategory.DONE to countOf(doneItems).size,
-        )
+    // 计数与列表走**同一个**纯函数：各写一遍过滤是这个页面出过 bug 的地方
+    // （已丢弃的条目若只从列表里滤掉、没从计数里滤掉，面板上就会出现「全部 12」但只有 11 行）
+    val categoryCounts = remember(items, participatingItems, doneItems, doneIds, discardedIds, types, range) {
+        NotifCategory.entries.associateWith { c ->
+            countOf(
+                notifCategoryBase(c, items, doneItems, participatingItems, doneIds, discardedIds),
+            ).size
+        }
     }
 
 
@@ -551,6 +560,39 @@ fun NotificationScreen(
         archiveVersion++
         items = items.map { if (it.id in ids) it.copy(unread = false) else it }
         NotifSnapshot.mutate { snap -> snap.filterNot { it.id in ids } }
+    }
+
+    /**
+     * 丢弃（本地动作，**不打远端**）—— 「已完成」里的条目从此不再出现在任何分类里。
+     *
+     * 为什么不做远端写：GitHub 没有「永久隐藏 / 拉黑这条通知」的接口。可用的两个远端动作都不对：
+     * `DELETE /notifications/threads/{id}` 等于「完成」（它已经在「已完成」里了），
+     * `PUT .../subscription` 的 ignore 是**按仓库 / 会话永久静音**——那是「以后别再通知我」，
+     * 用户点「丢弃」要的是「这条别再显示」。所以它是一层本地覆盖（同 `NotifReadStore` 的口径）。
+     *
+     * 归档条目**故意保留**：撤销只需要把 id 从丢弃集合里去掉；删了归档就找不回来了。
+     */
+    fun discardLocal(list: List<Notification>) {
+        val ids = list.map { it.id }
+        if (ids.isEmpty()) return
+        NotifDiscard.add(context, ids)
+        discardVersion++
+        // 列表态也同步一下：丢弃只挂在「已完成」，但同一条若还在收件箱态里被渲染
+        // （例如刚做过「恢复未读」），不能让它继续留在 `items` 里
+        items = items.filterNot { it.id in ids }
+        NotifSnapshot.mutate { snap -> snap.filterNot { it.id in ids } }
+    }
+
+    /** 带撤销的丢弃：5 秒内可撤回（撤销 = 把 id 从丢弃集合里去掉，归档条目本就没动）。 */
+    fun discardWithUndo(list: List<Notification>) {
+        if (list.isEmpty()) return
+        val before = NotifDiscard.ids(context)
+        discardLocal(list)
+        val label = if (list.size == 1) list.first().title else context.getString(R.string.label_selected_messages, list.size)
+        undo = UndoState(context.getString(R.string.state_discarded, label)) {
+            NotifDiscard.replace(context, before)
+            discardVersion++
+        }
     }
 
     /** 单条已读：乐观更新 → 远端 PATCH → 失败回滚。不跳转。 */
@@ -968,6 +1010,7 @@ fun NotificationScreen(
                     onToggleSelection = { id -> toggleSelection(id) },
                     onToggleGroupSelection = { toggleGroupSelection(it) },
                     onSwipeRead = { n -> markReadLocal(listOf(n)); markReadRemote(n) },
+                    onDiscard = { n -> discardWithUndo(listOf(n)) },
                     hasMore = hasMore && category != NotifCategory.DONE,
                     loadingMore = loadingMore,
                     onLoadMore = { loadMore() },
@@ -997,16 +1040,13 @@ fun NotificationScreen(
                 onToggleType = { t -> types = if (t in types) types - t else types + t },
                 onClearTypes = { types = emptySet() },
                 layout = layout.value,
-                onLayout = {
-                    layout.value = it
-                    writeNotifLayout(context, it)
-                },
+                onLayout = { NotifLayoutRuntime.set(context, it) },
                 range = range,
                 onRange = { range = it },
                 sort = sort,
                 onSort = { sort = it },
                 history = archive
-                    .filter { it.isIssueLike }
+                    .filter { it.isIssueLike && it.id !in discardedIds }
                     .filter { h ->
                         historyQuery.isBlank() ||
                             (h.title + h.repoFullName + " #" + (h.number ?: 0))
@@ -1019,8 +1059,7 @@ fun NotificationScreen(
                 onReset = {
                     category = NotifCategory.UNREAD
                     types = emptySet()
-                    layout.value = NotifLayout.FLAT
-                    writeNotifLayout(context, NotifLayout.FLAT)
+                    NotifLayoutRuntime.set(context, NotifLayout.FLAT)
                     range = NotifRange.ALL
                     sort = NotifSort.NEWEST
                     historyQuery = ""
@@ -1091,6 +1130,20 @@ fun NotificationScreen(
             },
             onMarkDone = {
                 if (bulkMode) runBulk(BulkOp.DONE, selected) else markDoneRemote(target)
+                sheetTarget = null
+            },
+            // 「丢弃」只出现在**已完成**分类：它是归档区的清理动作。
+            // 放在收件箱分类里会与「完成」抢语义（用户分不清「完成」和「丢弃」哪个才是收拾干净）
+            showDiscard = !bulkMode && category == NotifCategory.DONE,
+            onDiscard = {
+                // 已完成的行来自本地归档，不在 `items` 里 —— 目标集合必须从**渲染行 + 归档行**取，
+                // 否则批量丢弃会「点了没反应」（`items.filter { id in selected }` 恒为空）
+                val targets = if (bulkMode) {
+                    (rows + doneItems).distinctBy { it.id }.filter { it.id in selected }
+                } else {
+                    listOf(target)
+                }
+                discardWithUndo(targets)
                 sheetTarget = null
             },
             onMute = {
@@ -1262,6 +1315,8 @@ private fun NotificationList(
     onToggleSelection: (String) -> Unit,
     onToggleGroupSelection: (List<String>) -> Unit,
     onSwipeRead: (Notification) -> Unit,
+    /** 左滑丢弃（只在「已完成」分类里接线，见 [SwipeToReadRow]）。 */
+    onDiscard: (Notification) -> Unit,
     hasMore: Boolean,
     loadingMore: Boolean,
     onLoadMore: () -> Unit,
@@ -1348,6 +1403,8 @@ private fun NotificationList(
                             onLongClick = if (selectionEnabled) null else ({ onLongClick(n) }),
                             onToggleSelection = { onToggleSelection(n.id) },
                             onSwipeRead = { onSwipeRead(n) },
+                            category = category,
+                            onDiscard = onDiscard,
                         )
                     }
                     when (layout) {
@@ -1582,13 +1639,19 @@ private fun NotificationRow(
     onLongClick: (() -> Unit)?,
     onToggleSelection: () -> Unit,
     onSwipeRead: () -> Unit,
+    /** 当前分类：决定滑动语义（「已完成」是左滑丢弃，其余是标记已读）。 */
+    category: NotifCategory,
+    onDiscard: (Notification) -> Unit,
 ) {
     val haptics = LocalHapticFeedback.current
     // 按下反馈：缩放值在 graphicsLayer 里读，只在绘制阶段消费（不触发每帧重组）。
     // ⚠️ graphicsLayer 必须排在 clip/background **之前** —— 否则只缩内容不缩底。
     val press = rememberPressFeedback(pressedScale = 0.985f)
     val rowShape = RoundedCornerShape(8.dp)
-    SwipeToReadRow(enabled = !selectionEnabled && n.unread, onRead = onSwipeRead) {
+    // 已完成里的行恒为「已读」（归档条目 unread=false），左右滑的「标记已读」在那里没有意义 ——
+    // 那个分类的手势改成**左滑丢弃**（与面板里的「丢弃」同一个动作、同一条撤销）
+    val discardBelow = if (!selectionEnabled && category == NotifCategory.DONE) onDiscard else null
+    SwipeToReadRow(enabled = !selectionEnabled && n.unread, onRead = onSwipeRead, discard = discardBelow?.let { d -> { d(n) } }) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1942,10 +2005,12 @@ private fun SelectionCheckbox(
 }
 
 /**
- * 左右滑标记已读的包装。
+ * 滑动包装：**收件箱分类里两个方向都是「标记已读」**，**「已完成」里左滑是「丢弃」**。
  *
  * **两个方向都可用**（对齐 DioHub - Dev：左右滑都是 Mark as read）。只放开单方向时，
  * 「从哪一侧滑」纯粹是用户的握持习惯 —— 左滑在单手 / 手小的场景下更顺手，没有理由拒绝。
+ * 已完成分类走另一套语义（[discard] 参数）：那里的行恒为已读，滑动留给「丢弃」，
+ * 而且**只放开左滑** —— 右滑在这个分类里没有可执行的动作，放开它只会滑出一个空承诺。
  * `onDismiss` 里调用已读逻辑后必须 `reset()` 复位 —— 已读只是状态变化，
  * **不能真的把行从列表移除**。未读点/竖条的消失本身就是「已生效」的反馈。
  *
@@ -1954,8 +2019,21 @@ private fun SelectionCheckbox(
  * 从左往右滑时内容右移、露出的是**左边缘**，提示就该靠左；反向同理。
  */
 @Composable
-private fun SwipeToReadRow(enabled: Boolean, onRead: () -> Unit, content: @Composable () -> Unit) {
+private fun SwipeToReadRow(
+    enabled: Boolean,
+    onRead: () -> Unit,
+    /**
+     * 非空 = 这个分类的滑动语义换成**左滑丢弃**（「已完成」用它，见调用点）。
+     *
+     * 为什么同一个包装要带两种语义：已完成的行恒为已读，「标记已读」在那里是空操作，
+     * 而「丢弃」才是这个分类里用户真正想做的收拾动作；左滑是它唯一的手势入口。
+     * 两种语义**互斥**：传了 [discard] 就只有左滑可用（右滑不再标已读）。
+     */
+    discard: (() -> Unit)? = null,
+    content: @Composable () -> Unit,
+) {
     val currentOnRead by rememberUpdatedState(onRead)
+    val currentOnDiscard by rememberUpdatedState(discard)
     val dismissState = rememberSwipeToDismissBoxState()
     LaunchedEffect(dismissState.currentValue) {
         dismissState.reset() // 兜底：任何残留在已滑出状态的情况都复位
@@ -1963,25 +2041,45 @@ private fun SwipeToReadRow(enabled: Boolean, onRead: () -> Unit, content: @Compo
     SwipeToDismissBox(
         state = dismissState,
         enableDismissFromStartToEnd = enabled,
-        enableDismissFromEndToStart = enabled,
+        enableDismissFromEndToStart = enabled || discard != null,
         backgroundContent = {
             val fromStart = dismissState.dismissDirection != SwipeToDismissBoxValue.EndToStart
+            // 左滑且这个分类是「丢弃」语义 → 背景提示也换成丢弃（红色 + 垃圾桶）
+            val discarding = !fromStart && currentOnDiscard != null
+            val tint = if (discarding) Primer.DangerText else Primer.Blue500
             Row(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Primer.Blue500.copy(alpha = 0.12f))
+                    .background(tint.copy(alpha = 0.12f))
                     .padding(horizontal = 16.dp),
                 horizontalArrangement = if (fromStart) Arrangement.Start else Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Filled.Check, contentDescription = null, tint = Primer.Blue500, modifier = Modifier.size(18.dp))
+                Icon(
+                    if (discarding) Icons.Filled.Delete else Icons.Filled.Check,
+                    contentDescription = null,
+                    tint = tint,
+                    modifier = Modifier.size(18.dp),
+                )
                 Spacer(Modifier.width(6.dp))
-                Text(stringResource(R.string.state_read), fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
+                Text(
+                    stringResource(if (discarding) R.string.action_discard else R.string.state_read),
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = tint,
+                )
             }
         },
         onDismiss = { direction ->
-            if (direction != SwipeToDismissBoxValue.Settled) currentOnRead()
+            if (direction != SwipeToDismissBoxValue.Settled) {
+                // 左滑优先看「丢弃」：这个分类里右滑本来就没接线（enabled=false）
+                if (direction == SwipeToDismissBoxValue.EndToStart && currentOnDiscard != null) {
+                    currentOnDiscard?.invoke()
+                } else {
+                    currentOnRead()
+                }
+            }
         },
     ) {
         content()
@@ -2169,6 +2267,9 @@ private fun NotifActionSheet(
     onMarkRead: () -> Unit,
     onMarkUnread: () -> Unit,
     onMarkDone: () -> Unit,
+    /** 只在「已完成」分类里给「丢弃」（见调用点注释）。 */
+    showDiscard: Boolean,
+    onDiscard: () -> Unit,
     onMute: () -> Unit,
     onCopyLink: () -> Unit,
     onOpenBrowser: () -> Unit,
@@ -2221,6 +2322,15 @@ private fun NotifActionSheet(
                     SheetAction(Icons.Filled.MarkEmailUnread, stringResource(R.string.action_mark_as_unread), onMarkUnread)
                 }
                 SheetAction(Icons.Filled.Done, stringResource(R.string.action_mark_done), onMarkDone, hint = stringResource(R.string.action_move_to_done))
+                if (showDiscard) {
+                    SheetAction(
+                        Icons.Filled.Delete,
+                        stringResource(R.string.action_discard),
+                        onDiscard,
+                        hint = stringResource(R.string.hint_discard_hidden),
+                        danger = true,
+                    )
+                }
                 SheetAction(Icons.Filled.VolumeOff, stringResource(R.string.action_mute_conversation), onMute, hint = stringResource(R.string.note_mute_thread))
                 Box(Modifier.padding(horizontal = 16.dp, vertical = 5.dp).fillMaxWidth().height(1.dp).background(Primer.Gray150))
                 SheetAction(Icons.Filled.ContentCopy, stringResource(R.string.action_copy_link), onCopyLink)
@@ -2251,6 +2361,8 @@ private fun SheetAction(
     label: String,
     onClick: () -> Unit,
     hint: String? = null,
+    /** 破坏性动作（丢弃）：文字与图标走语义危险色 —— 与 `DangerRow` 同一条规矩（规范 §7.2）。 */
+    danger: Boolean = false,
 ) {
     Row(
         Modifier
@@ -2259,9 +2371,9 @@ private fun SheetAction(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, null, tint = Primer.IconPrimary, modifier = Modifier.size(18.dp))
+        Icon(icon, null, tint = if (danger) Primer.DangerText else Primer.IconPrimary, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(12.dp))
-        Text(label, fontSize = 13.5.sp, color = Primer.TextPrimary)
+        Text(label, fontSize = 13.5.sp, color = if (danger) Primer.DangerText else Primer.TextPrimary)
         if (hint != null) {
             Spacer(Modifier.weight(1f))
             Text(hint, fontSize = 11.5.sp, color = Primer.TextTertiary)
@@ -2336,6 +2448,39 @@ private fun sortedNotifications(list: List<Notification>, sort: NotifSort): List
     NotifSort.UNREAD_FIRST -> list.sortedWith(
         compareByDescending<Notification> { it.unread }.thenByDescending { it.updatedAtMs },
     )
+}
+
+/**
+ * 分类基准列表（**纯函数**，抽出来是为了能钉住「分类 × 本地覆盖」这个矩阵）。
+ *
+ * 两条本地覆盖必须**在每个分类里都生效**，漏掉哪一个都会出现同一类 bug：
+ * - **已完成**（[doneIds]）：归档条目从收件箱移出，不能同时出现在「未读 / 全部」里；
+ * - **已丢弃**（[discardedIds]，见 `NotifDiscard`）：用户说过「别再让我看见它」，
+ *   那么在**四个**分类里都不能再出现 —— 只在「已完成」里过滤的话，丢弃完切到「全部」，
+ *   同一条会从收件箱冒出来（看起来像「丢弃没生效」）。
+ *
+ * 「参与」优先用服务端口径（`participating=true` 的结果），没拉到才退回客户端近似口径；
+ * 两条路径都要过同一层本地覆盖，所以过滤写在这里，而不是各分支各写一遍。
+ */
+internal fun notifCategoryBase(
+    category: NotifCategory,
+    items: List<Notification>,
+    doneItems: List<Notification>,
+    participatingItems: List<Notification>?,
+    doneIds: Set<String>,
+    discardedIds: Set<String>,
+): List<Notification> {
+    val hidden = doneIds + discardedIds
+    val live = items.filterNot { it.id in hidden }
+    return when (category) {
+        NotifCategory.UNREAD -> live.filter { it.unread }
+        NotifCategory.ALL -> live
+        // 服务端口径优先；尚未拉到（或请求失败）时退回 reason 近似口径：
+        // 近似口径会漏掉「我在该 thread 里评论过但没被 @」的会话，但绝不会漏掉 @我 / 指派给我 / 我发起的。
+        NotifCategory.PARTICIPATING -> participatingItems?.filterNot { it.id in hidden }
+            ?: live.filter { isParticipating(it.reason) }
+        NotifCategory.DONE -> doneItems.filterNot { it.id in discardedIds }
+    }
 }
 
 /**

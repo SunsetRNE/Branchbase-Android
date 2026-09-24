@@ -243,7 +243,7 @@ fun AccountsScreen(
             onDismissRequest = { deleteTarget = null },
             title = {
                 Text(
-                    stringResource(R.string.confirm_delete_account_title, target.login, target.auth.label),
+                    stringResource(R.string.confirm_delete_account_title, target.login, stringResource(target.auth.labelRes)),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     color = Primer.TextPrimary,
@@ -251,7 +251,7 @@ fun AccountsScreen(
             },
             text = {
                 Column {
-                    Text("@${target.login} · ${target.auth.label}", fontSize = 12.5.sp, color = Primer.TextSecondary)
+                    Text("@${target.login} · ${stringResource(target.auth.labelRes)}", fontSize = 12.5.sp, color = Primer.TextSecondary)
                     if (sameLoginOthers > 0) {
                         Spacer(Modifier.height(6.dp))
                         Text(
@@ -275,7 +275,7 @@ fun AccountsScreen(
                     val login = target.login
                     AccountStore.remove(context, target.id)
                     reload()
-                    feedback = context.getString(R.string.state_account_deleted, login, target.auth.label)
+                    feedback = context.getString(R.string.state_account_deleted, login, context.getString(target.auth.labelRes))
                     deleteTarget = null
                 }) { Text(stringResource(R.string.action_delete), color = Primer.DangerText) }
             },
@@ -359,7 +359,7 @@ private fun AccountCard(
         ) {
             StatusBadge(status = account.status, checking = isChecking)
             Spacer(Modifier.width(6.dp))
-            Badge(account.auth.label, Primer.TextTertiary, Primer.Gray150, Primer.Border)
+            Badge(stringResource(account.auth.labelRes), Primer.TextTertiary, Primer.Gray150, Primer.Border)
             Spacer(Modifier.width(6.dp))
             Badge(stringResource(R.string.label_local_repo_count, repoCount), Primer.TextTertiary, Primer.Gray150, Primer.Border)
             if (account.lastCheck > 0) {
@@ -403,7 +403,7 @@ private fun StatusBadge(status: AccountStatus, checking: Boolean) {
                 }
             }
             Spacer(Modifier.width(4.dp))
-            Text("● ${status.label}", fontSize = 10.5.sp, color = fg)
+            Text("● ${stringResource(status.labelRes)}", fontSize = 10.5.sp, color = fg)
         }
     }
 }

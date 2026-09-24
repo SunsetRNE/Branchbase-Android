@@ -89,11 +89,13 @@ class SigningVerifyTest {
     // 以前这段文案写在 UI 里，改版时最容易漏掉某一态（会出现空胶囊或只有结论没有依据），
     // 所以抽成纯函数在这里逐态钉住。
 
+    // `verifyCopy` 的整段文案仍是中文（该块尚未资源化，见 i18n-migration §11 的「需接口改造」），
+    // 所以这里传的是**中文名**；`ReleaseVariant` 自己只带 `labelRes`，界面侧走 stringResource。
     private fun copyOf(
         state: BuildVerifyState,
-        variant: ReleaseVariant = ReleaseVariant.BETA,
+        variantLabel: String = "测试版",
         remote: String? = local,
-    ) = verifyCopy(state, variant, local, remote)
+    ) = verifyCopy(state, variantLabel, local, remote)
 
     /** 五态清单（`BuildVerifyState` 是 sealed interface，没有 `entries`）。 */
     private val allStates = listOf(
@@ -118,7 +120,7 @@ class SigningVerifyTest {
         assertEquals("✓ 签名一致", copyOf(BuildVerifyState.Matched).chip)
         assertEquals("✗ 签名不一致", copyOf(BuildVerifyState.Mismatched).chip)
         assertEquals("校验中…", copyOf(BuildVerifyState.Checking, remote = null).chip)
-        assertEquals("本地编译", copyOf(BuildVerifyState.LocalBuild, ReleaseVariant.UNKNOWN).chip)
+        assertEquals("本地编译", copyOf(BuildVerifyState.LocalBuild, "异常").chip)
         assertEquals("无法校验", copyOf(BuildVerifyState.RemoteUnavailable, remote = null).chip)
         // 五种状态两两不同：胶囊是结论，不能出现两个状态同一句话
         val chips = allStates.map { copyOf(it, remote = null).chip }
@@ -134,12 +136,12 @@ class SigningVerifyTest {
 
         // 不一致：两个指纹都要给，并且明确提示风险
         val other = "B3:72:AB:52:EE:47:A0:8E:45:26:6F:1C:11:E0:75:6D:86:E3:83:A0:74:BE:EB:A3:77:FD:3E:BA:7C:F7:99:94"
-        val mismatched = verifyCopy(BuildVerifyState.Mismatched, ReleaseVariant.BETA, local, other).detail
+        val mismatched = verifyCopy(BuildVerifyState.Mismatched, "测试版", local, other).detail
         assertTrue("不一致态要给出本地指纹：$mismatched", mismatched.contains("AC:AB:BC:09…"))
         assertTrue("不一致态要给出远端指纹：$mismatched", mismatched.contains("B3:72:AB:52…"))
         assertTrue("不一致态要给出处置建议：$mismatched", mismatched.contains("建议立即卸载"))
 
         // 本地编译：要说明「为什么不校验」，而不是让用户以为网络坏了
-        assertTrue(copyOf(BuildVerifyState.LocalBuild, ReleaseVariant.UNKNOWN).detail.contains("不参与远端校验"))
+        assertTrue(copyOf(BuildVerifyState.LocalBuild, "异常").detail.contains("不参与远端校验"))
     }
 }

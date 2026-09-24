@@ -1,6 +1,7 @@
 package com.branchbase.ui.task
 
 import android.content.Context
+import androidx.annotation.StringRes
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -11,6 +12,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.branchbase.R
 
 /**
  * 任务中心（本地持久化任务记录）。
@@ -37,19 +39,19 @@ enum class TaskKind(val label: String, val durable: Boolean) {
 }
 
 /** 任务状态。 */
-enum class TaskStatus(val label: String) {
-    RUNNING("运行中"),
-    SUCCESS("已完成"),
-    FAILED("失败"),
-    CANCELED("已取消"),
+enum class TaskStatus(@StringRes val labelRes: Int) {
+    RUNNING(R.string.label_running),
+    SUCCESS(R.string.state_completed),
+    FAILED(R.string.workflow_status_failure),
+    CANCELED(R.string.workflow_status_cancelled),
 }
 
 /** 列表筛选。 */
-enum class TaskFilter(val label: String) {
-    ALL("全部"),
-    RUNNING("运行中"),
-    SUCCESS("已完成"),
-    FAILED("失败"),
+enum class TaskFilter(@StringRes val labelRes: Int) {
+    ALL(R.string.filter_all),
+    RUNNING(R.string.label_running),
+    SUCCESS(R.string.state_completed),
+    FAILED(R.string.workflow_status_failure),
 }
 
 /** 任务记录（Room 实体）。 */

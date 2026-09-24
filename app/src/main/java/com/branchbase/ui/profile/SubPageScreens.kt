@@ -1,5 +1,6 @@
 package com.branchbase.ui.profile
 
+import androidx.annotation.StringRes
 import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -97,6 +98,7 @@ import com.branchbase.ui.settings.DisabledNavRow
 import com.branchbase.ui.settings.NavRow
 import com.branchbase.ui.settings.SettingsProse
 import com.branchbase.ui.settings.SettingsSection
+import com.branchbase.ui.settings.StatusChip
 import com.branchbase.ui.settings.StatusTone
 import com.branchbase.ui.settings.SwitchRow
 import com.branchbase.ui.settings.displayGitProxy
@@ -112,9 +114,9 @@ import com.branchbase.core.LocalRepos
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.notification.NotifLayout
-import com.branchbase.ui.notification.readNotifLayout
+import com.branchbase.ui.notification.NotifLayoutRuntime
+import com.branchbase.ui.notification.SystemNotificationState
 import com.branchbase.ui.notification.rememberSystemNotificationState
-import com.branchbase.ui.notification.writeNotifLayout
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.LanguageColors
 import com.branchbase.ui.theme.AppIcon
@@ -461,18 +463,27 @@ private fun ProjectCard(project: ProjectItem) {
  * 长文案挤掉同排的内容（设置页把「提交模式」这个名字压到换行、被 48dp 行高裁掉）。
  *
  * 现在按用途拆开：
- * - [label]：短名，用于**状态位**（设置项右侧值 / 当前模式 / 编辑页底栏 / 日志 / toast）；
- * - [title]：完整说明，只用于**整行卡片**（提交模式页、首次引导页、提交时选择弹窗）；
- * - [desc]：一句话补充，与 [title] 搭配在卡片里显示。
+ * - [labelRes]：短名，用于**状态位**（设置项右侧值 / 当前模式 / 编辑页底栏）；
+ * - [titleRes]：完整说明，只用于**整行卡片**（提交模式页、首次引导页、提交时选择弹窗）；
+ * - [descRes]：一句话补充，与 [titleRes] 搭配在卡片里显示。
+ *
+ * ## 三个字段都是 `@StringRes`，不是写死的中文
+ *
+ * 界面名走三个 `@StringRes`，日志名单独一个 [logLabel]（日志按约定固定中文，见 i18n 规范 §7）。
+ * 原先这里是 `SINGLE_FILE("单个文件", …)`。枚举不是 `@Composable`，写死中文的后果是
+ * **界面切英文后只有这三行还是中文**（2026-09 真机：英文模式下设置页「提交模式」右侧
+ * 仍显示「单个文件」，提交模式页三张卡片也全是中文）。解析一律留给调用方（§5.1 路径 A′）。
  */
 internal enum class CommitMode(
-    val label: String,
-    val title: String,
-    val desc: String,
+    @StringRes val labelRes: Int,
+    @StringRes val titleRes: Int,
+    @StringRes val descRes: Int,
+    /** **日志**专用的中文名（与 `ProfileTab.logLabel` / `RepoPage.logLabel` 同一个约定）。 */
+    val logLabel: String,
 ) {
-    SINGLE_FILE("单个文件", "单个文件更改，单个提交", "官方客户端行为 · 编辑即提交"),
-    MULTI_FILE("多文件合并", "多个文件更改，合并一次提交", "网页端行为 · 暂存区统一提交"),
-    LOCAL_REPO("本地仓库（Git）", "文件拉取到本地仓库，由本地 git 管理提交推送", "Git 命令行习惯"),
+    SINGLE_FILE(R.string.commit_mode_single_file_label, R.string.commit_mode_single_file_title, R.string.commit_mode_single_file_desc, "单个文件"),
+    MULTI_FILE(R.string.commit_mode_multi_file_label, R.string.commit_mode_multi_file_title, R.string.commit_mode_multi_file_desc, "多文件合并"),
+    LOCAL_REPO(R.string.commit_mode_local_repo_label, R.string.commit_mode_local_repo_title, R.string.commit_mode_local_repo_desc, "本地仓库（Git）"),
 }
 
 @Composable
@@ -554,7 +565,7 @@ fun SettingsScreen(
                     // 依次回落并做圆形裁切；漏传这一项，圈选处就只剩写死的首字母。
                     // 用 avatarUrl（快照缺失时回落会话 user.avatar_url）而不是裸 avatar。
                     avatar = account?.avatarUrl,
-                    statusLabel = account?.status?.label,
+                    statusLabel = account?.status?.let { stringResource(it.labelRes) },
                     statusTone = account?.status?.let { accountStatusTone(it) } ?: StatusTone.MUTE,
                     onClick = onOpenAccounts,
                 )
@@ -581,7 +592,9 @@ fun SettingsScreen(
                     icon = Icons.Filled.Palette,
                     name = stringResource(R.string.label_theme),
                     sub = stringResource(R.string.note_theme_follow_system),
-                    options = ThemeMode.entries.map { it to it.label },
+                    // 三档名字走资源（`ThemeMode.labelRes`）：枚举不认识语言，解析只能在 composable 里做，
+                    // 否则界面切英文后按钮仍是「跟随系统 / 浅色 / 深色」（`map` 是 inline，可以调 stringResource）
+                    options = ThemeMode.entries.map { it to stringResource(it.labelRes) },
                     selected = themeMode,
                     onSelect = { ThemeRuntime.set(context, it) },
                     divider = false,
@@ -610,11 +623,17 @@ fun SettingsScreen(
             SettingsSection(stringResource(R.string.nav_notifications)) {
                 // 这一行**不是**开关：系统通知权限不是 App 的布尔值，App 只能申请或跳系统设置。
                 // 用导航行 + 状态胶囊，才不会让「开了但系统没授权」变成一个骗人的开关（规范 §4.3）。
+                // 状态与说明都是**资源**（`labelRes` / `hintRes`）：它们是系统状态，不跟语言走就永远是中文。
                 NavRow(
                     icon = Icons.Filled.Notifications,
                     name = stringResource(R.string.nav_notifications),
-                    sub = notificationPermission.hint,
-                    value = notificationPermission.label,
+                    sub = stringResource(notificationPermission.hintRes),
+                    statusChip = {
+                        StatusChip(
+                            stringResource(notificationPermission.labelRes),
+                            notificationPermissionTone(notificationPermission),
+                        )
+                    },
                     onClick = onOpenNotificationSettings,
                     divider = false,
                 )
@@ -653,7 +672,7 @@ fun SettingsScreen(
                 NavRow(
                     icon = Icons.Filled.Commit,
                     name = stringResource(R.string.nav_commit_mode),
-                    value = mode?.label ?: stringResource(R.string.state_not_set),
+                    value = mode?.let { stringResource(it.labelRes) } ?: stringResource(R.string.state_not_set),
                     onClick = onOpenCommitMode,
                     divider = false,
                 )
@@ -786,12 +805,27 @@ private fun accountStatusTone(status: AccountStatus): StatusTone = when (status)
     AccountStatus.INVALID, AccountStatus.SUSPENDED -> StatusTone.BAD
 }
 
+/**
+ * 系统通知状态 → 胶囊语气。
+ *
+ * 三档都要能一眼分开：开着 = OK；还能弹系统授权框 = WARN（差一步）；被系统关掉 = BAD
+ * （App 里怎么点都没用，只能去系统设置）。全是 MUTE 的话，用户分不出「差一步」和「没救了」。
+ */
+private fun notificationPermissionTone(state: SystemNotificationState): StatusTone = when {
+    state.granted -> StatusTone.OK
+    state.canRequest -> StatusTone.WARN
+    else -> StatusTone.BAD
+}
+
 /** 通知设置子页面：系统通知权限入口 + 通知列表显示模式。 */
 @Composable
 fun NotificationSettingsScreen(onBack: () -> Unit) {
     LaunchedEffect(Unit) { Logger.ui("进入通知设置页", "Compose") }
     val context = LocalContext.current
-    var layout by remember { mutableStateOf(readNotifLayout(context)) }
+    // 显示模式读**单一真源**（`NotifLayoutRuntime`），不是本地 `remember { readNotifLayout() }`：
+    // 这里选的模式要能立刻反映到消息页，vice versa —— 两个入口各持一份时，
+    // 「选了平铺还是按仓库分组」就是这么来的（详见 `NotifLayoutRuntime` 的注释）。
+    val layout by NotifLayoutRuntime.layout.collectAsState()
     // 系统通知（权限 + 总开关）：与下载通知、通知页横幅读同一份状态
     val permission = rememberSystemNotificationState()
 
@@ -803,15 +837,36 @@ fun NotificationSettingsScreen(onBack: () -> Unit) {
         Spacer(Modifier.height(6.dp))
 
         SettingsSection(stringResource(R.string.label_system_notifications)) {
-            // 已开启 → 进系统设置（可关掉 / 改渠道）；未开启 → 能弹授权框就弹，否则去设置页
-            NavRow(
-                icon = Icons.Filled.Notifications,
-                name = stringResource(R.string.label_allow_notifications),
-                sub = permission.hint,
-                value = permission.label,
-                onClick = { if (permission.granted) permission.openSettings() else permission.request() },
-                divider = false,
-            )
+            // 已开启 → 进系统设置（可关掉 / 改渠道）；未开启 → 能弹授权框就弹，否则去设置页。
+            // 两种形态**行型不同**（对齐「本地仓库」那一行）：
+            // - 已开启：导航行 + 状态胶囊，状态是「好」；
+            // - 未开启：禁用态（§6.3）—— 写清原因 + 给一条出路按钮，按钮的**动词随状态变**
+            //   （还能弹授权框＝「开启」，被系统关掉＝「去设置」）。写成固定「开启」的话，
+            //   系统里已关通知的用户点下去不会有任何反应。
+            if (permission.granted) {
+                NavRow(
+                    icon = Icons.Filled.Notifications,
+                    name = stringResource(R.string.label_allow_notifications),
+                    sub = stringResource(permission.hintRes),
+                    statusChip = {
+                        StatusChip(
+                            stringResource(permission.labelRes),
+                            notificationPermissionTone(permission),
+                        )
+                    },
+                    onClick = { permission.openSettings() },
+                    divider = false,
+                )
+            } else {
+                DisabledNavRow(
+                    icon = Icons.Filled.Notifications,
+                    name = stringResource(R.string.label_allow_notifications),
+                    reason = stringResource(permission.hintRes),
+                    fixLabel = stringResource(permission.actionRes),
+                    onFix = { permission.request() },
+                    divider = false,
+                )
+            }
         }
 
         SettingsSection(stringResource(R.string.label_notification_display_mode)) {
@@ -822,8 +877,7 @@ fun NotificationSettingsScreen(onBack: () -> Unit) {
                     selected = layout == l,
                     divider = i != 0,
                 ) {
-                    layout = l
-                    writeNotifLayout(context, l)
+                    NotifLayoutRuntime.set(context, l)
                 }
             }
         }
@@ -1778,7 +1832,7 @@ fun AboutScreen(onBack: () -> Unit) {
         remoteFingerprint = remoteFingerprint,
         checking = remoteChecking,
     )
-    val copy = verifyCopy(state, variant, localFingerprint, remoteFingerprint)
+    val copy = verifyCopy(state, stringResource(variant.labelRes), localFingerprint, remoteFingerprint)
     // 配色按状态取（绿=通过、红=不一致、蓝=进行中、琥珀=取不到远端、灰=本地编译）；
     // 底色走 Primer 的浅色块（深浅主题各自成立），描边由前景色降透明度推得，不再写死浅色 RGB
     val (fg, bg) = when (state) {
@@ -1821,7 +1875,7 @@ fun AboutScreen(onBack: () -> Unit) {
 
             // 构建校验：三行原始值 + 一行结论说明（原独立横幅的去重落点）
             AboutCard(topGap = 10.dp) {
-                AboutInfoRow(stringResource(R.string.label_release_build), variant.label)
+                AboutInfoRow(stringResource(R.string.label_release_build), stringResource(variant.labelRes))
                 AboutRowDivider()
                 AboutInfoRow(stringResource(R.string.label_signature_check), if (variant != ReleaseVariant.UNKNOWN) stringResource(R.string.label_match) else stringResource(R.string.state_signature_abnormal))
                 AboutRowDivider()

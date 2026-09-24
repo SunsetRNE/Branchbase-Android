@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import com.branchbase.R
 
 /**
  * 顶层（主界面 / 登录后引导页）按返回键的动作：**再按一次退出应用**。
@@ -31,9 +32,6 @@ import androidx.compose.ui.platform.LocalContext
 
 /** 双击退出窗口：2 秒是 Android 上的常见取值（够按第二下，又不至于把两次无关的返回并成一次）。 */
 const val EXIT_CONFIRM_WINDOW_MS: Long = 2000L
-
-/** 第一次按返回时的提示文案。 */
-internal const val EXIT_CONFIRM_HINT: String = "再按一次返回退出应用"
 
 /**
  * 这一次返回是否应该**退出应用**（纯函数，便于单测）。
@@ -65,7 +63,8 @@ fun rememberTopLevelBackAction(windowMs: Long = EXIT_CONFIRM_WINDOW_MS): () -> U
                 context.findActivity()?.finish()
             } else {
                 lastBackAt.value = now
-                Toast.makeText(context, EXIT_CONFIRM_HINT, Toast.LENGTH_SHORT).show()
+                // 文案每次现取（不是 remember 里捕获的字符串）：语言切换后这行提示也要跟着变
+                Toast.makeText(context, context.getString(R.string.hint_press_back_again), Toast.LENGTH_SHORT).show()
             }
         }
     }

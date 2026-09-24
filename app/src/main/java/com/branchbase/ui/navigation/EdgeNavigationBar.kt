@@ -58,10 +58,12 @@ import com.branchbase.ui.theme.rememberPressFeedback
 fun EdgeNavigationBar(
     selected: NavDestination,
     onSelect: (NavDestination) -> Unit,
-    extraActions: List<Pair<ImageVector, String>> = listOf(
-        Icons.Filled.Star to "收藏",
-        Icons.Filled.PushPin to "固定",
-        Icons.Filled.Add to "新建",
+    // 标签是**资源 ID**（`@StringRes`），不是写死的「收藏 / 固定 / 新建」：
+    // 它们同时是这三个气泡按钮的读屏名（`contentDescription`），英文界面下必须跟着变
+    extraActions: List<Pair<ImageVector, Int>> = listOf(
+        Icons.Filled.Star to R.string.action_star,
+        Icons.Filled.PushPin to R.string.action_pin,
+        Icons.Filled.Add to R.string.action_create,
     ),
     onExtraAction: (ImageVector) -> Unit = {},
     modifier: Modifier = Modifier,
@@ -141,7 +143,8 @@ fun EdgeNavigationBar(
                     .padding(8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                extraActions.forEach { (icon, label) ->
+                extraActions.forEach { (icon, labelRes) ->
+                    val label = stringResource(labelRes)
                     Box(
                         modifier = Modifier
                             .size(40.dp)
@@ -178,10 +181,10 @@ private fun EdgeNavItem(
             .padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(dest.icon, contentDescription = dest.label, tint = tint, modifier = Modifier.size(22.dp))
+        Icon(dest.icon, contentDescription = stringResource(dest.labelRes), tint = tint, modifier = Modifier.size(22.dp))
         Spacer(Modifier.height(3.dp))
         Text(
-            dest.label,
+            stringResource(dest.labelRes),
             fontSize = 11.sp,
             color = tint,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,

@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -48,13 +49,13 @@ fun BranchbaseNavigationBar(
                 onClick = { onSelect(dest) },
                 icon = {
                     Box {
-                        Icon(dest.icon, contentDescription = dest.label)
+                        Icon(dest.icon, contentDescription = stringResource(dest.labelRes))
                         // 不再用 `if (count > 0)` 包住：那样徽标是「凭空出现、凭空消失」；
                         // 可见性交给 CountBadge 自己托管，未读清零时才有淡出
                         CountBadge(count, Modifier.align(Alignment.TopEnd))
                     }
                 },
-                label = { Text(dest.label, fontSize = 11.sp) },
+                label = { Text(stringResource(dest.labelRes), fontSize = 11.sp) },
             )
         }
     }

@@ -20,6 +20,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.core.graphics.drawable.toBitmap
 import com.branchbase.R
@@ -49,10 +50,17 @@ fun AppIcon(
     size: Dp,
     modifier: Modifier = Modifier,
     shape: Shape = RoundedCornerShape(percent = 22),
-    contentDescription: String? = "应用图标",
+    /**
+     * 无障碍名。`null` = 用默认的「应用图标」（[R.string.label_app_icon]）。
+     *
+     * ⚠️ 原先默认值是中文字面量，而 4 个调用点都不传 —— 读屏在英文界面下也会念中文。
+     * 默认文案在函数体里解析，跟着当前语言走。
+     */
+    contentDescription: String? = null,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
+    val desc = contentDescription ?: stringResource(R.string.label_app_icon)
     val px = with(density) { size.roundToPx() }.coerceAtLeast(1)
     val bitmap = remember(px) { AppIconCache.of(context, px) }
 
@@ -66,7 +74,7 @@ fun AppIcon(
         Box(Modifier.fillMaxSize()) {
             Image(
                 painter = painterResource(R.drawable.ic_launcher_background),
-                contentDescription = if (bitmap == null) contentDescription else null,
+                contentDescription = if (bitmap == null) desc else null,
                 contentScale = ContentScale.FillBounds,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -81,7 +89,7 @@ fun AppIcon(
             // 系统此刻展示的那枚图标盖在底图上（正常情况下底图被完全覆盖）
             Image(
                 bitmap = bitmap,
-                contentDescription = contentDescription,
+                contentDescription = desc,
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize(),
             )

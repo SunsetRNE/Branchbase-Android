@@ -109,7 +109,7 @@ object AccountChecks {
         val expiry = if (status == AccountStatus.OK) null else probeExpiry(account)
         Logger.net(
             "GET /user (${account.login}@${account.host} tok=${fingerprint(account.token)} " +
-                "@${stamp()}) → ${status.label}｜${expiry?.let { "$it ｜ " } ?: ""}" +
+                "@${stamp()}) → ${status.logLabel}｜${expiry?.let { "$it ｜ " } ?: ""}" +
                 "原始 ${result?.take(RAW_MAX) ?: "null"}",
             "Account",
         )
@@ -122,12 +122,12 @@ object AccountChecks {
             val confirmStatus = AccountStore.statusFromResponse(confirm)
             if (confirmStatus == AccountStatus.OK) {
                 Logger.net(
-                    "复核 $CONFIRM_PATH 成功 → 推翻「${status.label}」（探测端点或链路上的中间人可疑）",
+                    "复核 $CONFIRM_PATH 成功 → 推翻「${status.logLabel}」（探测端点或链路上的中间人可疑）",
                     "Account",
                 )
                 status = AccountStatus.OK
             } else {
-                Logger.net("复核 $CONFIRM_PATH → ${confirmStatus.label}（原始 ${confirm?.take(RAW_MAX) ?: "null"}）", "Account")
+                Logger.net("复核 $CONFIRM_PATH → ${confirmStatus.logLabel}（原始 ${confirm?.take(RAW_MAX) ?: "null"}）", "Account")
             }
         }
 

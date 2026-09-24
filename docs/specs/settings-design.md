@@ -178,10 +178,26 @@ L1 设置（唯一入口）
 | 图标与文字间距 | **12dp** | |
 | 名称 | **14sp**，`TextPrimary` | 单行，超长省略 |
 | 值与说明 | **12sp**，`TextTertiary` | 值单行省略；说明可折行，`lineHeight = 17.sp` |
+| 行尾控件 | **贴右**，右边缘落在行的 16dp 内边距上 | `›` / `Switch` / 分段控件 / 状态胶囊 / 「去设置」——整列对齐 |
 | 分隔线 | `1dp`，`Primer.BorderEmphasis` | 行间；**组内**才有，组与组之间靠间距区分 |
 
-**必须**：名称**永远**优先于值显示完整 —— 值负责省略（现状 `SettingsItem` 已用两个权重盒实现，
-即 `Modifier.weight(1f, fill = false)` 给名称、`weight(1f)` 给值）。**禁止**让值去挤名称。
+**必须**：名称**永远**优先于值显示完整 —— 值负责省略（名称一个权重盒、值一个权重盒，
+一人一半；名称长时在自己的份额里省略）。**禁止**让值去挤名称。
+
+**必须**：主轴上的权重盒**吃掉**自己的份额（`Modifier.weight(1f)`，`fill` 默认 `true`）。
+
+写了 `weight(1f, fill = false)` 的盒子会缩到**文字宽度**，没花掉的份额变成**行尾的空白**，
+于是排在它后面的东西（值列，以及 `›` / `Switch` / 分段控件 / 胶囊）全部停在文字后面 ——
+**每一行一个位置**。2026-09 的真机截图圈选处就是这个形态：「日志」的 `›` 紧跟名称、
+「语言」的跟在值后、只有说明折行的「Git 代理」才碰巧贴右。
+
+名称/值各自的**上限没有变**（还是一人一半），所以吃掉份额不是新的排版选择，
+它只决定「行尾那截空白归谁」。原型语义见 `design/settings-redesign/style.css`
+的 `.row .txt { flex: 1 1 auto }` + `.row .tail { flex: 0 0 auto }`。
+
+> 行尾控件的落点由 `SettingsRowShell` 唯一决定：它是唯一画行骨架的地方，
+> 16dp 内边距与尾控件位置都在那里。行型之外**禁止**自己起 `Row` 放 `›`。
+> `SettingsSpecTest` 的 ⑬ 三条钉子（§10.1 第 8 条）钉住这一段。
 
 ### 4.3 值列的三种特殊形态
 
@@ -483,15 +499,20 @@ L1 设置（唯一入口）
 | 5 | **枚举存 name 不存 ordinal** | 新增设置项落盘语句里不得出现 `.ordinal` |
 | 6 | **返回目标唯一** | 设置树内所有页面的 `onBack` 只能来自 `profileBackTarget` / `SubPage.Settings`，不得直接 `null` |
 | 7 | **key 集中** | 设置 key 常量必须在唯一文件里声明 |
+| 8 | **行尾控件贴右** | 设置树（`SettingsRow.kt` + 设置页区段）里不得出现 `weight(…, fill = false)`；名称列的权重盒必须吃份额、值列在自己的权重盒里右对齐；6 种行型 + `DisabledNavRow` + `AccountRow` 必须都走 `SettingsRowShell`（§4.2） |
 
 > 第 1、5、6 条可以在**本轮就加**（现状已基本满足或改动很小）；
 > 第 2、3、4、7 条依赖 §11 的重构，落地时一并加。
+> 第 8 条（行尾控件贴右）已于 2026-09-24 加齐并生效 —— 见 §13 v6 与 `SettingsSpecTest` 的 ⑬。
 
 ### 10.2 手工验收清单（每次改设置页都要过）
 
 - [ ] 浅色 / 深色两套主题下，**每一行**的文字与图标都清晰可读（无「深色主题下的深色文字」）
 - [ ] 200% 字号下，所有名称与值不重叠、不裁切；开关不被挤出屏幕
 - [ ] **超长值**（64 字符代理地址、超长账号名、超长版本号）下，名称仍完整、值省略为 `…`、`›`/`Switch` 仍在屏内
+- [ ] **行尾对齐**：一屏内所有行的 `›` / `Switch` / 分段控件 / 胶囊，右边缘在同一列上（＝行右内边距 16dp）；
+      改完行组件后把「语言 / 日志 / 关于 / Git 代理」这几行放在一起看 —— 它们最容易被写成「跟着文字跑」
+- [ ] 账户卡的状态胶囊与 `›` 也贴行尾（不跟登录名长短跑）
 - [ ] **空态**：新装用户（无账号、未配置提交模式、无代理）下每一行都有合理的值，不出现 `null` / 空白
 - [ ] **禁用行**：说明了原因，并且给了去开启的路
 - [ ] 每个危险动作：确认框里有**对象名 + 后果 + 能否撤销**，确认按钮是**动词**
@@ -549,6 +570,7 @@ L1 设置（唯一入口）
 | 确认框里不写对象名 | `删除仓库 owner/repo` | §4.6 |
 | 值列塞完整代理 URL（含账号密码） | 只显示 `host:port` | §6.5 |
 | 枚举存 `ordinal` | 存 `name` | §8.2 |
+| 主轴盒子 `weight(1f, fill = false)`（缩到文字宽度） | 吃掉份额（`weight(1f)`），尾控件由 `SettingsRowShell` 顶到行尾 | §4.2 |
 | 读到脏值抛异常 | 回落默认值 | §8.2 |
 | 同一个设置两处各解析一遍 | 单真源 | §8.3 |
 | 二级页 `onBack = { subPage = null }` | 走 `profileBackTarget` | §3.1 |
@@ -567,6 +589,8 @@ L1 设置（唯一入口）
 | v4 | 2026-09 | 新增「仓库凭据」条件行 + 二级页（`ui/settings/RepoCredentialsScreen.kt`）：账户组内、仅在 `AuthKind.PAT` 时出现；删除走 `DangerRow` + 二次确认；凭据存独立 prefs（已排除云备份与设备迁移）。见 §3.2.1 |
 | v3 | 2026-09 | 账户卡修复：`AccountRow` 原来是写死的灰底首字母，改成统一 `theme/Avatar`（本地缓存 → `avatar_url` → 首字母兜底，圆形裁切），新增 `avatar` 参数；账号侧补 `Account.avatarUrl`（快照缺失回落会话 `user.avatar_url`），`MainActivity` 预热同源；`SettingsSpecTest` 新增两条钉子；偏离表补第 4 条。见 §十四 |
 | v5 | 2026-09 | 设置树描边改为纯黑（**仅浅色**）：卡片描边与行分隔线由 `Primer.Gray200`（`#E3E4E8`）改走**新增角色** `Primer.BorderEmphasis`（浅 `#000000` / 深 `#30363D`）；`Primer.BorderControl` 浅色由 `#8B8E99` 改为 `#000000`（深色仍 `#6E7681`）。受影响断言：无 —— `SettingsSpecTest` 本轮**未新增钉子**，因为「无写死色值」那条已覆盖（改的是角色引用，不是字面量）。见 §十四末 |
+| v6 | 2026-09-24 | **行尾控件贴右**（真机截图圈选处）：`SettingsRow.kt` 里 4 处主轴权重盒由 `weight(1f, fill = false)` 改为 `weight(1f)` —— `SettingsText` 名称列、`NavRow` / `DisabledNavRow` 内层 `Row` 与其原因列、`AccountRow` 名称列。`fill = false` 时盒子缩到文字宽度、空白留在行尾，于是值列与 `›` / `Switch` / 分段控件 / 胶囊停在文字后面，每行一个位置。**观感变化**：只有行尾那一截留白归位（值列与尾控件右移到 16dp 内边距），名称/值上限、折行宽度、省略阈值都不变。§4.2 补「行尾控件」一行 + 机制说明与反模式，§10.2 补两条验收，§10.1 补第 8 条钉子（`SettingsSpecTest` 新增 ⑬ 三条：设置树无 `fill = false` 的主轴盒子 / 名称列吃份额 + 值列右对齐 / 8 种行的尾控件都走 `SettingsRowShell`）。受影响断言：`值负责省略而不是挤名称` 原来钉的是 `weight(1f, fill = false)`（正是本次要改的写法），改为钉「名称吃份额 + 值右对齐 + 值可省略」 |
+| v7 | 2026-09-24 | **设置树的文案跟语言走 + 通知行的状态设计**：①`ThemeMode` / `CommitMode` / `AccountStatus` / `AuthKind` / `ReleaseVariant` / `NavDestination` 等**枚举**的中文构造参数改成 `@StringRes`（枚举不是 `@Composable`，写死中文就永远切不过去；日志专用名另立 `logLabel`，见 i18n 规范 §5.1/§7）；②`DisabledNavRow(fixLabel)` 与 `DangerConfirmCard(title)` / `AppIcon(contentDescription)` 的**参数默认值**不再放中文字面量（调用点不传就必然上屏），改 `String? = null` + 函数体内 `stringResource`；③`NavRow` 增加可选 `statusChip`（§4.3 的胶囊形态，与 `SwitchRow`/`InfoRow` 对齐）；④设置「通知」行与通知设置页那一行改用**状态胶囊 + 状态驱动的出路按钮**（`SystemNotificationState.labelRes/hintRes/actionRes`：能弹授权框是「开启」，被系统关掉是「去设置」；未开启时用 `DisabledNavRow` 的「原因 + 出路」形态）；⑤新增 `I18nUiTextTest` 钉住「已资源化的界面文件不许再退回中文」与「values-en 条目值不许是中文」。受影响断言：`禁用行必须给出去开启的路` 仍绿（`onFix = onOpenCommitMode` 未动） |
 
 ---
 

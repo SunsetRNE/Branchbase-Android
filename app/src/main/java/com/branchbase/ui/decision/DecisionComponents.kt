@@ -130,12 +130,20 @@ private fun OptionTagChip(text: String, fg: Color, bg: Color) {
  */
 @Composable
 fun DangerConfirmCard(
-    title: String = "二次确认 · 不可恢复",
+    /**
+     * 卡片标题。`null` = 用默认的「二次确认 · 不可恢复」（[R.string.confirm_default_title]）。
+     *
+     * ⚠️ 默认值不能写成 `title: String = "二次确认 · 不可恢复"`：8 个调用点**全都不传** title，
+     * 写死的中文必然上屏，界面切英文后这几张危险确认卡仍是中文（2026-09 排查）。
+     * 默认文案在函数体里用 `stringResource` 解析，跟着 `LocalConfiguration` 走。
+     */
+    title: String? = null,
     description: String,
     confirmLabel: String,
     confirmed: Boolean,
     onToggle: () -> Unit,
 ) {
+    val titleText = title ?: stringResource(R.string.confirm_default_title)
     Column(
         Modifier
             .fillMaxWidth()
@@ -147,7 +155,7 @@ fun DangerConfirmCard(
     ) {
         // 标题用文字角色：底色是 DangerSurfaceSoft，Red500（填充色）压上去只有 4.16；
         // 描边保留 Red500 —— 那是 stroke，不是文字。
-        Text(title, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Primer.DangerText)
+        Text(titleText, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Primer.DangerText)
         Spacer(Modifier.height(4.dp))
         Text(description, fontSize = 12.sp, color = Primer.TextTertiary, lineHeight = 17.sp)
         Spacer(Modifier.height(8.dp))

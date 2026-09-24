@@ -387,7 +387,7 @@ fun RepositoryScreen(
     fun onForkClick() {
         when (forkDecision.mode) {
             ForkMode.LIST_ONLY -> peoplePage = "fork"
-            ForkMode.DISABLED -> toast(forkDecision.reason ?: context.getString(R.string.state_fork_disabled))
+            ForkMode.DISABLED -> toast(forkDecision.reason?.resolve(context) ?: context.getString(R.string.state_fork_disabled))
             ForkMode.DIALOG -> showForkDialog = true
         }
     }
@@ -924,7 +924,7 @@ fun RepositoryScreen(
                                         branches = branches.map { it.name },
                                         defaultBranch = branch ?: branches.firstOrNull()?.name ?: "main",
                                         refreshTick = refreshTick,
-                                        modeLabel = mode?.label,
+                                        modeLabel = mode?.let { stringResource(it.labelRes) },
                                         onPickMode = { showCommitMode = true },
                                         onOpenBranchManage = { showBranchManage = true },
                                         onOpenCompare = { b, h -> comparePair = b to h },
@@ -1022,7 +1022,7 @@ fun RepositoryScreen(
                 saveCommitMode(context, picked)
                 mode = picked
                 showCommitMode = false
-                Logger.ui("提交模式改为 ${picked.label}", "Compose")
+                Logger.ui("提交模式改为 ${picked.logLabel}", "Compose")
             },
         )
     }

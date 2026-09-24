@@ -3,6 +3,7 @@ package com.branchbase.ui.notification
 import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -46,9 +47,16 @@ import com.branchbase.ui.theme.Primer
  * 这里只补三样 UI 需要的东西：
  * 1. **授权结果回流**：`rememberLauncherForActivityResult` 拿到用户选择后立刻刷新状态；
  * 2. **从系统设置页返回时刷新**：用户可能在系统设置里开了/关了通知，不重新读就会显示旧状态；
- * 3. **两种「没通知」分开表达**（见 [label] / [hint]）：
+ * 3. **两种「没通知」分开表达**（见 [labelRes] / [hintRes]）：
  *    - 权限没给 → 还能弹系统授权框；
  *    - 权限给了但通知被关 → 只能去系统设置，再点「申请」是不会有反应的。
+ *
+ * ## 文案一律是**资源 ID**，不是字符串（§5.1 路径 A′）
+ *
+ * 原先这里是 `val label: String get() = if (granted) "已开启" else "未开启"` 与三段写死的中文
+ * `hint` —— 于是设置页「通知」那一组的状态与说明**永远不跟语言走**（界面切英文仍是中文）。
+ * 这个类不是 `@Composable`，拿不到 `stringResource`，所以只暴露 `@StringRes`，
+ * 由调用方（本来就是 composable）解析。日志侧若要中文名，另立字段，不要复用这几个。
  */
 class SystemNotificationState(
     /** 权限与总开关都放行 = 真的能弹出通知。 */
@@ -58,14 +66,25 @@ class SystemNotificationState(
     val request: () -> Unit,
     val openSettings: () -> Unit,
 ) {
-    val label: String get() = if (granted) "已开启" else "未开启"
+    /** 状态胶囊里的短词（不是横幅那句「通知未开启」）。 */
+    @get:StringRes
+    val labelRes: Int get() = if (granted) R.string.state_notifications_on else R.string.state_notifications_off_short
 
-    val hint: String
+    /** 设置页那一行的说明：**按状态分句**，因为三条的出路不一样。 */
+    @get:StringRes
+    val hintRes: Int
         get() = when {
-            granted -> "系统通知已开启：下载进度、下载完成提醒会出现在通知栏。"
-            canRequest -> "还没有授予通知权限。开启后，下载进度与完成提醒才会显示在通知栏（不影响下载本身）。"
-            else -> "通知已在系统里被关闭（权限可能仍是授予状态）。请到系统设置里重新打开。"
+            granted -> R.string.note_notifications_on
+            canRequest -> R.string.note_notifications_need_grant
+            else -> R.string.note_notifications_blocked
         }
+
+    /**
+     * 出路按钮的动词，**随状态变**：还能弹授权框就是「开启」，只能去系统设置就是「去设置」。
+     * 复用横幅（[NotificationPermissionBanner]）已经在用的两条资源 —— 同一个按钮的两种形态。
+     */
+    @get:StringRes
+    val actionRes: Int get() = if (canRequest) R.string.action_enable else R.string.action_open_settings
 }
 
 /** 观察系统通知状态；返回的 [SystemNotificationState.request] 会自动在「申请」与「去设置」之间选择。 */

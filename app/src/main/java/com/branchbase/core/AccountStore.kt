@@ -1,6 +1,8 @@
 package com.branchbase.core
 
 import android.content.Context
+import androidx.annotation.StringRes
+import com.branchbase.R
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -11,20 +13,24 @@ import org.json.JSONObject
  * - [OK] 200；[INVALID] 401；[SUSPENDED] 403 且含 suspended；
  * - [LIMITED] 403/429 且含 rate limit；[UNREACHABLE] 网络异常（保留上一次结果）。
  */
-enum class AccountStatus(val label: String) {
-    UNKNOWN("未检查"),
-    OK("正常"),
-    INVALID("令牌已失效"),
-    SUSPENDED("账号已被封禁"),
-    LIMITED("触发限流"),
-    UNREACHABLE("无法连接"),
+enum class AccountStatus(
+    @StringRes val labelRes: Int,
+    /** **日志**专用的中文名（`AccountChecks` 的探测日志按约定固定中文，见 i18n 规范 §7）。 */
+    val logLabel: String,
+) {
+    UNKNOWN(R.string.workflow_status_unknown, "未检查"),
+    OK(R.string.account_status_ok, "正常"),
+    INVALID(R.string.account_status_token_invalid, "令牌已失效"),
+    SUSPENDED(R.string.account_status_suspended, "账号已被封禁"),
+    LIMITED(R.string.account_status_rate_limited, "触发限流"),
+    UNREACHABLE(R.string.account_status_unreachable, "无法连接"),
 }
 
 /** 认证方式。 */
-enum class AuthKind(val label: String) {
-    OAUTH("OAuth 授权"),
-    PAT("PAT 令牌"),
-    UNKNOWN("未知"),
+enum class AuthKind(@StringRes val labelRes: Int) {
+    OAUTH(R.string.auth_kind_oauth),
+    PAT(R.string.auth_kind_pat),
+    UNKNOWN(R.string.workflow_status_unknown),
 }
 
 /**

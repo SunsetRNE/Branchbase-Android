@@ -676,7 +676,7 @@ fun ReleaseEditScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(4.dp).clip(CircleShape).background(Primer.Gray300))
                     Spacer(Modifier.width(5.dp))
-                    Text(type.hint, fontSize = 10.5.sp, color = Primer.TextTertiary, lineHeight = 15.sp)
+                    Text(stringResource(type.hintRes), fontSize = 10.5.sp, color = Primer.TextTertiary, lineHeight = 15.sp)
                 }
                 Spacer(Modifier.height(6.dp))
                 ReleaseTagTitleRow(

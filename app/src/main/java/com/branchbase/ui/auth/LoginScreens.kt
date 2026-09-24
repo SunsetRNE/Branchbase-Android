@@ -214,7 +214,9 @@ fun ThemeModeSwitch(modifier: Modifier = Modifier) {
     ) {
         AnimatedStateIcon(
             icon = icon,
-            contentDescription = stringResource(R.string.login_theme_switch, mode.label),
+            // 读屏文案里的档位名同样要跟语言走：`mode.label` 曾是写死的中文，
+            // 界面切英文后读屏仍念「跟随系统 / 浅色 / 深色」（`ThemeMode.labelRes` 是资源）
+            contentDescription = stringResource(R.string.login_theme_switch, stringResource(mode.labelRes)),
             tint = Primer.IconPrimary,
             modifier = Modifier.size(20.dp),
         )

@@ -93,7 +93,7 @@ internal fun StageCommitScreen(
 
     DecisionScreenShell(
         title = stringResource(R.string.action_commit_changes),
-        subtitle = stringResource(R.string.label_repo_mode, repoName, mode?.label ?: stringResource(R.string.state_mode_not_configured)),
+        subtitle = stringResource(R.string.label_repo_mode, repoName, mode?.let { stringResource(it.labelRes) } ?: stringResource(R.string.state_mode_not_configured)),
         onBack = onBack,
     content = {
         if (mode == null) {

@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import com.branchbase.ui.translate.LocalTranslateBubbleHost
 import com.branchbase.ui.translate.TranslateBubble
 import com.branchbase.ui.translate.TranslateBubbleHost
+import com.branchbase.ui.notification.NotifLayoutRuntime
 import com.branchbase.ui.theme.ThemeRuntime
 import com.branchbase.core.RustBridge
 import com.branchbase.core.NetworkWatch
@@ -98,6 +99,9 @@ class MainActivity : ComponentActivity() {
 
         // 主题档位在启动时同步一次；之后由 ThemeRuntime 驱动（开关无需层层传参）
         ThemeRuntime.init(applicationContext)
+        // 通知显示模式同理：消息页与「设置 → 通知」是两个入口，靠同一份运行时状态收口。
+        // 与主题一样要在 setContent **之前**同步 —— 否则存了「按仓库分组」的用户会先闪一帧平铺
+        NotifLayoutRuntime.init(applicationContext)
 
         // 阶段标记：从这一行到首帧之间，跑的是「恢复会话 → 登记账号 → 首页首次组合 + 首帧取数」。
         // 真机数据（14 次启动）里，这一段与慢帧「等待」段的相关系数最高（r=0.957），

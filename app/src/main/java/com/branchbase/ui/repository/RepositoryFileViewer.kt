@@ -647,7 +647,10 @@ fun FileViewerScreen(
                     add(
                         GitBubbleAction(
                             "mode",
-                            stringResource(R.string.label_commit_mode_value, effectiveMode?.label ?: stringResource(R.string.state_not_set)),
+                            stringResource(
+                                R.string.label_commit_mode_value,
+                                effectiveMode?.let { stringResource(it.labelRes) } ?: stringResource(R.string.state_not_set),
+                            ),
                             Icons.Filled.Settings,
                         ) {
                             modePickerForCommit = false
@@ -817,7 +820,7 @@ fun FileViewerScreen(
                 if (modePickerForCommit) {
                     onCommitClick()
                 } else {
-                    feedback = Feedback(context.getString(R.string.state_commit_mode_changed, mode.label), ok = true)
+                    feedback = Feedback(context.getString(R.string.state_commit_mode_changed, context.getString(mode.labelRes)), ok = true)
                 }
             },
         )

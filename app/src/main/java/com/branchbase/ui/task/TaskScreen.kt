@@ -173,7 +173,7 @@ fun TaskScreen(onBack: () -> Unit) {
                             }
                             val on = filter == f
                             Text(
-                                "${f.label} $n",
+                                "${stringResource(f.labelRes)} $n",
                                 fontSize = 12.5.sp,
                                 fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
                                 color = if (on) Color.White else Primer.TextSecondary,
@@ -377,7 +377,7 @@ fun TaskScreen(onBack: () -> Unit) {
                             fontSize = 11.5.sp,
                             color = Primer.TextTertiary,
                         )
-                        Text(task.status.label, fontSize = 11.5.sp, color = Primer.TextTertiary)
+                        Text(stringResource(task.status.labelRes), fontSize = 11.5.sp, color = Primer.TextTertiary)
                     }
                     if (task.detail.isNotBlank()) {
                         Spacer(Modifier.height(5.dp))
@@ -438,7 +438,7 @@ private fun TaskDetailScreen(task: TaskRecord, onBack: () -> Unit, onDelete: () 
                 DetailRow(stringResource(R.string.nav_tasks), task.title)
                 DetailRow(stringResource(R.string.label_type), stringResource(R.string.label_task_kind, task.kind.label, if (task.durable) stringResource(R.string.label_long_task) else stringResource(R.string.label_short_task)), mono = true)
                 DetailRow(
-                    stringResource(R.string.label_status), task.status.label,
+                    stringResource(R.string.label_status), stringResource(task.status.labelRes),
                     valueColor = when (task.status) {
                         TaskStatus.RUNNING -> Primer.Blue500
                         TaskStatus.SUCCESS -> Primer.Green500

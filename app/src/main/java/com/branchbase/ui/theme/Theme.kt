@@ -2,6 +2,7 @@ package com.branchbase.ui.theme
 
 import android.app.Activity
 import android.content.Context
+import androidx.annotation.StringRes
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
@@ -15,17 +16,29 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import com.branchbase.R
 
 /**
  * 主题模式：跟随系统 / 强制浅色 / 强制深色。
  *
  * 不做成二元的「深色开关」是有原因的：需要**强制浅色**的用户和需要深色的一样多
  * （深色在强光下看不清、部分用户对深色的对比度更敏感），所以给三档、允许显式锁定。
+ *
+ * ## 三档的名字是**资源**，不是枚举里的字符串
+ *
+ * 原先这里是 `val label: String` + 写死的中文（`SYSTEM("system", "跟随系统")`）。
+ * 枚举不是 `@Composable`，写死中文就永远不跟语言走 —— 界面切英文后，设置页的
+ * 三档按钮与登录页主题开关的读屏文案仍是「跟随系统 / 浅色 / 深色」。
+ * 所以照 `NotifLayout` / `SearchType` 的范式（§5.1 路径 A′）只带 `@StringRes`，
+ * **解析留给调用方**（那里本来就是 composable）。
+ *
+ * `storageKey` 与 `labelRes` 是两件事，不能互相顶替：前者落盘（`system`/`light`/`dark`，
+ * 见 `SettingsKeys`），后者只用于显示。
  */
-enum class ThemeMode(val storageKey: String, val label: String) {
-    SYSTEM("system", "跟随系统"),
-    LIGHT("light", "浅色"),
-    DARK("dark", "深色"),
+enum class ThemeMode(val storageKey: String, @StringRes val labelRes: Int) {
+    SYSTEM("system", R.string.theme_mode_system),
+    LIGHT("light", R.string.theme_mode_light),
+    DARK("dark", R.string.theme_mode_dark),
     ;
 
     /** 供「太阳图标」开关循环切换：跟随系统 → 浅色 → 深色 → 跟随系统。 */

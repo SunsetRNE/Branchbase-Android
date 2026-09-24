@@ -55,9 +55,9 @@ fun CommitModeScreen(onBack: () -> Unit) {
 
         CommitMode.entries.forEach { m ->
             ModeOptionRow(
-                // 卡片是整行，可以承载完整说明；状态位（设置页右侧值等）只用短名 m.label
-                label = m.title,
-                desc = m.desc,
+                // 卡片是整行，可以承载完整说明；状态位（设置页右侧值等）只用短名 m.labelRes
+                label = stringResource(m.titleRes),
+                desc = stringResource(m.descRes),
                 selected = mode == m,
                 onClick = {
                     mode = m
@@ -67,7 +67,10 @@ fun CommitModeScreen(onBack: () -> Unit) {
         }
 
         Text(
-            stringResource(R.string.label_current_mode, mode?.label ?: stringResource(R.string.state_not_configured_will_ask)),
+            stringResource(
+                R.string.label_current_mode,
+                mode?.let { stringResource(it.labelRes) } ?: stringResource(R.string.state_not_configured_will_ask),
+            ),
             fontSize = 11.5.sp,
             color = Primer.TextTertiary,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),

@@ -1,6 +1,7 @@
 package com.branchbase.ui.repository
 
 import org.json.JSONObject
+import com.branchbase.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -136,7 +137,9 @@ class RepoViewerRelationTest {
             "octocat",
         )
         assertEquals(ForkMode.DISABLED, d.mode)
-        assertEquals("该仓库已关闭复刻", d.reason)
+        // 原因现在是**待解析文案**（资源 ID）而不是字符串：界面切英文后这条 Toast 也得跟着变。
+        // 钉资源 ID，不钉中文字面量 —— 后者每抽取一次就假红一次（i18n 规范 §九的踩坑表）。
+        assertEquals(R.string.state_fork_disabled, d.reason?.res)
     }
 
     /** `allow_forking=false`（REST 字段）也要能拦住对话框。 */

@@ -1460,4 +1460,80 @@
     <string name="state_never_used">Never used</string>
     <string name="state_just_used">Just used</string>
     <string name="last_used_at">Last used %1$s</string>
+    <!-- The three theme modes (`ThemeMode.labelRes`). They used to live as hardcoded Chinese
+         constructor arguments on the enum, so they never followed the app language. -->
+    <string name="theme_mode_system">Follow system</string>
+    <string name="theme_mode_light">Light</string>
+    <string name="theme_mode_dark">Dark</string>
+    <!-- System-notification state (`SystemNotificationState`). The hint must be written per state:
+         the way out differs (already on / permission can still be requested / turned off in the
+         system, where requesting again does nothing). `actionRes` reuses action_enable and
+         action_open_settings — the same button in its two forms. -->
+    <string name="state_notifications_on">On</string>
+    <string name="state_notifications_off_short">Off</string>
+    <string name="note_notifications_on">System notifications are on: download progress and completion alerts appear in the notification shade.</string>
+    <string name="note_notifications_need_grant">Notification permission has not been granted yet. Once enabled, download progress and completion alerts appear in the notification shade (this does not affect downloading itself).</string>
+    <string name="note_notifications_blocked">Notifications are turned off in the system (the permission may still be granted). Turn them back on in system settings.</string>
+
+    <!-- The three commit modes (`CommitMode.labelRes/titleRes/descRes`). All three used to be
+         hardcoded Chinese constructor arguments, so only these rows stayed Chinese in English. -->
+    <string name="commit_mode_single_file_label">Single file</string>
+    <string name="commit_mode_single_file_title">One file changed, one commit</string>
+    <string name="commit_mode_single_file_desc">Official client behaviour · commit on edit</string>
+    <string name="commit_mode_multi_file_label">Multi-file merged</string>
+    <string name="commit_mode_multi_file_title">Several files changed, merged into one commit</string>
+    <string name="commit_mode_multi_file_desc">Web behaviour · staged and committed together</string>
+    <string name="commit_mode_local_repo_label">Local repository (Git)</string>
+    <string name="commit_mode_local_repo_title">Files are pulled into a local repository; the local git manages commits and pushes</string>
+    <string name="commit_mode_local_repo_desc">Git command-line workflow</string>
+    <!-- Bottom navigation (`NavDestination`). "Messages" reuses the existing nav_messages. -->
+    <string name="nav_home">Home</string>
+    <!-- Account status (`AccountStatus`) and auth kind (`AuthKind`); the unknown case reuses
+         workflow_status_unknown. -->
+    <string name="account_status_unchecked">Not checked</string>
+    <string name="account_status_ok">OK</string>
+    <string name="account_status_token_invalid">Token expired</string>
+    <string name="account_status_suspended">Account suspended</string>
+    <string name="account_status_rate_limited">Rate limited</string>
+    <string name="account_status_unreachable">Unreachable</string>
+    <string name="auth_kind_oauth">OAuth</string>
+    <string name="auth_kind_pat">PAT</string>
+    <!-- Release variant (`ReleaseVariant`) — not to be confused with ReleaseType (stable/pre/draft). -->
+    <string name="release_variant_release">Release</string>
+    <string name="release_variant_beta">Beta</string>
+    <string name="release_variant_abnormal">Abnormal</string>
+    <string name="release_type_stable">Public release</string>
+    <string name="release_type_stable_hint">Visible to everyone; becomes the repository’s “Latest release”</string>
+    <string name="release_type_prerelease_hint">Visible to everyone, but not marked as “Latest release”</string>
+    <string name="release_type_draft_hint">Visible only to you and people with write access; not public yet</string>
+    <!-- Task status/filter and the issue timeline filter reuse existing resources
+         (label_running / state_completed / workflow_status_failure / workflow_status_cancelled / filter_all). -->
+    <string name="issue_timeline_comments_only">Comments only</string>
+    <string name="issue_timeline_events_only">Events only</string>
+    <!-- Watch levels: the titles stay verbatim English (they mirror github.com); only the
+         descriptions are translated. -->
+    <string name="watch_level_participating_desc">Only notify me for threads I participate in or where I am @mentioned.</string>
+    <string name="watch_level_all_desc">Notify me about all activity in this repository.</string>
+    <string name="watch_level_ignore_desc">Never notify me about this repository.</string>
+    <string name="watch_level_custom_desc">Beyond “Participating and @mentions”, pick which event types to receive.</string>
+    <!-- Defaults that always reach the screen: the danger-confirm card title (8 call sites pass nothing)
+         and the app icon's accessibility label (4 call sites pass nothing). -->
+    <string name="confirm_default_title">Confirm · cannot be undone</string>
+    <string name="label_app_icon">App icon</string>
+    <string name="hint_press_back_again">Press back again to exit</string>
+
+    <!-- Message page "Discard" (`NotifDiscard`). Shown only in Done: it clears a record out of the
+         archive and stops showing it (nothing is written remotely; undo just drops the local id). -->
+    <string name="action_discard">Discard</string>
+    <string name="hint_discard_hidden">Remove from Done and hide it</string>
+    <string name="state_discarded">Discarded “%1$s”</string>
+
+    <!-- Side navigation "pin" bubble button (`EdgeNavigationBar.extraActions`). -->
+    <string name="action_pin">Pin</string>
+
+    <!-- The four fork-refusal reasons (`RepoRelationRules.forkErrorText`).
+         "forking_disabled" reuses the existing state_fork_disabled. -->
+    <string name="fork_error_not_logged_in">Sign in to fork this repository</string>
+    <string name="fork_error_own_repository">You cannot fork your own repository</string>
+    <string name="fork_error_already_forked">You have already forked this repository</string>
 </resources>

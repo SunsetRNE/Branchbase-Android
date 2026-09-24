@@ -850,7 +850,11 @@ private fun IssueHead(d: IssueDetail) {
 
 // ───────────────────────────────── 时间线筛选 ─────────────────────────────────
 
-private enum class TlFilter(val label: String) { ALL("全部"), COMMENT("仅评论"), EVENT("仅事件") }
+private enum class TlFilter(@StringRes val labelRes: Int) {
+    ALL(R.string.filter_all),
+    COMMENT(R.string.issue_timeline_comments_only),
+    EVENT(R.string.issue_timeline_events_only),
+}
 
 @Composable
 private fun TimelineFilterRow(
@@ -867,7 +871,7 @@ private fun TimelineFilterRow(
             val selected = f == filter
             val count = if (f == TlFilter.EVENT) eventCount else commentCount
             Text(
-                "${f.label} $count",
+                "${stringResource(f.labelRes)} $count",
                 fontSize = 11.5.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = selectionColor(selected, on = Color.White, off = Primer.TextSecondary),

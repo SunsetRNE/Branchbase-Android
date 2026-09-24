@@ -1,5 +1,6 @@
 package com.branchbase.ui.navigation
 
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -51,7 +52,7 @@ fun GlassNavigationBar(
             ) {
                 Icon(
                     dest.icon,
-                    contentDescription = dest.label,
+                    contentDescription = stringResource(dest.labelRes),
                     tint = selectionColor(isSelected, on = Color.White, off = Primer.IconPrimary),
                     modifier = Modifier.size(22.dp),
                 )

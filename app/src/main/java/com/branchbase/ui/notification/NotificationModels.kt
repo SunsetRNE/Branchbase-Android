@@ -15,6 +15,9 @@ import com.branchbase.R
 import com.branchbase.ui.LocalizedText
 import com.branchbase.ui.settings.SettingsKeys
 import com.branchbase.ui.theme.TintRole
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -665,4 +668,44 @@ fun readNotifLayout(context: Context): NotifLayout {
 /** 持久化通知显示模式 */
 fun writeNotifLayout(context: Context, layout: NotifLayout) {
     SettingsKeys.prefs(context).edit().putString(SettingsKeys.NOTIF_LAYOUT, layout.name).apply()
+}
+
+/**
+ * 通知显示模式的**运行时真源**（照 `ui/theme/ThemeRuntime.kt` 的形状）。
+ *
+ * ## 为什么不能各页各持一份 `remember { readNotifLayout(context) }`
+ *
+ * 显示模式有**两个入口**：消息页右下角面板、设置 → 通知 → 通知显示模式。
+ * 两个页面各自 `remember` 一份的话，谁后改都不会通知对方：
+ * 在设置页选了「平铺」，退回消息页看到的仍是进来时那份（按仓库分组）——
+ * 用户看到的是「选了平铺，列表还是按仓库分组」，也就是**设置不生效**。
+ * 更麻烦的是它只在「消息页还活着」时复现：TabSwitcher 重建页面后又是对的，
+ * 于是变成「偶尔不生效」，最难查的那类。
+ *
+ * 单一真源 + `StateFlow`：两个入口都写它、都读它，改完立刻就一致（不需要重建页面）。
+ * 落盘仍是 [writeNotifLayout]（prefs），所以杀进程重进也保持。
+ */
+object NotifLayoutRuntime {
+
+    private val _layout = MutableStateFlow(NotifLayout.FLAT)
+
+    /** 当前显示模式。页面用 `collectAsState()` 订阅。 */
+    val layout: StateFlow<NotifLayout> = _layout.asStateFlow()
+
+    /**
+     * 启动时同步一次持久化的档位（由 `MainActivity` 调用，照 `ThemeRuntime.init` 的形状）。
+     *
+     * 必须在 `setContent` **之前**调：`collectAsState()` 的初始值是 [NotifLayout.FLAT]，
+     * 若等页面进入再同步，存了「按仓库分组」的用户会先看到一帧平铺再跳成分组。
+     * 页内不重复同步 —— 写入口只有两个，都走 [set]，内存里的值不会落后于 prefs。
+     */
+    fun init(context: Context) {
+        _layout.value = readNotifLayout(context)
+    }
+
+    /** 改模式：内存与 prefs 一起写，两个入口共享。 */
+    fun set(context: Context, layout: NotifLayout) {
+        writeNotifLayout(context, layout)
+        _layout.value = layout
+    }
 }

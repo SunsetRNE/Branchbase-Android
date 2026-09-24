@@ -165,8 +165,20 @@ private fun RowScope.RowIcon(icon: ImageVector, name: String, tint: Color = Prim
 /**
  * 名称 +（可选）说明 +（可选）值。
  *
- * **值负责省略，不许值去挤名称**（规范 §4.2）：名称/说明是一个 `weight(1f, fill = false)`
- * 的块，值拿另一个权重盒并右对齐 —— 名称短时把余量让给值，名称长时值自己省略。
+ * **值负责省略，不许值去挤名称**（规范 §4.2）：名称/说明一个权重盒、值另一个权重盒，
+ * 一人一半 —— 名称长时在自己的份额里省略，而不是把值顶出行外。
+ *
+ * ## ⚠️ 两个盒子都必须**吃掉**自己的份额（`weight(1f)`，`fill` 默认 `true`）
+ *
+ * 这是这一块最容易踩、且踩了**不报错**的坑：给名称写 `weight(1f, fill = false)`（或给外层
+ * 文本块写）之后，这一块会缩到**文字宽度**，剩下的空白留在**行尾**，于是值列与行尾控件
+ * （`›` / `Switch` / 分段控件 / 胶囊）全都停在文字后面 —— 每一行一个位置。
+ * 2026-09 的真机截图圈选处就是这个形态：「日志」的 `›` 紧跟名称、「语言」的跟在值后、
+ * 只有说明折行的「Git 代理」才碰巧贴右。
+ *
+ * 吃掉份额之后：值列的右边缘落在文本块末尾，行尾控件落在行的 16dp 内边距上。
+ * 名称与值各自的**上限没有变**（仍是一人一半），变的只是行尾那截空白归谁 ——
+ * 所以这条是「行尾控件贴右」的钉子，不是新的排版选择。`SettingsSpecTest` 钉住它。
  */
 @Composable
 private fun RowScope.SettingsText(
@@ -175,7 +187,7 @@ private fun RowScope.SettingsText(
     value: String? = null,
     valueSlot: (@Composable () -> Unit)? = null,
 ) {
-    Column(Modifier.weight(1f, fill = false).padding(vertical = 11.dp)) {
+    Column(Modifier.weight(1f).padding(vertical = 11.dp)) {
         Text(
             name,
             fontSize = 14.sp,
@@ -209,7 +221,13 @@ private fun RowScope.SettingsText(
 
 // ───────────────────────── ① 导航行 ─────────────────────────
 
-/** 导航行：进子页。有说明时整行变高，`›` 仍垂直居中。 */
+/**
+ * 导航行：进子页。有说明时整行变高，`›` 仍垂直居中。
+ *
+ * [statusChip] 是值列的**状态胶囊**形态（规范 §4.3：值若是「状态」而不是「配置」就用它，
+ * 与 [SwitchRow] / [InfoRow] 的同名参数一致）。传了它就**不再画纯文本 `value`** ——
+ * 两个都画会让值列变成两截（名称被挤、右端还得再省一次）。
+ */
 @Composable
 fun NavRow(
     icon: ImageVector,
@@ -219,10 +237,13 @@ fun NavRow(
     sub: String? = null,
     divider: Boolean = true,
     enabled: Boolean = true,
+    statusChip: (@Composable () -> Unit)? = null,
 ) {
     SettingsRowShell(divider = divider, onClick = onClick, enabled = enabled) {
         Row(
-            Modifier.weight(1f, fill = false).alpha(if (enabled) 1f else 0.5f),
+            // 吃掉份额（`fill` 默认 true）：`fill = false` 时这一块缩到文字宽度，
+            // 空白留在行尾，`›` 会跟在名称/值后面而不是贴在 16dp 内边距上（见 `SettingsText` 的坑）。
+            Modifier.weight(1f).alpha(if (enabled) 1f else 0.5f),
             // 图标与右端的值按**整行**垂直居中（原型 `design/settings-redesign/style.css`
             // 的 `.row { align-items: center }`）。
             // Row 默认是 Top 对齐：说明折行把这个内层 Row 撑高之后，图标与值都停在卡片上沿，
@@ -231,7 +252,12 @@ fun NavRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             RowIcon(icon, name)
-            SettingsText(name = name, sub = sub, value = value)
+            SettingsText(
+                name = name,
+                sub = sub,
+                value = if (statusChip == null) value else null,
+                valueSlot = statusChip,
+            )
         }
         // 不可点时**不画 `›`** —— 画了就是在承诺「点得进去」
         if (enabled) {
@@ -436,6 +462,14 @@ fun InfoRow(
  * 也不知道**怎么才能点**。这里三条一起给：
  * ① 视觉降级；② 说明列写明原因，且**原因不跟着降透明度**（它是禁用态唯一的出路）；
  * ③ 一个直达那个设置的按钮。
+ *
+ * ## [fixLabel] 默认值是**资源**，不是中文字面量
+ *
+ * 这里原先是 `fixLabel: String = "去设置"` —— 写死的中文，界面切英文后这个按钮仍是
+ * 「去设置」（2026-09 真机：设置 → 代码与提交 → 本地仓库 那一行）。
+ * 现在传 `null` 就走 [R.string.action_open_settings]，在**函数体内**用 `stringResource`
+ * 解析（跟着 `LocalConfiguration` 走）；调用方要别的动词（例如「开启」）就自己传
+ * `stringResource(...)` —— 传进来的仍然必须是**已解析的当前语言文案**。
  */
 @Composable
 fun DisabledNavRow(
@@ -443,12 +477,14 @@ fun DisabledNavRow(
     name: String,
     reason: String,
     onFix: () -> Unit,
-    fixLabel: String = "去设置",
+    fixLabel: String? = null,
     divider: Boolean = true,
 ) {
+    val fixText = fixLabel ?: stringResource(R.string.action_open_settings)
     SettingsRowShell(divider = divider, onClick = null) {
         Row(
-            Modifier.weight(1f, fill = false),
+            // 同 NavRow：吃掉份额，否则「去设置」按钮会跟在原因文字后面，而不是贴在行尾
+            Modifier.weight(1f),
             // 与 NavRow 同一条规则：图标按整行垂直居中，不跟着首行文字往上飘（原型 `.row { align-items: center }`）
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -462,7 +498,7 @@ fun DisabledNavRow(
                 modifier = Modifier.size(IconSize),
             )
             Spacer(Modifier.width(IconGap))
-            Column(Modifier.weight(1f, fill = false).padding(vertical = 11.dp)) {
+            Column(Modifier.weight(1f).padding(vertical = 11.dp)) {
                 Text(
                     name,
                     fontSize = 14.sp,
@@ -477,7 +513,7 @@ fun DisabledNavRow(
         }
         Spacer(Modifier.width(ValueGap))
         Text(
-            fixLabel,
+            fixText,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
             color = Primer.AccentText,
@@ -562,7 +598,8 @@ fun AccountRow(
             size = 40.dp,
         )
         Spacer(Modifier.width(IconGap))
-        Column(Modifier.weight(1f, fill = false).padding(vertical = 14.dp)) {
+        // 同样吃掉份额：账户卡的状态胶囊与 `›` 要贴行尾，不跟着登录名的长短跑
+        Column(Modifier.weight(1f).padding(vertical = 14.dp)) {
             Text(
                 login ?: stringResource(R.string.state_not_signed_in),
                 fontSize = 15.sp,

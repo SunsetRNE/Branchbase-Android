@@ -35,6 +35,14 @@ object SettingsKeys {
     const val NOTIF_LAYOUT = "notif_layout"
 
     /**
+     * 已丢弃的通知 thread id 集合（JSON 数组**保序**，见 `NotifDiscard`）。
+     *
+     * 「丢弃」只写本地：GitHub 没有「永久隐藏」接口，而用户要的是「别再让我看见它」。
+     * 单独一份集合而不是直接删归档 —— 删了归档，远端仍会返回这条，它会在收件箱里**复活**。
+     */
+    const val NOTIF_DISCARDED = "notif_discarded"
+
+    /**
      * 慢帧日志开关（`FrameWatch`）。
      *
      * **只有用户动过开关才有这个键** —— 缺失时用编译通道的默认值

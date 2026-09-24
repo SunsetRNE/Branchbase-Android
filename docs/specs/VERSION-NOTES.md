@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只留格式契约 + 写法样板（3 个经典示例）；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.86**）
-与 §三 `versionCode` 流水（129 → **188**）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.87**）
+与 §三 `versionCode` 流水（129 → **189**）。
 
 ---
 
@@ -25,7 +25,66 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.86 → 1.0.22）
+## 二、`versionName` 流水（1.0.87 → 1.0.22）
+
+### 1.0.87
+
+**设置页行尾对齐 + 消息页两处设计修正 + 英文模式翻译收口**（真机截图反馈，四件事一次提交）。
+
+**① 设置页「圈起来的 `›` 每行一个位置」—— 主轴权重盒缩到了文字宽度。**
+截图里同一个 `›` 在「日志」行紧跟名称、「语言」行跟在值后，只有说明折行的「Git 代理」才碰巧贴右。
+根因是 `Modifier.weight(1f, fill = false)`：`fill = false` 的权重盒只占**文字宽度**，
+没花掉的份额变成**行尾空白**（`Arrangement.Start` 把空白留在最后），
+于是排在它后面的值列与尾控件（`›` / `Switch` / 分段控件 / 胶囊 / 「去设置」）全部停在文字后面。
+`SettingsRow.kt` 四处改 `weight(1f)`（`SettingsText` 名称列、`NavRow` / `DisabledNavRow` 内层 `Row`
+与其原因列、`AccountRow` 名称列）。**名称/值的上限、折行宽度、省略阈值都没变** ——
+值列右缘落到文本块末尾，尾控件落到行的 16dp 内边距上（截图里已贴右的 `Switch` 右缘就是那一列）。
+钉子：`SettingsSpecTest` 新增 ⑬ 三条（扫**去注释**源码，只钉代码不钉「把坑写下来的注释」）。
+
+**② 消息页「选了平铺，列表还是按仓库分组」—— 显示模式有两个入口，各持一份状态。**
+`when (layout)` 四档本来就是对的（`FLAT` 走 `items(rows)`），不生效的是**状态**：
+消息页右下角面板与「设置 → 通知 → 通知显示模式」各自 `remember { readNotifLayout(context) }`，
+谁后改都不通知对方；而且只在「消息页还活着」时复现（切走再切回页面重建又对了），
+属于最难查的「偶尔不生效」。新增 `NotifLayoutRuntime`（`StateFlow`，照 `ThemeRuntime` 的形状），
+两个入口读写同一份，`MainActivity` 在 `setContent` **之前** `init`（否则存了分组档的用户会先闪一帧平铺）。
+顺带把分类过滤收成纯函数 `notifCategoryBase`：计数与列表原先各写一遍过滤，
+迟早出现「面板写 12 条、列表 11 行」——`NotificationCategoryTest` 6 例按「分类 × 本地覆盖」矩阵钉住。
+（批量操作的目标集合也一并修正：它从 `items` 反查，而「已完成」的行来自本地归档、根本不在 `items` 里，
+批量点下去是静默空操作。）
+
+**③「已完成」缺「丢弃」和「向左滑丢弃不再显示」。**
+新增 `NotifDiscard`（键 `notif_discarded`，本地覆盖层同 `NotifReadStore` 的口径）：
+远端**不动**（GitHub 没有「永久隐藏这一条」的接口 —— `DELETE /threads/{id}` 是「完成」，
+`subscription=ignore` 是「整个仓库/会话以后都别通知我」，都不是用户点「丢弃」的意思）、
+本地归档**保留**（撤销只需把 id 从集合里去掉；删归档就找不回来了）、
+四个分类 + 面板「过往 Issue」里全部消失、5 秒可撤销。
+**不能靠删归档实现丢弃**：远端照样返回这条，删了它会掉回收件箱，看起来像「丢弃反而把它叫回来了」。
+手势：已完成分类的归档行恒为已读，「左右滑 = 标记已读」在那里是空操作，
+所以那个分类改成**只放开左滑 = 丢弃**（右滑没有可执行动作，放开只会滑出空承诺）；
+动作面板里它是唯一的危险色动作，且只在「已完成」出现（放收件箱会与「完成」抢语义）。
+
+**④ 英文界面下仍然漏出来的中文（枚举与参数默认值）。**
+真机英文截图里 Theme / Language / Commit mode 都已是英文，只有主题三档、提交模式、通知状态与说明、
+「去设置」按钮还是中文。共同点是**都不在 `@Composable` 函数体里**，所以 `extract.py` 一条也抽不到：
+`ThemeMode` / `CommitMode` / `NavDestination`（底部导航，含侧边与玻璃两套变体 + 「收藏/固定/新建」气泡）/
+`AccountStatus` / `AuthKind` / `ReleaseVariant` / `TaskStatus` / `TaskFilter` / `TlFilter` / `ReleaseType` /
+`WatchLevel` / 复刻被拒原因，以及**参数默认值**里的 `DisabledNavRow(fixLabel)`、
+`DangerConfirmCard(title)`（8 个调用点全不传）、`AppIcon(contentDescription)`（4 个调用点全不传）、
+双击退出的 Toast。改法照 i18n 规范 §5.1 路径 A′：模型只带 `@StringRes`，解析留给调用方；
+日志专用名另立 `logLabel`（约定固定中文）；未知值原样透出改用 `LocalizedText(raw = …)`。
+顺带把设置「通知」行按 §4.3/§6.3 补成**状态胶囊 + 状态驱动的出路按钮**：
+能弹授权框是「开启」，被系统关掉是「去设置」（写死「开启」时，系统里已关通知的用户点下去毫无反应）。
+中英资源 1432 / 1432（覆盖率 100%）。钉子：`I18nUiTextTest` 4 例
+（已资源化的界面文件不许再出现中文、`values-en` 条目值不许是中文、这批新键中英成对且值不同）。
+
+**顺带**：`RepoViewerRelationTest` 的复刻原因断言改钉资源 ID（不再钉中文字面量 ——
+后者每抽取一次就假红一次）；`SigningVerifyTest` 适配 `verifyCopy(variantLabel: String)`。
+剩余待资源化的界面文案（`category=ui` 75 条 / `error` 36 条）与下一批入口记在
+`docs/specs/i18n-migration.md` §十二。
+
+`assembleDebug` 通过。versionCode 188 → 189（一次提交 +1）。
+
+---
 
 ### 1.0.86
 
@@ -1894,11 +1953,18 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（188 → 129）
+## 三、`versionCode` 流水（189 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **189**：设置页行尾控件贴右（`weight(1f, fill = false)` 让主轴盒子缩到文字宽度、空白留行尾 ——
+四处改 `weight(1f)`）+ 消息页显示模式单一真源（两个入口各持一份 `remember`，导致「选了平铺仍按仓库分组」；
+新增 `NotifLayoutRuntime`，`MainActivity` 在建 Content 前 init；分类过滤收成纯函数 `notifCategoryBase`，
+`NotificationCategoryTest` 6 例）+「已完成」新增「丢弃」与左滑丢弃（`NotifDiscard`：远端不动、归档保留、
+四个分类都消失、5 秒可撤销）+ 英文模式翻译收口（枚举与参数默认值里的写死中文全量改走资源，
+`I18nUiTextTest` 4 例；中英 1432/1432）（一次提交，故 +1）
 
 - **188**：修消息列表「已读」常驻透出 —— `SwipeToDismissBox` 的滑动提示画在内容**之下**，
 而 `NotificationRow` 的底色是 `Color.Transparent`（前一轮「未读不铺底」把原本挡着的底色

@@ -1,5 +1,6 @@
 package com.branchbase.ui.repository
 
+import androidx.annotation.StringRes
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -77,10 +78,10 @@ import java.io.File
  */
 
 /** 发布的三档性质。**互斥**，对应 GitHub 的 draft / prerelease / latest 三种归属。 */
-internal enum class ReleaseType(val label: String, val hint: String) {
-    STABLE("正式发布", "所有人可见，并占据仓库的「最新发布」"),
-    PRERELEASE("预发布", "所有人可见，但不会被标为「最新发布」"),
-    DRAFT("草稿", "仅自己和有写权限的人可见，尚未公开"),
+internal enum class ReleaseType(@StringRes val labelRes: Int, @StringRes val hintRes: Int) {
+    STABLE(R.string.release_type_stable, R.string.release_type_stable_hint),
+    PRERELEASE(R.string.label_prerelease, R.string.release_type_prerelease_hint),
+    DRAFT(R.string.label_draft, R.string.release_type_draft_hint),
 }
 
 /**
@@ -135,7 +136,7 @@ internal fun ReleaseTypeRow(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            entry.label,
+                            stringResource(entry.labelRes),
                             fontSize = 12.sp,
                             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                             color = if (selected) Primer.TextPrimary else Primer.TextSecondary,

@@ -3,6 +3,8 @@ package com.branchbase.ui.profile
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.annotation.StringRes
+import com.branchbase.R
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
@@ -19,10 +21,10 @@ import com.branchbase.ui.log.Logger
  * - BETA：测试版签名（debug keystore）
  * - UNKNOWN：未知签名 → 报异常
  */
-enum class ReleaseVariant(val label: String) {
-    RELEASE("正式版"),
-    BETA("测试版"),
-    UNKNOWN("异常"),
+enum class ReleaseVariant(@StringRes val labelRes: Int) {
+    RELEASE(R.string.release_variant_release),
+    BETA(R.string.release_variant_beta),
+    UNKNOWN(R.string.release_variant_abnormal),
 }
 
 // 内置签名指纹（SHA-256，对应 keystore 证书指纹，大写 hex + 冒号分隔）
@@ -96,7 +98,8 @@ data class VerifyCopy(val chip: String, val detail: String)
 /** 由校验状态与指纹推导文案（判定本身见 [buildVerifyState]）。 */
 fun verifyCopy(
     state: BuildVerifyState,
-    variant: ReleaseVariant,
+    /** 变体的**当前语言**名称（本函数是纯函数，拿不到资源，由调用方解析后传进来）。 */
+    variantLabel: String,
     localFingerprint: String,
     remoteFingerprint: String?,
 ): VerifyCopy = when (state) {
@@ -114,7 +117,7 @@ fun verifyCopy(
     )
     BuildVerifyState.Matched -> VerifyCopy(
         "✓ 签名一致",
-        "本地 APK 签名 = 远端${variant.label}校验文件（${fingerprintShort(localFingerprint)}）",
+        "本地 APK 签名 = 远端${variantLabel}校验文件（${fingerprintShort(localFingerprint)}）",
     )
     BuildVerifyState.Mismatched -> VerifyCopy(
         "✗ 签名不一致",

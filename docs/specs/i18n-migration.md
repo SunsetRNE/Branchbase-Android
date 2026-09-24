@@ -276,3 +276,60 @@ aapt2 dump resources <apk> | grep -A 2 'string/repo_page_issues'
 > **补翻译表不是这些条目的出路**：`extract.py` 的两个跳过条件是「表里没有」与「作用域不行」，
 > 前者靠补表解决，后者**补表一条也推不动**。动手前先跑一次
 > `python3 tools/i18n/extract.py --file <文件>` 空跑，看它报的是哪一种。
+
+---
+
+## 十二、2026-09-24 追记：英文模式下仍然漏出来的那几处
+
+起因是一张**英文界面**的真机截图：设置页里 Theme / Language / Commit mode 都已英文，
+只有下面这些还是中文。它们有一个共同点 —— **都不在 `@Composable` 函数体里**，
+所以 `extract.py` 一条也抽不到（它只动组合体内的字面量），只能按 §5.1 路径 A′ 手工改。
+
+| 漏出来的位置 | 当时的写法 | 现在 |
+|---|---|---|
+| 外观 → 主题三档 | `ThemeMode.SYSTEM("system", "跟随系统")` | `@StringRes labelRes`（`theme_mode_*`），调用方 `stringResource` |
+| 代码与提交 → 提交模式（状态位 / 卡片标题 / 说明） | `CommitMode.SINGLE_FILE("单个文件", …)` | `labelRes / titleRes / descRes` + `logLabel`（日志专用中文） |
+| 通知 → 状态与说明 | `SystemNotificationState.label = "已开启"` | `labelRes / hintRes / actionRes`（`@get:StringRes`） |
+| 通知 → 本地仓库那一行的按钮 | `DisabledNavRow(fixLabel = "去设置")` 参数默认值 | 参数改 `String?`，`null` → `action_open_settings` |
+| 底部导航（含侧边 / 玻璃两套变体） | `NavDestination.Home("首页")` | `@StringRes labelRes`（`nav_home` / 复用 `nav_messages`） |
+| 危险确认卡标题 | `DangerConfirmCard(title = "二次确认 · 不可恢复")` 参数默认值（8 个调用点全不传） | `String?` + `confirm_default_title` |
+| 应用图标无障碍名 | `AppIcon(contentDescription = "应用图标")` 参数默认值（4 个调用点全不传） | `String?` + `label_app_icon` |
+| 双击返回退出 | `const val EXIT_CONFIRM_HINT = "再按一次返回退出应用"` | `context.getString(hint_press_back_again)`（Toast 里现取，不缓存） |
+| 账号状态 / 认证方式 / 发布变体 / 任务状态与筛选 / 时间线筛选 / 发版三档 / Watch 说明 / 复刻被拒原因 | 各枚举的中文构造参数、`forkErrorText` 的中文返回值 | 全部 `@StringRes`；**未知值原样透出**改用 `LocalizedText(raw = …)`（`forkErrorText`） |
+
+规矩没变，两处必须记住：
+
+- **`labelRes` 与 `logLabel` 是两个字段**：界面跟语言走，日志按约定固定中文（§7）。
+  `CommitMode` / `AccountStatus` 这次都补了 `logLabel`，它们的日志调用点用后者。
+- **参数默认值里的中文字面量是最隐蔽的一类**：调用点不传就必然上屏，
+  而 `extract.py` 看不见、编译器也不报。默认值改成 `null` + 函数体内 `stringResource`。
+
+### 钉子：`I18nUiTextTest`
+
+新测试 `app/src/test/java/com/branchbase/ui/I18nUiTextTest.kt` 钉三件事：
+
+1. **已资源化的界面文件里不许再有中文**（注释先剔除；`logLabel = "…"` 是唯一例外）。
+   清单是一个一个加的文件名 —— 加进去就等于承诺「这个文件的用户可见文案已经全部资源化」；
+2. `CommitMode` 的三档里不许再出现写死的中文（状态位 / 卡片 / 说明三处共用同一份）；
+3. `values-en/strings.xml` 的**条目值**里不许有中文（注释除外），
+   且这一批新键在中英两边都存在、值不同（漏译 / 复制中文后忘改）。
+
+### 还剩下什么（怎么查）
+
+这一轮清的是「真机截图里已经露出来的 + 底部导航 + 设置树可达的页面」。**剩余量仍然很大**，
+口径见 §11；按类别看的当前快照（`python3 i18n-audit/scan_hardcoded_cjk.py`）：
+
+- `category=ui` **75** 条、`category=error` **36** 条 —— 这两类才是「用户会看见的」；
+- 其余是 `test`(1166) / `design`(2789) / `log`(206) / `tooling`(308)，不算欠账。
+
+下一批的入口（按「一处改动覆盖多少调用点」排）：
+
+1. **`LoginScreens.kt` 的 OAuth / PAT 引导页 19 条** + `LoginViewModel` 的错误提示 7 条 —— 登录是首次启动路径；
+2. **搜索**（`SearchQuery` / `SearchScreen` / `SearchViewModel` 共 ~40 条）；
+3. **`SigningVerify.verifyCopy` 的 14 条**：它是纯函数返回整句文案，要走 §5.4 C′（先枚举化分类，
+   文案在调用方解析）—— 这次只把它的 `variant.label` 换成传参（`variantLabel: String`），
+   整段文案仍是中文；
+4. **`LocalBranchSyncModels` / `RepoActions` / `GitProxy` 校验提示** 等纯逻辑里的提示。
+
+> 动手前照旧先空跑一次：`python3 tools/i18n/extract.py --file <文件>` ——
+> 它报「表里没有」就补 `tools/i18n/strings.tsv`，报「作用域不行」就得按 A′/C′ 改结构。
