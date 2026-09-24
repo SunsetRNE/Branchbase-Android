@@ -1031,9 +1031,15 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
 
     fun dirOf(name: String) = File(repoRoot, name).absolutePath
 
-    // 各仓库当前分支（用于行内显示；随仓库列表变化刷新）
+    // 各仓库当前分支（用于行内显示）。
+    //
+    // 键里**必须带 `page`**：`repos` 是目录集合，`mutableStateOf` 用结构相等 ——
+    // 切过分支 / 同步过之后再回到列表，目录集合一个字都没变，分支胶囊就一直是旧分支名
+    // （用户看到的是「切了分支但列表没变」）。带上 `page` 之后，「回到列表页」本身触发重读。
     var branchMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    LaunchedEffect(repos) {
+    LaunchedEffect(repos, page) {
+        // 只在列表页读：进子页时不重读（否则每进一次子页都白跑 N 次 gitStatus）
+        if (page !is LocalPage.List) return@LaunchedEffect
         val m = mutableMapOf<String, String>()
         repos.forEach { r ->
             val st = withContext(Dispatchers.IO) {

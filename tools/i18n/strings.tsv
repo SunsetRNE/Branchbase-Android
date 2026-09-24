@@ -15,6 +15,14 @@ sk-…（platform.deepseek.com 申请）	sk-… (get one at platform.deepseek.co
 保存并测试连接	Save and test connection	translate_save_and_test
 Key 只保存在 App 私有目录，不会注入网页、不写日志；建议使用设置了额度上限的 Key。\n接口为 OpenAI 兼容格式，接入地址可填中转或自建网关（例如 https://你的域名/v1）。	The key is stored only in the app's private directory — it is never injected into web pages and never written to logs. A key with a spending limit is recommended.\nThe API is OpenAI-compatible, so the endpoint may be a proxy or a self-hosted gateway (for example https://your-domain/v1).	translate_key_note
 目标语言	Target language	translate_target_language
+中英混排	Mixed Chinese/English	translate_mix_section
+只翻外语片段	Foreign phrases only	translate_mix_match
+中文段落里的英文短语单独翻译，按「短语 → 译文」对照展示；段内没有值得翻的内容就整段跳过，不会再插一张与原文重复的卡片（推荐）	English phrases inside a Chinese paragraph are translated on their own and shown as “phrase → translation” pairs; paragraphs with nothing worth translating are skipped instead of getting a card that repeats the original (recommended)	translate_mix_match_desc
+整段一起翻	Translate the whole paragraph	translate_mix_whole
+含中文的段落整段送去翻译（中文会被再翻一遍，译文质量反而更差，仅用于对照）	Send the whole paragraph containing Chinese to be translated (the Chinese gets translated again and the result is worse — for comparison only)	translate_mix_whole_desc
+中英混排不翻	Skip mixed paragraphs	translate_mix_skip
+含中文的段落一律不翻，只翻外语段落（最省额度，也最保守）	Never translate paragraphs that contain Chinese; only fully foreign paragraphs are translated (saves the most quota and is the most conservative)	translate_mix_skip_desc
+本次运行判定：跳过 %1$s 段 · 匹配翻译 %2$s 段（%3$s 对片段）	This run: %1$s skipped · %2$s paragraphs matched (%3$s phrase pairs)	translate_decision_stats
 显示方式	Display mode	translate_display_mode
 原文 + 译文对照	Original + translation	translate_mode_dual
 译文插在每段原文下方，原文保持不动（推荐）	The translation is inserted under each paragraph and the original stays in place (recommended)	translate_mode_dual_desc
@@ -684,7 +692,7 @@ $label 失败：$err	%1$s failed: %2$s	toast_operation_failed
 已创建本地分支 $name 并跟踪 origin/$name	Created local branch %1$s tracking origin/%2$s	toast_created_tracking
 已创建 $name，但设置上游失败：$up	Created %1$s but setting upstream failed: %2$s	error_created_upstream_failed
 放弃本地、对齐远端 $name	Discard local and align with remote %1$s	label_discard_align_remote
-reset --hard 失败	reset --hard failed	error_reset_hard_failed
+reset --hard 失败：%1$s	reset --hard failed: %1$s	error_reset_hard_failed
 推送 $name 失败($err)	Failed to push %1$s (%2$s)	error_push_branch_failed
 拉取 $name	Pull %1$s	label_pull
 拉取 $name 失败($err)	Failed to pull %1$s (%2$s)	error_pull_branch_failed

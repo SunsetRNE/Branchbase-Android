@@ -69,6 +69,8 @@ object TranslateRuntime {
             // 变体每次读取：换后端 / 换模型 / 换网关之后，下一页就是新的键空间，
             // 不会拿旧后端的译文献数（改完设置不需要重启 App）
             engineVariant = { TranslateSettings.read(app).cacheVariant() },
+            // 判定规则同样每次读取：混排规则是用户设置，改完必须下一段就生效
+            rules = { TranslateSettings.read(app).rules() },
             log = log,
         )
         instance = translator

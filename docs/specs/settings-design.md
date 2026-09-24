@@ -42,7 +42,7 @@
 | 3 | 本地仓库 | 设置 → 本地仓库 | `ui/profile/SubPageScreens.kt` 的 `LocalRepoScreen()` | 页面自有列表 + 决策页群 | git 工作目录 |
 | 4 | 账号管理 | 设置 → 账号管理 | `ui/profile/AccountsScreen.kt:70` | 卡片 + 气泡菜单 + `AlertDialog` | `AccountStore` |
 | 5 | 通知 | 设置 → 通知 | `ui/profile/SubPageScreens.kt` 的 `NotificationSettingsScreen()` | `SettingsItem`×1 + `ModeOptionRow`×4 | `KEY_NOTIF_LAYOUT` |
-| 6 | 沉浸式翻译 | 设置 → 沉浸式翻译 | `ui/profile/TranslateSettingsScreen.kt:93` | **私有** `SwitchRow`×3 + `ModeOptionRow`×7 + 输入框 | `TranslateSettings` |
+| 6 | 沉浸式翻译 | 设置 → 沉浸式翻译 | `ui/profile/TranslateSettingsScreen.kt:93` | **私有** `SwitchRow`×3 + `ModeOptionRow`×10 + 输入框 | `TranslateSettings` |
 | 7 | 关于 | 设置 → 关于 | `ui/profile/SubPageScreens.kt` 的 `AboutScreen()` | `AboutIdentityRow` / `AboutCard` / `AboutLinkRow` / `AboutInfoRow` | — |
 | 8 | 日志 | 设置 → 日志 | `ui/log/LogScreen.kt` | 独立页面（另有专项重设计） | — |
 | 9 | 主题（外观） | 设置 → 外观 | `ui/theme/ThemeRuntime.kt` | **无行**：点一下就地循环三档 | `ThemeMode.storageKey` |

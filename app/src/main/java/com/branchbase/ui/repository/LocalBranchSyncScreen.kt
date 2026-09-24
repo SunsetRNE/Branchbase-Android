@@ -203,9 +203,10 @@ fun LocalBranchSyncScreen(
     }
 
     fun discardLocal(name: String) = run(context.getString(R.string.label_discard_align_remote, name)) {
-        // gitResetHardRemote 返回 Boolean，统一成「null = 成功」的错误约定
-        val ok = withContext(Dispatchers.IO) { RustBridge.gitResetHardRemote(dir, name) }
-        if (ok) null else context.getString(R.string.error_reset_hard_failed)
+        // 约定：null = 成功，其他 = 失败原因（与 gitPullDetailed / gitPushDetailed 一致）。
+        // 原因要带出来 —— 只说「失败」的话，用户拿不到任何能自己处理的线索。
+        val err = withContext(Dispatchers.IO) { RustBridge.gitResetHardRemote(dir, name) }
+        err?.let { context.getString(R.string.error_reset_hard_failed, it) }
     }
 
     fun syncAll() {

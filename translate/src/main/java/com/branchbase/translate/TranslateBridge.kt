@@ -15,6 +15,8 @@ import org.json.JSONArray
  * 一批 3 段就是 3 次 HTTP（每段数百毫秒），同步返回会把 WebView 的 JS 线程按住好几秒
  * ——页面卡死、悬浮球点不动。所以 `request` 立刻返回，翻完再回调
  * `window.__bbTranslated(id, toLang, json)`（页面脚本按 `id` 找回各自的回调）。
+ * 第三个参数由 [TranslatePagePayload.encode] 产出：元素是**混合类型**（空串 = 判定跳过、
+ * 字符串 = 整段译文、对象 = 匹配性译文、null = 失败），页面按同一约定渲染。
  *
  * ## 状态回推
  *
@@ -36,7 +38,8 @@ import org.json.JSONArray
 class TranslateBridge(
     private val scope: CoroutineScope,
     private val translator: Translator,
-    private val onResult: (id: String, toLang: String, translations: List<String>) -> Unit,
+    /** 一批的产物（顺序与请求一一对应）。:app 用 [TranslatePagePayload.encode] 编码后交给页面。 */
+    private val onResult: (id: String, toLang: String, results: List<ParagraphTranslation>) -> Unit,
     private val onStatus: (String) -> Unit = {},
     /** 页面推上来的状态快照 JSON（见 [TranslatePageSnapshot]）。 */
     private val onReport: (String) -> Unit = {},
@@ -59,7 +62,7 @@ class TranslateBridge(
             return
         }
         scope.launch {
-            val out = withContext(Dispatchers.IO) { translator.translateAll(texts, from, to) }
+            val out = withContext(Dispatchers.IO) { translator.translateBatch(texts, from, to) }
             onResult(id, to, out)
             onStatus(translator.engineState().pageStatus())
         }

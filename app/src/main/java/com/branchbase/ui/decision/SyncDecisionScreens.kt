@@ -213,9 +213,13 @@ fun ForkDecisionScreen(
                 if (!confirmed) { feedback = context.getString(R.string.error_confirm_required); return }
                 scope.launch {
                     busy = true
-                    val ok = withContext(Dispatchers.IO) { RustBridge.gitResetHardRemote(repoDir, branch) }
+                    // null = 成功，其他 = 失败原因（原因要透到反馈里，别只说「失败」）
+                    val err = withContext(Dispatchers.IO) { RustBridge.gitResetHardRemote(repoDir, branch) }
                     busy = false
-                    onResolved(if (ok) context.getString(R.string.state_discarded_local) else failureMessage(context.getString(R.string.action_discard_local_commit)))
+                    onResolved(
+                        if (err == null) context.getString(R.string.state_discarded_local)
+                        else failureMessage(context.getString(R.string.action_discard_local_commit), err),
+                    )
                 }
             }
             2 -> onBack()
@@ -600,9 +604,12 @@ fun UndoCommitScreen(
                 if (newMessage.isBlank()) { feedback = context.getString(R.string.error_new_commit_message_required); return }
                 scope.launch {
                     busy = true
-                    val ok = withContext(Dispatchers.IO) { RustBridge.gitAmend(repoDir, newMessage) }
+                    val err = withContext(Dispatchers.IO) { RustBridge.gitAmend(repoDir, newMessage) }
                     busy = false
-                    onResolved(if (ok) context.getString(R.string.state_commit_message_updated) else failureMessage(context.getString(R.string.action_edit_commit_message)))
+                    onResolved(
+                        if (err == null) context.getString(R.string.state_commit_message_updated)
+                        else failureMessage(context.getString(R.string.action_edit_commit_message), err),
+                    )
                 }
             }
             hasUnpushed && option == 1 -> {
@@ -610,9 +617,12 @@ fun UndoCommitScreen(
                 softBlock?.let { feedback = it; return }
                 scope.launch {
                     busy = true
-                    val ok = withContext(Dispatchers.IO) { RustBridge.gitResetSoft(repoDir) }
+                    val err = withContext(Dispatchers.IO) { RustBridge.gitResetSoft(repoDir) }
                     busy = false
-                    onResolved(if (ok) context.getString(R.string.state_undo_commit_kept) else failureMessage(context.getString(R.string.action_undo_commit)))
+                    onResolved(
+                        if (err == null) context.getString(R.string.state_undo_commit_kept)
+                        else failureMessage(context.getString(R.string.action_undo_commit), err),
+                    )
                 }
             }
             hasUnpushed && option == 2 -> {
@@ -620,9 +630,12 @@ fun UndoCommitScreen(
                 if (!confirmed) { feedback = context.getString(R.string.error_confirm_required); return }
                 scope.launch {
                     busy = true
-                    val ok = withContext(Dispatchers.IO) { RustBridge.gitResetHardRemote(repoDir, branch) }
+                    val err = withContext(Dispatchers.IO) { RustBridge.gitResetHardRemote(repoDir, branch) }
                     busy = false
-                    onResolved(if (ok) context.getString(R.string.state_undo_discarded) else failureMessage(context.getString(R.string.action_undo_discard)))
+                    onResolved(
+                        if (err == null) context.getString(R.string.state_undo_discarded)
+                        else failureMessage(context.getString(R.string.action_undo_discard), err),
+                    )
                 }
             }
             !hasUnpushed && option == 0 -> { // revert

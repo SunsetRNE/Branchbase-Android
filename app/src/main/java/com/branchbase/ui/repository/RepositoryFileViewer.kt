@@ -35,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -59,6 +60,7 @@ import com.branchbase.ui.decision.DraftInfo
 import com.branchbase.ui.decision.DraftRecoverScreen
 import com.branchbase.ui.log.LogCategory
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.navigation.rememberPageResumeTick
 import com.branchbase.ui.decision.OfflineConflictScreen
 import com.branchbase.ui.decision.SensitiveWarningScreen
 import com.branchbase.ui.decision.StageCommitScreen
@@ -121,6 +123,16 @@ fun FileViewerScreen(
 
     // ── 决策页状态机 ──
     var page by remember { mutableStateOf<FilePage>(FilePage.None) }
+
+    /**
+     * 本地 git 状态的刷新计数器（与 [rememberPageResumeTick] 一起当 tick 用）。
+     *
+     * 两个来源：① 本页**本地提交成功后**自增（工作区刚变，徽标必须立刻反映）；
+     * ② 从子页（分支同步 / 决策页）回来时由 resumeTick 触发重读 —— 那些页面会改分支与领先落后。
+     * 此前 `rememberLocalRepoGitState(repo)` 的 tick 恒为 0：提交完徽标还是「待推送 0」，
+     * 用户看到的是「点了没反应」。
+     */
+    var gitTick by remember { mutableIntStateOf(0) }
 
     // 草稿（D3 隔离目录 files/edit/single/{owner}/{repo}/{path}）
     fun draftFile() = File(context.getExternalFilesDir(null), "edit/single/$owner/$repo/$path")
@@ -402,6 +414,8 @@ fun FileViewerScreen(
                 // 本地提交后文件已变：失效内容缓存。本地提交的两条入口（doLocalCommit 直接提交 /
                 // Identity 页补完身份后提交）最终都汇入这里，所以落点放在这个成功分支。
                 cacheManager().delete(fileCacheKey())
+                // 本地提交改了工作区与领先数：让气泡徽标/标题立刻重读一次状态
+                gitTick++
                 feedback = Feedback(context.getString(R.string.state_committed_local_sha, sha), ok = true)
             } else {
                 com.branchbase.ui.task.TaskStore.fail(context, taskId, context.getString(R.string.error_commit_failed_engine))
@@ -456,7 +470,9 @@ fun FileViewerScreen(
     }
 
     val effectiveMode = modeOverride ?: commitMode(context)
-    val localGit = rememberLocalRepoGitState(repo)
+    // tick 的两个来源见 gitTick 的注释：本地提交（本页自增）+ 从子页回来（resumeTick）
+    val resumeTick = rememberPageResumeTick()
+    val localGit = rememberLocalRepoGitState(repo, gitTick + resumeTick)
     var bubbleExpanded by remember { mutableStateOf(false) }
 
     // 返回键先消费本页自己的三层覆盖（从内到外）：

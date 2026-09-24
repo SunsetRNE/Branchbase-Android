@@ -75,4 +75,31 @@ class PlaceholderGuardTest {
         assertFalse(PlaceholderGuard.protect("https://example.com/a/b").hasContent)
         assertTrue(PlaceholderGuard.protect("visit https://example.com now").hasContent)
     }
+
+    /**
+     * 部分还原：判定引擎用它把「守卫坐标里的片段」还原回原文。
+     *
+     * 一个片段往往只用到整段里的某一两枚占位符，用 [PlaceholderGuard.restore] 会因为
+     * 「其余占位符没出现」而判失败 —— 那样混排段落里的 `See ⟦0⟧ here` 这类片段
+     * 就永远进不了匹配性翻译。
+     */
+    @Test
+    fun `部分还原只要求出现的占位符对得上`() {
+        val g = PlaceholderGuard.protect("See https://example.com/a and @alice for details")
+        assertEquals(listOf("https://example.com/a", "@alice"), g.tokens)
+
+        // 只含 0 号占位符的片段：1 号没出现不算丢
+        assertEquals("https://example.com/a", PlaceholderGuard.restorePartial("⟦0⟧", g.tokens))
+        // 一个占位符都没有的片段：原样返回
+        assertEquals("plain text", PlaceholderGuard.restorePartial("plain text", g.tokens))
+    }
+
+    @Test
+    fun `部分还原同样对越界与残留判失败`() {
+        val g = PlaceholderGuard.protect("See https://example.com/a for details")
+        // 编号越界：对不上就是不还原（宁可不翻，也不要插一段带 ⟦7⟧ 的文字）
+        assertNull(PlaceholderGuard.restorePartial("⟦7⟧", g.tokens))
+        // 还原后仍残留 ⟦…⟧（服务端可能把 ⟦ 归一到别的括号）
+        assertNull(PlaceholderGuard.restorePartial("⟦abc⟧", g.tokens))
+    }
 }

@@ -22,7 +22,10 @@ class TranslatorCacheVariantTest {
         var calls = 0
         override suspend fun translate(text: String, from: String, to: String): EngineResult {
             calls++
-            return EngineResult.Ok("[$text]")
+            // 前缀一个汉字，保证译文与原文**不是同一份东西** —— 判定引擎会把
+            // 「与原文一致」的返回当成「没有可用译文」（见 Translator 的不变式 3），
+            // 那时候命中与否就不再由缓存决定了
+            return EngineResult.Ok("译[$text]")
         }
     }
 
@@ -33,17 +36,21 @@ class TranslatorCacheVariantTest {
     ) = Translator(
         engine = engine,
         cache = TranslateCache(memoryEntries = 32) { null },
-        rules = PageRules.DEFAULT,
+        rules = { PageRules.DEFAULT },
         protectTokens = protect,
         engineVariant = variant,
     )
+
+    /** 这些用例钉的是缓存键维度，「翻出来了没有 / 译文是什么」用这个取。 */
+    private suspend fun Translator.whole(text: String): String? =
+        (translateOne(text, "en", LANG_ZH) as? ParagraphTranslation.Whole)?.text
 
     @Test
     fun `同文本同变体只翻一次`() = runBlocking {
         val engine = CountingEngine()
         val t = translator(engine)
-        val first = t.translateParagraph("This is a long enough paragraph to translate.", "en", LANG_ZH)
-        val second = t.translateParagraph("This is a long enough paragraph to translate.", "en", LANG_ZH)
+        val first = t.whole("This is a long enough paragraph to translate.")
+        val second = t.whole("This is a long enough paragraph to translate.")
         assertNotNull(first)
         assertEquals(first, second)
         assertEquals("第二次必须命中缓存，不再调引擎", 1, engine.calls)
@@ -55,17 +62,17 @@ class TranslatorCacheVariantTest {
         var variant = "mymemory||"
         val t = translator(engine, variant = { variant })
 
-        t.translateParagraph("This is a long enough paragraph to translate.", "en", LANG_ZH)
+        t.whole("This is a long enough paragraph to translate.")
         assertEquals(1, engine.calls)
 
         // 用户在设置页换到 DeepSeek：变体变了 → 键变了 → 必须重新翻
         variant = "deepseek|deepseek-chat|"
-        t.translateParagraph("This is a long enough paragraph to translate.", "en", LANG_ZH)
+        t.whole("This is a long enough paragraph to translate.")
         assertEquals("换后端是一次真正的重新翻译", 2, engine.calls)
 
         // 换回 MyMemory：旧译文还在，不该再翻（键空间并存）
         variant = "mymemory||"
-        t.translateParagraph("This is a long enough paragraph to translate.", "en", LANG_ZH)
+        t.whole("This is a long enough paragraph to translate.")
         assertEquals("换回去应命中旧后端的缓存", 2, engine.calls)
     }
 
@@ -76,15 +83,15 @@ class TranslatorCacheVariantTest {
         val t = translator(engine, protect = { protect })
         val text = "See https://example.com/a for details, this paragraph is long enough."
 
-        t.translateParagraph(text, "en", LANG_ZH)
+        t.whole(text)
         assertEquals(1, engine.calls)
 
         protect = true
-        t.translateParagraph(text, "en", LANG_ZH)
+        t.whole(text)
         assertEquals("保护开关改变译文内容，必须是不同的键", 2, engine.calls)
 
         protect = false
-        t.translateParagraph(text, "en", LANG_ZH)
+        t.whole(text)
         assertEquals("切回去仍命中", 2, engine.calls)
     }
 
@@ -93,9 +100,9 @@ class TranslatorCacheVariantTest {
         val engine = CountingEngine()
         val t = translator(engine)
         val text = "This is a long enough paragraph to translate."
-        t.translateParagraph(text, "en", LANG_ZH)
-        t.translateParagraph(text, "en", LANG_ZH)
-        t.translateParagraph(text, "en", LANG_ZH)
+        t.whole(text)
+        t.whole(text)
+        t.whole(text)
 
         val stats = t.stats()
         assertEquals("未命中 1 段（第一次）", 1, stats.misses)

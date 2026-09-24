@@ -23,7 +23,8 @@
   // 规则来自原生侧注入（唯一真源在 Kotlin 的 PageRules），这里只使用、不定义
   var RULES = CFG.rules || {
     minLen: 2, maxLen: 1200, latinRun: 3, hanRatioMax: 0.5, minHan: 4,
-    immediateLimit: 5000, skipPatterns: []
+    immediateLimit: 5000, skipPatterns: [],
+    matchPolicy: 'match', matchMinLen: 4, maxMatchParts: 6
   };
 
   // 跳过规则（纯数字 / 纯 URL / 版本号 / 单个 @提及、#编号 / 标签残留）同样来自原生侧，
@@ -62,7 +63,10 @@
     seen: (typeof WeakSet === 'function') ? new WeakSet() : null
   };
 
-  /* ───────────── 文本判定（与 Kotlin 的 TranslateTextPolicy 同规则） ───────────── */
+  /* ───────────── 文本判定（与 Kotlin 的 TranslateDecisionEngine 同规则） ─────────────
+     这里只做**粗筛**：把明显不用翻的段落挡在桥前面（省一次往返，也省一次额度）。
+     权威判定在原生侧 —— 只有那里同时看得到设置、缓存与占位符保护。
+     所以这份镜像宁可稍微宽松（多送一段，由原生侧判掉），也不要漏送原生侧想翻的段落。 */
 
   function normalize(s) {
     return String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
@@ -92,6 +96,76 @@
     return s.replace(/[\s\u200b-\u200d\ufeff\u00ad]/g, '') === '';
   }
 
+  /* 字符分类：区间与 Kotlin 的 isHanChar / isLatinLetter **逐段对齐**
+     （JS 没有 Char.isLetter，Kotlin 那边也因此写死了同一批区间）。
+     改这里必须同时改 TranslateTextPolicy.kt —— 两边不一致的坏法是
+     「页面筛掉了原生其实想翻的段落」，页面上看不出任何报错。 */
+  function isHanCode(c) {
+    return c >= 0x4e00 && c <= 0x9fff;
+  }
+
+  function isLatinCode(c) {
+    if (c < 128) return (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
+    return (c >= 0x00c0 && c <= 0x024f) || (c >= 0x0370 && c <= 0x04ff) ||
+      (c >= 0x3040 && c <= 0x30ff) || (c >= 0xac00 && c <= 0xd7af);
+  }
+
+  /**
+   * 一段的文字构成：目标文字 / 外语字母各多少，段内有哪些「值得单独翻的片段」。
+   *
+   * 片段 = 连续外语字母，**吸收夹在中间的中性字符**（空格 / 标点 / 数字）：
+   * `npm run dev` 是一个片段而不是三个词 —— 逐词送翻会得到三份不知道上下文
+   * 的译文，拼起来是「npm 运行 开发」这种读不通的东西（与原生侧同一套切法）。
+   */
+  function kindAt(s, i, toZh) {
+    var c = s.charCodeAt(i);
+    if (isHanCode(c)) return toZh ? 'T' : 'F';
+    if (isLatinCode(c)) return toZh ? 'F' : 'T';
+    return 'N';
+  }
+
+  function analyze(s) {
+    var toZh = String(state.to).indexOf('zh') === 0;
+    var n = s.length, runs = [], target = 0, foreign = 0, i, k, j;
+
+    for (i = 0; i < n;) {
+      k = kindAt(s, i, toZh);
+      j = i + 1;
+      while (j < n && kindAt(s, j, toZh) === k) j++;
+      runs.push({ k: k, start: i, end: j });
+      if (k === 'T') target += j - i;
+      else if (k === 'F') foreign += j - i;
+      i = j;
+    }
+
+    var parts = [];
+    i = 0;
+    while (i < runs.length) {
+      if (runs[i].k !== 'F') { i++; continue; }
+      var last = i, m = i + 1;
+      // 吸收「内部中性」：中性段后面**紧跟**外语段时，它属于同一个片段
+      while (m + 1 < runs.length && runs[m].k === 'N' && runs[m + 1].k === 'F') { last = m + 1; m += 2; }
+      var part = normalize(s.substring(runs[i].start, runs[last].end));
+      if (worthPart(part, toZh)) parts.push(part);
+      i = last + 1;
+    }
+    return { target: target, foreign: foreign, parts: parts };
+  }
+
+  /** 片段值不值得单独翻（阈值同样来自注入的 rules）。 */
+  function worthPart(part, toZh) {
+    if (!part || part.length < (RULES.matchMinLen || 4)) return false;
+    for (var i = 0; i < SKIP.length; i++) if (SKIP[i].test(part)) return false;
+    return toZh ? longestLatinRun(part) >= RULES.latinRun : hanCount(part) >= RULES.minHan;
+  }
+
+  /**
+   * 这一段的判定（粗筛）。
+   *
+   * 与原生 `TranslateDecisionEngine.decide` 同序：
+   * ① 段内没有外语内容 → 一致，不翻；② 外语太零碎（`CI` / `a`）→ 不值得翻；
+   * ③ 外语为主 → 整段翻；④ 目标文字为主 → 段内确有需要翻的片段才送（「不翻」规则下挡掉）。
+   */
   function needsTranslation(text) {
     var s = normalize(text);
     if (!s || isInvisible(s)) return false;
@@ -99,10 +173,20 @@
       if (SKIP[i].test(s)) return false;
     }
     if (s.length < RULES.minLen || s.length > RULES.maxLen) return false;
-    if (String(state.to).indexOf('zh') === 0) {
-      return longestLatinRun(s) >= RULES.latinRun && hanCount(s) <= s.length * RULES.hanRatioMax;
-    }
-    return hanCount(s) >= RULES.minHan;
+
+    var toZh = String(state.to).indexOf('zh') === 0;
+    var a = analyze(s);
+
+    // ① 「所需要的目标文字」与被翻译目标一致：段内没有外语内容
+    if (a.foreign === 0) return false;
+    // ② 外语太零碎：整段判定与片段判定共用同一个门槛
+    var worth = toZh ? (longestLatinRun(s) >= RULES.latinRun) : (hanCount(s) >= RULES.minHan);
+    if (!worth) return false;
+    // ③ 外语为主（含整段外语）：整段翻
+    if (a.target <= (a.target + a.foreign) * RULES.hanRatioMax) return true;
+    // ④ 目标文字为主：只有存在值得单独翻的片段才送
+    if (a.parts.length === 0) return false;
+    return RULES.matchPolicy !== 'skip';
   }
 
   /* ───────────── 原生桥（异步：request 立即返回，结果走 __bbTranslated） ───────────── */
@@ -217,16 +301,31 @@
 
     requestTranslate(batch.map(function (x) { return x.text; }), function (results) {
       state.inflight = false;
-      var inserted = 0;
+      var inserted = 0, failures = 0;
       for (var i = 0; i < batch.length; i++) {
+        // 元素是**混合类型**（原生侧 TranslatePagePayload.encode 产出）：
+        //   ""      判定为不需要翻（本身就是目标文字 / 译后与原文一致）→ 什么都不做
+        //   "译文"   整段译文 → 插一张译文块
+        //   {...}   匹配性译文 → 插一组「片段 → 译文」配对
+        //   null    这一段翻译失败 → 计一次失败
         var tr = results[i];
-        if (tr) {
+        if (tr === null || tr === undefined) { failures++; continue; }
+        if (typeof tr === 'string') {
+          if (!tr) continue;
+          IT.dom.insert(batch[i].el, tr);
+          state.count++;
+          inserted++;
+          continue;
+        }
+        if (tr && tr.parts && tr.parts.length) {
           IT.dom.insert(batch[i].el, tr);
           state.count++;
           inserted++;
         }
       }
-      state.emptyRuns = inserted > 0 ? 0 : state.emptyRuns + 1;
+      // **只有真的失败了才累计失败批次**：判定跳过（空串）也会「一段都没插进去」，
+      // 混在一起时，一页全是中文的正文会被误报成「翻译失败」
+      state.emptyRuns = (inserted > 0 || failures === 0) ? 0 : state.emptyRuns + 1;
       state.busy = false;
       report();
 

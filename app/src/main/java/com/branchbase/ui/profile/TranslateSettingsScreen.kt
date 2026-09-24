@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import com.branchbase.R
 import com.branchbase.translate.EngineResult
 import com.branchbase.translate.FailKind
+import com.branchbase.translate.PageRules
 import com.branchbase.translate.TranslateConfig
 import com.branchbase.translate.TranslateLang
 import com.branchbase.translate.TranslateProvider
@@ -75,6 +76,9 @@ import kotlinx.coroutines.launch
  *   与「给英文使用者看中文文档」；
  * - **显示方式**：对照 / 仅译文。两者共用同一份译文缓存，切换不重翻；
  * - **译文样式**：卡片 / 下划线 / 淡灰，只改注入页面根节点的一个属性，不重翻、不重建 WebView；
+ * - **中英混排**：中文段落里夹着外语片段时怎么办（判定引擎的使用规则）—— 只翻外语片段（默认，
+ *   按「片段 → 译文」配对展示）/ 整段一起翻（旧行为）/ 混排不翻。规则真源在 `PageRules.matchPolicy`，
+ *   既进原生判定也随设置注入页面脚本；
  * - **翻译服务**：MyMemory（免费零配置，默认）或 DeepSeek（**用户自带 API Key**）。
  *   选后者时展开 Key / 模型 / 接入地址三个输入框与一个「测试连接」；
  * - **本地缓存 / 保护代码与链接 / 清空缓存**：见各自的说明文案。
@@ -245,6 +249,35 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                 }
             }
 
+            // ── 中英混排：中文段落里夹着外语片段时怎么办（判定引擎的使用规则） ──
+            // 默认「只翻片段」：段内没有需要翻的内容就整段跳过，有就只把片段送去翻译、
+            // 按「片段 → 译文」配对展示。选「整段一起翻」等于回到旧行为（中文会被再翻一遍）。
+            SettingsSectionTitle(stringResource(R.string.translate_mix_section))
+            ModeOptionRow(
+                label = stringResource(R.string.translate_mix_match),
+                desc = stringResource(R.string.translate_mix_match_desc),
+                selected = config.matchPolicy == PageRules.MATCH_POLICY_MATCH,
+            ) {
+                config = config.copy(matchPolicy = PageRules.MATCH_POLICY_MATCH)
+                TranslateSettings.setMatchPolicy(context, PageRules.MATCH_POLICY_MATCH)
+            }
+            ModeOptionRow(
+                label = stringResource(R.string.translate_mix_whole),
+                desc = stringResource(R.string.translate_mix_whole_desc),
+                selected = config.matchPolicy == PageRules.MATCH_POLICY_WHOLE,
+            ) {
+                config = config.copy(matchPolicy = PageRules.MATCH_POLICY_WHOLE)
+                TranslateSettings.setMatchPolicy(context, PageRules.MATCH_POLICY_WHOLE)
+            }
+            ModeOptionRow(
+                label = stringResource(R.string.translate_mix_skip),
+                desc = stringResource(R.string.translate_mix_skip_desc),
+                selected = config.matchPolicy == PageRules.MATCH_POLICY_SKIP,
+            ) {
+                config = config.copy(matchPolicy = PageRules.MATCH_POLICY_SKIP)
+                TranslateSettings.setMatchPolicy(context, PageRules.MATCH_POLICY_SKIP)
+            }
+
             SettingsSectionTitle(stringResource(R.string.translate_display_mode))
             ModeOptionRow(
                 label = stringResource(R.string.translate_mode_dual),
@@ -326,6 +359,15 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                         Toast.makeText(context, context.getString(R.string.translate_cache_cleared), Toast.LENGTH_SHORT).show()
                     }
                 },
+            )
+            // 判定引擎的可见性：跳过多少段（「这段为什么没翻」）、匹配翻译了多少段 / 多少对片段。
+            // 数字是**本进程累计**的（与缓存行同一个口径），重进设置页不会归零。
+            Text(
+                stringResource(R.string.translate_decision_stats, stats.skipped, stats.matched, stats.parts),
+                fontSize = 11.5.sp,
+                color = Primer.TextTertiary,
+                lineHeight = 17.sp,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 4.dp),
             )
 
             SettingsSectionTitle(stringResource(R.string.translate_notes_section))

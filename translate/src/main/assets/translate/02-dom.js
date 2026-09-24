@@ -4,7 +4,9 @@
  * 本文件只做四件事：
  *   1. 找出「块级正文段落」，并跳过代码、表格代码、已有译文、被显式排除的节点；
  *   2. 把译文插进去 —— 普通块插成**兄弟节点**（原文一个字都不改）；列表项与表格
- *      单元格插成**子节点**（那两种位置放兄弟节点是非法 HTML，会破坏排版，见 INSERT_INSIDE）；
+ *      单元格插成**子节点**（那两种位置放兄弟节点是非法 HTML，会破坏排版，见 INSERT_INSIDE）。
+ *      容器里的内容是两种形态之一：整段译文，或**匹配性译文**（只翻了段内几个片段，
+ *      按「片段 → 译文」配对列出，见 fill()）；
  *   3. 用 IntersectionObserver 做视口优先，滚动到哪翻到哪；
  *   4. 给悬浮面板提供统计（候选段数 / 字符数）与「清空本页译文」。
  *
@@ -100,17 +102,53 @@
   /* ───────────── 译文插入 ───────────── */
 
   /**
+   * 把一批产物填进译文容器。
+   *
+   * 两种形态（原生侧 `TranslatePagePayload.encode` 产出）：
+   * - **字符串**：整段译文，直接当文本；
+   * - **对象**：匹配性译文 —— 只翻了段内的几个片段，按「片段 → 译文」配对列出
+   *   （`npm run dev → npm 运行开发`）。配对里保留原文片段，是因为读者要的正是
+   *   「这个词在这句里是什么意思」；「仅译文」模式由 CSS 把原文片段藏掉。
+   *
+   * 重复翻译同一段（换目标语言 / 重扫）时这里是**覆盖**而不是追加，
+   * 否则页面上会叠出两份译文 —— 与「译文容器存在 = 已翻译」那条幂等约定同源。
+   */
+  function fill(el, result) {
+    var parts = (result && result.parts) || null;
+    if (!parts || !parts.length) {
+      el.removeAttribute('data-bb-mode');
+      el.textContent = typeof result === 'string' ? result : '';
+      return;
+    }
+    el.setAttribute('data-bb-mode', 'match');
+    el.textContent = '';
+    for (var i = 0; i < parts.length; i++) {
+      var pair = document.createElement('span');
+      pair.className = 'bb-tr-pair';
+      var src = document.createElement('span');
+      src.className = 'bb-tr-pair-src';
+      src.textContent = parts[i].s || '';
+      var dst = document.createElement('span');
+      dst.className = 'bb-tr-pair-dst';
+      dst.textContent = parts[i].t || '';
+      pair.appendChild(src);
+      pair.appendChild(dst);
+      el.appendChild(pair);
+    }
+  }
+
+  /**
    * 译文容器。
    *
    * @param inline true = 用 `<span>`：**标题只接受短语内容**，往里塞 `<div>` 和往 `<ul>` 里
    *   塞 `<div>` 是同一类错误（浏览器按匿名内容处理）。`.bb-tr` 自带 `display: block`，
    *   所以 span 的排版与 div 完全一致，不需要额外的定位样式。
    */
-  function makeTranslation(translated, inline) {
+  function makeTranslation(result, inline) {
     var el = document.createElement(inline ? 'span' : 'div');
     el.className = 'bb-tr';
     el.setAttribute('lang', state.to);
-    el.textContent = translated;
+    fill(el, result);
     return el;
   }
 
@@ -122,19 +160,19 @@
    * 受限容器（列表项 / 表格单元格，见 [INSERT_INSIDE]）→ 插成**子节点**：
    * 那两种位置放兄弟节点是非法 HTML，会破坏列表与表格的排版。
    */
-  function insert(el, translated) {
+  function insert(el, result) {
     if (INSERT_INSIDE[el.tagName]) {
-      insertInside(el, translated);
+      insertInside(el, result);
       return;
     }
     var next = el.nextElementSibling;
     if (next && next.classList && next.classList.contains('bb-tr')) {
-      next.textContent = translated;   // 同一段重复翻译（换目标语言）时直接覆盖
+      fill(next, result);   // 同一段重复翻译（换目标语言）时直接覆盖
       return;
     }
     // 标记源元素：仅译文模式下由 CSS 隐藏它（切回对照只需去掉 body 上的类）
     if (el.classList) el.classList.add('bb-tr-src');
-    if (el.parentNode) el.parentNode.insertBefore(makeTranslation(translated, false), el.nextSibling);
+    if (el.parentNode) el.parentNode.insertBefore(makeTranslation(result, false), el.nextSibling);
   }
 
   /**
@@ -143,9 +181,9 @@
    * 原文会被包进一层 `<span class="bb-tr-src" data-bb-wrap="1">`：这样「仅译文」
    * 模式仍然只藏原文（藏整个 `<td>` 会让表格塌一列），清空时再把包裹层拆掉还原。
    */
-  function insertInside(el, translated) {
+  function insertInside(el, result) {
     var existing = directChild(el, 'bb-tr');
-    if (existing) { existing.textContent = translated; return; }
+    if (existing) { fill(existing, result); return; }
     var src = directChild(el, 'bb-tr-src');
     if (!src) {
       src = document.createElement('span');
@@ -155,7 +193,7 @@
       el.appendChild(src);
     }
     // 标题只能用短语内容（span），其余内部插入（li / td / th）用 div
-    el.appendChild(makeTranslation(translated, /^H[1-6]$/.test(el.tagName)));
+    el.appendChild(makeTranslation(result, /^H[1-6]$/.test(el.tagName)));
   }
 
   /* ───────────── 视口优先 ───────────── */

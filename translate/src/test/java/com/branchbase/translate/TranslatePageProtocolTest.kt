@@ -1,6 +1,7 @@
 package com.branchbase.translate
 
 import java.io.File
+import org.json.JSONArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -113,5 +114,53 @@ class TranslatePageProtocolTest {
             """window.__bbIT && window.__bbIT.command("retry", "")""",
             TranslatePageCommands.js(TranslatePageCommands.RETRY),
         )
+    }
+
+    // ── 译文载荷（混合类型数组，1.0.89） ──
+
+    /**
+     * 一批产物的四种元素形态。
+     *
+     * `""`（判定跳过）与 `null`（翻译失败）**必须分得开**：页面靠「一批里一段都没插进去」
+     * 判断服务不可用，而判定跳过也会「一段都没插进去」—— 混在一起时，
+     * 一页全是中文的正文会被误报成翻译失败。
+     */
+    @Test
+    fun `载荷元素区分跳过_整段_匹配与失败`() {
+        val json = TranslatePagePayload.encode(
+            listOf(
+                ParagraphTranslation.None,
+                ParagraphTranslation.Whole("你好，世界"),
+                ParagraphTranslation.Matched(listOf(TranslatedPart("npm run dev", "运行开发"))),
+                ParagraphTranslation.Failed,
+            ),
+        )
+        val arr = JSONArray(json)
+        assertEquals(4, arr.length())
+        assertEquals("", arr.get(0))
+        assertEquals("你好，世界", arr.get(1))
+
+        val matched = arr.getJSONObject(2)
+        assertEquals(TranslatePagePayload.MODE_MATCH, matched.getString("mode"))
+        val pair = matched.getJSONArray("parts").getJSONObject(0)
+        assertEquals("npm run dev", pair.getString("s"))
+        assertEquals("运行开发", pair.getString("t"))
+        assertTrue("失败元素必须是 JSON null", arr.isNull(3))
+    }
+
+    @Test
+    fun `载荷里的引号与换行不会破坏_JSON`() {
+        val text = "他说：\"你好\"\n第二行"
+        val json = TranslatePagePayload.encode(listOf(ParagraphTranslation.Whole(text)))
+        assertEquals(text, JSONArray(json).getString(0))
+    }
+
+    @Test
+    fun `页面脚本认得出四种元素`() {
+        val core = script("01-core.js")
+        assertTrue("null 要按失败计", core.contains("tr === null"))
+        assertTrue("对象要按匹配性译文渲染", core.contains("tr.parts"))
+        assertTrue("判定跳过（空串）不能计失败", core.contains("if (!tr) continue;"))
+        assertTrue("匹配性译文的渲染在 02-dom.js", script("02-dom.js").contains("data-bb-mode"))
     }
 }

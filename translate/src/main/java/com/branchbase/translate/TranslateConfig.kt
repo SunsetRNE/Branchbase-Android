@@ -29,6 +29,11 @@ import org.json.JSONObject
  * - [persist]：译文是否落盘（跨进程复用）。默认开 —— 同一篇 README 重开一次就能秒出译文；
  * - [protect]：是否启用占位符保护（URL / @提及 / #编号 / SHA 等不送去翻译，译后原样还原）。
  *   默认开，出问题时可以关掉用于对比排查。
+ *
+ * **判定（见 [TranslateDecisionEngine]）**：
+ * - [matchPolicy]：混排段落（中文段落里夹着外语片段）的处理方式。默认「只翻外语片段」——
+ *   中文段落不再被整段重翻一遍，只有段内**需要翻译的内容**被送去翻译并按片段配对展示。
+ *   它是 [PageRules] 的一个字段，既进原生判定、也随设置注入页面脚本（两边同一份规则）。
  */
 data class TranslateConfig(
     val enabled: Boolean = false,
@@ -41,6 +46,7 @@ data class TranslateConfig(
     val apiKey: String = "",
     val model: String = "",
     val baseUrl: String = "",
+    val matchPolicy: String = PageRules.MATCH_POLICY_MATCH,
 ) {
 
     val targetLang: TranslateLang get() = TranslateLang.byCode(target)
@@ -51,6 +57,14 @@ data class TranslateConfig(
     val source: String get() = TranslateLang.sourceOf(target)
 
     val providerKind: TranslateProvider get() = TranslateProvider.byCode(provider)
+
+    /**
+     * 本次生效的判定规则（原生判定与页面脚本注入**共用这一份**）。
+     *
+     * 目前只有 [matchPolicy] 由设置决定，其余是 [PageRules] 的默认值；
+     * 以后新增「用户可调的判定参数」也挂在这里，页面脚本与原生侧不会各拿各的。
+     */
+    fun rules(): PageRules = PageRules.DEFAULT.copy(matchPolicy = PageRules.matchPolicyOf(matchPolicy))
 
     /** 当前后端是否已具备可用条件（DeepSeek 需要非空 Key）。 */
     val ready: Boolean get() = !providerKind.requiresKey || apiKey.isNotBlank()
@@ -120,6 +134,7 @@ object TranslateSettings {
     private const val KEY_API_KEY = "translate.deepseek.key"
     private const val KEY_MODEL = "translate.deepseek.model"
     private const val KEY_BASE_URL = "translate.deepseek.baseUrl"
+    private const val KEY_MATCH_POLICY = "translate.matchPolicy"
 
     @Volatile
     private var cached: TranslateConfig? = null
@@ -141,6 +156,7 @@ object TranslateSettings {
             apiKey = p.getString(KEY_API_KEY, "") ?: "",
             model = p.getString(KEY_MODEL, "") ?: "",
             baseUrl = p.getString(KEY_BASE_URL, "") ?: "",
+            matchPolicy = PageRules.matchPolicyOf(p.getString(KEY_MATCH_POLICY, null)),
         )
     }
 
@@ -168,12 +184,17 @@ object TranslateSettings {
     fun setBaseUrl(context: Context, url: String) =
         write(context, KEY_BASE_URL, url.trim().trimEnd('/'))
 
+    /** 保存混排段落的处理规则（认不出来的取值回落到默认，见 [PageRules.matchPolicyOf]）。 */
+    fun setMatchPolicy(context: Context, policy: String) =
+        write(context, KEY_MATCH_POLICY, PageRules.matchPolicyOf(policy))
+
     /** 恢复默认（清掉本功能的键，其它设置不动；**含 API Key**）。 */
     fun reset(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .remove(KEY_ENABLED).remove(KEY_TARGET).remove(KEY_DUAL)
             .remove(KEY_STYLE).remove(KEY_PERSIST).remove(KEY_PROTECT)
             .remove(KEY_PROVIDER).remove(KEY_API_KEY).remove(KEY_MODEL).remove(KEY_BASE_URL)
+            .remove(KEY_MATCH_POLICY)
             .apply()
         cached = null
     }
@@ -195,8 +216,8 @@ object TranslateSettings {
      * 用 `JSONObject` 而不是字符串拼接：`to` 将来若变成用户填的语言码，
      * 拼字符串就是一个注入漏洞（`'` 会直接逃出 JSON 字面量）。
      *
-     * `rules` 是「哪一段值得翻」的判定参数 —— 页面脚本只使用、不定义，
-     * 保证与原生侧 [TranslateTextPolicy] 用的是同一套阈值。
+     * `rules` 是「哪一段值得翻、翻哪一部分」的判定参数 —— 页面脚本只使用、不定义，
+     * 保证与原生侧 [TranslateDecisionEngine] 用的是同一套阈值（含用户选的混排规则）。
      */
     fun pageConfigJson(config: TranslateConfig, dark: Boolean = false): String = JSONObject()
         .put("enabled", config.enabled)
@@ -206,7 +227,7 @@ object TranslateSettings {
         .put("dual", config.dual)
         .put("style", config.style)
         .put("protect", config.protect)
-        .put("rules", JSONObject(PageRules.DEFAULT.toJson()))
+        .put("rules", JSONObject(config.rules().toJson()))
         .toString()
 
     /** 完整注入脚本（含分号，可直接塞进 `<script>`）。 */

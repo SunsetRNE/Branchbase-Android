@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只留格式契约 + 写法样板（3 个经典示例）；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.88**）
-与 §三 `versionCode` 流水（129 → **190**）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.89**）
+与 §三 `versionCode` 流水（129 → **191**）。
 
 ---
 
@@ -25,7 +25,92 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.88 → 1.0.22）
+## 二、`versionName` 流水（1.0.89 → 1.0.22）
+
+### 1.0.89
+
+**沉浸式翻译判定引擎（一致即跳过 / 混排段落匹配性翻译）+ 混排使用规则；Git 操作管理的三处状态缺陷修复 +「版本管理树」设计草稿（未落地）**。
+
+原先的判定只有一条口径：段落里「最长连续拉丁字母 ≥ 3 且汉字占比 ≤ 一半」才翻。它有两个后果：
+
+① **一致的内容会被再翻一遍**。中文段落偶尔漏过阈值，服务端把原文原样还回来（没翻、
+专有名词、from/to 写反），页面照样插一张**与原文逐字相同**的卡片 —— 用户看到的是
+「翻译坏了」，而且每次重开页面都要把同一段再问一遍。现在译后会做一次**一致校验**
+（大小写 / 全角半角 / 零宽字符 / 首尾标点都不算差异），一致的段落不插卡片，
+并记进**判定缓存**：同一段在这个进程内**连请求都不发**（`Translator` 的不变式 3）。
+
+② **汉字占比超过一半的段落整段被放弃**，于是段内真正需要翻的东西（`pnpm workspace`、
+`pull request`）永远翻不出来。现在判定分三条规则（`TranslateDecision.kt`，
+纯函数 + `TranslateDecisionTest` 27 例）：
+
+| 条件 | 结论 |
+|------|------|
+| 段内没有需要翻的内容（无外语字母，或只有 `CI` / `a` / `3D` 这类零碎外语） | **一致 → 跳过** |
+| 外语为主（目标文字占比 ≤ `hanRatioMax`，含整段外语） | **整段翻**（旧行为不变） |
+| 目标文字为主、段内确有需要翻的片段 | **匹配性翻译**：只翻片段，按「片段 → 译文」配对展示 |
+
+配套的几处：
+
+- **片段切法**：连续外语字母吸收**夹在中间**的空格/标点/数字 —— `npm run dev` 是一个片段
+  而不是三个词（逐词送翻会得到「npm 运行 开发」这种读不通的东西）；按出现顺序去重；
+  片段本身与原文一致时不成对（`Docker → Docker` 没有信息量）；片段数 > `maxMatchParts`（6）
+  说明这段其实以外语为主，回退整段翻。每个片段各自进缓存（同一片段全站只翻一次）；
+- **判定在「占位符保护视角」下做**（与「保护代码与链接」开关无关）：URL / 行内代码 /
+  `@提及` / 提交 SHA 在判定眼里是中性字符。少了这一层，`详见 https://… 的说明` 会被判成
+  「有需要翻的内容」，片段是 `https`；
+- **使用规则进设置页**（设置 → 沉浸式翻译 →「中英混排」，落盘键 `translate.matchPolicy`）：
+  只翻外语片段（默认）/ 整段一起翻（旧行为，用于对照）/ 中英混排不翻（最省额度）。
+  规则真源仍是 `PageRules`，随设置注入 `window.__bbTranslate.rules`，页面脚本的镜像
+  （`01-core.js` 的 `analyze()`）与原生侧逐区间对齐（`isLatinLetter` 的区间是写死的，
+  就是为了这份镜像）；
+- **展示**：译文容器带 `data-bb-mode="match"`，里面是一组「原文片段 → 译文片段」
+  （箭头与间隔号由 CSS 画）；仅译文模式藏掉原文片段只留译文；换目标语言 / 重扫是覆盖而非追加；
+- **协议细分**：一批产物的元素变成混合类型 —— `""`（判定跳过）/ 字符串（整段译文）/
+  对象（匹配性译文）/ `null`（翻译失败，`TranslatePagePayload`）。**`""` 与 `null` 必须分开**：
+  页面靠「一批里一段都没插进去」判断服务不可用，而判定跳过也会「一段都没插进去」——
+  混在一起时，一页全是中文的正文会被误报成「翻译失败」（旧脚本只看空串，所以这条同时改了
+  `01-core.js` 的 `pump()`）；
+- **可观测**：设置页多一行「本次运行判定：跳过 N 段 · 匹配翻译 N 段（N 对片段）」，
+  每批的日志汇总也带上「判定跳过」与「匹配段数」（`TranslateStats` 新增 4 个计数）；
+- **设置页新增一组三选一**（`ModeOptionRow`×3），中英资源成对新增 8 条（`strings.tsv` 同步）。
+
+模块改动：`TranslateDecision.kt`（新）、`TranslateTextPolicy.kt`（收成文本原语 + 布尔入口）、
+`Translator.kt`（`translateOne` / `translateBatch` 返回 `ParagraphTranslation`，
+旧的 `translateParagraph` / `translateAll` 一并移除）、`PlaceholderGuard.restorePartial`、
+`TranslatePagePayload`（新）、`01-core.js` / `02-dom.js` / `translate.css`；
+app 侧 `ReadmeWebView`（编码改走模块）、`TranslateSettingsScreen`。
+新增/改写单测：`TranslateDecisionTest` 27 例、`TranslatorTest` 21 例、
+`PlaceholderGuardTest` +2、`TranslatePageProtocolTest` +3、`TranslatePageDomTest` +2。
+
+**Git 操作管理（同版第二部分）**。三处缺陷是同一类坏法：**操作成功但界面不跟着变、
+失败了却不知道原因**。单看都不致命，但它们会让用户对本地仓库的每一次操作失去信任
+（「到底生效没有」），所以排在「版本管理树」面板之前修 —— 面板会把它们从「偶发」
+变成「每次操作都看得见」。
+
+① **文件页 Git 徽标提交后不刷新**：`rememberLocalRepoGitState(repo)` 的 tick 恒为 0，
+本地提交成功后徽标仍是「待推送 0」（用户看到的是「点了没反应」）。现在 tick 有两个来源 ——
+本页本地提交成功后 `gitTick++`，以及从子页（分支同步 / 决策页）回来时由
+`rememberPageResumeTick()` 触发重读；后者顺带修掉「在同步页切完分支、回到文件页还是旧状态」。
+
+② **本地仓库页分支胶囊陈旧**：`LaunchedEffect(repos)` 以**目录集合**为键，而 `mutableStateOf`
+用结构相等 —— 切过分支再回到列表，目录一个字都没变，胶囊一直是旧分支名。
+现在键里带上 `page`（回到列表即重读），并在非列表页提前返回：进子页不再白跑 N 次 `gitStatus`。
+
+③ **Git 写操作的失败原因被吞掉**：`gitResetSoft` / `gitResetHardRemote` / `gitAmend` 返回
+`Boolean`，把 native 的 `ERROR:…` 就地丢掉，决策页只能说「XXX 失败（原因见日志）」——
+而**日志里没有那条原因**。现在统一成 **`null` = 成功 / 非空 = 原因**
+（与 `gitPullDetailed` / `gitPushDetailed` / `gitPushSetUpstream` 同一约定），
+5 处调用点把原因透进 `failureMessage(action, reason)`；归一化提成顶层 `engineErrorOrNull`，
+新增钉子 **`GitErrorConventionTest`** 4 例（成功折叠成 null / 去 `ERROR:` 前缀 / 300 字截断 /
+非 `ERROR:` 前缀按成功 —— 最后一条是为了不让行为相对旧实现漂移）。
+`error_reset_hard_failed` 资源加位置参数 `%1$s`（中英 + `strings.tsv` 同步）。
+
+④ **「版本管理树」设计草稿入库**：新增 `docs/specs/git-version-tree-design.md` ——
+三个已拍板的决策（提交 DAG 图 / 引用树 / 文件历史树**三视图都要**；可视化 + 操作，
+危险动作走决策页；接受为「离线 + 完整历史」做加深克隆）、双源分层（远端 REST / 本地 libgit2）、
+三个待新增引擎接口（`log_graph` · `fetch_deepen` · `list_tags`）、分阶段落地计划，
+以及那份「漏了不会红」的登记清单；同时登记进 `docs/README.md` §五 索引。
+**本文是草稿：代码里没有任何实现**（全仓 grep 版本树 / 图谱零命中）。
 
 ### 1.0.88
 
@@ -1988,11 +2073,17 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（190 → 129）
+## 三、`versionCode` 流水（191 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **191**：沉浸式翻译判定引擎 —— 一致即跳过（译后一致校验 + 判定缓存，不再插与原文逐字相同的卡片）
++ 混排段落匹配性翻译（只翻段内片段、按「片段 → 译文」配对展示，`TranslateDecision.kt` 新文件）
++ 混排使用规则进设置页（只翻片段 / 整段翻 / 不翻，`translate.matchPolicy`）
++ 协议元素细分（`""` 判定跳过 vs `null` 失败，页面不再把「跳过」误报成「翻译失败」）
+（一次提交，故 +1）
 
 - **190**：项目声明改为 MIT —— 新增 `LICENSE`（MIT 全文）与 `THIRD-PARTY-NOTICES.md`
 （非自研内容分「vendored 文件 / 构建依赖」两类逐条声明来源；其中 Sora Editor 为 LGPL-2.1、

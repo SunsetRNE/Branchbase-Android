@@ -75,7 +75,10 @@ enum class TranslateLang(val code: String, val label: String, val description: S
  * - [skipPatterns]：**一眼就不该翻**的短文本（纯数字、纯 URL、版本号、标签残留…），
  *   它们是正则**源码字符串**，Kotlin 与页面脚本各自编译一份、判定同一件事；
  * - [immediateLimit]：整页候选文本总长度不超过它时**不做视口优先**，一次性全翻
- *   （短页面「点一下整页就翻好了」的体验最好；长页面才需要按视口推进省额度）。
+ *   （短页面「点一下整页就翻好了」的体验最好；长页面才需要按视口推进省额度）；
+ * - [matchPolicy] / [matchMinLen] / [maxMatchParts]：**混排段落**（目标文字为主、
+ *   段内夹着要翻的外语片段）怎么处理 —— 见 [MATCH_POLICY_MATCH] 等常量与
+ *   `TranslateDecisionEngine` 的规则 ③④。
  */
 data class PageRules(
     val minLen: Int = 2,
@@ -85,6 +88,25 @@ data class PageRules(
     val minHan: Int = 4,
     val immediateLimit: Int = 5_000,
     val skipPatterns: List<String> = DEFAULT_SKIP_PATTERNS,
+    /**
+     * 混排段落的使用规则：[MATCH_POLICY_MATCH] 只翻外语片段（默认）、
+     * [MATCH_POLICY_WHOLE] 整段一起翻、[MATCH_POLICY_SKIP] 混排段落不翻。
+     */
+    val matchPolicy: String = MATCH_POLICY_MATCH,
+    /**
+     * 值得**单独**翻的片段最短长度。
+     *
+     * 中文段落里夹的短英文（`CI`、`PR`、`a`）翻出来只会更差，而且是白花额度：
+     * 低于这个长度的片段不进匹配性翻译。默认 4（`npm` 这种三字母专有名词也放过）。
+     */
+    val matchMinLen: Int = 4,
+    /**
+     * 一段里最多列多少个匹配片段。
+     *
+     * 超过它说明这段其实以外语为主（只是夹了几个汉字），整段翻反而更通顺 ——
+     * 判定引擎会把这种段落回退成 [TranslateDecision.Whole]。
+     */
+    val maxMatchParts: Int = 6,
 ) {
 
     /** 编译后的跳过规则（每段判定一次，避免重复编译正则）。 */
@@ -104,9 +126,34 @@ data class PageRules(
         .put("minHan", minHan)
         .put("immediateLimit", immediateLimit)
         .put("skipPatterns", JSONArray(skipPatterns))
+        .put("matchPolicy", matchPolicy)
+        .put("matchMinLen", matchMinLen)
+        .put("maxMatchParts", maxMatchParts)
         .toString()
 
     companion object {
+
+        /**
+         * 混排段落（目标文字为主、段内夹着外语片段）的处理方式。
+         *
+         * 三个取值是**用户可选的使用规则**，默认 [MATCH_POLICY_MATCH]：
+         * - [MATCH_POLICY_MATCH]：只翻外语片段，按「片段 → 译文」配对展示（默认）；
+         * - [MATCH_POLICY_WHOLE]：整段一起翻（旧行为：中文段落会被再翻一遍，只适合核对）；
+         * - [MATCH_POLICY_SKIP]：混排段落不翻（最保守，一个请求都不发）。
+         *
+         * 判定在 [TranslateDecisionEngine] 的规则 ④，页面脚本里有一份同规则的镜像
+         * （粗筛用，见 `01-core.js`）。
+         */
+        const val MATCH_POLICY_MATCH: String = "match"
+        const val MATCH_POLICY_WHOLE: String = "whole"
+        const val MATCH_POLICY_SKIP: String = "skip"
+
+        /** 可选的混排规则（设置页按这个顺序展示）。 */
+        val MATCH_POLICIES: List<String> = listOf(MATCH_POLICY_MATCH, MATCH_POLICY_WHOLE, MATCH_POLICY_SKIP)
+
+        /** 认不出来的取值回落到默认（设置被手改坏时不会让判定失效）。 */
+        fun matchPolicyOf(code: String?): String =
+            code?.takeIf { it in MATCH_POLICIES } ?: MATCH_POLICY_MATCH
 
         /**
          * 语言切换行：**语言名 ×2 + 一个分隔符**，整行只由这些组成。

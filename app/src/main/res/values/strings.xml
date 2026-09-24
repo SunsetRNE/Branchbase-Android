@@ -45,6 +45,14 @@
     <string name="translate_cache_disk_toggle_desc">把译文落盘，重开 App 后同一段不再重复翻译（关闭只是不再读写磁盘，不清除已存内容）。</string>
     <string name="translate_style_underline_desc">无底色，只用虚线下划线标出译文</string>
     <string name="translate_target_language">目标语言</string>
+    <string name="translate_mix_section">中英混排</string>
+    <string name="translate_mix_match">只翻外语片段</string>
+    <string name="translate_mix_match_desc">中文段落里的英文短语单独翻译，按「短语 → 译文」对照展示；段内没有值得翻的内容就整段跳过，不会再插一张与原文重复的卡片（推荐）</string>
+    <string name="translate_mix_whole">整段一起翻</string>
+    <string name="translate_mix_whole_desc">含中文的段落整段送去翻译（中文会被再翻一遍，译文质量反而更差，仅用于对照）</string>
+    <string name="translate_mix_skip">中英混排不翻</string>
+    <string name="translate_mix_skip_desc">含中文的段落一律不翻，只翻外语段落（最省额度，也最保守）</string>
+    <string name="translate_decision_stats">本次运行判定：跳过 %1$s 段 · 匹配翻译 %2$s 段（%3$s 对片段）</string>
     <string name="translate_style_plain">淡灰</string>
     <string name="translate_cache_cleared">已清空译文缓存</string>
     <string name="translate_key_placeholder">sk-…（platform.deepseek.com 申请）</string>
@@ -731,7 +739,7 @@
     <string name="action_create_and_track">创建并跟踪</string>
     <string name="action_refresh_remote">刷新远端</string>
     <string name="confirm_discard_local_commits_body">会把 %1$s 强制对齐到 origin/%2$s，本地独有的提交将不再被分支引用（仍可通过 reflog 找回，但界面上看不到）。</string>
-    <string name="error_reset_hard_failed">reset --hard 失败</string>
+    <string name="error_reset_hard_failed">reset --hard 失败：%1$s</string>
     <string name="label_branch_counts">%1$s 个本地分支 · %2$s 个远端分支</string>
     <string name="error_switch_to_failed">切换到 %1$s 失败：%2$s</string>
     <string name="suffix_worktree_changes"> · 工作区 %1$s 个改动</string>

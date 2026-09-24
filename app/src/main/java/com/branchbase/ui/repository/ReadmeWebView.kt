@@ -34,6 +34,7 @@ import com.branchbase.ui.theme.LocalIsDarkTheme
 import com.branchbase.translate.TranslateBridge
 import com.branchbase.translate.TranslatePage
 import com.branchbase.translate.TranslatePageCommands
+import com.branchbase.translate.TranslatePagePayload
 import com.branchbase.translate.TranslatePageSnapshot
 import com.branchbase.translate.TranslateRuntime
 import com.branchbase.translate.TranslateSettings
@@ -245,8 +246,11 @@ fun ReadmeWebView(
         TranslateBridge(
             scope = translateScope,
             translator = TranslateRuntime.translator,
-            onResult = { id, toLang, translations ->
-                val payload = JSONObject.wrap(translations)?.toString() ?: "[]"
+            onResult = { id, toLang, results ->
+                // 元素形态（空串 = 判定跳过 / 字符串 = 整段译文 / 对象 = 匹配性译文 / null = 失败）
+                // 属于 :translate 的页面协议，编码器也放在那个模块里（见 TranslatePagePayload）——
+                // 这里只负责把编好的 JSON 塞进那一行 JS。
+                val payload = TranslatePagePayload.encode(results)
                 webView.evaluateJavascript(
                     "window.__bbTranslated(${JSONObject.quote(id)}, ${JSONObject.quote(toLang)}, ${JSONObject.quote(payload)})",
                     null,

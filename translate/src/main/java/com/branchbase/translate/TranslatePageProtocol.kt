@@ -1,5 +1,6 @@
 package com.branchbase.translate
 
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -94,4 +95,56 @@ object TranslatePageCommands {
     /** 生成可直接 evaluateJavascript 的一行（`window.__bbIT` 缺失时静默跳过）。 */
     fun js(command: String, arg: String = ""): String =
         "window.__bbIT && window.__bbIT.command(${JSONObject.quote(command)}, ${JSONObject.quote(arg)})"
+}
+
+/**
+ * 一批译文 → 注入页面的 JSON 数组（`window.__bbTranslated(id, to, json)` 的第三个参数）。
+ *
+ * ## 为什么元素不是「一串字符串」
+ *
+ * 判定引擎（1.0.89）之后，一段的结果有三种形态：什么都不做、整段译文、**只翻了段内部分片段**。
+ * 前两种能塞进一个字符串（空串 = 不做），第三种塞不进去（它是一组「片段 → 译文」），
+ * 于是元素变成**混合类型**，由这份编码器统一产出、页面脚本按同一约定解析：
+ *
+ * | 元素 | 含义 | 页面行为 |
+ * |------|------|----------|
+ * | `""` | 判定为不需要翻（本身就是目标文字 / 译后一致） | 什么都不做，**不计失败** |
+ * | `"译文"` | 整段译文 | 插一张译文块（旧形态，未变） |
+ * | `{"mode":"match","parts":[{"s":…,"t":…}]}` | 匹配性译文 | 插一组片段配对 |
+ * | `null` | 这一段翻译失败 | 计一次失败（页面据此判断服务不可用） |
+ *
+ * `""` 与 `null` 必须分开：页面侧靠「一批里一段都没插进去」判定服务不可用，
+ * 而**判定跳过**也会「一段都没插进去」—— 混在一起时，一页全是中文的正文会被误报成翻译失败。
+ *
+ * 用 `org.json` 而不是拼字符串：译文里出现引号、换行、emoji 是常态，
+ * 手拼的坏法（JSON 里多一个裸引号）是整个批次静默丢失。
+ */
+object TranslatePagePayload {
+
+    fun encode(results: List<ParagraphTranslation>): String {
+        val arr = JSONArray()
+        for (r in results) {
+            when (r) {
+                is ParagraphTranslation.None -> arr.put("")
+                is ParagraphTranslation.Failed -> arr.put(JSONObject.NULL)
+                is ParagraphTranslation.Whole -> arr.put(r.text)
+                is ParagraphTranslation.Matched -> arr.put(
+                    JSONObject()
+                        .put("mode", MODE_MATCH)
+                        .put(
+                            "parts",
+                            JSONArray().apply {
+                                r.parts.forEach { p ->
+                                    put(JSONObject().put("s", p.source).put("t", p.translated))
+                                }
+                            },
+                        ),
+                )
+            }
+        }
+        return arr.toString()
+    }
+
+    /** 匹配性译文的模式标记（页面脚本 `01-core.js` / `02-dom.js` 按它分派渲染）。 */
+    const val MODE_MATCH = "match"
 }

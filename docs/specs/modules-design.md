@@ -80,18 +80,59 @@ WebView 的边界裁掉 —— 结果是「正文比屏幕短时，面板永远�
 |------|------|
 | `TranslateLanguages.kt` | 语言模型（中英两向）+ 页面判定参数 `PageRules`（含注入 JS 的 JSON） |
 | `TranslateProvider.kt` | 可选后端：MyMemory（免费）/ DeepSeek（自带 API Key，OpenAI 兼容） |
-| `TranslateTextPolicy.kt` | 「这一段值不值得翻」的权威判定（纯函数，可单测） |
+| `TranslateDecision.kt` | **判定引擎**：一致即跳过 / 外语为主整段翻 / 目标文字为主只翻片段（纯函数，可单测） |
+| `TranslateTextPolicy.kt` | 文本原语（归一化 / 字符分类）+ `needsTranslation` 入口（判定引擎的布尔形态） |
 | `TextSegmenter.kt` | 长文本分片：段落 → 句末 → 空格 → 硬切（后端 500 字符硬上限） |
 | `PlaceholderGuard.kt` | 占位符保护：URL / `@提及` / `#编号` / 邮箱 / 模板变量 / 提交 SHA |
 | `TranslateCache.kt` | 进程内 LRU + 磁盘追加日志缓存（跨进程复用） |
 | `TranslateEngine.kt` | 后端接口 + 失败分类（`QUOTA` / `NETWORK` / `UNSUPPORTED` / `UNKNOWN`） |
 | `TranslateScheduler.kt` | 全局串行闸门 + 指数退避重试 + 两级熔断 |
-| `Translator.kt` | 门面：判定 → 缓存 → 保护 → 分片 → 调度 → 还原 → 回写缓存 |
+| `Translator.kt` | 门面：判定 → 缓存 → 保护 → 分片 → 调度 → 还原 → 回写缓存（含译后一致校验与判定缓存） |
 | `TranslateConfig.kt` | 用户设置与读写（自动翻译 / 目标语言 / 显示方式 / 样式 / 本地缓存 / 保护） |
 | `TranslatePageProtocol.kt` | 页面 ↔ 原生的协议：状态快照 `TranslatePageSnapshot` + 命令 `TranslatePageCommands` |
 | `TranslatePage.kt` | 页面资产装载：`assets/translate/*` 的 CSS 与三个脚本按序拼接 |
 | `TranslateBridge.kt` | WebView JS 桥（`request` / `retry` / `state` / `report`，异步回调 + 状态上报） |
 | `TranslateRuntime.kt` | 装配点：`Application.onCreate` 里 `install(this, RustTranslateEngine())` |
+
+### 判定引擎：要不要翻 → 翻哪一部分 → 怎么展示（1.0.89）
+
+`TranslateDecision.kt` 是**唯一**的判定实现，`TranslateTextPolicy.needsTranslation` 只是它的布尔入口。
+判定按顺序走三条规则，前一条成立就不再往下：
+
+| # | 条件 | 结论 |
+|---|------|------|
+| ① | 段内没有需要翻的内容（没有外语字母，或只有 `CI` / `a` / `3D` 这种零碎外语） | **一致 → 跳过**，页面上什么都不插 |
+| ② | 外语为主（目标文字占比 ≤ `hanRatioMax`，含整段外语） | **整段翻**（一直以来的行为；英文段落里夹一句中文引文也读得通） |
+| ③ | 目标文字为主、段内确有需要翻的片段 | **匹配性翻译**：只把片段送去翻译，按「片段 → 译文」配对展示 |
+
+**「一致」有两层，两层都要判**：
+
+- **事前**：段内没有外语内容 —— 它本来就是目标文字（`这是一段中文说明，里面有 CI 字样。`）；
+- **事后**：译文与原文归一化后逐字相同（大小写 / 全角半角 / 零宽字符 / 首尾标点都不算差异）——
+  服务端把原文原样还回来（没翻、专有名词、from/to 写反）时，插一张与原文逐字相同的卡片
+  只会让用户以为「翻译坏了」。这类段落会被记进**判定缓存**，**下次连请求都不发**；
+  少了这一步，每次重开页面都要再问一遍，问回来还是同一份原文（`Translator` 的不变式 3）。
+
+**判定在「占位符保护视角」下做**，与设置里的「保护代码与链接」开关无关：
+URL / 行内代码 / `@提及` / 提交 SHA 在判定眼里是中性字符。少了这一层，
+`详见 https://example.com/docs 的说明` 会被判成「有需要翻的内容」，片段是 `https`。
+那个开关只决定**送出去的时候**是否把标记换成占位符。
+
+**匹配片段怎么切**：连续外语字母，吸收**夹在中间**的空格 / 标点 / 数字 ——
+`npm run dev` 是一个片段而不是三个词（逐词送翻会得到三份互相不知道上下文的译文，
+拼起来是「npm 运行 开发」）。按出现顺序去重；片段与原文一致时（产品名、专有名词）不成对
+（`Docker → Docker` 没有信息量）；片段数超过 `maxMatchParts`（默认 6）说明这段其实以外语为主，
+回退成整段翻。每个片段各自进缓存 —— 同一片段全站只翻一次。
+
+**使用规则**（设置 → 沉浸式翻译 → 中英混排，落盘键 `translate.matchPolicy`）：
+只翻外语片段（默认）/ 整段一起翻（旧行为，用于对照）/ 中英混排不翻（最省额度）。
+规则真源仍是 Kotlin 的 `PageRules`，随设置注入 `window.__bbTranslate.rules`；
+页面脚本（`01-core.js` 的 `analyze()` / `needsTranslation()`）用同一套阈值做**粗筛**
+（省一次往返、省一次额度），权威判定在原生侧 —— 脚本漂移时最坏是多送一段。
+
+**展示**：`data-bb-mode="match"` 的译文容器里是一组「原文片段 → 译文片段」，
+箭头与间隔号由 CSS 画（DOM 里只有两个 span，清空 / 重填都不必管分隔符）；
+对照模式给配对、仅译文模式由 CSS 藏掉原文片段只留译文；换目标语言 / 重扫是**覆盖**而非追加。
 
 页面脚本按职责拆分（`translate/src/main/assets/translate/`）：
 `01-core.js`（配置 / 状态机 / 批量队列 / 状态上报）、
@@ -124,8 +165,10 @@ Compose 覆盖层（`ui/translate/TranslateBubble.kt`，在 `MainActivity` 根�
 
 1. **译文是原文的兄弟节点，原文一个字都不改** —— 网页版旧实现把译文写回原文本节点、再靠隐藏副本
    实现双语，导致「切回原文 / 切换对照」都依赖额外状态并互相打架；独立容器天然幂等（有容器=已翻译）。
-2. **判定规则只有一个真源** —— 阈值与跳过正则定义在 Kotlin 的 `PageRules`，随设置注入
-   `window.__bbTranslate.rules`，JS 只使用不定义；原生侧仍做权威判定，防止脚本版本漂移。
+2. **判定规则只有一个真源** —— 阈值、跳过正则与混排规则定义在 Kotlin 的 `PageRules`，
+   随设置注入 `window.__bbTranslate.rules`，JS 只使用不定义；原生侧仍做权威判定
+   （`TranslateDecisionEngine`），防止脚本版本漂移。页面脚本里那份镜像宁可宽松
+   （多送一段由原生侧判掉），也不要漏送原生侧想翻的段落。
 3. **占位符保护** —— 待译文本里的 URL / `@提及` / `#编号` / 提交 SHA 等先换成 `⟦n⟧`，
    译后还原；任一占位符丢失即判失败，并**不加保护地重翻一次**（对齐网页版「还原失败就重译该段」）。
 4. **三种熔断** —— 额度用尽（余额/限流）与 API Key 无效都立刻停发请求（继续发只是浪费额度、
@@ -167,6 +210,11 @@ Compose 覆盖层（`ui/translate/TranslateBubble.kt`，在 `MainActivity` 根�
 - 生效范围是 **WebView 渲染的正文页**；评论区由 Compose 原生渲染（`MarkdownBody`），暂不在范围内；
 - 后端支持 MyMemory 与「任意 OpenAI 兼容服务」（DeepSeek 官方 / 中转 / 自建）两种态；
   再加一家（DeepL 等）只需在 `core/src/translate/` 加一个 provider + 设置页加一项；
+- 判定引擎的字符分类**只认两类文字**：汉字与「拉丁 / 希腊 / 西里尔 / 假名 / 谚文」
+  （`isLatinLetter` 的区间是写死的，为的是和页面脚本的镜像逐区间对齐，见 `TranslateTextPolicy.kt`）。
+  其余文字（阿拉伯文、天城文、emoji）一律算**中性**：既不当作目标文字，也不当作外语片段；
+- 匹配性翻译的片段是**逐段独立**翻译的：跨片段的一致性靠缓存（同一片段全站只翻一次），
+  但拿不到整段的上下文 —— 需要上下文时把「中英混排」切成「整段一起翻」；
 - 术语库 / 自定义提示词 / 悬停看原文等网页版高级能力未实现
   （`TranslateEngine` 的 options JSON 与提示词构建是预留的落点，
   `translate/build.gradle.kts` 里写了移除步骤）。

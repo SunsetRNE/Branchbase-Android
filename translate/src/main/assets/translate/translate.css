@@ -45,6 +45,37 @@ body:not(.bb-tr-on) .bb-tr { display: none; }
 /* 仅译文模式：隐藏原文块，只留译文（切回对照只需去掉 body 上的类） */
 body.bb-tr-only .bb-tr-src { display: none; }
 
+/* ── 匹配性译文（`data-bb-mode="match"`：中文段落里夹的外语片段） ──
+   判定引擎只把段内**需要翻的片段**送去翻译（`npm run dev`、`pull request`），
+   展示时按「片段 → 译文」配对列出 —— 读者要的是「这个词在这句里是什么意思」，
+   所以配对里保留原文片段（原文片段的样式更弱、译文更实），
+   中间用 `→` 连接（由 CSS 画，DOM 里只有两个 span，清空/重填都不必管分隔符）。 */
+.bb-tr[data-bb-mode="match"] .bb-tr-pair {
+  display: inline;
+}
+
+.bb-tr[data-bb-mode="match"] .bb-tr-pair-src {
+  color: #6e7781;
+  font-size: 12.5px;
+}
+
+.bb-tr[data-bb-mode="match"] .bb-tr-pair-src::after {
+  content: " → ";
+  color: #8c959f;
+}
+
+/* 配对之间用间隔号分开；行尾不留分隔符 */
+.bb-tr[data-bb-mode="match"] .bb-tr-pair + .bb-tr-pair::before {
+  content: "·";
+  color: #d0d7de;
+  margin: 0 6px;
+}
+
+/* 仅译文模式：藏掉配对里的原文片段与箭头（译文本身留着） */
+body.bb-tr-only .bb-tr[data-bb-mode="match"] .bb-tr-pair-src {
+  display: none;
+}
+
 /* ── 译文样式（设置 / 工具面板的「译文样式」） ── */
 
 /* card：蓝色左边框卡片（默认，辨识度最高） */
@@ -100,6 +131,19 @@ body.bb-dark[data-bb-style="underline"] .bb-tr {
 
 body.bb-dark[data-bb-style="plain"] .bb-tr {
   color: #8b949e;
+}
+
+/* 深色主题下的匹配性译文：原文片段比译文更暗（浅色那套在深底上看不清） */
+body.bb-dark .bb-tr[data-bb-mode="match"] .bb-tr-pair-src {
+  color: #8b949e;
+}
+
+body.bb-dark .bb-tr[data-bb-mode="match"] .bb-tr-pair-src::after {
+  color: #6e7781;
+}
+
+body.bb-dark .bb-tr[data-bb-mode="match"] .bb-tr-pair + .bb-tr-pair::before {
+  color: #484f58;
 }
 
 /* ── 标题里的译文（h1–h6 走「插进元素内部」，见 02-dom.js 的 INSERT_INSIDE）──

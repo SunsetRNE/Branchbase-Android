@@ -16,10 +16,11 @@ plugins {
  *    `TranslateRuntime.install` 一行即可（页面脚本/CSS 随模块一起被删掉）。
  *
  * 模块内容分三层：
- * - 纯逻辑（无 Android 依赖，可 JVM 单测）：语言模型 / 文本策略 / 分片 / 占位符保护 /
- *   LRU 与磁盘缓存 / 重试调度器 / 门面 Translator；
+ * - 纯逻辑（无 Android 依赖，可 JVM 单测）：语言模型 / 判定引擎（要不要翻、翻哪一部分）/
+ *   文本原语 / 分片 / 占位符保护 / LRU 与磁盘缓存 / 重试调度器 / 门面 Translator；
  * - Android 适配：SharedPreferences 设置、assets 页面脚本装载、WebView JS 桥；
- * - 页面侧资产：`src/main/assets/translate/` 下的 CSS 与四个脚本，由 TranslatePage 按序拼接。
+ * - 页面侧资产：`src/main/assets/translate/` 下的 CSS 与三个脚本（01 → 02 → 03），
+ *   由 TranslatePage 按序拼接。
  */
 android {
     namespace = "com.branchbase.translate"

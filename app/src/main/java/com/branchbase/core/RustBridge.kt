@@ -11,7 +11,29 @@ import kotlinx.coroutines.withContext
  * 约定：所有 native 函数返回 JSON 字符串，出错时返回空串（判空处理）。
  * 网络类操作会阻塞，需在 IO 线程调用。
  */
+/**
+ * Git 写操作包装的**错误约定**：`null` = 成功，非空 = 失败原因（截到 300 字符）。
+ *
+ * 为什么要有这个东西：native 侧成功返回空串、失败返回 `ERROR:…`
+ * （`core/src/bridge/jni.rs` 的 `into_jstring`）。早期包装把它折成 `Boolean`，
+ * **错误文本就此消失** —— 决策页只能说「失败（原因见日志）」，而日志里并没有那条原因。
+ * 现在统一成「原因可透传」，由 `failureMessage(action, reason)` 拼进用户看到的那一行。
+ *
+ * 与 [RustBridge.gitPullDetailed] / [RustBridge.gitPushDetailed] / [RustBridge.gitPushSetUpstream]
+ * 的既有约定一致。钉子：`GitErrorConventionTest`。
+ */
+internal fun engineErrorOrNull(raw: String): String? =
+    if (raw.startsWith("ERROR:")) raw.removePrefix("ERROR:").take(300) else null
+
 object RustBridge {
+
+    /**
+     * native 符号缺失（`.so` 未重编译 / 加载失败）时的统一原因串。
+     *
+     * 它进的是**给用户看的一行反馈**（决策页 / 列表页的失败文案），所以措辞要与既有的
+     * 内联字面量一致 —— 这里只是把它提成常量，避免「同一件事两种说法」。
+     */
+    private const val ENGINE_UNAVAILABLE = "引擎不可用"
 
     init {
         System.loadLibrary("branchbase_core")
@@ -988,32 +1010,39 @@ object RustBridge {
         }
     }
 
-    /** 撤销最近一次提交保留改动（reset --soft HEAD~1）。 */
-    suspend fun gitResetSoft(dir: String): Boolean = withContext(Dispatchers.IO) {
+    /**
+     * 撤销最近一次提交保留改动（reset --soft HEAD~1）。
+     *
+     * 返回 **null = 成功，其他 = 失败原因** —— 与 [gitPullDetailed] / [gitPushDetailed] /
+     * [gitPushSetUpstream] 同一约定。此前返回 `Boolean` 把错误文本吞掉了，
+     * 调用方（决策页）只能说「失败（原因见日志）」，而日志里并没有那条原因。
+     */
+    suspend fun gitResetSoft(dir: String): String? = withContext(Dispatchers.IO) {
         try {
-            !nativeGitResetSoft(dir).startsWith("ERROR:")
+            engineErrorOrNull(nativeGitResetSoft(dir))
         } catch (e: Throwable) {
-            false
+            ENGINE_UNAVAILABLE
         }
     }
 
-    /** 放弃本地提交：reset --hard origin/{branch}（危险，UI 需二次确认）。 */
-    suspend fun gitResetHardRemote(dir: String, branch: String): Boolean = withContext(Dispatchers.IO) {
+    /** 放弃本地提交：reset --hard origin/{branch}（危险，UI 需二次确认）。返回 null = 成功。 */
+    suspend fun gitResetHardRemote(dir: String, branch: String): String? = withContext(Dispatchers.IO) {
         try {
-            !nativeGitResetHardRemote(dir, branch).startsWith("ERROR:")
+            engineErrorOrNull(nativeGitResetHardRemote(dir, branch))
         } catch (e: Throwable) {
-            false
+            ENGINE_UNAVAILABLE
         }
     }
 
-    /** 修改最近一次提交信息（amend）。 */
-    suspend fun gitAmend(dir: String, message: String): Boolean = withContext(Dispatchers.IO) {
+    /** 修改最近一次提交信息（amend）。返回 null = 成功。 */
+    suspend fun gitAmend(dir: String, message: String): String? = withContext(Dispatchers.IO) {
         try {
-            !nativeGitAmend(dir, message).startsWith("ERROR:")
+            engineErrorOrNull(nativeGitAmend(dir, message))
         } catch (e: Throwable) {
-            false
+            ENGINE_UNAVAILABLE
         }
     }
+
 
     /** 对已推送提交创建 revert 提交（返回新 sha 或 null）。 */
     suspend fun gitRevert(dir: String, sha: String, message: String, authorName: String, authorEmail: String): String? =

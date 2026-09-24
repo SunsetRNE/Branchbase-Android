@@ -38,6 +38,14 @@
     <string name="translate_cache_disk_toggle_desc">Store translations on disk so the same passage is not translated again after a restart (turning this off only stops reading and writing the disk; it does not clear what is already stored).</string>
     <string name="translate_style_underline_desc">No background; the translation is marked with a dashed underline only</string>
     <string name="translate_target_language">Target language</string>
+    <string name="translate_mix_section">Mixed Chinese/English</string>
+    <string name="translate_mix_match">Foreign phrases only</string>
+    <string name="translate_mix_match_desc">English phrases inside a Chinese paragraph are translated on their own and shown as “phrase → translation” pairs; paragraphs with nothing worth translating are skipped instead of getting a card that repeats the original (recommended)</string>
+    <string name="translate_mix_whole">Translate the whole paragraph</string>
+    <string name="translate_mix_whole_desc">Send the whole paragraph containing Chinese to be translated (the Chinese gets translated again and the result is worse — for comparison only)</string>
+    <string name="translate_mix_skip">Skip mixed paragraphs</string>
+    <string name="translate_mix_skip_desc">Never translate paragraphs that contain Chinese; only fully foreign paragraphs are translated (saves the most quota and is the most conservative)</string>
+    <string name="translate_decision_stats">This run: %1$s skipped · %2$s paragraphs matched (%3$s phrase pairs)</string>
     <string name="translate_style_plain">Subtle grey</string>
     <string name="translate_cache_cleared">Translation cache cleared</string>
     <string name="translate_key_placeholder">sk-… (get one at platform.deepseek.com)</string>
@@ -727,7 +735,7 @@
     <string name="action_create_and_track">Create and track</string>
     <string name="action_refresh_remote">Refresh remote</string>
     <string name="confirm_discard_local_commits_body">This force-aligns %1$s to origin/%2$s; commits unique to the local branch are no longer referenced (they can still be found through the reflog, but are not visible in the UI).</string>
-    <string name="error_reset_hard_failed">reset --hard failed</string>
+    <string name="error_reset_hard_failed">reset --hard failed: %1$s</string>
     <string name="label_branch_counts">%1$s local branches · %2$s remote branches</string>
     <string name="error_switch_to_failed">Failed to switch to %1$s: %2$s</string>
     <string name="suffix_worktree_changes"> · %1$s working tree changes</string>

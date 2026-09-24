@@ -75,21 +75,49 @@ object PlaceholderGuard {
      */
     fun restore(translated: String, tokens: List<String>): String? {
         if (tokens.isEmpty()) return translated
-        val used = BooleanArray(tokens.size)
         val sb = StringBuilder()
+        val used = BooleanArray(tokens.size)
+        appendResolved(translated, tokens, sb) { i -> used[i] = true } ?: return null
+        if (used.any { !it }) return null
+        return sb.toString()
+    }
+
+    /**
+     * 部分还原：只要求**文本里出现的**占位符能对上，没出现的不算丢。
+     *
+     * 判定引擎用它把「守卫坐标里的片段」还原回原文（见 [TranslateDecisionEngine] 的片段切分）：
+     * 一个片段往往只用到整段里的某一两枚占位符，用 [restore] 会因为「其余占位符没出现」而判失败。
+     * 两者共享同一套「对不上就返回 null」的规则，避免出现两种还原口径。
+     */
+    fun restorePartial(text: String, tokens: List<String>): String? {
+        if (tokens.isEmpty()) return text
+        val sb = StringBuilder()
+        appendResolved(text, tokens, sb) {} ?: return null
+        return sb.toString()
+    }
+
+    /**
+     * 逐段把 `⟦n⟧` 换成原片段；改不动的返回 null。
+     *
+     * 两处失败判据（与 [restore] 一致）：编号越界 → null；替换后仍残留 `⟦…⟧` → null
+     * （服务端可能把 `⟦` 归一成别的括号，这种残留宁可判失败也不要插进页面）。
+     */
+    private inline fun appendResolved(
+        text: String,
+        tokens: List<String>,
+        sb: StringBuilder,
+        onUsed: (Int) -> Unit,
+    ): StringBuilder? {
         var last = 0
-        for (m in PLACEHOLDER.findAll(translated)) {
+        for (m in PLACEHOLDER.findAll(text)) {
             val i = m.groupValues[1].toIntOrNull() ?: continue
-            if (i !in tokens.indices) continue
-            used[i] = true
-            sb.append(translated, last, m.range.first).append(tokens[i])
+            if (i !in tokens.indices) return null
+            onUsed(i)
+            sb.append(text, last, m.range.first).append(tokens[i])
             last = m.range.last + 1
         }
-        sb.append(translated, last, translated.length)
-        if (used.any { !it }) return null
-        // 服务端可能把 ⟦ 归一到别的括号（例如 ［0］），这类残留宁可判失败也不要插进页面
-        val leftover = PLACEHOLDER_LIKE.find(sb)
-        if (leftover != null) return null
-        return sb.toString()
+        sb.append(text, last, text.length)
+        if (PLACEHOLDER_LIKE.containsMatchIn(sb)) return null
+        return sb
     }
 }
