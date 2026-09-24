@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,6 +34,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Primer
 
@@ -96,8 +98,8 @@ fun DecisionOptionRow(
                     // 原来写的是 **6 位**十六进制（少写了 alpha 的 FF）—— Compose 按 ARGB 解释，
                     // 于是 alpha = 0，这块底其实一直是**透明**的（与旁边的「危险」chip 不对称）。
                     // 取值正是 `successSurfaceSoft`，按角色接回来；ThemeConvergenceTest 拦住这种写法。
-                    OptionTag.RECOMMENDED -> OptionTagChip("推荐", Primer.SuccessTextStrong, Primer.SuccessSurfaceSoft)
-                    OptionTag.DANGER -> OptionTagChip("危险", Primer.DangerText, Primer.DangerSurface)
+                    OptionTag.RECOMMENDED -> OptionTagChip(stringResource(R.string.label_recommended), Primer.SuccessTextStrong, Primer.SuccessSurfaceSoft)
+                    OptionTag.DANGER -> OptionTagChip(stringResource(R.string.label_dangerous), Primer.DangerText, Primer.DangerSurface)
                     OptionTag.NONE -> Unit
                 }
             }
@@ -259,7 +261,7 @@ fun DecisionScreenShell(
         ) {
             Icon(
                 Icons.AutoMirrored.Filled.ArrowBack,
-                "返回",
+                stringResource(R.string.action_back),
                 tint = Primer.IconPrimary,
                 modifier = Modifier.size(24.dp).iconTap { onBack() },
             )

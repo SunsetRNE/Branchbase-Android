@@ -26,6 +26,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
+import com.branchbase.R
 import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
@@ -55,6 +57,7 @@ import com.branchbase.downloader.DownloadRequest
 import com.branchbase.downloader.DownloadStatus
 import com.branchbase.downloader.DownloadTask
 import com.branchbase.downloader.DownloaderRuntime
+import com.branchbase.downloader.resolve
 import com.branchbase.joblogs.JobLog
 import com.branchbase.joblogs.JobLogStore
 import com.branchbase.ui.theme.Primer
@@ -300,7 +303,7 @@ fun WorkflowRunDetailScreen(
         actions = {
             // 刷新：跑成功或跑一半时也能手动回源（改前只有失败态有重试）
             Text(
-                "刷新",
+                stringResource(R.string.action_refresh),
                 fontSize = 12.5.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Primer.Link,
@@ -311,13 +314,13 @@ fun WorkflowRunDetailScreen(
             Box {
                 Icon(
                     Icons.Filled.MoreVert,
-                    contentDescription = "更多操作",
+                    contentDescription = stringResource(R.string.label_more_actions),
                     tint = Primer.IconPrimary,
                     modifier = Modifier.size(20.dp).iconTap { menuOpen = true },
                 )
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     DropdownMenuItem(
-                        text = { Text("在浏览器打开") },
+                        text = { Text(stringResource(R.string.action_open_in_browser)) },
                         onClick = {
                             menuOpen = false
                             run?.htmlUrl?.takeIf { it.isNotBlank() }?.let { url ->
@@ -326,7 +329,7 @@ fun WorkflowRunDetailScreen(
                         },
                     )
                     DropdownMenuItem(
-                        text = { Text("重新运行") },
+                        text = { Text(stringResource(R.string.action_rerun)) },
                         onClick = {
                             menuOpen = false
                             run?.let { r ->
@@ -337,7 +340,7 @@ fun WorkflowRunDetailScreen(
                         },
                     )
                     DropdownMenuItem(
-                        text = { Text("复制运行链接") },
+                        text = { Text(stringResource(R.string.action_copy_run_link)) },
                         onClick = {
                             menuOpen = false
                             run?.htmlUrl?.takeIf { it.isNotBlank() }?.let { clipboard.setText(AnnotatedString(it)) }
@@ -358,7 +361,7 @@ fun WorkflowRunDetailScreen(
                 }
 
                 item {
-                    DetailSectionTitle("任务 · ${jobs.size}") {
+                    DetailSectionTitle(stringResource(R.string.label_jobs_count, jobs.size)) {
                         // 分段控件只在「有失败」或「运行中」时出现 —— 成功的小运行不必多一个控件
                         if (progress.failed > 0 || progress.running > 0) {
                             Row(
@@ -366,12 +369,12 @@ fun WorkflowRunDetailScreen(
                                     .padding(2.dp),
                             ) {
                                 FilterSegment(
-                                    label = "全部 ${jobs.size}",
+                                    label = stringResource(R.string.filter_all_jobs, jobs.size),
                                     on = filter == JobFilter.ALL,
                                     onClick = { filter = JobFilter.ALL },
                                 )
                                 FilterSegment(
-                                    label = "失败 ${progress.failed}",
+                                    label = stringResource(R.string.filter_failed_jobs, progress.failed),
                                     on = filter == JobFilter.FAILED,
                                     onClick = { filter = JobFilter.FAILED },
                                 )
@@ -381,7 +384,7 @@ fun WorkflowRunDetailScreen(
                 }
 
                 if (orderedJobs.isEmpty()) {
-                    item { DetailEmptyText(if (filter == JobFilter.FAILED) "没有失败的任务" else "暂无任务") }
+                    item { DetailEmptyText(if (filter == JobFilter.FAILED) stringResource(R.string.state_no_failed_jobs) else stringResource(R.string.state_no_jobs)) }
                 } else {
                     items(orderedJobs, key = { it.id }) { job ->
                         Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
@@ -406,7 +409,7 @@ fun WorkflowRunDetailScreen(
                 }
 
                 if (artifacts.isNotEmpty()) {
-                    item { DetailSectionTitle("产物 · ${artifacts.size}") }
+                    item { DetailSectionTitle(stringResource(R.string.label_artifacts_count, artifacts.size)) }
                     items(artifacts, key = { it.id }) { artifact ->
                         ArtifactRow(
                             artifact = artifact,
@@ -419,7 +422,7 @@ fun WorkflowRunDetailScreen(
                 // 归属不到任何任务的注解（宁可放不对，不要放错）
                 val loose = annotations.filter { a -> jobs.none { jobBelongsToAnnotation(a, it) } }
                 if (loose.isNotEmpty()) {
-                    item { DetailSectionTitle("其他注解 · ${loose.size}") }
+                    item { DetailSectionTitle(stringResource(R.string.label_other_annotations, loose.size)) }
                     items(loose) { annotation -> AnnotationRow(annotation) }
                 }
 
@@ -468,14 +471,16 @@ private fun ArtifactRow(
     task: DownloadTask?,
 ) {
     val downloadable = artifact.archiveDownloadUrl.isNotBlank() && !artifact.expired
-    val failed = task?.status == DownloadStatus.FAILED && !task.error.isNullOrBlank()
+    // 失败分类在渲染时解析（`failureText` 为空串即没有失败原因）
+    val failureText = task?.failure?.resolve(context).orEmpty()
+    val failed = task?.status == DownloadStatus.FAILED && failureText.isNotBlank()
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
             Text(
-                artifact.name.ifBlank { "（未命名产物）" },
+                artifact.name.ifBlank { stringResource(R.string.label_unnamed_artifact) },
                 fontSize = 12.5.sp,
                 color = Primer.TextPrimary,
                 maxLines = 2,
@@ -483,7 +488,7 @@ private fun ArtifactRow(
             Spacer(Modifier.height(2.dp))
             // 失败原因直接写在这一行，别只留一个「重试」让人猜刚才发生了什么
             Text(
-                if (failed) task.error!! else artifact.sizeText,
+                if (failed) failureText else artifact.sizeText,
                 fontSize = 11.sp,
                 color = if (failed) Primer.DangerText else Primer.TextTertiary,
                 maxLines = 2,
@@ -491,26 +496,26 @@ private fun ArtifactRow(
         }
         if (artifact.expired) {
             Spacer(Modifier.width(8.dp))
-            Text("已过期", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Primer.DangerText)
+            Text(stringResource(R.string.state_expired), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Primer.DangerText)
         }
         Spacer(Modifier.width(8.dp))
         when {
-            task?.isActive == true -> ArtifactAction("取消", Primer.TextSecondary) {
+            task?.isActive == true -> ArtifactAction(stringResource(R.string.action_cancel), Primer.TextSecondary) {
                 DownloaderRuntime.cancel(task.id)
             }
-            task?.status == DownloadStatus.COMPLETED -> ArtifactAction("安装", Primer.Blue500) {
+            task?.status == DownloadStatus.COMPLETED -> ArtifactAction(stringResource(R.string.action_install), Primer.Blue500) {
                 val file = task.file
                 Toast.makeText(
                     context,
-                    if (file == null) "找不到已下载的文件" else installWorkflowArtifact(context, file),
+                    if (file == null) context.getString(R.string.error_downloaded_file_missing) else installWorkflowArtifact(context, file),
                     Toast.LENGTH_LONG,
                 ).show()
             }
-            failed -> ArtifactAction("重试", Primer.Blue500) {
+            failed -> ArtifactAction(stringResource(R.string.action_retry), Primer.Blue500) {
                 DownloaderRuntime.retry(context, task.id)
             }
             else -> ArtifactAction(
-                text = if (downloadable) "下载" else "不可用",
+                text = if (downloadable) stringResource(R.string.nav_downloads) else stringResource(R.string.state_unavailable),
                 color = if (downloadable) Primer.Blue500 else Primer.TextTertiary,
                 enabled = downloadable,
             ) {

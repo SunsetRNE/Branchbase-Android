@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- See values/strings.xml: this module's locales must be a subset of :app's. -->
+    <string name="downloader_channel_name">Downloads</string>
+    <string name="downloader_channel_desc">Download progress and completion alerts</string>
+    <!-- Download failure messages (DownloadErrors.kt: the model carries a code, the copy lives here) -->
+    <string name="downloader_error_bad_request">The download request was rejected (HTTP 400)</string>
+    <string name="downloader_error_unauthorized">Your session has expired; sign in again (HTTP 401)</string>
+    <string name="downloader_error_forbidden">You do not have permission to download this file (HTTP 403)</string>
+    <string name="downloader_error_not_found">The file does not exist or has been deleted (HTTP 404)</string>
+    <string name="downloader_error_request_timeout">The server timed out (HTTP 408)</string>
+    <string name="downloader_error_gone">The file has been removed (HTTP 410)</string>
+    <string name="downloader_error_too_many_requests">Too many requests; try again later (HTTP 429)</string>
+    <string name="downloader_error_server">Server error (HTTP %1$s); try again later</string>
+    <string name="downloader_error_http_other">Download failed (HTTP %1$s)</string>
+    <string name="downloader_error_redirect">Redirect error (HTTP %1$s)</string>
+    <string name="downloader_error_range_invalid">The resume information is no longer valid; try again</string>
+    <string name="downloader_error_unknown_host">Network unreachable: cannot resolve the server address</string>
+    <string name="downloader_error_connect_timeout">Connection timed out; check your network and try again</string>
+    <string name="downloader_error_tls">Secure connection failed (certificate check failed)</string>
+    <string name="downloader_error_connect_failed">Cannot reach the server; check your network</string>
+    <string name="downloader_error_interrupted">The download was interrupted; try again</string>
+    <string name="downloader_error_file_not_found">The file does not exist or has been deleted</string>
+    <string name="downloader_error_io">The network dropped; try again</string>
+    <string name="downloader_error_unknown">Download failed (%1$s); try again</string>
+    <string name="downloader_finished">Download complete</string>
+    <string name="downloader_failed">Download failed</string>
+    <string name="downloader_failed_with_reason">Download failed: %1$s</string>
+    <string name="downloader_placeholder_text">Preparing download</string>
+    <string name="downloader_error_background_timeout">The background download timed out (system limit); retry to resume</string>
+    <string name="downloader_error_checksum">File verification failed (SHA-256 mismatch)</string>
+</resources>

@@ -13,6 +13,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,6 +36,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.ui.theme.CodeSyntax
 import com.branchbase.ui.theme.Primer
 
@@ -173,7 +175,7 @@ fun ReleaseNotesEditor(
             decorationBox = { inner ->
                 Box {
                     if (text.isEmpty()) {
-                        Text("## 变更\n- …", fontSize = 13.sp, lineHeight = LINE_H, color = hintColor)
+                        Text(stringResource(R.string.note_template_changes), fontSize = 13.sp, lineHeight = LINE_H, color = hintColor)
                     }
                     inner()
                 }

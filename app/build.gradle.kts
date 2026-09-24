@@ -69,6 +69,23 @@ android {
     namespace = "com.branchbase"
     compileSdk = 35
 
+    /**
+     * 语言资源目录即语言清单：`values-en/`、`values-ja/` … 存在哪些目录，
+     * AGP 就自动生成包含哪些 locale 的 `locales_config.xml`，并把 `android:localeConfig`
+     * 指过去（manifest 里不写这一条，避免手写清单与资源目录分家）。
+     *
+     * 为什么用它 —— 把「加一种语言」的成本压到**加一个目录**：
+     * - 运行时 `LocaleConfig(context).supportedLocales` 读它，语言页据此渲染（不必维护语言列表）；
+     * - 系统设置里的「应用语言」页也读它（API 33+），所以自带一份由系统绘制的入口；
+     * - 清单与资源目录由构建保证一致，不会出现「列了某种语言却没有对应文案」。
+     *
+     * 注意：只有 API 33+ 认这份清单。低于 33 的系统忽略它，App 侧的语言入口也整行不出现
+     * （见 `ui/settings/LanguageScreen.kt` 的显示条件）。
+     */
+    androidResources {
+        generateLocaleConfig = true
+    }
+
     defaultConfig {
         applicationId = "com.branchbase"
         minSdk = 24

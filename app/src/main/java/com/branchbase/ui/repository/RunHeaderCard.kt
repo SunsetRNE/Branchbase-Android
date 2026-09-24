@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -23,6 +24,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.ui.theme.CodeSyntax
 import com.branchbase.ui.theme.Primer
 
@@ -55,7 +57,7 @@ fun RunHeaderCard(
                 RunStatePill(run.status, run.conclusion)
                 if (run.runAttempt > 1) {
                     Spacer(Modifier.width(6.dp))
-                    Text("· 第 ${run.runAttempt} 次尝试", fontSize = 11.sp, color = Primer.TextTertiary)
+                    Text(stringResource(R.string.suffix_attempt, run.runAttempt), fontSize = 11.sp, color = Primer.TextTertiary)
                 }
                 Spacer(Modifier.weight(1f))
                 Text(
@@ -68,7 +70,7 @@ fun RunHeaderCard(
             // ② 标题
             Spacer(Modifier.height(8.dp))
             Text(
-                run.displayTitle.ifBlank { run.name.ifBlank { "未命名运行" } },
+                run.displayTitle.ifBlank { run.name.ifBlank { stringResource(R.string.label_unnamed_run) } },
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Primer.TextPrimary,
@@ -87,7 +89,7 @@ fun RunHeaderCard(
                         MetaChip(shaShort(run.headSha), mono = true)
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            "由 ${run.actor.ifBlank { "—" }} 推送",
+                            stringResource(R.string.label_pushed_by, run.actor.ifBlank { "—" }),
                             fontSize = 11.sp,
                             color = Primer.TextTertiary,
                             maxLines = 1,
@@ -112,12 +114,12 @@ fun RunHeaderCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         buildString {
-                            append("${progress.total} 个任务 · ")
+                            append(stringResource(R.string.label_jobs_count_dot, progress.total))
                             val parts = buildList {
-                                if (progress.ok > 0) add("${progress.ok} 成功")
-                                if (progress.failed > 0) add("${progress.failed} 失败")
-                                if (progress.running > 0) add("${progress.running} 运行中")
-                                if (progress.waiting > 0) add("${progress.waiting} 排队")
+                                if (progress.ok > 0) add(stringResource(R.string.label_jobs_ok, progress.ok))
+                                if (progress.failed > 0) add(stringResource(R.string.label_jobs_failed, progress.failed))
+                                if (progress.running > 0) add(stringResource(R.string.label_jobs_running, progress.running))
+                                if (progress.waiting > 0) add(stringResource(R.string.label_jobs_queued, progress.waiting))
                             }
                             append(parts.joinToString(" "))
                         },
@@ -133,7 +135,7 @@ fun RunHeaderCard(
             // ⑤ 次要行：事件 · 创建时间（降到更弱的色）
             Spacer(Modifier.height(8.dp))
             Text(
-                "${eventLabel(run.event)} · 创建于 ${isoShort(run.createdAt)}",
+                stringResource(R.string.label_run_event_created, eventLabel(run.event), isoShort(run.createdAt)),
                 fontSize = 11.5.sp,
                 color = Primer.TextTertiary,
             )

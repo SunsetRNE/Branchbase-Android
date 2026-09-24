@@ -16,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -30,6 +31,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.ui.theme.PlaceholderSwap
 import com.branchbase.ui.theme.Primer
 import com.branchbase.ui.theme.ProfileColors
@@ -81,10 +83,10 @@ fun ContributionWall(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("贡献墙", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+            Text(stringResource(R.string.label_contribution_wall), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
             Spacer(Modifier.weight(1f))
             Text(
-                degradedNote ?: "过去一年",
+                degradedNote ?: stringResource(R.string.label_past_year),
                 fontSize = 12.sp,
                 color = if (degradedNote != null) Primer.TextTertiary else Primer.Blue500,
             )
@@ -110,7 +112,7 @@ fun ContributionWall(
                 }
 
                 weeks.isEmpty() -> Box(Modifier.fillMaxWidth().height(90.dp), contentAlignment = Alignment.Center) {
-                    Text("暂无贡献数据", fontSize = 12.5.sp, color = Primer.TextTertiary)
+                    Text(stringResource(R.string.state_no_contribution_data), fontSize = 12.5.sp, color = Primer.TextTertiary)
                 }
 
                 else -> {
@@ -121,7 +123,7 @@ fun ContributionWall(
                     Row(Modifier.padding(horizontal = 16.dp)) {
                         // 星期标签（固定列，不随网格滚动）
                         Column(Modifier.padding(top = 16.dp)) {
-                            listOf("", "一", "", "三", "", "五", "").forEach { label ->
+                            listOf("", stringResource(R.string.weekday_mon_short), "", stringResource(R.string.weekday_wed_short), "", stringResource(R.string.weekday_fri_short), "").forEach { label ->
                                 Text(
                                     label,
                                     fontSize = 9.sp,
@@ -198,21 +200,21 @@ fun ContributionWall(
                         val cal = calendar
                         Text(
                             buildString {
-                                append("共 ${cal?.total ?: 0} 次贡献")
-                                if (cal != null && cal.activeDays > 0) append(" · 活跃 ${cal.activeDays} 天")
-                                if (cal != null && cal.maxCount > 0) append(" · 最深 ${cal.maxCount} 次/天")
+                                append(stringResource(R.string.label_total_contributions, cal?.total ?: 0))
+                                if (cal != null && cal.activeDays > 0) append(stringResource(R.string.suffix_active_days, cal.activeDays))
+                                if (cal != null && cal.maxCount > 0) append(stringResource(R.string.suffix_max_per_day, cal.maxCount))
                             },
                             fontSize = 11.5.sp,
                             color = Primer.TextTertiary,
                         )
                         Spacer(Modifier.weight(1f))
-                        Text("少", fontSize = 9.5.sp, color = Primer.TextTertiary)
+                        Text(stringResource(R.string.label_less), fontSize = 9.5.sp, color = Primer.TextTertiary)
                         contributionLevels().forEach { c ->
                             Spacer(Modifier.width(3.dp))
                             Box(Modifier.width(10.dp).height(10.dp).clip(RoundedCornerShape(2.dp)).background(c))
                         }
                         Spacer(Modifier.width(3.dp))
-                        Text("多", fontSize = 9.5.sp, color = Primer.TextTertiary)
+                        Text(stringResource(R.string.label_more), fontSize = 9.5.sp, color = Primer.TextTertiary)
                     }
                 }
             }

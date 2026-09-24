@@ -1,5 +1,6 @@
 package com.branchbase.ui.repository
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,6 +32,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,14 +50,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.branchbase.R
 import com.branchbase.cache.ListCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
+import com.branchbase.ui.LocalizedText
 import com.branchbase.ui.log.LogCategory
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.decision.FeedbackLine
 import com.branchbase.ui.navigation.rememberPageResumeTick
+import com.branchbase.ui.resolve
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.LanguageColors
 import com.branchbase.ui.theme.Primer
@@ -135,7 +140,7 @@ internal fun ListError(message: String, onRetry: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text("加载失败", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+        Text(stringResource(R.string.error_load_failed), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
         Spacer(Modifier.height(4.dp))
         Text(message, fontSize = 12.sp, color = Primer.TextTertiary)
 
@@ -170,9 +175,9 @@ internal fun ListError(message: String, onRetry: () -> Unit) {
             }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AccessAction("用访问令牌打开", primary = true) { actions.useToken() }
-                AccessAction("建一个带 repo 的令牌") { actions.reauth() }
-                AccessAction("在浏览器打开") { actions.openInBrowser() }
+                AccessAction(stringResource(R.string.action_open_with_token_short), primary = true) { actions.useToken() }
+                AccessAction(stringResource(R.string.action_create_repo_token)) { actions.reauth() }
+                AccessAction(stringResource(R.string.action_open_in_browser)) { actions.openInBrowser() }
             }
             Spacer(Modifier.height(12.dp))
         } else {
@@ -182,7 +187,7 @@ internal fun ListError(message: String, onRetry: () -> Unit) {
         Box(
             Modifier.clip(CircleShape).background(Primer.Blue500).clickable { onRetry() }.padding(horizontal = 20.dp, vertical = 8.dp),
         ) {
-            Text("重试", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+            Text(stringResource(R.string.action_retry), fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
         }
     }
 }
@@ -206,34 +211,57 @@ private fun AccessAction(label: String, primary: Boolean = false, onClick: () ->
     }
 }
 
-internal fun shortTime(iso: String): String = runCatching {
+/** 「刚刚」的阈值：一分钟内。提出来是为了让 [shortTime] 与调用方（如 `lastUsedLabel`）
+ *  共用**同一个判据** —— 调用方需要知道"是不是刚刚"，但不该去比对 [shortTime] 的**输出文案**。 */
+internal const val JUST_NOW_MS = 60_000L
+
+/**
+ * ISO-8601 UTC → 相对时间（「刚刚 / N 分钟前 / N 小时前 / N 天前」）。
+ *
+ * 返回 [LocalizedText]：「N 分钟前」是 `<plurals>`（英文要分 `1 minute ago` / `2 minutes ago`），
+ * 「刚刚」是 `<string>`，一个 `String` 装不下两种；解析交给渲染层。
+ *
+ * 解析失败**原样透出 `iso`**（[LocalizedText.raw]）—— 宁可显示原始时间戳，
+ * 也不要空一格或显示「1970 年」。
+ */
+internal fun shortTime(iso: String): LocalizedText = runCatching {
     val f = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
         timeZone = java.util.TimeZone.getTimeZone("UTC")
     }
-    val e = f.parse(iso)?.time ?: return@runCatching iso
-    val m = (System.currentTimeMillis() - e) / 60000
+    val e = f.parse(iso)?.time ?: return@runCatching LocalizedText(raw = iso)
+    val elapsed = System.currentTimeMillis() - e
+    val m = elapsed / 60000
     when {
-        m < 1 -> "刚刚"
-        m < 60 -> "$m 分钟前"
-        m < 1440 -> "${m / 60} 小时前"
-        else -> "${m / 1440} 天前"
+        elapsed < JUST_NOW_MS -> LocalizedText(R.string.relative_just_now)
+        m < 60 -> LocalizedText.plural(R.plurals.relative_minutes, m.toInt(), listOf(m))
+        m < 1440 -> LocalizedText.plural(R.plurals.relative_hours, (m / 60).toInt(), listOf(m / 60))
+        else -> LocalizedText.plural(R.plurals.relative_days, (m / 1440).toInt(), listOf(m / 1440))
     }
-}.getOrDefault(iso)
+}.getOrElse { LocalizedText(raw = iso) }
 
 /**
- * GitHub 的 `state` 字段 → 中文文案。
+ * GitHub 的 `state` 字段 → **资源 ID**。
  *
  * 此前 Issue/PR 列表直接把原始值（`open` / `closed` / `merged`）当文案渲染，
- * 于是同一屏里「星标者 / 分支 / 提交」都是中文，唯独自状态是英文。
- * 未知状态**原样返回**，不吞掉后端新增的类型。
+ * 于是同一屏里「星标者 / 分支 / 提交」都是中文，唯独状态是英文。
+ *
+ * 返回 `null` 表示**没有对应资源**（后端新增的状态）：调用方原样透出 `state` 本身，
+ * 不吞掉也不猜。用 `Int?` 而不是 `String` 是为了让它**可单测** —— 测试断言资源 ID，
+ * 文案搬家（改措辞、再抽一次）不会假红，见 i18n-migration 的坑表。
  */
-internal fun stateLabelOf(state: String): String = when (state.lowercase()) {
-    "open" -> "开启"
-    "closed" -> "已关闭"
-    "merged" -> "已合并"
-    "draft" -> "草稿"
-    else -> state
+@StringRes
+internal fun stateLabelResOrNull(state: String): Int? = when (state.lowercase()) {
+    "open" -> R.string.state_open
+    "closed" -> R.string.state_closed
+    "merged" -> R.string.state_merged
+    "draft" -> R.string.state_draft
+    else -> null
 }
+
+/** 同名 @Composable 包装：解析留给渲染层，调用点一行都不用改。 */
+@Composable
+internal fun stateLabelOf(state: String): String =
+    stateLabelResOrNull(state)?.let { stringResource(it) } ?: state
 
 @Composable
 internal fun stateColor(state: String): Color = when (state) {
@@ -299,7 +327,7 @@ fun RepositoryCodeContent(sessionJson: String, owner: String, repo: String, bran
         val ref = branch?.takeIf { it.isNotBlank() }?.let { b -> "?ref=${encodeRef(b)}" } ?: ""
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/contents$encoded$ref")
         if (json == null || json.startsWith("ERROR:")) {
-            if (!shownStale) error = loadFailure("代码", json?.removePrefix("ERROR:"), owner, repo)
+            if (!shownStale) error = loadFailure(context.getString(R.string.nav_code), json?.removePrefix("ERROR:"), owner, repo)
         } else {
             items = parseFileTree(json)
             ListCache.write(manager, cacheKey, json)
@@ -312,7 +340,7 @@ fun RepositoryCodeContent(sessionJson: String, owner: String, repo: String, bran
         when {
             loading -> ListLoading()
             error != null -> ListError(error!!) { retryTick++ }
-            items.isEmpty() -> ListEmpty("空目录")
+            items.isEmpty() -> ListEmpty(stringResource(R.string.state_empty_directory))
             else -> LazyColumn(Modifier.fillMaxSize()) {
                 // 同一目录内文件名唯一（GitHub contents API 保证），name 可作稳定 key
                 items(items, key = { it.name }) { f ->
@@ -422,7 +450,7 @@ fun IssueListContent(sessionJson: String, owner: String, repo: String, refreshTi
         // ② 回源刷新
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/issues?state=all")
         if (json == null || json.startsWith("ERROR:")) {
-            if (!shownStale) error = loadFailure("议题", json?.removePrefix("ERROR:"), owner, repo)
+            if (!shownStale) error = loadFailure(context.getString(R.string.label_issues), json?.removePrefix("ERROR:"), owner, repo)
         } else {
             items = parseIssues(json)
             ListCache.write(manager, cacheKey, json)
@@ -433,7 +461,7 @@ fun IssueListContent(sessionJson: String, owner: String, repo: String, refreshTi
     when {
         loading -> ListLoading()
         error != null -> ListError(error!!) { retryTick++ }
-        items.isEmpty() -> ListEmpty("暂无 Issue")
+        items.isEmpty() -> ListEmpty(stringResource(R.string.state_no_issues))
         else -> LazyColumn(Modifier.fillMaxSize()) {
             // issue number 在仓库内唯一
             items(items, key = { it.number }) { IssueRow(it) { onItemClick(it) } }
@@ -452,7 +480,7 @@ private fun IssueRow(item: IssueItem, onClick: () -> Unit) {
         Column(Modifier.weight(1f)) {
             Text(item.title, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, lineHeight = 18.sp)
             Spacer(Modifier.height(4.dp))
-            Text("#${item.number} · ${item.author} · ${shortTime(item.createdAt)}", fontSize = 11.5.sp, color = Primer.TextTertiary)
+            Text("#${item.number} · ${item.author} · ${shortTime(item.createdAt).resolve()}", fontSize = 11.5.sp, color = Primer.TextTertiary)
         }
     }
 }
@@ -499,7 +527,7 @@ fun PullListContent(sessionJson: String, owner: String, repo: String, branch: St
         val base = branch?.takeIf { it.isNotBlank() }?.let { b -> "&base=${encodeRef(b)}" } ?: ""
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/pulls?state=all$base")
         if (json == null || json.startsWith("ERROR:")) {
-            if (!shownStale) error = loadFailure("拉取请求", json?.removePrefix("ERROR:"), owner, repo)
+            if (!shownStale) error = loadFailure(context.getString(R.string.label_pull_requests), json?.removePrefix("ERROR:"), owner, repo)
         } else {
             items = parsePulls(json)
             ListCache.write(manager, cacheKey, json)
@@ -510,7 +538,7 @@ fun PullListContent(sessionJson: String, owner: String, repo: String, branch: St
     when {
         loading -> ListLoading()
         error != null -> ListError(error!!) { retryTick++ }
-        items.isEmpty() -> ListEmpty("暂无拉取请求")
+        items.isEmpty() -> ListEmpty(stringResource(R.string.state_no_pull_requests))
         else -> LazyColumn(Modifier.fillMaxSize()) {
             // PR number 在仓库内唯一
             items(items, key = { it.number }) { PullRow(it) { onItemClick(it) } }
@@ -529,7 +557,7 @@ private fun PullRow(item: PullItem, onClick: () -> Unit) {
         Column(Modifier.weight(1f)) {
             Text(item.title, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, lineHeight = 18.sp)
             Spacer(Modifier.height(4.dp))
-            Text("#${item.number} · ${item.author} · ${shortTime(item.createdAt)}", fontSize = 11.5.sp, color = Primer.TextTertiary)
+            Text("#${item.number} · ${item.author} · ${shortTime(item.createdAt).resolve()}", fontSize = 11.5.sp, color = Primer.TextTertiary)
         }
     }
 }
@@ -576,7 +604,7 @@ fun CommitListContent(sessionJson: String, owner: String, repo: String, branch: 
         val sha = branch?.takeIf { it.isNotBlank() }?.let { b -> "?sha=${encodeRef(b)}" } ?: ""
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/commits$sha")
         if (json == null || json.startsWith("ERROR:")) {
-            if (!shownStale) error = loadFailure("提交", json?.removePrefix("ERROR:"), owner, repo)
+            if (!shownStale) error = loadFailure(context.getString(R.string.action_commit), json?.removePrefix("ERROR:"), owner, repo)
         } else {
             items = parseCommits(json)
             ListCache.write(manager, cacheKey, json)
@@ -587,7 +615,7 @@ fun CommitListContent(sessionJson: String, owner: String, repo: String, branch: 
     when {
         loading -> ListLoading()
         error != null -> ListError(error!!) { retryTick++ }
-        items.isEmpty() -> ListEmpty("暂无提交")
+        items.isEmpty() -> ListEmpty(stringResource(R.string.state_no_commits))
         else -> LazyColumn(Modifier.fillMaxSize()) {
             // commit sha 唯一
             items(items, key = { it.sha }) { CommitRow(it) { onItemClick(it) } }
@@ -605,7 +633,7 @@ private fun CommitRow(item: CommitItem, onClick: () -> Unit) {
         Column(Modifier.weight(1f)) {
             Text(item.message, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, maxLines = 2)
             Spacer(Modifier.height(4.dp))
-            Text("${item.author} · ${item.sha} · ${shortTime(item.date)}", fontSize = 11.5.sp, color = Primer.TextTertiary)
+            Text("${item.author} · ${item.sha} · ${shortTime(item.date).resolve()}", fontSize = 11.5.sp, color = Primer.TextTertiary)
         }
     }
 }
@@ -651,7 +679,7 @@ fun WorkflowListContent(sessionJson: String, owner: String, repo: String, branch
         // ② 回源刷新
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/workflows")
         if (json == null || json.startsWith("ERROR:")) {
-            if (!shownStale) error = loadFailure("工作流", json?.removePrefix("ERROR:"), owner, repo)
+            if (!shownStale) error = loadFailure(context.getString(R.string.label_workflows), json?.removePrefix("ERROR:"), owner, repo)
         } else {
             items = parseWorkflows(json)
             ListCache.write(manager, cacheKey, json)
@@ -662,7 +690,7 @@ fun WorkflowListContent(sessionJson: String, owner: String, repo: String, branch
     when {
         loading -> ListLoading()
         error != null -> ListError(error!!) { retryTick++ }
-        items.isEmpty() -> ListEmpty("暂无工作流")
+        items.isEmpty() -> ListEmpty(stringResource(R.string.state_no_workflows))
         else -> LazyColumn(Modifier.fillMaxSize()) {
             // workflow id 唯一
             items(items, key = { if (it.id != 0L) it.id else it.name }) {
@@ -737,7 +765,7 @@ fun ReleaseListContent(
         // ② 回源刷新
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/releases")
         if (json == null || json.startsWith("ERROR:")) {
-            if (!shownStale) error = loadFailure("发布", json?.removePrefix("ERROR:"), owner, repo)
+            if (!shownStale) error = loadFailure(context.getString(R.string.nav_releases), json?.removePrefix("ERROR:"), owner, repo)
         } else {
             var parsed = parseReleases(json)
             // 列表接口对**刚发布**的 release 会返回空 assets（GitHub 多副本数据不一致，实测约 2.5
@@ -782,14 +810,14 @@ fun ReleaseListContent(
             // 原来那个按钮没有任何信息，却永远压在列表最上面，进页面第一眼是个空框；
             // 收进标题行后入口还在（有写权限时才出现），但不再吃一整行。
             item {
-                DetailSectionTitle(if (items.isEmpty()) "发布" else "发布 · ${items.size}") {
+                DetailSectionTitle(if (items.isEmpty()) stringResource(R.string.nav_releases) else stringResource(R.string.label_releases_count, items.size)) {
                     if (canPush) NewReleaseButton(onCreate)
                 }
             }
             if (items.isEmpty()) {
                 item {
                     Text(
-                        "暂无发布",
+                        stringResource(R.string.state_no_releases),
                         fontSize = 13.sp,
                         color = Primer.TextTertiary,
                         modifier = Modifier.fillMaxWidth().padding(vertical = 56.dp),
@@ -820,7 +848,7 @@ private fun NewReleaseButton(onClick: () -> Unit) {
     ) {
         Icon(
             Icons.Filled.Add,
-            contentDescription = "新建发布",
+            contentDescription = stringResource(R.string.action_new_release),
             tint = Primer.IconPrimary,
             modifier = Modifier.size(17.dp),
         )
@@ -846,15 +874,15 @@ private fun ReleaseRow(item: ReleaseItem, isLatest: Boolean, onClick: () -> Unit
                 ReleaseTagChip(item.tag)
                 if (isLatest) {
                     Spacer(Modifier.width(7.dp))
-                    ReleaseChip("最新发布", Primer.SuccessTextStrong, Primer.SuccessSurface)
+                    ReleaseChip(stringResource(R.string.label_latest_release), Primer.SuccessTextStrong, Primer.SuccessSurface)
                 }
                 if (item.prerelease) {
                     Spacer(Modifier.width(7.dp))
-                    ReleaseChip("预发布", Primer.AccentText, Primer.InfoSurfaceSoft)
+                    ReleaseChip(stringResource(R.string.label_prerelease), Primer.AccentText, Primer.InfoSurfaceSoft)
                 }
                 if (item.draft) {
                     Spacer(Modifier.width(7.dp))
-                    ReleaseChip("草稿", Primer.WarningTextStrong, Primer.WarningSurface)
+                    ReleaseChip(stringResource(R.string.label_draft), Primer.WarningTextStrong, Primer.WarningSurface)
                 }
             }
             Spacer(Modifier.height(6.dp))
@@ -869,9 +897,9 @@ private fun ReleaseRow(item: ReleaseItem, isLatest: Boolean, onClick: () -> Unit
             Spacer(Modifier.height(3.dp))
             Text(
                 buildString {
-                    append(shortTime(item.createdAt))
+                    append(shortTime(item.createdAt).resolve())
                     if (item.author.isNotBlank()) append(" · ${item.author}")
-                    if (item.assets.isNotEmpty()) append(" · ${item.assets.size} 个附件")
+                    if (item.assets.isNotEmpty()) append(stringResource(R.string.suffix_asset_count, item.assets.size))
                 },
                 fontSize = 11.5.sp,
                 color = Primer.TextTertiary,
@@ -929,6 +957,7 @@ fun PeopleListScreen(
     type: String, // "star" / "fork" / "watch"
     onBack: () -> Unit,
 ) {
+    val context = LocalContext.current
     val (host, token, _) = sessionInfo(sessionJson)
     var users by remember { mutableStateOf<List<UserItem>>(emptyList()) }
     var forks by remember { mutableStateOf<List<ForkItem>>(emptyList()) }
@@ -936,7 +965,7 @@ fun PeopleListScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var tick by remember { mutableStateOf(0) }
 
-    val title = when (type) { "star" -> "星标者"; "fork" -> "复刻"; else -> "关注者" }
+    val title = when (type) { "star" -> stringResource(R.string.label_stargazers); "fork" -> stringResource(R.string.action_fork); else -> stringResource(R.string.label_followers_list) }
     // per_page=100：GitHub 默认只给 30 条，而这一页没有翻页入口 —— 不写就是
     // 「第 31 个人永远看不到」且界面毫无提示（与 /user/starred 同一处理）。
     val path = when (type) {
@@ -950,7 +979,7 @@ fun PeopleListScreen(
         error = null
         val raw = RustBridge.getJson(host, token, path)
         when {
-            raw == null -> error = "没有拿到数据，请稍后重试。"
+            raw == null -> error = context.getString(R.string.state_no_data_retry)
             // 失败与「真的没有人」必须分开：2026-07 起 GitHub 已把
             // `/stargazers`、`/subscribers` 限制为管理员与协作者可见，
             // 非协作者拿到的是 403 —— 再显示「暂无内容」就是在骗用户
@@ -970,7 +999,7 @@ fun PeopleListScreen(
         ) {
             Icon(
                 Icons.AutoMirrored.Filled.ArrowBack,
-                "返回",
+                stringResource(R.string.action_back),
                 tint = Primer.IconPrimary,
                 modifier = Modifier.size(24.dp).iconTap { onBack() },
             )
@@ -980,8 +1009,8 @@ fun PeopleListScreen(
         when {
             loading -> ListLoading()
             error != null -> ListError(error!!, onRetry = { tick++ })
-            type == "fork" && forks.isEmpty() -> ListEmpty("暂无复刻")
-            type != "fork" && users.isEmpty() -> ListEmpty("暂无内容")
+            type == "fork" && forks.isEmpty() -> ListEmpty(stringResource(R.string.state_no_forks))
+            type != "fork" && users.isEmpty() -> ListEmpty(stringResource(R.string.state_no_content))
             type == "fork" -> LazyColumn(Modifier.fillMaxSize()) { items(forks) { ForkRow(it) } }
             else -> LazyColumn(Modifier.fillMaxSize()) { items(users) { UserRow(it) } }
         }
@@ -1060,7 +1089,6 @@ private fun ForkRow(fork: ForkItem) {
 // ── 设置（入口列表 → 仓库设置决策页 / PR 一条龙） ──
 
 /** PR 一条龙的提交信息初值（决策页里可改；只是默认，不再是写死的唯一值）。 */
-private const val DEFAULT_PR_COMMIT_MESSAGE = "chore: 通过 Branchbase 提交"
 
 /**
  * 该仓库在「文件页」留下的待提交草稿（仓库内相对路径）—— 一条龙的真实改动来源。
@@ -1141,7 +1169,9 @@ fun RepositorySettingsContent(
                 owner = owner,
                 repo = repo,
                 baseBranch = defaultBranch,
-                commitMessage = DEFAULT_PR_COMMIT_MESSAGE,
+                // 默认提交信息是**用户可见文案**（会进提交历史），所以走资源而不是常量：
+                // 英文界面下应该提交英文说明，而不是把中文写进别人的仓库历史。
+                commitMessage = context.getString(R.string.pr_default_commit_message),
                 // 真实改动只能来自文件页草稿；一个都没有时一条龙第②步会明确拦住（不假装能开 PR）
                 changedFiles = changedFiles,
                 // 分支清单来自仓库页（同一份 branches），第①步据此查重名
@@ -1157,12 +1187,12 @@ fun RepositorySettingsContent(
     }
     // 原先还有一条「许可证」占位行（enabled=false，点了没反应），已随占位清理移除
     val entries = listOf(
-        Triple("仓库设置（默认分支 / 分支管理 / 危险区）", 1, true),
+        Triple(stringResource(R.string.label_repo_settings_menu), 1, true),
         Triple(
             if (changedFiles.isEmpty()) {
-                "开 PR 一条龙（新建分支 + 开 PR）· 无待提交草稿"
+                stringResource(R.string.label_pr_onestop_no_drafts)
             } else {
-                "开 PR 一条龙（新建分支 + 开 PR）· 待提交 ${changedFiles.size} 个文件"
+                stringResource(R.string.label_pr_onestop_with_drafts, changedFiles.size)
             },
             2,
             true,

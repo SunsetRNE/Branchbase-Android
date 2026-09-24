@@ -69,6 +69,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -97,6 +98,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.branchbase.R
 import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.navigation.rememberPageResumeTick
 import com.branchbase.ui.theme.color
@@ -111,6 +113,7 @@ import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.resolve
 import com.branchbase.ui.theme.Primer
 import java.net.URLEncoder
 import kotlinx.coroutines.Dispatchers
@@ -381,7 +384,7 @@ fun NotificationScreen(
             if (json == null || json.startsWith("ERROR:")) {
                 // 回源失败：只有「本次确实直出了缓存」时才静默保留旧内容；
                 // 首次进入（无缓存、无快照）仍按原语义落到错误态。
-                if (cached == null && items.isEmpty()) loadState = LoadState.Failed("消息加载失败")
+                if (cached == null && items.isEmpty()) loadState = LoadState.Failed(context.getString(R.string.error_messages_load_failed))
             } else {
                 items = parseAndApply(json)
                 before = items.lastOrNull()?.updatedAt
@@ -572,7 +575,7 @@ fun NotificationScreen(
                 NotifReadStore.remove(context, ids)
                 items = items.map { if (it.id in ids) it.copy(unread = true) else it }
                 NotifSnapshot.mutate { snap -> snap.map { if (it.id in ids) it.copy(unread = true) else it } }
-                toast(context, "标记已读失败，请重试")
+                toast(context, context.getString(R.string.error_mark_read_failed))
             }
         }
     }
@@ -613,7 +616,7 @@ fun NotificationScreen(
             if (runId != null) {
                 onOpenTarget(NotifTarget.Run(n.owner, n.repo, runId))
             } else {
-                if (hint != null) toast(context, "未能定位到具体这次运行，已打开工作流列表")
+                if (hint != null) toast(context, context.getString(R.string.note_run_not_located))
                 onOpenTarget(target)
             }
         }
@@ -641,7 +644,7 @@ fun NotificationScreen(
         else items.map { if (it.id == entry.id) it.copy(unread = true) else it }
         NotifSnapshot.mutate { snap -> listOf(restored) + snap.filterNot { it.id == entry.id } }
         category = NotifCategory.UNREAD
-        undo = UndoState("已把「${entry.title}」恢复为未读") { unsendToInbox(entry) }
+        undo = UndoState(context.getString(R.string.toast_restored_unread, entry.title)) { unsendToInbox(entry) }
     }
 
     /**
@@ -731,7 +734,7 @@ fun NotificationScreen(
                 invalidateOnRead()
             } else {
                 rollbackLocal(listOf(n), unreadBefore, archiveBefore, readBefore)
-                toast(context, "标记完成失败，请重试")
+                toast(context, context.getString(R.string.error_mark_done_failed))
             }
         }
     }
@@ -797,20 +800,20 @@ fun NotificationScreen(
                 rollbackLocal(rollbackItems, unreadBefore, archiveBefore, readBefore)
             }
             val what = when (op) {
-                BulkOp.READ -> "标记已读"
-                BulkOp.DONE -> "标记完成"
-                BulkOp.MUTE -> "静音"
+                BulkOp.READ -> context.getString(R.string.action_mark_read)
+                BulkOp.DONE -> context.getString(R.string.action_mark_done)
+                BulkOp.MUTE -> context.getString(R.string.action_mute)
             }
             // 计数一律按**行**（折叠行算一条）：界面上一折就是一行，
             // 报「成功 8 条」而屏幕上只动了一行，会让人以为误伤了别的消息
             if (failed.isNotEmpty()) {
-                toast(context, "$what：成功 ${reps.size - rowsDone.size} 条，失败 ${rowsDone.size} 条")
+                toast(context, context.getString(R.string.toast_batch_result, what, reps.size - rowsDone.size, rowsDone.size))
             } else {
                 invalidateOnRead()
                 // 静音在本地没有任何可见状态可回退（远端也没有 subscribe 接口），
                 // 因此不给撤销 —— 给一个按下去什么都不变的「撤销」比不给更糟。
                 if (op != BulkOp.MUTE) {
-                    undo = UndoState("${reps.size} 条已$what") {
+                    undo = UndoState(context.getString(R.string.toast_batch_summary, reps.size, what)) {
                         rollbackLocal(targets, unreadBefore, archiveBefore, readBefore)
                     }
                 }
@@ -898,12 +901,12 @@ fun NotificationScreen(
                             val ok = RustBridge.markAllNotificationsRead(host, token)
                             if (ok) {
                                 invalidateOnRead()
-                                undo = UndoState("已将 ${targets.size} 条标记为已读") {
+                                undo = UndoState(context.getString(R.string.toast_marked_read_count, targets.size)) {
                                     rollbackLocal(targets, unreadBefore, archiveBefore, readBefore)
                                 }
                             } else {
                                 rollbackLocal(targets, unreadBefore, archiveBefore, readBefore)
-                                toast(context, "全部已读失败，请重试")
+                                toast(context, context.getString(R.string.error_mark_all_read_failed))
                             }
                         }
                     },
@@ -1095,7 +1098,7 @@ fun NotificationScreen(
                 val ids = expandFoldIds(if (bulkMode) selected else setOf(target.id))
                 scope.launch {
                     val ok = ids.all { RustBridge.unsubscribeThread(host, token, it) }
-                    if (ok) toast(context, "已静音该会话") else toast(context, "静音失败，请重试")
+                    if (ok) toast(context, context.getString(R.string.toast_conversation_muted)) else toast(context, context.getString(R.string.error_mute_failed))
                 }
                 sheetTarget = null
             },
@@ -1120,7 +1123,7 @@ private fun TopBar(unread: Int, onRefresh: () -> Unit, onMarkAllRead: () -> Unit
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("消息", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
+        Text(stringResource(R.string.nav_messages), fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
         // 未读胶囊徽标：0 时不显示
         if (unread > 0) {
             Spacer(Modifier.width(8.dp))
@@ -1141,7 +1144,7 @@ private fun TopBar(unread: Int, onRefresh: () -> Unit, onMarkAllRead: () -> Unit
         }
         Spacer(Modifier.weight(1f))
         IconButton(onClick = onRefresh) {
-            Icon(Icons.Filled.Refresh, contentDescription = "刷新消息", tint = Primer.IconPrimary)
+            Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.action_refresh_messages), tint = Primer.IconPrimary)
         }
         TextButton(onClick = onMarkAllRead, enabled = unread > 0) {
             Icon(
@@ -1151,7 +1154,7 @@ private fun TopBar(unread: Int, onRefresh: () -> Unit, onMarkAllRead: () -> Unit
                 modifier = Modifier.size(16.dp),
             )
             Spacer(Modifier.width(4.dp))
-            Text("已读", color = if (unread > 0) Primer.Blue500 else Primer.Gray300)
+            Text(stringResource(R.string.state_read), color = if (unread > 0) Primer.Blue500 else Primer.Gray300)
         }
     }
 }
@@ -1177,7 +1180,7 @@ private fun PrefetchHint() {
             Box(Modifier.size(6.dp).clip(CircleShape).background(Primer.Blue500))
             Spacer(Modifier.width(6.dp))
             Text(
-                "首页阶段已预取 · 首帧直出，后台正在回源",
+                stringResource(R.string.note_prefetched_first_frame),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Primer.Blue600,
@@ -1219,7 +1222,7 @@ private fun UndoBar(state: UndoState?, modifier: Modifier = Modifier, onDismiss:
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    "撤销",
+                    stringResource(R.string.action_undo),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     color = Primer.Blue400,
@@ -1438,7 +1441,7 @@ private fun NotificationList(
                                 if (loadingMore) {
                                     CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Primer.Blue500, strokeWidth = 2.dp)
                                 } else {
-                                    Text("加载更多", fontSize = 12.sp, color = Primer.TextTertiary)
+                                    Text(stringResource(R.string.action_load_more), fontSize = 12.sp, color = Primer.TextTertiary)
                                 }
                             }
                         }
@@ -1671,7 +1674,7 @@ private fun NotificationRow(
                             if (n.reasonHighSignal) {
                                 Spacer(Modifier.width(6.dp))
                                 Text(
-                                    n.reasonLabel,
+                                    stringResource(n.reasonLabelRes),
                                     fontSize = 10.5.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     // 用**文字色**角色而不是填充色：填充色压在自己的 12% 浅底上
@@ -1725,7 +1728,7 @@ private fun NotificationRow(
                                     Spacer(Modifier.width(4.dp))
                                 }
                                 Text(
-                                    if (preview.author.isBlank()) preview.body else "${preview.author}：${preview.body}",
+                                    if (preview.author.isBlank()) preview.body else stringResource(R.string.label_preview_author_body, preview.author, preview.body),
                                     fontSize = 12.sp,
                                     color = Primer.TextSecondary,
                                     maxLines = 2,
@@ -1737,7 +1740,7 @@ private fun NotificationRow(
                     Spacer(Modifier.width(8.dp))
                     Column(horizontalAlignment = Alignment.End) {
                         // 相对时间在**渲染期**由原始时间戳算出：快照 / 缓存里的时间不会失真
-                        Text(relativeTimeOf(n.updatedAtMs), fontSize = 11.sp, color = Primer.TextTertiary)
+                        Text(relativeTimeOf(n.updatedAtMs).resolve(), fontSize = 11.sp, color = Primer.TextTertiary)
                         if (n.unread && !selectionEnabled) {
                             Spacer(Modifier.height(5.dp))
                             Box(Modifier.size(8.dp).clip(CircleShape).background(unreadBar))
@@ -1787,7 +1790,7 @@ private fun FoldExpandRow(fold: NotifFold, open: Boolean, onToggle: () -> Unit) 
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                if (open) "收起" else "展开其余 ${fold.count - 1} 次",
+                if (open) stringResource(R.string.action_collapse) else stringResource(R.string.action_expand_remaining_runs, fold.count - 1),
                 fontSize = 11.5.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Primer.AccentText,
@@ -1828,7 +1831,7 @@ private fun FoldExpandRow(fold: NotifFold, open: Boolean, onToggle: () -> Unit) 
                             modifier = Modifier.weight(1f),
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text(relativeTimeOf(run.updatedAtMs), fontSize = 11.sp, color = Primer.TextTertiary)
+                        Text(relativeTimeOf(run.updatedAtMs).resolve(), fontSize = 11.sp, color = Primer.TextTertiary)
                     }
                 }
             }
@@ -1967,7 +1970,7 @@ private fun SwipeToReadRow(enabled: Boolean, onRead: () -> Unit, content: @Compo
             ) {
                 Icon(Icons.Filled.Check, contentDescription = null, tint = Primer.Blue500, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("已读", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
+                Text(stringResource(R.string.state_read), fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
             }
         },
         onDismiss = { direction ->
@@ -2045,7 +2048,7 @@ private fun CollapsibleGroup(
                 val rotation by animateFloatAsState(if (expanded) 90f else 0f, label = "arrow")
                 Icon(
                     Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    contentDescription = if (expanded) "收起分组" else "展开分组",
+                    contentDescription = if (expanded) stringResource(R.string.action_collapse_group) else stringResource(R.string.action_expand_group),
                     tint = Primer.IconSecondary,
                     modifier = Modifier.size(18.dp).rotate(rotation),
                 )
@@ -2068,10 +2071,10 @@ private fun EmptyState(category: NotifCategory, typeFiltered: Boolean) {
             Spacer(Modifier.height(12.dp))
             Text(
                 when {
-                    typeFiltered && category != NotifCategory.UNREAD -> "该筛选下没有消息"
-                    category == NotifCategory.DONE -> "暂无已完成消息"
-                    category == NotifCategory.UNREAD -> "没有未读消息"
-                    else -> "暂无消息"
+                    typeFiltered && category != NotifCategory.UNREAD -> stringResource(R.string.state_no_messages_in_filter)
+                    category == NotifCategory.DONE -> stringResource(R.string.state_no_completed_messages)
+                    category == NotifCategory.UNREAD -> stringResource(R.string.state_no_unread_messages)
+                    else -> stringResource(R.string.state_no_messages)
                 },
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -2080,9 +2083,9 @@ private fun EmptyState(category: NotifCategory, typeFiltered: Boolean) {
             Spacer(Modifier.height(4.dp))
             Text(
                 when {
-                    category == NotifCategory.DONE -> "批量「完成」后的消息会归档到这里。"
-                    category == NotifCategory.UNREAD -> "你已看完所有消息 🎉"
-                    else -> "当有人提及、评论或请求审查时，会在这里收到消息。"
+                    category == NotifCategory.DONE -> stringResource(R.string.note_archived_here)
+                    category == NotifCategory.UNREAD -> stringResource(R.string.state_all_caught_up)
+                    else -> stringResource(R.string.note_when_messages_arrive)
                 },
                 fontSize = 12.5.sp,
                 color = Primer.TextTertiary,
@@ -2099,7 +2102,7 @@ private fun ErrorState(message: String, onRetry: () -> Unit) {
             Spacer(Modifier.height(12.dp))
             Text(message, fontSize = 13.sp, color = Primer.TextTertiary)
             Spacer(Modifier.height(8.dp))
-            TextButton(onClick = onRetry) { Text("重试", color = Primer.Blue500) }
+            TextButton(onClick = onRetry) { Text(stringResource(R.string.action_retry), color = Primer.Blue500) }
         }
     }
 }
@@ -2179,7 +2182,7 @@ private fun NotifActionSheet(
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        if (bulkMode) "已选 $selectionCount 条消息" else target.title,
+                        if (bulkMode) stringResource(R.string.label_selected_messages, selectionCount) else target.title,
                         fontSize = 13.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = Primer.TextPrimary,
@@ -2187,9 +2190,9 @@ private fun NotifActionSheet(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        if (bulkMode) "批量操作作用于当前筛选下的选中项"
+                        if (bulkMode) stringResource(R.string.note_bulk_scope)
                         else target.repoFullName + (target.targetNumber?.let { " #$it" } ?: "") +
-                            " · " + relativeTimeOf(target.updatedAtMs),
+                            " · " + relativeTimeOf(target.updatedAtMs).resolve(),
                         fontSize = 11.5.sp,
                         color = Primer.TextTertiary,
                     )
@@ -2198,29 +2201,29 @@ private fun NotifActionSheet(
             Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Gray150))
 
             if (bulkMode) {
-                SheetAction(Icons.Filled.Done, "完成所选（$selectionCount 条）", onMarkDone, hint = "移入「已完成」")
-                SheetAction(Icons.Filled.MarkEmailUnread, "全部标记为未读", onMarkUnread, hint = "仅本地")
-                SheetAction(Icons.Filled.ContentCopy, "复制所选链接", onCopyLink)
-                SheetAction(Icons.Filled.Share, "分享第一条", onShare)
+                SheetAction(Icons.Filled.Done, stringResource(R.string.action_complete_selected, selectionCount), onMarkDone, hint = stringResource(R.string.action_move_to_done))
+                SheetAction(Icons.Filled.MarkEmailUnread, stringResource(R.string.action_mark_all_unread), onMarkUnread, hint = stringResource(R.string.label_local_only))
+                SheetAction(Icons.Filled.ContentCopy, stringResource(R.string.action_copy_selected_links), onCopyLink)
+                SheetAction(Icons.Filled.Share, stringResource(R.string.action_share_first), onShare)
                 Box(Modifier.padding(horizontal = 16.dp, vertical = 5.dp).fillMaxWidth().height(1.dp).background(Primer.Gray150))
-                SheetAction(Icons.Filled.SelectAll, "退出多选", onExitSelection)
+                SheetAction(Icons.Filled.SelectAll, stringResource(R.string.action_exit_multiselect), onExitSelection)
             } else {
                 if (target.unread) {
-                    SheetAction(Icons.Filled.MarkEmailRead, "标记为已读", onMarkRead, hint = "右滑同效")
+                    SheetAction(Icons.Filled.MarkEmailRead, stringResource(R.string.action_mark_as_read), onMarkRead, hint = stringResource(R.string.hint_swipe_right_same))
                 } else {
-                    SheetAction(Icons.Filled.MarkEmailUnread, "标记为未读", onMarkUnread)
+                    SheetAction(Icons.Filled.MarkEmailUnread, stringResource(R.string.action_mark_as_unread), onMarkUnread)
                 }
-                SheetAction(Icons.Filled.Done, "标记完成", onMarkDone, hint = "移入「已完成」")
-                SheetAction(Icons.Filled.VolumeOff, "静音该会话", onMute, hint = "不再收到此 thread")
+                SheetAction(Icons.Filled.Done, stringResource(R.string.action_mark_done), onMarkDone, hint = stringResource(R.string.action_move_to_done))
+                SheetAction(Icons.Filled.VolumeOff, stringResource(R.string.action_mute_conversation), onMute, hint = stringResource(R.string.note_mute_thread))
                 Box(Modifier.padding(horizontal = 16.dp, vertical = 5.dp).fillMaxWidth().height(1.dp).background(Primer.Gray150))
-                SheetAction(Icons.Filled.ContentCopy, "复制链接", onCopyLink)
-                SheetAction(Icons.AutoMirrored.Filled.OpenInNew, "在浏览器打开", onOpenBrowser)
-                SheetAction(Icons.Filled.Share, "分享", onShare)
+                SheetAction(Icons.Filled.ContentCopy, stringResource(R.string.action_copy_link), onCopyLink)
+                SheetAction(Icons.AutoMirrored.Filled.OpenInNew, stringResource(R.string.action_open_in_browser), onOpenBrowser)
+                SheetAction(Icons.Filled.Share, stringResource(R.string.action_share), onShare)
                 Box(Modifier.padding(horizontal = 16.dp, vertical = 5.dp).fillMaxWidth().height(1.dp).background(Primer.Gray150))
-                SheetAction(Icons.Filled.SelectAll, "多选", onMultiSelect, hint = "长按另一条可区间选择")
+                SheetAction(Icons.Filled.SelectAll, stringResource(R.string.label_multi_select), onMultiSelect, hint = stringResource(R.string.hint_long_press_range))
             }
             Text(
-                "长按唤出本面板；进入多选后，长按另一条可从锚点整段选择，按住横向划过可连续刷选。",
+                stringResource(R.string.note_multiselect_help),
                 fontSize = 11.5.sp,
                 color = Primer.Blue600,
                 lineHeight = 17.sp,
@@ -2404,12 +2407,12 @@ private fun threadUrlOf(n: Notification): String {
 }
 
 private fun copyThreadLink(context: Context, n: Notification) {
-    copyToClipboard(context, threadUrlOf(n), "已复制链接")
+    copyToClipboard(context, threadUrlOf(n), context.getString(R.string.toast_link_copied))
 }
 
 private fun copyLinks(context: Context, list: List<Notification>) {
     if (list.isEmpty()) return
-    copyToClipboard(context, list.joinToString("\n") { threadUrlOf(it) }, "已复制 ${list.size} 条链接")
+    copyToClipboard(context, list.joinToString("\n") { threadUrlOf(it) }, context.getString(R.string.toast_links_copied, list.size))
 }
 
 private fun copyToClipboard(context: Context, text: String, okMessage: String) {
@@ -2423,7 +2426,7 @@ private fun copyToClipboard(context: Context, text: String, okMessage: String) {
 private fun openInBrowser(context: Context, n: Notification) {
     runCatching {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(threadUrlOf(n))))
-    }.onFailure { toast(context, "没有可用的浏览器") }
+    }.onFailure { toast(context, context.getString(R.string.error_no_browser)) }
 }
 
 private fun shareThread(context: Context, n: Notification) {
@@ -2432,8 +2435,8 @@ private fun shareThread(context: Context, n: Notification) {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, "${n.title}\n${threadUrlOf(n)}")
         }
-        context.startActivity(Intent.createChooser(send, "分享消息"))
-    }.onFailure { toast(context, "分享失败") }
+        context.startActivity(Intent.createChooser(send, context.getString(R.string.title_share_message)))
+    }.onFailure { toast(context, context.getString(R.string.error_share_failed)) }
 }
 
 private fun toast(context: Context, text: String) {

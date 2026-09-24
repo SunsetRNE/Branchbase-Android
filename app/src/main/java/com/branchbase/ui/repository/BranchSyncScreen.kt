@@ -30,6 +30,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -46,6 +47,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
@@ -239,8 +241,8 @@ fun BranchSyncScreen(
     }
 
     fun doSync() {
-        if (source.isBlank() || target.isBlank()) { feedback = "请选择源分支与目标分支"; return }
-        if (source == target) { feedback = "源分支与目标分支不能相同"; return }
+        if (source.isBlank() || target.isBlank()) { feedback = context.getString(R.string.error_choose_source_target); return }
+        if (source == target) { feedback = context.getString(R.string.error_source_equals_target); return }
         // 本次同步固定的源/目标/模式：请求期间的改动不影响本次请求与缓存失效所用的键
         val src = source
         val dst = target
@@ -253,7 +255,7 @@ fun BranchSyncScreen(
                     0 -> RustBridge.mergeBranch(host, token, owner, repo, dst, src, "Merge $src into $dst")
                     1, 2 -> {
                         val sha = RustBridge.getRefSha(host, token, owner, repo, src)
-                        if (sha == null) "无法读取 $src 的提交"
+                        if (sha == null) context.getString(R.string.error_cannot_read_source_commits, src)
                         else RustBridge.updateRef(host, token, owner, repo, dst, sha, m == 2)
                     }
                     else -> null
@@ -270,11 +272,11 @@ fun BranchSyncScreen(
                 syncTick++
             }
             feedback = when {
-                result == null -> "已同步：$src → $dst"
-                result == "uptodate" -> "目标分支已是最新，无需同步"
+                result == null -> context.getString(R.string.state_synced_from_to, src, dst)
+                result == "uptodate" -> context.getString(R.string.state_target_up_to_date)
                 result.contains("409") || result.contains("conflict", true) ->
-                    "存在冲突，需要人工解决：$result"
-                else -> "同步失败：$result"
+                    context.getString(R.string.error_merge_conflicts, result)
+                else -> context.getString(R.string.error_sync_failed, result)
             }
         }
     }
@@ -311,11 +313,11 @@ fun BranchSyncScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Primer.IconPrimary,
+                Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back), tint = Primer.IconPrimary,
                 modifier = Modifier.size(24.dp).iconTap { onBack() },
             )
             Spacer(Modifier.width(8.dp))
-            Text("分支同步", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+            Text(stringResource(R.string.nav_branch_sync), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
             Spacer(Modifier.weight(1f))
             Text("$owner/$repo", fontSize = 12.sp, color = Primer.TextTertiary)
         }
@@ -330,7 +332,7 @@ fun BranchSyncScreen(
         Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
             // 源分支
             BranchPicker(
-                label = "源分支（内容来自这里）",
+                label = stringResource(R.string.label_source_branch),
                 value = source,
                 branches = branches,
                 expanded = sourceMenu,
@@ -340,7 +342,7 @@ fun BranchSyncScreen(
             Spacer(Modifier.height(12.dp))
             // 目标分支
             BranchPicker(
-                label = "目标分支（同步到这里）",
+                label = stringResource(R.string.label_target_branch),
                 value = target,
                 branches = branches,
                 expanded = targetMenu,
@@ -356,16 +358,16 @@ fun BranchSyncScreen(
                         .background(Primer.Gray150).padding(12.dp),
                 ) {
                     Text(
-                        "$source 领先 $target ${c.aheadBy} 个提交" +
-                            if (c.behindBy > 0) "，落后 ${c.behindBy} 个" else "",
+                        stringResource(R.string.label_ahead_by, source, target, c.aheadBy) +
+                            if (c.behindBy > 0) stringResource(R.string.suffix_behind_by, c.behindBy) else "",
                         fontSize = 12.sp, color = Primer.TextSecondary,
                     )
                     Spacer(Modifier.height(3.dp))
                     Text(
                         when {
-                            c.aheadBy == 0 -> "目标已是最新，无需同步"
-                            c.behindBy == 0 -> "可快进（目标没有独有提交）"
-                            else -> "目标有 ${c.behindBy} 个独有提交，只能合并或覆盖"
+                            c.aheadBy == 0 -> stringResource(R.string.state_already_up_to_date)
+                            c.behindBy == 0 -> stringResource(R.string.state_can_fast_forward)
+                            else -> stringResource(R.string.state_target_has_unique, c.behindBy)
                         },
                         fontSize = 11.sp,
                         color = if (c.behindBy > 0) Primer.WarningText else Primer.TextTertiary,
@@ -375,18 +377,18 @@ fun BranchSyncScreen(
 
             // 模式
             Spacer(Modifier.height(16.dp))
-            Text("同步方式", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+            Text(stringResource(R.string.label_sync_method), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
             Spacer(Modifier.height(8.dp))
-            ModeRow(0, "合并", "保留历史，生成合并提交；有冲突时会被拒绝", mode, enabled = modes.merge) { mode = it }
-            ModeRow(1, "仅快进", "目标没有独有提交时直接移动；否则拒绝", mode, enabled = modes.fastForward) { mode = it }
-            ModeRow(2, "覆盖", "强制指向源分支，会丢弃目标分支独有提交", mode, enabled = modes.overwrite, danger = true) { mode = it }
+            ModeRow(0, stringResource(R.string.label_merge), stringResource(R.string.note_merge_desc), mode, enabled = modes.merge) { mode = it }
+            ModeRow(1, stringResource(R.string.label_fast_forward_only), stringResource(R.string.note_fast_forward_only_desc), mode, enabled = modes.fastForward) { mode = it }
+            ModeRow(2, stringResource(R.string.action_overwrite), stringResource(R.string.note_force_desc), mode, enabled = modes.overwrite, danger = true) { mode = it }
 
             feedback?.let {
                 Spacer(Modifier.height(12.dp))
                 Text(
                     it,
                     fontSize = 12.sp,
-                    color = if (it.startsWith("已同步")) Primer.Green500 else Primer.Red500,
+                    color = if (it.startsWith(stringResource(R.string.state_synced))) Primer.Green500 else Primer.Red500,
                     lineHeight = 17.sp,
                 )
             }
@@ -413,12 +415,12 @@ fun BranchSyncScreen(
             ) {
                 Text(
                     when {
-                        busy -> "同步中…"
-                        modes.nothingToSync -> "目标已是最新，无需同步"
-                        mode == 1 -> "快进 $source → $target"
+                        busy -> stringResource(R.string.state_syncing)
+                        modes.nothingToSync -> stringResource(R.string.state_already_up_to_date)
+                        mode == 1 -> stringResource(R.string.action_fast_forward, source, target)
                         mode == 2 ->
-                            if (loseCount > 0) "覆盖 $target（丢弃 $loseCount 个提交）" else "覆盖 $target"
-                        else -> "合并 $source → $target"
+                            if (loseCount > 0) stringResource(R.string.action_force_with_count, target, loseCount) else stringResource(R.string.action_force, target)
+                        else -> stringResource(R.string.action_merge_branches, source, target)
                     },
                     fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                     color = if (primaryEnabled) Color.White else Primer.TextTertiary,
@@ -431,18 +433,17 @@ fun BranchSyncScreen(
     if (confirmOverwrite) {
         AlertDialog(
             onDismissRequest = { confirmOverwrite = false },
-            title = { Text("确认覆盖 $target？", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary) },
+            title = { Text(stringResource(R.string.confirm_force_title, target), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary) },
             text = {
                 Text(
-                    "覆盖会把 $target 强制指向 $source 的最新提交，" +
-                        "$target 上独有的提交将不再被分支引用（仍可通过 reflog 找回，但界面上看不到）。",
+                    stringResource(R.string.confirm_force_body, target, source, target),
                     fontSize = 12.sp, color = Primer.TextTertiary, lineHeight = 18.sp,
                 )
             },
             confirmButton = {
-                TextButton(onClick = { confirmOverwrite = false; doSync() }) { Text("覆盖", color = Primer.Red500) }
+                TextButton(onClick = { confirmOverwrite = false; doSync() }) { Text(stringResource(R.string.action_overwrite), color = Primer.Red500) }
             },
-            dismissButton = { TextButton(onClick = { confirmOverwrite = false }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { confirmOverwrite = false }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
 }
@@ -469,7 +470,7 @@ private fun BranchPicker(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    value.ifBlank { "请选择" },
+                    value.ifBlank { stringResource(R.string.state_please_choose) },
                     fontSize = 13.5.sp,
                     fontFamily = FontFamily.Monospace,
                     color = Primer.TextPrimary,

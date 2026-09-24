@@ -252,13 +252,16 @@ class ThemeContrastTest {
     @Test
     fun `决策标签的文字用文字角色`() {
         val src = source("$uiDir/decision/DecisionComponents.kt")
+        // 钉的是**语义分支**（哪个 OptionTag 配哪个文字角色），不是标签字面量：
+        // 标签文案已经资源化（`stringResource(R.string.label_recommended)`），
+        // 继续钉 `"推荐"` 只会每抽取一次假红一次 —— 而假红会训练人忽略这套钉子。
         assertTrue(
             "「推荐」标签的文字应为 Primer.SuccessTextStrong（Green500 是填充色，压浅绿底只有 2.88）",
-            Regex("OptionTagChip\\(\"推荐\",\\s*Primer\\.SuccessTextStrong").containsMatchIn(src),
+            Regex("OptionTag\\.RECOMMENDED ->[\\s\\S]{0,200}?Primer\\.SuccessTextStrong").containsMatchIn(src),
         )
         assertTrue(
             "「危险」标签的文字应为 Primer.DangerText",
-            Regex("OptionTagChip\\(\"危险\",\\s*Primer\\.DangerText").containsMatchIn(src),
+            Regex("OptionTag\\.DANGER ->[\\s\\S]{0,200}?Primer\\.DangerText").containsMatchIn(src),
         )
         // 危险确认卡：底色 DangerSurfaceSoft，标题也必须用文字角色（Red500 压上去只有 4.16）
         assertTrue(

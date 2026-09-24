@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +40,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.ui.theme.selectionColor
 import com.branchbase.ui.theme.Primer
 import com.branchbase.ui.theme.bubbleEnter
@@ -114,7 +116,7 @@ fun EdgeNavigationBar(
             ) {
                 Icon(
                     Icons.Filled.MoreHoriz,
-                    contentDescription = if (expanded) "收起更多" else "更多",
+                    contentDescription = if (expanded) stringResource(R.string.action_collapse_more) else stringResource(R.string.action_more),
                     tint = selectionColor(expanded, on = Color.White, off = Primer.IconPrimary),
                     modifier = Modifier
                         .size(22.dp)

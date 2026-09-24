@@ -6,6 +6,8 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.branchbase.R
+import org.junit.Assert.assertNotEquals
 
 /**
  * PR 详情解析（`merged` / `mergeable`）与「合并入口」可见性规则单测。
@@ -124,25 +126,30 @@ class PullDetailModelsTest {
             pullMergeEntry("open", false, false, "f", "main"),
         )
         // 置灰态必须给得出原因
-        val reason = pullMergeHint(mergeable = false, headRef = "f", baseRef = "main")
-        assertNotNull(reason)
-        assertTrue("原因里要能看出是 GitHub 的判定：$reason", reason!!.contains("不可自动合并"))
+        // 断言资源 ID（`pullMergeHintRes`）：文案已资源化，改译文不该让这条红
+        assertEquals(
+            R.string.merge_hint_conflict,
+            pullMergeHintRes(mergeable = false, headRef = "f", baseRef = "main"),
+        )
     }
 
     @Test
     fun `mergeable 为 null 时的提示是还在算而不是拒绝`() {
-        val hint = pullMergeHint(mergeable = null, headRef = "f", baseRef = "main")
-        assertNotNull(hint)
-        assertTrue("null 的文案要说「仍在计算」：$hint", hint!!.contains("仍在计算"))
-        assertFalse("null 的文案不许写成不可合并：$hint", hint.contains("不可自动合并"))
-        assertNull("可合并时不加多余文案", pullMergeHint(mergeable = true, headRef = "f", baseRef = "main"))
+        // 「还在算」与「不可合并」必须是**两个不同的资源**（语义完全不同，不能复用一条文案）
+        val hint = pullMergeHintRes(mergeable = null, headRef = "f", baseRef = "main")
+        assertEquals(R.string.merge_hint_calculating, hint)
+        assertNotEquals(R.string.merge_hint_conflict, hint)
+        assertNull("可合并时不加多余文案", pullMergeHintRes(mergeable = true, headRef = "f", baseRef = "main"))
     }
 
     @Test
     fun `分支名缺失时置灰并说明原因`() {
         assertEquals(PullMergeEntry.Disabled, pullMergeEntry("open", false, true, "", "main"))
         assertEquals(PullMergeEntry.Disabled, pullMergeEntry("open", false, true, "f", ""))
-        assertNotNull(pullMergeHint(mergeable = true, headRef = "", baseRef = "main"))
+        assertEquals(
+            R.string.merge_hint_missing_branch,
+            pullMergeHintRes(mergeable = true, headRef = "", baseRef = "main"),
+        )
     }
 
     @Test

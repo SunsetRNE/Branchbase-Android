@@ -1,5 +1,6 @@
 package com.branchbase.ui.repository
 
+import com.branchbase.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -55,16 +56,17 @@ class WorkflowFormatTest {
 
     @Test
     fun `状态文案覆盖多状态_且伪值不泄漏`() {
-        assertEquals("进行中", runStatusLabel("in_progress", null))
-        assertEquals("排队中", runStatusLabel("queued", null))
-        assertEquals("已取消", runStatusLabel("completed", "cancelled"))
-        assertEquals("已跳过", runStatusLabel("completed", "skipped"))
-        assertEquals("超时", runStatusLabel("completed", "timed_out"))
-        assertEquals("成功", runStatusLabel("completed", "success"))
-        assertEquals("失败", runStatusLabel("completed", "failure"))
+        // 断言资源 ID 而不是文案：标签已资源化，改译文不应该让这条红
+        assertEquals(R.string.workflow_status_in_progress, runStatusLabelResOrNull("in_progress", null))
+        assertEquals(R.string.workflow_status_queued, runStatusLabelResOrNull("queued", null))
+        assertEquals(R.string.workflow_status_cancelled, runStatusLabelResOrNull("completed", "cancelled"))
+        assertEquals(R.string.workflow_status_skipped, runStatusLabelResOrNull("completed", "skipped"))
+        assertEquals(R.string.workflow_status_timed_out, runStatusLabelResOrNull("completed", "timed_out"))
+        assertEquals(R.string.workflow_status_success, runStatusLabelResOrNull("completed", "success"))
+        assertEquals(R.string.workflow_status_failure, runStatusLabelResOrNull("completed", "failure"))
         // 伪值不许泄漏成状态文案（否则界面上会出现一个「null」）
-        assertEquals("进行中", runStatusLabel("in_progress", "null"))
-        assertEquals("未知", runStatusLabel("", null))
+        assertEquals(R.string.workflow_status_in_progress, runStatusLabelResOrNull("in_progress", "null"))
+        assertEquals(R.string.workflow_status_unknown, runStatusLabelResOrNull("", null))
     }
 
     @Test

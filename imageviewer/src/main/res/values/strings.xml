@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        :imageviewer 模块自带的文案（模块自治：删掉这个模块，这些文案一起消失）。
+
+        为什么放在模块里而不是让 :app 注入 —— 查看器只认「URL + 可选请求头 + 关闭回调」，
+        不认识 GitHub、不认识仓库、不认识 Token；文案同理，模块自己兜住。
+
+        命名带 `imageviewer_` 前缀：库模块的资源会与 :app 合并，而 `action_close`、`label_image`
+        这类通用名在 :app 里已经被占用；同名会被 :app 覆盖，值一旦不同就是「改了库模块却不见效」。
+        前缀与 :downloader 的 `downloader_` 同一约定。
+
+        ⚠️ 本模块出现任何一种语言目录，`:app` 必须也有同名目录：
+        `android:localeConfig` 由 AGP 按 **:app 自己的 res 目录**生成（不含库模块）。
+        `tools/i18n/check-i18n.py` 会拦这种情况。
+
+        ⚠️ 「加载失败」这两条**要翻译**，但永远不要把底层异常（`UnknownHostException: …`
+        这类英文）直接显示给用户 —— 见 ImageViewerDialog 的「文案」一节。
+    -->
+    <string name="imageviewer_image">图片</string>
+    <string name="imageviewer_hint">双指缩放 · 双击放大 · 下拉关闭</string>
+    <string name="imageviewer_open_in_browser">用浏览器打开</string>
+    <string name="imageviewer_close">关闭</string>
+    <string name="imageviewer_load_failed">图片加载失败</string>
+    <string name="imageviewer_tap_to_retry">点按重试</string>
+</resources>

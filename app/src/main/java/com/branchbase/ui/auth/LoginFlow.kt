@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -30,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.branchbase.R
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.navigation.PageSwitcher
@@ -169,13 +171,13 @@ fun LoginFlow(
                     AppIcon(size = 72.dp, shape = RoundedCornerShape(20.dp))
                     Spacer(Modifier.height(18.dp))
                     Text(
-                        "正在打开 GitHub 授权页，请稍候…",
+                        stringResource(R.string.state_opening_auth_page),
                         color = Primer.TextTertiary
                     )
                     // 首次在新设备登录时，网页会要求「设备验证」或口令 —— 提前说清，避免以为卡住了
                     Spacer(Modifier.height(10.dp))
                     Text(
-                        "若网页要求输入验证码 / 口令，请在网页上完成（首次在新设备登录时会出现）",
+                        stringResource(R.string.note_complete_code_in_browser),
                         fontSize = 11.5.sp,
                         color = Primer.TextTertiary,
                         textAlign = TextAlign.Center,
@@ -197,7 +199,7 @@ fun LoginFlow(
                     CircularProgressIndicator(color = Primer.Blue500)
                     Spacer(Modifier.height(14.dp))
                     Text(
-                        "正在校验授权…口令验证已在网页端完成",
+                        stringResource(R.string.state_verifying_auth),
                         fontSize = 11.5.sp,
                         color = Primer.TextTertiary,
                     )

@@ -22,6 +22,8 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,6 +41,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.navigation.TabSwitcher
 import com.branchbase.ui.repository.encodePath
@@ -100,11 +103,11 @@ fun PrOnestopScreen(
     var title by remember(commitMessage) { mutableStateOf(commitMessage) }
     // 用户是否亲手改过 PR 标题：改过就不再被提交信息覆盖（没改过才跟着提交信息走，见 prTitleAfterCommit）
     var titleEdited by remember { mutableStateOf(false) }
-    var description by remember { mutableStateOf("## 变更内容\n- 待补充\n\n## 测试\n- [ ] 已验证") }
+    var description by remember { mutableStateOf(context.getString(R.string.pr_template_default)) }
     var draftPr by remember { mutableStateOf(false) }
     var feedback by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var busyText by remember { mutableStateOf("执行中…") }
+    var busyText by remember { mutableStateOf(context.getString(R.string.state_running)) }
     // 本次已提交到哪个分支：步骤③据此判断「能不能开 PR」，失败重试时据此跳过重复建分支
     var committedBranch by remember { mutableStateOf<String?>(null) }
     var committedMessage by remember { mutableStateOf<String?>(null) }
@@ -131,37 +134,37 @@ fun PrOnestopScreen(
             val taskId = com.branchbase.ui.task.TaskStore.start(
                 context,
                 com.branchbase.ui.task.TaskKind.COMMIT,
-                "提交 ${changedFiles.size} 个文件到 $branch",
+                context.getString(R.string.pr_commit_files_to_branch, changedFiles.size, branch),
             )
             // 锚点：`PR一条龙` —— 这条链路的每一步都要能在日志里对上（没有真机走查时的唯一线索）
             Logger.local("提交开始：$owner/$repo ${changedFiles.size} 个文件 → 分支 $branch（base=$baseBranch）", "PR一条龙")
             // ① 内容：草稿优先，其次取 base 分支上的当前内容。读不全就整体不提交（不静默少提交几个文件）
-            busyText = "读取待提交文件内容…"
+            busyText = context.getString(R.string.state_reading_commit_files)
             val resolution = resolveCommitFiles(context, host, token, owner, repo, baseBranch, changedFiles)
             if (resolution is ContentResolution.Missing) {
                 busy = false
-                val reason = "读不到这些文件的内容：${resolution.paths.joinToString("、")}"
+                val reason = context.getString(R.string.error_cannot_read_files, resolution.paths.joinToString("、"))
                 Logger.warn(LogCategory.LOCAL_TASK, "PR一条龙", "提交中止：$reason")
                 com.branchbase.ui.task.TaskStore.fail(context, taskId, reason)
-                feedback = "$reason。新建的文件请先在文件页保存草稿；已提交的改动请确认路径仍然存在。"
+                feedback = context.getString(R.string.error_commit_reason_hint, reason)
                 return@launch
             }
             val files = (resolution as ContentResolution.Ready).files
 
             // ② base 的 sha：新分支从这里长出来
-            busyText = "读取 $baseBranch 的提交…"
+            busyText = context.getString(R.string.state_reading_base_commits, baseBranch)
             val baseSha = RustBridge.getRefSha(host, token, owner, repo, baseBranch)
             if (baseSha == null) {
                 busy = false
                 Logger.warn(LogCategory.LOCAL_TASK, "PR一条龙", "提交中止：读不到基准分支 $baseBranch 的 sha")
-                com.branchbase.ui.task.TaskStore.fail(context, taskId, "无法读取 $baseBranch")
-                feedback = "无法读取基准分支 $baseBranch 的提交，本次没有做任何改动"
+                com.branchbase.ui.task.TaskStore.fail(context, taskId, context.getString(R.string.error_cannot_read_branch, baseBranch))
+                feedback = context.getString(R.string.error_cannot_read_base_commits, baseBranch)
                 return@launch
             }
 
             // ③ 建分支（同一分支上一次已提交成功过就不重复建）
             if (committedBranch != branch) {
-                busyText = "创建分支 $branch…"
+                busyText = context.getString(R.string.state_creating_branch, branch)
                 val branchErr = RustBridge.createBranch(host, token, owner, repo, branch, baseSha)
                 if (branchErr != null) {
                     // 分支已存在：只有它正好停在 base 上才能继续（上次提交失败留下的半成品）；
@@ -171,17 +174,17 @@ fun PrOnestopScreen(
                         BranchReuse.SAME_AS_BASE -> Unit
                         BranchReuse.DIVERGED -> {
                             busy = false
-                            val reason = "分支 $branch 已存在，且包含 $baseBranch 之外的提交"
+                            val reason = context.getString(R.string.error_branch_exists_with_commits, branch, baseBranch)
                             Logger.warn(LogCategory.LOCAL_TASK, "PR一条龙", "提交中止：$reason（existing=${existingSha?.take(7)}）")
                             com.branchbase.ui.task.TaskStore.fail(context, taskId, reason)
-                            feedback = "$reason。请换一个分支名，避免覆盖别人（或你之前）的改动。"
+                            feedback = context.getString(R.string.error_branch_name_taken, reason)
                             return@launch
                         }
                         BranchReuse.ABSENT -> {
                             busy = false
                             Logger.warn(LogCategory.LOCAL_TASK, "PR一条龙", "建分支失败：$branch → $branchErr")
                             com.branchbase.ui.task.TaskStore.fail(context, taskId, branchErr)
-                            feedback = "创建分支失败：$branchErr"
+                            feedback = context.getString(R.string.error_create_branch_failed, branchErr)
                             return@launch
                         }
                     }
@@ -189,14 +192,14 @@ fun PrOnestopScreen(
             }
 
             // ④ 一个 commit 提交全部文件（Git Data API：blobs → tree → commit → 移动 ref）
-            busyText = "提交 ${files.size} 个文件…"
+            busyText = context.getString(R.string.state_committing_files, files.size)
             val sha = RustBridge.commitFiles(host, token, owner, repo, branch, msg, files)
             busy = false
             if (sha == null || sha.startsWith("ERROR:")) {
-                val reason = sha?.removePrefix("ERROR:")?.take(300) ?: "引擎没有返回结果，提交可能未落盘"
+                val reason = sha?.removePrefix("ERROR:")?.take(300) ?: context.getString(R.string.error_engine_no_result_commit)
                 Logger.warn(LogCategory.LOCAL_TASK, "PR一条龙", "提交失败：$branch ← $reason")
                 com.branchbase.ui.task.TaskStore.fail(context, taskId, reason)
-                feedback = "提交失败：$reason"
+                feedback = context.getString(R.string.error_commit_failed_reason, reason)
                 return@launch
             }
             Logger.local("提交成功：$branch @ ${sha.take(7)} · ${files.size} 个文件", "PR一条龙")
@@ -204,7 +207,7 @@ fun PrOnestopScreen(
             committedMessage = msg
             committedSha = sha
             committedCount = files.size
-            com.branchbase.ui.task.TaskStore.success(context, taskId, "已提交 ${files.size} 个文件 · ${sha.take(7)}")
+            com.branchbase.ui.task.TaskStore.success(context, taskId, context.getString(R.string.state_committed_files, files.size, sha.take(7)))
             // 「提交信息将作为 PR 默认标题」：只在用户没亲手改过标题时兑现
             title = prTitleAfterCommit(title, titleEdited, msg)
             feedback = null
@@ -214,29 +217,29 @@ fun PrOnestopScreen(
 
     /** 第③步执行体：只开 PR —— 分支与提交已经在第②步完成。 */
     fun createPr() {
-        if (title.isBlank()) { feedback = "请填写 PR 标题"; return }
+        if (title.isBlank()) { feedback = context.getString(R.string.error_pr_title_required); return }
         if (!readyToCreatePr) {
-            feedback = "分支 $branchName 还没有本次提交，请先返回上一步完成提交"
+            feedback = context.getString(R.string.error_branch_has_no_commit, branchName)
             return
         }
         scope.launch {
             busy = true
-            busyText = "创建 PR…"
+            busyText = context.getString(R.string.state_creating_pr)
             feedback = null
-            val taskId = com.branchbase.ui.task.TaskStore.start(context, com.branchbase.ui.task.TaskKind.PR, "创建 PR · $branchName → $baseBranch")
+            val taskId = com.branchbase.ui.task.TaskStore.start(context, com.branchbase.ui.task.TaskKind.PR, context.getString(R.string.state_creating_pr_detail, branchName, baseBranch))
             val prErr = withContext(Dispatchers.IO) {
                 RustBridge.createPullRequest(host, token, owner, repo, title, description, branchName, baseBranch, draftPr)
             }
             busy = false
             if (prErr == null) {
                 Logger.local("PR 已创建：$branchName → $baseBranch${if (draftPr) "（草稿）" else ""}", "PR一条龙")
-                com.branchbase.ui.task.TaskStore.success(context, taskId, "PR 已创建")
+                com.branchbase.ui.task.TaskStore.success(context, taskId, context.getString(R.string.state_pr_created))
                 PrMemoryStore.save(context, repoKey, template = description)
-                onCreated("PR 已创建 · $branchName → $baseBranch")
+                onCreated(context.getString(R.string.state_pr_created_detail, branchName, baseBranch))
             } else {
                 Logger.warn(LogCategory.LOCAL_TASK, "PR一条龙", "创建 PR 失败：$branchName → $baseBranch ← $prErr")
                 com.branchbase.ui.task.TaskStore.fail(context, taskId, prErr)
-                feedback = "创建 PR 失败：$prErr"
+                feedback = context.getString(R.string.error_create_pr_failed, prErr)
             }
         }
     }
@@ -263,18 +266,18 @@ fun PrOnestopScreen(
     }
 
     DecisionScreenShell(
-        title = "开 PR · 一条龙",
-        subtitle = "$owner/$repo · 步骤 ${step + 1}/3",
+        title = stringResource(R.string.nav_pr_onestop),
+        subtitle = stringResource(R.string.label_step_of_three, owner, repo, step + 1),
         onBack = onBack,
     content = {
         // 三步向导（填分支 → 确认信息 → 创建）：步骤之间没有层级，用同级淡入淡出提示「翻到下一步」
         TabSwitcher(state = step, modifier = Modifier.fillMaxSize(), label = "pr-steps") { step ->
             when (step) {
                 0 -> {
-                    DecisionNote("基于 $baseBranch 新建分支并提交，随后用该分支开 PR —— 全程不直接推送到 $baseBranch。")
-                    FactCard("分支命名") {
+                    DecisionNote(stringResource(R.string.pr_onestop_intro, baseBranch, baseBranch))
+                    FactCard(stringResource(R.string.label_branch_naming)) {
                         Column(Modifier.padding(12.dp)) {
-                            Text("新分支名", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
+                            Text(stringResource(R.string.label_new_branch_name), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
                             OutlinedTextField(
                                 value = branchName,
                                 onValueChange = { branchName = it },
@@ -282,7 +285,7 @@ fun PrOnestopScreen(
                                 textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
                                 singleLine = true,
                             )
-                            Text("基于（base）", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary, modifier = Modifier.padding(top = 10.dp))
+                            Text(stringResource(R.string.label_based_on), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary, modifier = Modifier.padding(top = 10.dp))
                             OutlinedTextField(
                                 value = baseBranch,
                                 onValueChange = {},
@@ -296,18 +299,16 @@ fun PrOnestopScreen(
                     // 文案只说这里**真的**校验了什么；保护规则本地拿不到，就说清楚是谁在什么时候校验
                     DecisionNote(
                         if (branches.isEmpty()) {
-                            "分支名校验：非空 / 不含空格（宿主没有提供现有分支清单，本次不查重）。" +
-                                "保护分支与命名规则由远端在创建分支、开 PR 时校验，本地不做承诺。"
+                            stringResource(R.string.note_branch_name_rules_no_list)
                         } else {
-                            "分支名校验：非空 / 不含空格 / 不与 $owner/$repo 现有的 ${branches.size} 个分支重名。" +
-                                "保护分支与命名规则由远端在创建分支、开 PR 时校验，本地不做承诺。"
+                            stringResource(R.string.note_branch_name_rules_with_list, owner, repo, branches.size)
                         },
                     )
                     if (changedFiles.isEmpty()) DecisionNote(NO_CHANGES_HINT)
                 }
                 1 -> {
-                    DecisionNote("这一步真提交：先建分支，再用 Git Data API 把下列文件合成一个提交。文件内容优先取文件页的草稿，没有草稿的取它在 $baseBranch 上的当前内容。")
-                    FactCard(if (changedFiles.isEmpty()) "变更文件 · 0 个" else "变更文件 · ${changedFiles.size} 个") {
+                    DecisionNote(stringResource(R.string.note_real_commit, baseBranch))
+                    FactCard(if (changedFiles.isEmpty()) stringResource(R.string.label_changed_files_zero) else stringResource(R.string.label_changed_files_count, changedFiles.size)) {
                         Column {
                             if (changedFiles.isEmpty()) {
                                 Text(
@@ -322,7 +323,7 @@ fun PrOnestopScreen(
                             }
                         }
                     }
-                    FactCard("提交信息") {
+                    FactCard(stringResource(R.string.label_commit_message)) {
                         Column(Modifier.padding(12.dp)) {
                             OutlinedTextField(
                                 value = message,
@@ -332,7 +333,7 @@ fun PrOnestopScreen(
                                 textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
                             )
                             Text(
-                                "可改。提交成功后，它会成为 PR 标题的默认值（你已经手改过标题则不动你的）。",
+                                stringResource(R.string.note_commit_message_becomes_title),
                                 fontSize = 11.sp,
                                 color = Primer.TextTertiary,
                                 modifier = Modifier.padding(top = 6.dp),
@@ -342,28 +343,28 @@ fun PrOnestopScreen(
                     if (committedSha != null && committedBranch == branchName) {
                         DecisionNote(
                             if (committedMessage != message.trim()) {
-                                "已提交 ${committedSha!!.take(7)}（$committedCount 个文件）；提交信息改过了，再点「提交并继续」会再产生一个提交。"
+                                stringResource(R.string.note_committed_message_changed, committedSha!!.take(7), committedCount)
                             } else {
-                                "已提交 ${committedSha!!.take(7)}（$committedCount 个文件）到 $branchName，点「提交并继续」直接进入下一步。"
+                                stringResource(R.string.note_committed_continue, committedSha!!.take(7), committedCount, branchName)
                             },
                         )
                     }
                 }
                 else -> {
-                    FactCard("目标") {
-                        FactRow("base", "$baseBranch（合并到）")
-                        FactRow("head", "$branchName（改动源）")
+                    FactCard(stringResource(R.string.label_target)) {
+                        FactRow("base", stringResource(R.string.label_target_base, baseBranch))
+                        FactRow("head", stringResource(R.string.label_target_head, branchName))
                     }
-                    FactCard("本次提交") {
+                    FactCard(stringResource(R.string.label_this_commit)) {
                         Column {
-                            FactRow("commit", committedSha?.take(7) ?: "（尚无提交）", mono = true)
-                            FactRow("文件", "$committedCount 个")
-                            FactRow("提交信息", committedMessage.orEmpty())
+                            FactRow("commit", committedSha?.take(7) ?: stringResource(R.string.state_no_commit_yet), mono = true)
+                            FactRow(stringResource(R.string.label_files), pluralStringResource(R.plurals.label_file_count, committedCount, committedCount))
+                            FactRow(stringResource(R.string.label_commit_message), committedMessage.orEmpty())
                         }
                     }
-                    FactCard("PR 信息") {
+                    FactCard(stringResource(R.string.label_pr_info)) {
                         Column(Modifier.padding(12.dp)) {
-                            Text("标题", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
+                            Text(stringResource(R.string.label_title), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
                             OutlinedTextField(
                                 value = title,
                                 onValueChange = { title = it; titleEdited = true },
@@ -371,7 +372,7 @@ fun PrOnestopScreen(
                                 textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
                                 singleLine = true,
                             )
-                            Text("描述（模板预填）", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary, modifier = Modifier.padding(top = 10.dp))
+                            Text(stringResource(R.string.label_description_prefilled), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary, modifier = Modifier.padding(top = 10.dp))
                             OutlinedTextField(
                                 value = description,
                                 onValueChange = { description = it },
@@ -380,20 +381,20 @@ fun PrOnestopScreen(
                             )
                         }
                     }
-                    FactCard("选项") {
+                    FactCard(stringResource(R.string.label_options)) {
                         Row(
                             Modifier.fillMaxWidth().clickable { draftPr = !draftPr }.padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column(Modifier.weight(1f)) {
-                                Text("草稿 PR", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
-                                Text("暂不通知审阅者，可随时转为正式", fontSize = 11.5.sp, color = Primer.TextTertiary)
+                                Text(stringResource(R.string.label_draft_pr), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+                                Text(stringResource(R.string.note_draft_pr), fontSize = 11.5.sp, color = Primer.TextTertiary)
                             }
                             Switch(checked = draftPr, onCheckedChange = { draftPr = it }, colors = SwitchDefaults.colors(checkedTrackColor = Primer.Green500))
                         }
                     }
                     if (!readyToCreatePr) {
-                        DecisionNote("分支 $branchName 上还没有本次提交 —— 先返回上一步完成提交，再创建 PR（否则 PR 里不会有改动）。")
+                        DecisionNote(stringResource(R.string.warning_no_commit_before_pr, branchName))
                     }
                 }
             }
@@ -402,7 +403,7 @@ fun PrOnestopScreen(
         if (busy) FeedbackLine(busyText)
     },
     bottom = {
-        TextButton(onClick = { if (step == 0) onBack() else step-- }, enabled = !busy, modifier = Modifier.weight(1f)) { Text(if (step == 0) "取消" else "上一步") }
+        TextButton(onClick = { if (step == 0) onBack() else step-- }, enabled = !busy, modifier = Modifier.weight(1f)) { Text(if (step == 0) stringResource(R.string.action_cancel) else stringResource(R.string.action_previous)) }
         // 第②步的空清单/空提交信息直接禁用「提交并继续」：没有改动就不该往下走（见 commitBlockReason）
         Button(
             onClick = { next() },
@@ -411,9 +412,9 @@ fun PrOnestopScreen(
         ) {
             Text(
                 when (step) {
-                    0 -> "下一步"
-                    1 -> "提交并继续"
-                    else -> if (draftPr) "创建草稿 PR" else "创建 PR"
+                    0 -> stringResource(R.string.action_next)
+                    1 -> stringResource(R.string.action_commit_and_continue)
+                    else -> if (draftPr) stringResource(R.string.action_create_draft_pr) else stringResource(R.string.action_create_pr)
                 },
             )
         }
@@ -441,6 +442,7 @@ fun RepoSettingScreen(
     onBack: () -> Unit,
     onFeedback: (message: String, error: Boolean) -> Unit,
 ) {
+    val context = LocalContext.current
     val repoName = "$owner/$repo"
     val host = remember(sessionJson) { runCatching { org.json.JSONObject(sessionJson).optString("host", "github.com") }.getOrDefault("github.com") }
     val token = remember(sessionJson) {
@@ -472,7 +474,7 @@ fun RepoSettingScreen(
             Logger.warn(
                 LogCategory.NETWORK,
                 "决策页",
-                "仓库统计取不到（$owner/$repo）：" + (json?.take(120) ?: "引擎没有返回结果"),
+                "仓库统计取不到（$owner/$repo）：" + (json?.take(120) ?: context.getString(R.string.error_engine_no_result)),
             )
         }
     }
@@ -486,11 +488,11 @@ fun RepoSettingScreen(
                 selectedDefault = b
                 // 合并状态是「相对某个默认分支」的结论，基准换了旧结论立刻作废
                 mergeStates = emptyMap()
-                feedback = "默认分支已切换为 $b"
-                onFeedback("默认分支已切换为 $b", false)
+                feedback = context.getString(R.string.toast_default_branch_switched, b)
+                onFeedback(context.getString(R.string.toast_default_branch_switched, b), false)
             } else {
-                feedback = "切换失败：$err"
-                onFeedback("切换默认分支失败：$err", true)
+                feedback = context.getString(R.string.error_switch_failed, err)
+                onFeedback(context.getString(R.string.error_switch_default_failed, err), true)
             }
         }
     }
@@ -498,7 +500,7 @@ fun RepoSettingScreen(
     /** 按需真实判定「已合并」：某分支相对默认分支 ahead_by = 0 = 没有独有提交。 */
     fun checkMergedStates() {
         val targets = branchesToCheck(knownBranches, selectedDefault, MERGE_CHECK_LIMIT)
-        if (targets.isEmpty()) { feedback = "没有需要检查的分支"; return }
+        if (targets.isEmpty()) { feedback = context.getString(R.string.state_no_branches_to_check); return }
         scope.launch {
             checkingMerged = true
             feedback = null
@@ -519,8 +521,8 @@ fun RepoSettingScreen(
                     if (skipped > 0) "（另有 $skipped 个超上限未检查）" else "",
                 "决策页",
             )
-            feedback = "已检查 ${targets.size} 个分支相对 $selectedDefault 的合并状态" +
-                if (skipped > 0) "（单次上限 $MERGE_CHECK_LIMIT，另有 $skipped 个未检查）" else ""
+            feedback = context.getString(R.string.state_checked_branches, targets.size, selectedDefault) +
+                if (skipped > 0) context.getString(R.string.note_merge_check_limit, MERGE_CHECK_LIMIT, skipped) else ""
         }
     }
 
@@ -534,11 +536,11 @@ fun RepoSettingScreen(
             if (err == null) {
                 knownBranches = knownBranches.filterNot { it == b }
                 mergeStates = mergeStates - b
-                feedback = "已删除分支 $b"
-                onFeedback("已删除分支 $b", false)
+                feedback = context.getString(R.string.toast_branch_deleted, b)
+                onFeedback(context.getString(R.string.toast_branch_deleted, b), false)
             } else {
-                feedback = "删除失败：$err"
-                onFeedback("删除分支 $b 失败：$err", true)
+                feedback = context.getString(R.string.error_delete_failed, err)
+                onFeedback(context.getString(R.string.error_delete_branch_failed, b, err), true)
             }
         }
     }
@@ -549,50 +551,50 @@ fun RepoSettingScreen(
             val err = withContext(Dispatchers.IO) { RustBridge.deleteRepo(host, token, owner, repo) }
             busy = false
             if (err == null) {
-                feedback = "仓库已删除"
-                onFeedback("已删除仓库 $repoName", false)
+                feedback = context.getString(R.string.state_repo_deleted)
+                onFeedback(context.getString(R.string.toast_repo_deleted, repoName), false)
             } else {
-                feedback = "删除失败：$err"
-                onFeedback("删除仓库 $repoName 失败：$err", true)
+                feedback = context.getString(R.string.error_delete_failed, err)
+                onFeedback(context.getString(R.string.error_delete_repo_failed, repoName, err), true)
             }
         }
     }
 
     DecisionScreenShell(
-        title = "仓库设置",
-        subtitle = "$repoName · ⋮ 气泡进入",
+        title = stringResource(R.string.nav_repo_settings),
+        subtitle = stringResource(R.string.label_repo_settings_sub, repoName),
         onBack = onBack,
         content = {
-        FactCard("通用") {
+        FactCard(stringResource(R.string.label_general)) {
             Column {
-                Text("默认分支", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp))
+                Text(stringResource(R.string.label_default_branch), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary, modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp))
                 knownBranches.forEach { b ->
                     Row(
                         Modifier.fillMaxWidth().clickable { if (b != selectedDefault && !busy) switchDefault(b) }.padding(horizontal = 12.dp, vertical = 9.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(b, fontSize = 12.sp, color = if (b == selectedDefault) Primer.Blue500 else Primer.TextSecondary, fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f))
-                        if (b == selectedDefault) Text("✓ 当前", fontSize = 11.sp, color = Primer.Blue500)
+                        if (b == selectedDefault) Text(stringResource(R.string.state_current_check), fontSize = 11.sp, color = Primer.Blue500)
                     }
                 }
             }
-            DecisionNote("变更默认分支影响：README/PR 默认 base、clone 初始分支、未指定分支的 API 请求。")
+            DecisionNote(stringResource(R.string.note_default_branch_impact))
         }
 
-        FactCard("分支管理") {
+        FactCard(stringResource(R.string.nav_branch_manage)) {
             Column {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "合并状态：相对 $selectedDefault，按需检查",
+                        stringResource(R.string.label_merge_status, selectedDefault),
                         fontSize = 11.sp,
                         color = Primer.TextTertiary,
                         modifier = Modifier.weight(1f),
                     )
                     Text(
-                        if (checkingMerged) "检查中…" else "检查",
+                        if (checkingMerged) stringResource(R.string.state_checking_ellipsis) else stringResource(R.string.action_check),
                         fontSize = 11.5.sp,
                         color = if (checkingMerged) Primer.TextTertiary else Primer.Blue500,
                         modifier = Modifier.clickable(enabled = !checkingMerged && !busy) { checkMergedStates() },
@@ -605,7 +607,7 @@ fun RepoSettingScreen(
                     ) {
                         Text(b, fontSize = 12.sp, color = Primer.TextSecondary, fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f))
                         if (b == selectedDefault) {
-                            Text("默认分支", fontSize = 11.sp, color = Primer.Blue500)
+                            Text(stringResource(R.string.label_default_branch), fontSize = 11.sp, color = Primer.Blue500)
                         } else {
                             val state = mergeStates[b] ?: MergeState.Unchecked
                             Text(mergeStateLabel(state), fontSize = 11.sp, color = mergeStateColor(state))
@@ -613,7 +615,7 @@ fun RepoSettingScreen(
                         if (b != selectedDefault) {
                             Spacer(Modifier.width(10.dp))
                             Text(
-                                "删除",
+                                stringResource(R.string.action_delete),
                                 fontSize = 11.sp,
                                 color = Primer.Red500,
                                 modifier = Modifier.clickable {
@@ -624,17 +626,17 @@ fun RepoSettingScreen(
                     }
                 }
             }
-            DecisionNote("「已合并」= 该分支相对 $selectedDefault 没有独有提交（ahead_by = 0）。squash 合并过的分支仍会显示独有提交，那不代表没合并。没点「检查」的分支一律写「未检查」。")
+            DecisionNote(stringResource(R.string.note_merged_semantics, selectedDefault))
         }
 
-        FactCard("危险操作区") {
+        FactCard(stringResource(R.string.label_danger_zone)) {
             Column {
                 Row(
                     Modifier.fillMaxWidth().clickable { deleteRepoConfirm = !deleteRepoConfirm }.padding(horizontal = 12.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("删除仓库", fontSize = 12.sp, color = Primer.TextSecondary, modifier = Modifier.weight(1f))
-                    Text(if (deleteRepoConfirm) "已确认" else "点击确认", fontSize = 11.sp, color = Primer.Red500)
+                    Text(stringResource(R.string.action_delete_repo), fontSize = 12.sp, color = Primer.TextSecondary, modifier = Modifier.weight(1f))
+                    Text(if (deleteRepoConfirm) stringResource(R.string.state_confirmed) else stringResource(R.string.action_tap_to_confirm), fontSize = 11.sp, color = Primer.Red500)
                 }
             }
         }
@@ -642,9 +644,9 @@ fun RepoSettingScreen(
         val statsText = repoStatsSummary(repoStats)
         DecisionNote(
             when {
-                statsText != null -> "删除前挽留统计：$statsText（只读展示，不拦截）。"
-                !statsChecked -> "正在读取仓库统计…"
-                else -> "仓库统计不可用（星标 / 复刻没取到）—— 不展示估算值，也不作为拦截条件。"
+                statsText != null -> stringResource(R.string.label_retention_stats, statsText)
+                !statsChecked -> stringResource(R.string.state_reading_repo_stats)
+                else -> stringResource(R.string.note_repo_stats_unavailable)
             },
         )
 
@@ -652,31 +654,31 @@ fun RepoSettingScreen(
             val state = mergeStates[b] ?: MergeState.Unchecked
             Spacer(Modifier.height(4.dp))
             DangerConfirmCard(
-                description = "将永久删除远端分支 $b（当前状态：${mergeStateLabel(state)}），该分支的改动无法找回。",
-                confirmLabel = "我确认删除该分支",
+                description = stringResource(R.string.confirm_delete_remote_branch, b, mergeStateLabel(state)),
+                confirmLabel = stringResource(R.string.confirm_delete_branch_checkbox),
                 confirmed = deleteBranchConfirm,
                 onToggle = { deleteBranchConfirm = !deleteBranchConfirm },
             )
         }
         feedback?.let { FeedbackLine(it, error = true) }
-        if (busy) FeedbackLine("执行中…")
+        if (busy) FeedbackLine(stringResource(R.string.state_running))
     },
     bottom = {
-        TextButton(onClick = onBack, enabled = !busy, modifier = Modifier.weight(1f)) { Text("取消") }
+        TextButton(onClick = onBack, enabled = !busy, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.action_cancel)) }
         if (deleteBranchTarget != null) {
             Button(
                 onClick = { deleteBranchTarget?.let { removeBranch(it) } },
                 enabled = !busy && deleteBranchConfirm,
                 colors = ButtonDefaults.buttonColors(containerColor = Primer.Red500),
                 modifier = Modifier.weight(1f),
-            ) { Text("删除分支", color = Color.White) }
+            ) { Text(stringResource(R.string.action_delete_branch), color = Color.White) }
         } else {
             Button(
-                onClick = { if (deleteRepoConfirm) removeRepo() else feedback = "请先在危险操作区点击确认" },
+                onClick = { if (deleteRepoConfirm) removeRepo() else feedback = context.getString(R.string.error_confirm_in_danger_zone) },
                 enabled = !busy,
                 colors = ButtonDefaults.buttonColors(containerColor = Primer.Red500),
                 modifier = Modifier.weight(1f),
-            ) { Text("删除仓库", color = Color.White) }
+            ) { Text(stringResource(R.string.action_delete_repo), color = Color.White) }
         }
     })
 }
@@ -701,33 +703,33 @@ fun DeleteRepoWarningScreen(
     var feedback by remember { mutableStateOf<String?>(null) }
 
     DecisionScreenShell(
-        title = "删除本地仓库",
-        subtitle = "$repoName · ⚠ 升级警告",
+        title = stringResource(R.string.action_delete_local_repo),
+        subtitle = stringResource(R.string.label_upgrade_warning, repoName),
         onBack = onBack,
         content = {
-        DecisionNote("该仓库有 ${unpushed.size} 个未推送提交，删除后这些提交将永久丢失，无法恢复。")
+        DecisionNote(stringResource(R.string.warning_unpushed_commits, unpushed.size))
 
         // 只有拿到真值才显示这一行（拿不到就不显示，见 KDoc）
-        repoStatsSummary(stats)?.let { DecisionNote("仓库统计：$it") }
+        repoStatsSummary(stats)?.let { DecisionNote(stringResource(R.string.label_repo_stats, it)) }
 
-        FactCard("未推送提交") {
+        FactCard(stringResource(R.string.label_unpushed_commits)) {
             Column {
                 unpushed.forEach { c -> FactRow("${c.sha}  ${c.message}", mono = true) }
             }
         }
 
-        FactCard("处理方式") {
+        FactCard(stringResource(R.string.label_handling)) {
             Column {
-                DecisionOptionRow("先推送再删", "跳转 push 流程；push 结束后回到本地仓库列表（不会自动回到本页）。", option == 0, OptionTag.RECOMMENDED) { option = 0 }
-                DecisionOptionRow("仍要删除", "勾选下方确认后启用删除按钮。", option == 1, OptionTag.DANGER) { option = 1 }
+                DecisionOptionRow(stringResource(R.string.action_push_then_delete), stringResource(R.string.note_push_flow_redirect), option == 0, OptionTag.RECOMMENDED) { option = 0 }
+                DecisionOptionRow(stringResource(R.string.action_delete_anyway), stringResource(R.string.note_tick_to_enable_delete), option == 1, OptionTag.DANGER) { option = 1 }
             }
         }
 
         if (option == 1) {
             Spacer(Modifier.height(4.dp))
             DangerConfirmCard(
-                description = "我确认放弃这 ${unpushed.size} 个未推送提交，并永久删除本地仓库。",
-                confirmLabel = "我已确认（勾选开启）",
+                description = stringResource(R.string.confirm_discard_local_repo, unpushed.size),
+                confirmLabel = stringResource(R.string.confirm_checkbox_enable),
                 confirmed = confirmed,
                 onToggle = { confirmed = !confirmed },
             )
@@ -735,14 +737,15 @@ fun DeleteRepoWarningScreen(
         feedback?.let { FeedbackLine(it, error = true) }
     },
     bottom = {
-        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("取消") }
+        val context = LocalContext.current
+        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.action_cancel)) }
         Button(
-            onClick = { if (option == 0) onPushFirst() else if (confirmed) onDelete() else feedback = "请先勾选确认" },
+            onClick = { if (option == 0) onPushFirst() else if (confirmed) onDelete() else feedback = context.getString(R.string.error_confirm_required_short) },
             enabled = !(option == 1 && !confirmed),
             colors = ButtonDefaults.buttonColors(containerColor = if (option == 0) Primer.Green500 else Primer.Red500),
             modifier = Modifier.weight(1f),
         ) {
-            Text(if (option == 0) "先推送再删" else "仍要删除", color = Color.White)
+            Text(if (option == 0) stringResource(R.string.action_push_then_delete) else stringResource(R.string.action_delete_anyway), color = Color.White)
         }
     })
 }
@@ -765,6 +768,7 @@ fun PatInputScreen(
     /** @param login `validate` 探到的身份；@param remember 用户是否勾了「记住」 */
     onConfirm: (token: String, login: String, remember: Boolean) -> Unit,
 ) {
+    val context = LocalContext.current
     var token by remember { mutableStateOf("") }
     var visible by remember { mutableStateOf(false) }
     var feedback by remember { mutableStateOf<String?>(null) }
@@ -775,48 +779,48 @@ fun PatInputScreen(
     val scope = rememberCoroutineScope()
 
     DecisionScreenShell(
-        title = "需要访问令牌",
-        subtitle = "认证失败 · 私有仓库",
+        title = stringResource(R.string.state_token_required),
+        subtitle = stringResource(R.string.state_auth_failed_private),
         onBack = onBack,
         content = {
-        DecisionNote("该仓库为私有，当前 OAuth 授权不含 repo scope，需要 PAT（Personal Access Token）或重新授权。")
+        DecisionNote(stringResource(R.string.note_private_needs_pat))
 
-        FactCard("令牌") {
+        FactCard(stringResource(R.string.label_token)) {
             Column(Modifier.padding(12.dp)) {
                 OutlinedTextField(
                     value = token,
                     onValueChange = { token = it; verifiedLogin = null; feedback = null },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("ghp_…（repo scope）", fontSize = 13.sp, color = Primer.TextTertiary) },
+                    placeholder = { Text(stringResource(R.string.hint_token_placeholder), fontSize = 13.sp, color = Primer.TextTertiary) },
                     visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
                     trailingIcon = {
-                        Text(if (visible) "隐藏" else "显示", fontSize = 12.sp, color = Primer.Blue500, modifier = Modifier.clickable { visible = !visible })
+                        Text(if (visible) stringResource(R.string.action_hide) else stringResource(R.string.action_show), fontSize = 12.sp, color = Primer.Blue500, modifier = Modifier.clickable { visible = !visible })
                     },
                     textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
                     singleLine = true,
                 )
-                Text("不写日志 · 不上传服务器", fontSize = 11.sp, color = Primer.TextTertiary, modifier = Modifier.padding(top = 6.dp))
+                Text(stringResource(R.string.note_token_not_logged), fontSize = 11.sp, color = Primer.TextTertiary, modifier = Modifier.padding(top = 6.dp))
                 verifiedLogin?.let {
-                    Text("已识别身份：@$it", fontSize = 11.5.sp, color = Primer.SuccessText, modifier = Modifier.padding(top = 4.dp))
+                    Text(stringResource(R.string.state_identified_as, it), fontSize = 11.5.sp, color = Primer.SuccessText, modifier = Modifier.padding(top = 4.dp))
                 }
             }
         }
 
-        FactCard("处理方式") {
+        FactCard(stringResource(R.string.label_handling)) {
             Column {
                 DecisionOptionRow(
-                    "验证并继续",
-                    verifiedLogin?.let { "以 @$it 的身份打开这个仓库（本次会话内读写都用它）。" }
-                        ?: "先校验令牌有效性，再决定是否继续。",
+                    stringResource(R.string.action_verify_and_continue),
+                    verifiedLogin?.let { stringResource(R.string.note_open_as_identity, it) }
+                        ?: stringResource(R.string.note_token_validated_first),
                     true,
                     OptionTag.RECOMMENDED,
                 ) {}
-                DecisionOptionRow("改用 OAuth 重新授权", "跳转设置 → 账号管理，为当前账号补充 repo 权限。", false) {}
+                DecisionOptionRow(stringResource(R.string.action_reauth_oauth), stringResource(R.string.note_reauth_oauth_path), false) {}
             }
         }
 
         rememberLabel?.let { label ->
-            FactCard("记住范围") {
+            FactCard(stringResource(R.string.label_remember_scope)) {
                 Column(Modifier.padding(12.dp)) {
                     Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                         androidx.compose.material3.Switch(checked = remember, onCheckedChange = { remember = it })
@@ -824,7 +828,7 @@ fun PatInputScreen(
                         Text(label, fontSize = 12.5.sp, color = Primer.TextPrimary)
                     }
                     Text(
-                        "账号能打开这个仓库时仍然用账号；打不开时才回退到这条凭据（读写都用它）。",
+                        stringResource(R.string.note_credential_fallback),
                         fontSize = 11.sp,
                         color = Primer.TextTertiary,
                         modifier = Modifier.padding(top = 6.dp),
@@ -835,11 +839,11 @@ fun PatInputScreen(
         feedback?.let { FeedbackLine(it, error = true) }
     },
     bottom = {
-        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("取消") }
+        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.action_cancel)) }
         Button(
             onClick = {
                 val t = token.trim()
-                if (t.isBlank()) { feedback = "请输入 PAT"; return@Button }
+                if (t.isBlank()) { feedback = context.getString(R.string.error_pat_required); return@Button }
                 if (busy) return@Button
                 if (verifiedLogin != null) { onConfirm(t, verifiedLogin!!, remember); return@Button }
                 // 先验一次：输错当场可见，而不是覆盖上去再失败一遍
@@ -849,7 +853,7 @@ fun PatInputScreen(
                     val login = validate(t)
                     busy = false
                     if (login.isNullOrBlank()) {
-                        feedback = "令牌无效或权限不足：请确认已勾选 repo / read:user，且令牌未过期"
+                        feedback = context.getString(R.string.error_token_invalid_scope)
                     } else {
                         verifiedLogin = login
                     }
@@ -857,7 +861,7 @@ fun PatInputScreen(
             },
             enabled = !busy,
             modifier = Modifier.weight(1f),
-        ) { Text(if (busy) "校验中…" else if (verifiedLogin != null) "用这个令牌打开" else "验证") }
+        ) { Text(if (busy) stringResource(R.string.state_checking) else if (verifiedLogin != null) stringResource(R.string.action_open_with_token) else stringResource(R.string.action_verify)) }
     })
 }
 
@@ -874,7 +878,14 @@ fun PrMergeScreen(
     headBranch: String,
     baseBranch: String,
     onBack: () -> Unit,
-    onMerged: (message: String?) -> Unit,
+    /**
+     * @param message 合并结果原话（null = 合并页没有附加说明，由调用方给默认文案）
+     * @param partial 是否**半成功**（合并成功但删分支失败）。
+     *   这是个**事实**，由产生方给出 —— 调用方不要去解析 [message] 里有没有「失败」二字：
+     *   文案迟早要抽成资源，那时 `contains("失败")` 在英文界面下永不成立，
+     *   半成功会被渲染成纯成功（不崩溃，只是把「有件事没做完」藏了起来）。
+     */
+    onMerged: (message: String?, partial: Boolean) -> Unit,
 ) {
     val host = remember(sessionJson) { runCatching { org.json.JSONObject(sessionJson).optString("host", "github.com") }.getOrDefault("github.com") }
     val token = remember(sessionJson) {
@@ -906,7 +917,7 @@ fun PrMergeScreen(
         scope.launch {
             busy = true
             feedback = null
-            val taskId = com.branchbase.ui.task.TaskStore.start(context, com.branchbase.ui.task.TaskKind.MERGE, "合并 PR #$prNumber")
+            val taskId = com.branchbase.ui.task.TaskStore.start(context, com.branchbase.ui.task.TaskKind.MERGE, context.getString(R.string.action_merge_pr, prNumber))
             Logger.local("合并开始：$owner/$repo #$prNumber 策略=${methods[strategy]} 删分支=$deleteBranch", "PR合并")
             val err = withContext(Dispatchers.IO) {
                 RustBridge.mergePullRequest(host, token, owner, repo, prNumber, methods[strategy])
@@ -914,15 +925,18 @@ fun PrMergeScreen(
             if (err != null) {
                 Logger.warn(LogCategory.REMOTE_EXEC, "PR合并", "合并失败：#$prNumber 策略=${methods[strategy]} ← $err")
                 busy = false
-                feedback = "合并失败：$err"
+                feedback = context.getString(R.string.error_merge_failed, err)
                 return@launch
             }
-            var note = "已合并 PR #$prNumber"
+            var note = context.getString(R.string.state_merged_pr, prNumber)
+            // 半成功的判据在这里产生（删分支失败），跟着 note 一起交出去
+            var partial = false
             if (deleteBranch) {
                 val delErr = withContext(Dispatchers.IO) { RustBridge.deleteBranch(host, token, owner, repo, headBranch) }
                 if (delErr != null) {
+                    partial = true
                     Logger.warn(LogCategory.REMOTE_EXEC, "PR合并", "合并成功但删分支失败：$headBranch ← $delErr")
-                    note += "（分支删除失败：$delErr）"
+                    note += context.getString(R.string.suffix_branch_delete_failed, delErr)
                 } else {
                     Logger.local("已删除 head 分支：$headBranch", "PR合并")
                 }
@@ -931,25 +945,25 @@ fun PrMergeScreen(
             busy = false
             com.branchbase.ui.task.TaskStore.success(context, taskId, note)
             PrMemoryStore.save(context, repoKey, strategy = strategy, deleteBranch = deleteBranch)
-            onMerged(note)
+            onMerged(note, partial)
         }
     }
 
     val descs = listOf(
-        "提交压缩为 1 个，历史整洁（移动端推荐）。",
-        "保留全部提交 + 生成合并提交，历史完整。",
-        "提交逐个重放到 $baseBranch，线性历史无合并提交。",
+        stringResource(R.string.merge_strategy_squash_desc),
+        stringResource(R.string.merge_strategy_merge_desc),
+        stringResource(R.string.merge_strategy_rebase_desc, baseBranch),
     )
 
     DecisionScreenShell(
-        title = "合并 PR",
+        title = stringResource(R.string.label_merge_pr),
         subtitle = "$prTitle · $headBranch → $baseBranch",
         onBack = onBack,
         content = {
         // 本页不查冲突（没有 compare/mergeable 调用）—— 只说「谁会在什么时候判」，不替 GitHub 下结论
-        DecisionNote("$headBranch → $baseBranch · 能否合并（冲突 / 必需检查）由 GitHub 在点下合并时判定。")
+        DecisionNote(stringResource(R.string.note_merge_decided_by_github, headBranch, baseBranch))
 
-        FactCard("合并策略") {
+        FactCard(stringResource(R.string.label_merge_strategy)) {
             Column {
                 names.forEachIndexed { i, n ->
                     DecisionOptionRow(n, descs.getOrElse(i) { "" }, strategy == i, if (i == 0) OptionTag.RECOMMENDED else OptionTag.NONE) { strategy = i }
@@ -957,26 +971,26 @@ fun PrMergeScreen(
             }
         }
 
-        FactCard("合并后") {
+        FactCard(stringResource(R.string.label_after_merge)) {
             Row(
                 Modifier.fillMaxWidth().clickable { deleteBranch = !deleteBranch }.padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("删除 head 分支（$headBranch）", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
-                    Text("合并后自动删除，保持分支列表整洁", fontSize = 11.5.sp, color = Primer.TextTertiary)
+                    Text(stringResource(R.string.label_delete_head_branch, headBranch), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+                    Text(stringResource(R.string.note_delete_head_branch), fontSize = 11.5.sp, color = Primer.TextTertiary)
                 }
                 Switch(checked = deleteBranch, onCheckedChange = { deleteBranch = it }, colors = SwitchDefaults.colors(checkedTrackColor = Primer.Green500))
             }
         }
 
-        DecisionNote("策略将按仓库记忆最近一次选择（Room），下次默认带入。")
+        DecisionNote(stringResource(R.string.note_strategy_remembered))
         feedback?.let { FeedbackLine(it, error = true) }
-        if (busy) FeedbackLine("执行中…")
+        if (busy) FeedbackLine(stringResource(R.string.state_running))
     },
     bottom = {
-        TextButton(onClick = onBack, enabled = !busy, modifier = Modifier.weight(1f)) { Text("取消") }
-        Button(onClick = { doMerge() }, enabled = !busy, modifier = Modifier.weight(1f)) { Text("${names[strategy]} 并合并") }
+        TextButton(onClick = onBack, enabled = !busy, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.action_cancel)) }
+        Button(onClick = { doMerge() }, enabled = !busy, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.action_merge_with_strategy, names[strategy])) }
     })
 }
 
@@ -991,6 +1005,7 @@ fun OfflineConflictScreen(
     onBack: () -> Unit,
     onChoose: (choice: String) -> Unit,
 ) {
+    val context = LocalContext.current
     var option by remember { mutableStateOf(0) } // 0=保留本地 1=放弃本地 2=复制远端
     var confirmed by remember { mutableStateOf(false) }
     var feedback by remember { mutableStateOf<String?>(null) }
@@ -999,22 +1014,22 @@ fun OfflineConflictScreen(
     val remoteLines = remoteContent.lines().take(6)
 
     DecisionScreenShell(
-        title = "同步冲突",
-        subtitle = "$fileName · 多端编辑",
+        title = stringResource(R.string.state_sync_conflict),
+        subtitle = stringResource(R.string.label_multi_device_edit, fileName),
         onBack = onBack,
         content = {
-        DecisionNote("离线期间，他人在其他设备修改了同一文件。远端 sha 已变化，本地草稿基于旧版本。")
+        DecisionNote(stringResource(R.string.note_offline_conflict))
 
-        FactCard("$fileName · 并排对比") {
+        FactCard(stringResource(R.string.label_side_by_side, fileName)) {
             Row(Modifier.fillMaxWidth()) {
                 Column(Modifier.weight(1f)) {
-                    Text("本地草稿（离线）", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Primer.Green500, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth().background(Primer.SuccessSurface).padding(vertical = 6.dp))
+                    Text(stringResource(R.string.label_local_draft_offline), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Primer.Green500, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth().background(Primer.SuccessSurface).padding(vertical = 6.dp))
                     localLines.forEach { l ->
                         Text(l.ifEmpty { " " }, fontSize = 10.5.sp, fontFamily = FontFamily.Monospace, color = Primer.SuccessText, maxLines = 1, modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp))
                     }
                 }
                 Column(Modifier.weight(1f)) {
-                    Text("远端新版本", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Primer.Blue500, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth().background(Primer.InfoSurface).padding(vertical = 6.dp))
+                    Text(stringResource(R.string.label_remote_new_version), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Primer.Blue500, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth().background(Primer.InfoSurface).padding(vertical = 6.dp))
                     remoteLines.forEach { l ->
                         Text(l.ifEmpty { " " }, fontSize = 10.5.sp, fontFamily = FontFamily.Monospace, color = Primer.AccentText, maxLines = 1, modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp))
                     }
@@ -1022,19 +1037,19 @@ fun OfflineConflictScreen(
             }
         }
 
-        FactCard("处理方式") {
+        FactCard(stringResource(R.string.label_handling)) {
             Column {
-                DecisionOptionRow("保留本地", "本地改动不变。提交时将基于旧 sha 被拒 → 走 P0-1 分叉决策页。", option == 0, OptionTag.RECOMMENDED) { option = 0 }
-                DecisionOptionRow("放弃本地，载入远端", "本地草稿永久删除（需二次确认）。", option == 1, OptionTag.DANGER) { option = 1 }
-                DecisionOptionRow("复制远端为新文件", "双开保全：本地草稿不动，远端另存为 ${fileName}.remote。", option == 2) { option = 2 }
+                DecisionOptionRow(stringResource(R.string.action_keep_local), stringResource(R.string.note_local_unchanged_rejected), option == 0, OptionTag.RECOMMENDED) { option = 0 }
+                DecisionOptionRow(stringResource(R.string.action_discard_local_load_remote), stringResource(R.string.note_discard_local_permanent), option == 1, OptionTag.DANGER) { option = 1 }
+                DecisionOptionRow(stringResource(R.string.action_copy_remote_as_new), stringResource(R.string.note_keep_both_remote_copy, fileName), option == 2) { option = 2 }
             }
         }
 
         if (option == 1) {
             Spacer(Modifier.height(4.dp))
             DangerConfirmCard(
-                description = "本地草稿将永久删除，未保存内容无法找回。",
-                confirmLabel = "我确认放弃本地草稿",
+                description = stringResource(R.string.warning_local_draft_lost),
+                confirmLabel = stringResource(R.string.confirm_discard_local_draft),
                 confirmed = confirmed,
                 onToggle = { confirmed = !confirmed },
             )
@@ -1042,12 +1057,12 @@ fun OfflineConflictScreen(
         feedback?.let { FeedbackLine(it, error = true) }
     },
     bottom = {
-        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("取消") }
+        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.action_cancel)) }
         Button(
             onClick = {
                 when (option) {
                     0 -> onChoose("keep")
-                    1 -> if (confirmed) onChoose("remote") else feedback = "请先勾选二次确认"
+                    1 -> if (confirmed) onChoose("remote") else feedback = context.getString(R.string.error_confirm_required)
                     2 -> onChoose("copy")
                 }
             },
@@ -1057,9 +1072,9 @@ fun OfflineConflictScreen(
         ) {
             Text(
                 when (option) {
-                    0 -> "保留本地"
-                    1 -> "放弃本地"
-                    else -> "复制远端为新文件"
+                    0 -> stringResource(R.string.action_keep_local)
+                    1 -> stringResource(R.string.action_discard_local)
+                    else -> stringResource(R.string.action_copy_remote_as_new)
                 },
                 color = Color.White,
             )

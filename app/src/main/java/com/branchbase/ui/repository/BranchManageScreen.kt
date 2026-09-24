@@ -33,6 +33,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -49,6 +50,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
@@ -96,7 +98,7 @@ fun BranchManageScreen(
     var loading by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var feedback by remember { mutableStateOf<String?>(null) }
+    var feedback by remember { mutableStateOf<Feedback?>(null) }
     var reloadKey by remember { mutableIntStateOf(0) }
 
     // 当前默认分支（可在页内被「设为默认」改写，避免重新进页面才生效）
@@ -152,14 +154,14 @@ fun BranchManageScreen(
         // 与改造前一致：没有可用缓存且回源也没拿到数据 → 清空并给出原错误文案
         if (!shown) {
             branches = emptyList()
-            error = "暂无分支或加载失败"
+            error = context.getString(R.string.state_no_branches_or_failed)
         }
         loading = false
     }
 
     fun createBranch(name: String, base: String) {
-        if (name.isBlank()) { feedback = "请输入分支名"; return }
-        if (branches.any { it.name == name }) { feedback = "分支已存在：$name"; return }
+        if (name.isBlank()) { feedback = Feedback(context.getString(R.string.error_branch_name_required), ok = false); return }
+        if (branches.any { it.name == name }) { feedback = Feedback(context.getString(R.string.error_branch_exists, name), ok = false); return }
         scope.launch {
             busy = true
             feedback = null
@@ -168,7 +170,7 @@ fun BranchManageScreen(
             }
             if (sha == null) {
                 busy = false
-                feedback = "无法读取来源分支 ${base.ifBlank { default }} 的提交"
+                feedback = Feedback(context.getString(R.string.error_cannot_read_source_branch, base.ifBlank { default }), ok = false)
                 return@launch
             }
             val err = withContext(Dispatchers.IO) {
@@ -177,11 +179,11 @@ fun BranchManageScreen(
             Logger.net("create branch $name from $base (sha=${sha.take(7)}) → ${err ?: "成功"}", "GitHubAPI")
             busy = false
             if (err == null) {
-                feedback = "已创建分支 $name"
+                feedback = Feedback(context.getString(R.string.state_branch_created, name), ok = true)
                 invalidateBranchListCache()
                 reloadKey++
             } else {
-                feedback = "创建失败：$err"
+                feedback = Feedback(context.getString(R.string.error_creation_failed, err), ok = false)
             }
         }
     }
@@ -194,11 +196,11 @@ fun BranchManageScreen(
             Logger.net("delete branch $name → ${err ?: "成功"}", "GitHubAPI")
             busy = false
             if (err == null) {
-                feedback = "已删除分支 $name"
+                feedback = Feedback(context.getString(R.string.state_branch_deleted, name), ok = true)
                 invalidateBranchListCache()
                 reloadKey++
             } else {
-                feedback = "删除失败：$err"
+                feedback = Feedback(context.getString(R.string.error_delete_failed, err), ok = false)
             }
         }
     }
@@ -216,9 +218,9 @@ fun BranchManageScreen(
                 default = name
                 // 页内直接改写 default（不重载），但缓存不能留旧列表
                 invalidateBranchListCache()
-                feedback = "默认分支已改为 $name"
+                feedback = Feedback(context.getString(R.string.state_default_branch_changed, name), ok = true)
             } else {
-                feedback = "修改失败：$err"
+                feedback = Feedback(context.getString(R.string.error_update_failed_err, err), ok = false)
             }
         }
     }
@@ -232,16 +234,16 @@ fun BranchManageScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Primer.IconPrimary,
+                Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back), tint = Primer.IconPrimary,
                 modifier = Modifier.size(24.dp).iconTap { onBack() },
             )
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
-                Text("分支管理", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+                Text(stringResource(R.string.nav_branch_manage), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
                 Text("$owner/$repo", fontSize = 11.sp, color = Primer.TextTertiary, maxLines = 1)
             }
             Icon(
-                Icons.Filled.Refresh, "刷新", tint = Primer.IconPrimary,
+                Icons.Filled.Refresh, stringResource(R.string.action_refresh), tint = Primer.IconPrimary,
                 modifier = Modifier.size(22.dp).iconTap(enabled = !busy) { reloadKey++ },
             )
         }
@@ -264,9 +266,9 @@ fun BranchManageScreen(
                 )
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("对比分支", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+                    Text(stringResource(R.string.action_compare_branches), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
                     Text(
-                        if (branches.size >= 2) "查看两个分支的提交与代码片段差异" else "至少需要两个分支",
+                        if (branches.size >= 2) stringResource(R.string.note_compare_branches_hint) else stringResource(R.string.state_need_two_branches),
                         fontSize = 11.sp, color = Primer.TextTertiary,
                     )
                 }
@@ -274,11 +276,13 @@ fun BranchManageScreen(
             }
         }
 
-        feedback?.let {
+        feedback?.let { fb ->
             Text(
-                it,
+                fb.text,
                 fontSize = 12.sp,
-                color = if (it.startsWith("已") ) Primer.Green500 else Primer.Red500,
+                // 语气由产生方给出（见 Feedback），不从文案里猜：
+                // 文案抽成资源后 `startsWith("已")` 在英文界面下永不成立
+                color = if (fb.ok) Primer.Green500 else Primer.Red500,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
             )
         }
@@ -317,7 +321,7 @@ fun BranchManageScreen(
                                 .padding(vertical = 13.dp),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text("＋ 新建分支", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
+                            Text(stringResource(R.string.action_new_branch_plus), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
                         }
                         Spacer(Modifier.height(24.dp))
                     }
@@ -329,18 +333,18 @@ fun BranchManageScreen(
     if (showCreate) {
         AlertDialog(
             onDismissRequest = { showCreate = false },
-            title = { Text("新建分支", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary) },
+            title = { Text(stringResource(R.string.action_new_branch), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary) },
             text = {
                 Column {
                     OutlinedTextField(
                         value = newName,
                         onValueChange = { newName = it },
                         singleLine = true,
-                        placeholder = { Text("分支名，如 feature/login", fontSize = 12.sp, color = Primer.TextTertiary) },
+                        placeholder = { Text(stringResource(R.string.hint_branch_name), fontSize = 12.sp, color = Primer.TextTertiary) },
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(10.dp))
-                    Text("来源分支", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
+                    Text(stringResource(R.string.label_source_branch_name), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
                     Spacer(Modifier.height(6.dp))
                     Box {
                         Row(
@@ -383,29 +387,28 @@ fun BranchManageScreen(
                         showCreate = false
                         createBranch(n, base)
                     },
-                ) { Text("创建", color = Primer.Blue500) }
+                ) { Text(stringResource(R.string.action_create), color = Primer.Blue500) }
             },
-            dismissButton = { TextButton(onClick = { showCreate = false }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { showCreate = false }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
 
     confirmDelete?.let { target ->
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
-            title = { Text("删除分支 $target？", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary) },
+            title = { Text(stringResource(R.string.confirm_delete_branch, target), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary) },
             text = {
                 Text(
-                    "会删除远端分支，无法通过界面恢复。若该分支有未合并的提交，" +
-                        "删除后这些提交将不再被分支引用。",
+                    stringResource(R.string.confirm_delete_remote_branch_body),
                     fontSize = 12.sp, color = Primer.TextTertiary, lineHeight = 18.sp,
                 )
             },
             confirmButton = {
                 TextButton(onClick = { confirmDelete = null; deleteBranch(target) }) {
-                    Text("删除", color = Primer.Red500)
+                    Text(stringResource(R.string.action_delete), color = Primer.Red500)
                 }
             },
-            dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
 }
@@ -440,16 +443,16 @@ private fun BranchManageRow(
                 )
                 if (isDefault) {
                     Spacer(Modifier.width(6.dp))
-                    Tag("默认", Primer.Blue500, Primer.Gray150)
+                    Tag(stringResource(R.string.label_default), Primer.Blue500, Primer.Gray150)
                 }
                 if (branch.protected) {
                     Spacer(Modifier.width(6.dp))
-                    Tag("受保护", Primer.TextSecondary, Primer.Gray150)
+                    Tag(stringResource(R.string.state_protected), Primer.TextSecondary, Primer.Gray150)
                 }
             }
         }
         Text(
-            "对比",
+            stringResource(R.string.action_compare),
             fontSize = 12.sp,
             color = Primer.Blue500,
             modifier = Modifier.clickable(enabled = !busy && !isDefault) { onCompare() },
@@ -457,7 +460,7 @@ private fun BranchManageRow(
         if (canPush) {
             Spacer(Modifier.width(14.dp))
             Text(
-                "设为默认",
+                stringResource(R.string.action_set_default),
                 fontSize = 12.sp,
                 color = if (isDefault) Primer.TextTertiary else Primer.Blue500,
                 modifier = Modifier.clickable(enabled = !busy && !isDefault) { onSetDefault() },
@@ -466,7 +469,7 @@ private fun BranchManageRow(
                 Spacer(Modifier.width(14.dp))
                 val deletable = !branch.protected
                 Text(
-                    "删除",
+                    stringResource(R.string.action_delete),
                     fontSize = 12.sp,
                     color = if (deletable) Primer.Red500 else Primer.TextTertiary,
                     modifier = Modifier.clickable(enabled = !busy && deletable) { onDelete() },

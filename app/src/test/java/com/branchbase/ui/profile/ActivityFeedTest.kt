@@ -1,5 +1,7 @@
 package com.branchbase.ui.profile
 
+import com.branchbase.R
+import com.branchbase.ui.LocalizedText
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -21,6 +23,19 @@ import java.util.Calendar
  */
 class ActivityFeedTest {
 
+    /**
+     * 钉住一条文案用的是**哪条资源、按什么顺序传参**。
+     *
+     * `detail` 是 [LocalizedText]（资源 ID + 参数），解析成具体语言要 Context，
+     * 纯 JVM 单测里拿不到。但真正会写错的是「映射」而不是「排版」——
+     * 用错资源、把分支和 sha 传反、漏掉次数，都是这一层能抓到的；
+     * 排版与两种语言的占位符一致性由 `tools/i18n/check-i18n.py` 负责。
+     */
+    private fun assertDetail(expectedRes: Int, expectedArgs: List<Any>, actual: LocalizedText) {
+        assertEquals("用错了资源", expectedRes, actual.res)
+        assertEquals("参数顺序/个数不对", expectedArgs, actual.args)
+    }
+
     // ── 折叠 ──────────────────────────────────────────────────────────────
 
     private fun push(
@@ -31,7 +46,7 @@ class ActivityFeedTest {
     ) = ActivityEvent(
         type = "PushEvent",
         repo = repo,
-        detail = "推送到 $branch · $head",
+        detail = LocalizedText(R.string.activity_push_branch_head, listOf(branch.orEmpty(), head)),
         createdAt = at,
         actor = "SunsetRNE",
         actorAvatar = "https://avatars.githubusercontent.com/u/178469479?v=4",
@@ -58,7 +73,11 @@ class ActivityFeedTest {
         assertEquals(3, out[0].pushCount)
         // 保留**最新一次**的 sha：events 按时间倒序，组内首条就是最新
         assertEquals("aaaaaaa", out[0].head)
-        assertEquals("推送到 main · 3 次推送 · 最新 aaaaaaa", out[0].detail)
+        assertDetail(
+            R.string.activity_push_branch_count_head,
+            listOf("main", 3, "aaaaaaa"),
+            out[0].detail,
+        )
     }
 
     @Test
@@ -101,7 +120,7 @@ class ActivityFeedTest {
         val watch = ActivityEvent(
             type = "WatchEvent",
             repo = "SunsetRNE/Branchbase-Android",
-            detail = "星标了仓库",
+            detail = LocalizedText(R.string.activity_starred_repo),
             createdAt = at(2026, 9, 15, 11),
         )
         val out = collapsePushes(
@@ -120,7 +139,7 @@ class ActivityFeedTest {
         val out = collapsePushes(listOf(push(head = "77d563e", at = at(2026, 9, 15, 10))))
         assertEquals(1, out.size)
         assertEquals(1, out[0].pushCount)
-        assertEquals("推送到 main · 77d563e", out[0].detail)
+        assertDetail(R.string.activity_push_branch_head, listOf("main", "77d563e"), out[0].detail)
     }
 
     @Test
@@ -134,7 +153,7 @@ class ActivityFeedTest {
         )
         assertEquals(1, out.size)
         assertEquals(2, out[0].pushCount)
-        assertEquals("推送了 2 次", out[0].detail)
+        assertDetail(R.string.activity_push_times, listOf(2), out[0].detail)
     }
 
     // ── 顺序 ──────────────────────────────────────────────────────────────
@@ -178,7 +197,11 @@ class ActivityFeedTest {
         assertEquals(1, out.size)
         assertEquals(3, out[0].pushCount)
         assertEquals("最新一条（06:43）的 sha 要留在组内", "85dc7f9", out[0].head)
-        assertEquals("推送到 main · 3 次推送 · 最新 85dc7f9", out[0].detail)
+        assertDetail(
+            R.string.activity_push_branch_count_head,
+            listOf("main", 3, "85dc7f9"),
+            out[0].detail,
+        )
     }
 
     // ── payload 映射 ──────────────────────────────────────────────────────
@@ -214,7 +237,7 @@ class ActivityFeedTest {
         assertEquals("https://avatars.githubusercontent.com/u/178469479?v=4", e.actorAvatar)
         assertEquals("main", e.branch)
         assertEquals("77d563e", e.head)
-        assertEquals("推送到 main · 77d563e", e.detail)
+        assertDetail(R.string.activity_push_branch_head, listOf("main", "77d563e"), e.detail)
         assertTrue("created_at 必须解析成功", e.createdAt > 0L)
         assertNull("推送没有真实对象标题，不该编一个出来", e.title)
     }
@@ -239,7 +262,12 @@ class ActivityFeedTest {
         """.trimIndent()
 
         val e = parseEvents(json).single()
-        assertEquals("打开拉取请求 #42", e.detail)
+        // 动作词是**嵌套**的 LocalizedText：解析时先出动作、再进整句，英文语序才对
+        assertDetail(
+            R.string.activity_pull_request_action,
+            listOf(LocalizedText(R.string.event_action_opened), 42),
+            e.detail,
+        )
         assertEquals("feat(profile): 骨架屏", e.title)
     }
 
@@ -260,7 +288,7 @@ class ActivityFeedTest {
 
         val e = parseEvents(json).single()
         assertEquals("kaisar945", e.actor)
-        assertEquals("星标了仓库", e.detail)
+        assertDetail(R.string.activity_starred_repo, emptyList(), e.detail)
         assertNull(e.title)
         assertNull(e.branch)
     }

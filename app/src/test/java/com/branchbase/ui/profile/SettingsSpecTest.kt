@@ -32,6 +32,8 @@ class SettingsSpecTest {
         "src/main/java/com/branchbase/ui/settings/SettingsKeys.kt",
         "src/main/java/com/branchbase/ui/settings/GitProxy.kt",
         "src/main/java/com/branchbase/ui/settings/GitProxyScreen.kt",
+        "src/main/java/com/branchbase/ui/settings/AppLanguage.kt",
+        "src/main/java/com/branchbase/ui/settings/LanguageScreen.kt",
         "src/main/java/com/branchbase/ui/profile/SubPageScreens.kt",
         "src/main/java/com/branchbase/ui/profile/CommitModeScreen.kt",
         "src/main/java/com/branchbase/ui/profile/CommitModeStore.kt",
@@ -144,11 +146,25 @@ class SettingsSpecTest {
     @Test
     fun `确认框写清对象名_影响范围与不可撤销`() {
         val region = settingsRegion()
-        assertTrue("确认框标题要含对象名（动词 + 对象名，规范 §4.6）", region.contains("退出登录 \${account.login}"))
-        assertTrue("确认框正文要写「会发生什么」", region.contains("将清除本机保存的凭据"))
-        assertTrue("确认框正文要写「影响范围」", region.contains("不受影响"))
-        assertTrue("确认框正文要写「能不能撤销」", region.contains("此操作不可撤销"))
-        assertTrue("确认按钮要写动词，不是「确定」（规范 §7.2）", region.contains("Text(\"退出登录\""))
+        // 标题与按钮文案已经**资源化**（i18n 抽取），所以这两条钉子钉在**资源值**上 ——
+        // 那才是用户看到的文案。继续钉 Kotlin 源码文本的话，每抽取一次就假红一次，
+        // 而假红比没有检查更坏：它训练人忽略这套钉子。
+        val strings = source("src/main/res/values/strings.xml")
+        assertTrue(
+            "确认框标题要含对象名（动词 + 对象名，规范 §4.6）",
+            strings.contains(">退出登录 %1\$s<"),
+        )
+        assertTrue(
+            "确认按钮要写动词，不是「确定」（规范 §7.2）",
+            strings.contains("name=\"action_sign_out\">退出登录<"),
+        )
+        // 正文也已资源化，同样钉资源值（钉源码文本会在每次抽取后假红一次）
+        assertTrue(
+            "确认框正文要写「会发生什么」",
+            strings.contains("name=\"confirm_sign_out_body\">将清除本机保存的凭据"),
+        )
+        assertTrue("确认框正文要写「影响范围」", strings.contains("不受影响"))
+        assertTrue("确认框正文要写「能不能撤销」", strings.contains("此操作不可撤销"))
     }
 
     // ── ⑤ 枚举存 name 不存 ordinal（§8.2） ─────────────────────────────
@@ -170,7 +186,7 @@ class SettingsSpecTest {
         val profile = source("src/main/java/com/branchbase/ui/profile/ProfileScreen.kt")
         val subPages = listOf(
             "LocalRepo", "About", "Log", "NotificationSettings",
-            "Translate", "Accounts", "CommitMode", "GitProxy",
+            "Translate", "Accounts", "CommitMode", "GitProxy", "Language",
         )
         subPages.forEach { page ->
             val marker = "SubPage.$page -> "
@@ -191,8 +207,11 @@ class SettingsSpecTest {
             profile.indexOf("internal fun subPageDepth"),
             profile.indexOf("internal fun profileBackTarget"),
         )
-        // 8 个二级页都必须是 depth 2，否则返回键会跳过设置主页
-        listOf("LocalRepo", "About", "Log", "NotificationSettings", "Translate", "Accounts", "CommitMode", "GitProxy")
+        // 二级页都必须是 depth 2，否则返回键会跳过设置主页
+        listOf(
+            "LocalRepo", "About", "Log", "NotificationSettings", "Translate",
+            "Accounts", "CommitMode", "GitProxy", "Language",
+        )
             .forEach { assertTrue("subPageDepth 漏了 SubPage.$it", depthBlock.contains("SubPage.$it")) }
     }
 
@@ -275,7 +294,12 @@ class SettingsSpecTest {
     fun `本地仓库禁用时说明原因并给出去开启的路`() {
         val region = settingsRegion()
         assertTrue("禁用态要用 DisabledNavRow（规范 §6.3）", region.contains("DisabledNavRow("))
-        assertTrue("禁用行必须写明原因", region.contains("开启需先将"))
+        // 原因文案已资源化：钉资源值（内容），钉源码只会钉到 `R.string.…` 这个引用
+        assertTrue(
+            "禁用行必须写明原因",
+            source("src/main/res/values/strings.xml")
+                .contains("name=\"note_local_repo_requires_git_mode\">开启需先将"),
+        )
         assertTrue("禁用行必须给出去开启的路", region.contains("onFix = onOpenCommitMode"))
     }
 

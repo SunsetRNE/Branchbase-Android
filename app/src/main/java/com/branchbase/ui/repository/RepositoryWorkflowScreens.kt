@@ -24,6 +24,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
@@ -38,6 +39,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
@@ -49,6 +51,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import com.branchbase.core.RustBridge
 import com.branchbase.joblogs.JobLogStore
+import com.branchbase.ui.resolve
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.CodeSyntax
 import com.branchbase.ui.theme.Primer
@@ -131,7 +134,7 @@ fun WorkflowRunsContent(
             RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/workflows/$workflowId/runs$br")
         }
         if (json == null) {
-            if (!shown && runs.isEmpty()) error = "加载失败"
+            if (!shown && runs.isEmpty()) error = context.getString(R.string.error_load_failed)
         } else {
             runs = parseWorkflowRuns(json)
         }
@@ -146,7 +149,7 @@ fun WorkflowRunsContent(
                 // 右上角操作入口：召唤工作流操作抽屉（执行工作流 / 查看文件 / 浏览器打开）
                 Icon(
                     Icons.Filled.MoreVert,
-                    contentDescription = "工作流操作",
+                    contentDescription = stringResource(R.string.label_workflow_actions),
                     tint = Primer.IconPrimary,
                     modifier = Modifier.size(22.dp).iconTap { onOpenActions() },
                 )
@@ -158,7 +161,7 @@ fun WorkflowRunsContent(
         when {
             loading -> CenterLoading()
             error != null -> ListError(error!!) { retryTick++ }
-            runs.isEmpty() -> CenterText("暂无运行记录")
+            runs.isEmpty() -> CenterText(stringResource(R.string.state_no_runs))
             else -> LazyColumn(Modifier.fillMaxSize()) {
                 items(runs) { run -> WorkflowRunRow(run) { onOpenRun(run.id) } }
             }
@@ -180,13 +183,13 @@ private fun WorkflowRunRow(run: WorkflowRun, onClick: () -> Unit) {
             Text(
                 buildString {
                     append("#").append(run.runNumber)
-                    if (run.runAttempt > 1) append("（第 ${run.runAttempt} 次尝试）")
+                    if (run.runAttempt > 1) append(stringResource(R.string.label_attempt, run.runAttempt))
                     if (run.event.isNotBlank()) append(" · ").append(eventLabel(run.event))
                     if (run.headBranch.isNotBlank()) append(" · ").append(run.headBranch)
                     append(" · ").append(runStatusLabel(run.status, run.conclusion))
                     val d = formatDuration(durationMillis(run.runStartedAt.ifBlank { run.createdAt }, run.updatedAt))
                     if (d != "—") append(" · ").append(d)
-                    append(" · ").append(shortTime(run.createdAt))
+                    append(" · ").append(shortTime(run.createdAt).resolve())
                 },
                 fontSize = 11.5.sp,
                 color = Primer.TextTertiary,
@@ -281,7 +284,7 @@ private fun FullScreen(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back), tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
             Spacer(Modifier.width(8.dp))
             Text(
                 title,

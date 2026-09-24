@@ -28,6 +28,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -44,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
@@ -123,7 +125,7 @@ fun BranchCompareScreen(
         if (base.isBlank() || head.isBlank() || base == head) {
             result = null
             loading = false
-            error = if (base == head) "请选择两个不同的分支" else null
+            error = if (base == head) context.getString(R.string.error_choose_two_branches) else null
             return@LaunchedEffect
         }
         loading = true
@@ -163,7 +165,7 @@ fun BranchCompareScreen(
         // 与改造前一致：既无直出又回源失败 → 清空并给出原错误文案
         if (!shown) {
             result = null
-            error = "对比失败：无法读取 $base...$head"
+            error = context.getString(R.string.error_compare_failed, base, head)
         }
         loading = false
     }
@@ -177,16 +179,16 @@ fun BranchCompareScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Primer.IconPrimary,
+                Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back), tint = Primer.IconPrimary,
                 modifier = Modifier.size(24.dp).iconTap { onBack() },
             )
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
-                Text("分支对比", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+                Text(stringResource(R.string.label_branch_compare), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
                 Text("$owner/$repo", fontSize = 11.sp, color = Primer.TextTertiary, maxLines = 1)
             }
             Text(
-                "刷新", fontSize = 12.5.sp, color = Primer.Blue500,
+                stringResource(R.string.action_refresh), fontSize = 12.5.sp, color = Primer.Blue500,
                 modifier = Modifier.clickable(enabled = !loading) { reloadKey++ },
             )
         }
@@ -196,16 +198,16 @@ fun BranchCompareScreen(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BranchChip("比较基准", base, branches, baseMenu, { baseMenu = !baseMenu }, { base = it; baseMenu = false }, Modifier.weight(1f))
+            BranchChip(stringResource(R.string.label_compare_base), base, branches, baseMenu, { baseMenu = !baseMenu }, { base = it; baseMenu = false }, Modifier.weight(1f))
             Box(Modifier.padding(horizontal = 6.dp)) {
                 Icon(
-                    Icons.Filled.SwapVert, "互换", tint = Primer.IconPrimary,
+                    Icons.Filled.SwapVert, stringResource(R.string.action_swap), tint = Primer.IconPrimary,
                     modifier = Modifier.size(20.dp).iconTap {
                         val t = base; base = head; head = t
                     },
                 )
             }
-            BranchChip("对比分支", head, branches, headMenu, { headMenu = !headMenu }, { head = it; headMenu = false }, Modifier.weight(1f))
+            BranchChip(stringResource(R.string.action_compare_branches), head, branches, headMenu, { headMenu = !headMenu }, { head = it; headMenu = false }, Modifier.weight(1f))
         }
 
         Spacer(Modifier.height(10.dp))
@@ -256,24 +258,24 @@ private fun CompareBody(
                     .clip(RoundedCornerShape(8.dp)).background(Primer.Gray150).padding(12.dp),
             ) {
                 Text(
-                    "比较 $base ← $head",
+                    stringResource(R.string.label_compare_arrow, base, head),
                     fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold,
                     fontFamily = FontFamily.Monospace, color = Primer.TextPrimary,
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
                     when {
-                        result.identical -> "两个分支内容一致，没有差异"
-                        result.diverged -> "分叉：领先 ${result.aheadBy} 个提交，落后 ${result.behindBy} 个"
-                        result.aheadBy > 0 -> "领先 ${result.aheadBy} 个提交"
-                        else -> "落后 ${result.behindBy} 个提交"
+                        result.identical -> stringResource(R.string.state_no_differences_branches)
+                        result.diverged -> stringResource(R.string.state_compare_diverged, result.aheadBy, result.behindBy)
+                        result.aheadBy > 0 -> stringResource(R.string.state_compare_ahead, result.aheadBy)
+                        else -> stringResource(R.string.state_compare_behind, result.behindBy)
                     },
                     fontSize = 11.sp, color = Primer.TextSecondary,
                 )
                 if (result.files.isNotEmpty()) {
                     Spacer(Modifier.height(2.dp))
                     Text(
-                        "${result.files.size} 个文件变更",
+                        stringResource(R.string.label_files_changed, result.files.size),
                         fontSize = 11.sp, color = Primer.TextTertiary,
                     )
                 }
@@ -289,11 +291,11 @@ private fun CompareBody(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "提交（${result.commits.size}）",
+                        stringResource(R.string.label_commits_count, result.commits.size),
                         fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary,
                         modifier = Modifier.weight(1f),
                     )
-                    Text(if (showCommits) "收起" else "展开", fontSize = 12.sp, color = Primer.Blue500)
+                    Text(if (showCommits) stringResource(R.string.action_collapse) else stringResource(R.string.action_expand), fontSize = 12.sp, color = Primer.Blue500)
                 }
             }
             if (showCommits) {
@@ -308,7 +310,7 @@ private fun CompareBody(
                             color = Primer.Blue500, modifier = Modifier.width(62.dp),
                         )
                         Text(
-                            c.subject.ifBlank { "(无提交信息)" },
+                            c.subject.ifBlank { stringResource(R.string.state_no_commit_message) },
                             fontSize = 12.5.sp, color = Primer.TextPrimary,
                             maxLines = 1, modifier = Modifier.weight(1f),
                         )
@@ -323,7 +325,7 @@ private fun CompareBody(
             item {
                 Box(Modifier.fillMaxWidth().padding(vertical = 28.dp), contentAlignment = Alignment.Center) {
                     Text(
-                        if (result.identical) "没有文件差异" else "该对比没有返回文件差异（可能超过 300 个文件上限）",
+                        if (result.identical) stringResource(R.string.state_no_file_differences) else stringResource(R.string.note_compare_file_limit),
                         fontSize = 12.5.sp, color = Primer.TextTertiary,
                     )
                 }
@@ -391,7 +393,7 @@ private fun FileDiffBlock(
         if (expanded) {
             if (!file.hasPatch) {
                 Text(
-                    "该文件差异过大，GitHub 未返回代码片段；可打开文件查看当前内容",
+                    stringResource(R.string.note_diff_too_large),
                     fontSize = 11.5.sp, color = Primer.TextTertiary, lineHeight = 17.sp,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
@@ -406,7 +408,7 @@ private fun FileDiffBlock(
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
-                                "展开剩余 ${lines.size - shown.size} 行",
+                                stringResource(R.string.action_expand_remaining_lines, lines.size - shown.size),
                                 fontSize = 12.sp, color = Primer.Blue500,
                             )
                         }
@@ -418,7 +420,7 @@ private fun FileDiffBlock(
                 horizontalArrangement = Arrangement.End,
             ) {
                 Text(
-                    "打开文件",
+                    stringResource(R.string.action_open_file),
                     fontSize = 12.sp, color = Primer.Blue500,
                     modifier = Modifier.clickable { onOpenFile() },
                 )
@@ -515,7 +517,7 @@ private fun BranchChip(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    value.ifBlank { "请选择" },
+                    value.ifBlank { stringResource(R.string.state_please_choose) },
                     fontSize = 12.sp, fontFamily = FontFamily.Monospace,
                     color = Primer.TextPrimary, maxLines = 1, modifier = Modifier.weight(1f),
                 )

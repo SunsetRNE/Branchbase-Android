@@ -34,7 +34,8 @@ data class DownloadTask(
     val downloadedBytes: Long = 0L,
     val totalBytes: Long = 0L,
     val file: File? = null,
-    val error: String? = null,
+    /** 失败分类（不是文案）：文案在渲染时按界面语言解析，见 [DownloadFailure.resolve]。 */
+    val failure: DownloadFailure? = null,
     val updatedAtMs: Long = System.currentTimeMillis(),
 ) {
     /** 0f..1f；总量未知时 null（UI 用不确定进度条）。 */

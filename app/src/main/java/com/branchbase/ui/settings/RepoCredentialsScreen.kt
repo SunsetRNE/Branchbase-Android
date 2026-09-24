@@ -18,6 +18,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,12 +31,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.core.AccountStore
 import com.branchbase.core.RepoCredential
 import com.branchbase.core.RepoCredentialStore
+import com.branchbase.ui.LocalizedText
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.profile.SubPageHeader
+import com.branchbase.ui.repository.JUST_NOW_MS
 import com.branchbase.ui.repository.shortTime
+import com.branchbase.ui.resolve
 import com.branchbase.ui.theme.Primer
 import java.time.Instant
 import java.time.temporal.ChronoUnit
@@ -99,15 +104,12 @@ fun RepoCredentialsScreen(onBack: () -> Unit) {
             .statusBarsPadding().navigationBarsPadding()
             .verticalScroll(rememberScrollState()),
     ) {
-        SubPageHeader("仓库凭据", onBack)
+        SubPageHeader(stringResource(R.string.nav_repo_credentials), onBack)
 
         // 规则说明（§4.1 的说明段落，不是行型）：三条规则里只有第一条能靠名字猜出来
-        SettingsSection("说明") {
+        SettingsSection(stringResource(R.string.translate_notes_section)) {
             SettingsProse(
-                "账号优先：当前账号能打开这个仓库时一律用账号，这里的凭据只是回退。\n" +
-                    "打不开时才回退：只有账号被拒（404 / 403）时，仓库页才改用这条令牌。\n" +
-                    "回退后读与写都用它：这个仓库里的提交 / 开 PR / 合并都用令牌身份，" +
-                    "而不是你当前登录的" + (currentLogin?.let { " @$it" } ?: "账号") + "。",
+                stringResource(R.string.note_credential_priority) + (currentLogin?.let { " @$it" } ?: stringResource(R.string.nav_account)) + stringResource(R.string.label_period),
                 divider = false,
             )
         }
@@ -123,14 +125,14 @@ fun RepoCredentialsScreen(onBack: () -> Unit) {
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        "还没有仓库凭据",
+                        stringResource(R.string.state_no_repo_credentials),
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = Primer.TextSecondary,
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "账号打不开私有仓库时，可在失败页里添加；添加后这个仓库的读写都回退到该令牌。",
+                        stringResource(R.string.note_add_credential_from_failure),
                         fontSize = 12.sp,
                         lineHeight = 17.sp,
                         color = Primer.TextTertiary,
@@ -139,7 +141,7 @@ fun RepoCredentialsScreen(onBack: () -> Unit) {
                 }
             }
         } else {
-            SettingsSection("凭据列表") {
+            SettingsSection(stringResource(R.string.label_credential_list)) {
                 items.forEachIndexed { i, c ->
                     // 每条一行：主标题 = owner/repo，副标题 = 令牌身份 @login + 上次使用。
                     // 删除走 DangerRow → 二次确认（§7.2：列表里点危险行只许打开确认）。
@@ -147,8 +149,8 @@ fun RepoCredentialsScreen(onBack: () -> Unit) {
                     DangerRow(
                         icon = Icons.Filled.Delete,
                         name = c.slug,
-                        sub = credentialSubtitle(c),
-                        hint = "删除",
+                        sub = credentialSubtitle(c, lastUsedLabel(c.lastUsedAt).resolve()),
+                        hint = stringResource(R.string.action_delete),
                         onClick = { deleteTarget = c },
                         divider = i != 0,
                     )
@@ -166,7 +168,7 @@ fun RepoCredentialsScreen(onBack: () -> Unit) {
             onDismissRequest = { deleteTarget = null },
             title = {
                 Text(
-                    "删除仓库凭据 ${target.slug}",
+                    stringResource(R.string.confirm_delete_credential_title, target.slug),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Primer.TextPrimary,
@@ -174,11 +176,7 @@ fun RepoCredentialsScreen(onBack: () -> Unit) {
             },
             text = {
                 Text(
-                    "将删除本机保存的这一条令牌凭据（令牌身份 @${target.login}）；" +
-                        "GitHub 上的令牌本身不会被撤销。\n" +
-                        "删除后这个仓库会回退到当前账号；若账号无权访问，它将再次打不开。" +
-                        "其他仓库的凭据不受影响。\n" +
-                        "此操作不可撤销 —— 需要重新添加这条令牌才能恢复。",
+                    stringResource(R.string.confirm_delete_credential_body, target.login),
                     fontSize = 13.sp,
                     lineHeight = 19.sp,
                     color = Primer.TextSecondary,
@@ -188,9 +186,9 @@ fun RepoCredentialsScreen(onBack: () -> Unit) {
                 TextButton(onClick = {
                     deleteTarget = null
                     delete(target)
-                }) { Text("删除", color = Primer.DangerText) }
+                }) { Text(stringResource(R.string.action_delete), color = Primer.DangerText) }
             },
-            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
 }
@@ -204,11 +202,14 @@ fun RepoCredentialsScreen(onBack: () -> Unit) {
  * host 平时不摆出来（默认 `github.com`，人人如此，写出来只是噪音）；但同一个 `owner/repo`
  * 在两个 host 上各有一条凭据时，两行会长得一模一样 —— 删除是危险动作，
  * 规范 §4.6 要求用户**在按下前能核对对象**，所以这时把 host 显式写出来。
+ *
+ * [lastUsed] 由调用方**解析好**再传进来（[lastUsedLabel] 返回 [LocalizedText]）：
+ * 本函数是普通函数，拿不到 Context，也不该为了拼一行字去要一个。
  */
-internal fun credentialSubtitle(c: RepoCredential): String = buildString {
+internal fun credentialSubtitle(c: RepoCredential, lastUsed: String): String = buildString {
     append('@').append(c.login)
     if (!c.host.equals("github.com", ignoreCase = true)) append(" · ").append(c.host)
-    append(" · ").append(lastUsedLabel(c.lastUsedAt))
+    append(" · ").append(lastUsed)
 }
 
 /**
@@ -219,11 +220,16 @@ internal fun credentialSubtitle(c: RepoCredential): String = buildString {
  * 中间只做一次格式转换：`Instant.ofEpochMilli(...)` 自带小数秒（`…:18.794Z`），
  * 而 [shortTime] 的模板以字面 `Z` 收尾，多出来的小数秒会让 SimpleDateFormat 整串解析失败
  * （回落成原样输出），所以先 `truncatedTo(SECONDS)`。
+ *
+ * 返回 [LocalizedText]：第三档把相对时间**嵌**进整句（[LocalizedText] 的参数可以是另一个
+ * [LocalizedText]），英文语序由 `last_used_at` 的 `%1$s` 决定，而不是靠这里拼字符串。
  */
-internal fun lastUsedLabel(lastUsedAt: Long): String {
-    if (lastUsedAt <= 0L) return "还没用过"
+internal fun lastUsedLabel(lastUsedAt: Long): LocalizedText {
+    if (lastUsedAt <= 0L) return LocalizedText(R.string.state_never_used)
+    // shortTime 的「刚刚」直接接在「上次使用」后面读不通，这一档单独成词。
+    // 判据取自**时间戳本身**，不是去比对 shortTime 的输出文案 ——
+    // 那条文案现在是资源，比对它在英文界面下永不成立（这里会永远走「上次使用 刚刚」）。
+    if (System.currentTimeMillis() - lastUsedAt < JUST_NOW_MS) return LocalizedText(R.string.state_just_used)
     val iso = Instant.ofEpochMilli(lastUsedAt).truncatedTo(ChronoUnit.SECONDS).toString()
-    val rel = shortTime(iso)
-    // shortTime 的「刚刚」直接接在「上次使用」后面读不通，这一档单独成词
-    return if (rel == "刚刚") "刚刚使用" else "上次使用 $rel"
+    return LocalizedText(R.string.last_used_at, listOf(shortTime(iso)))
 }

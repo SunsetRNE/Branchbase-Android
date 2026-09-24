@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -23,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.branchbase.R
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.profile.SubPageHeader
 import com.branchbase.ui.theme.Primer
@@ -74,16 +76,16 @@ fun GitProxyScreen(onBack: () -> Unit) {
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
-        SubPageHeader("Git 代理", onBack)
+        SubPageHeader(stringResource(R.string.nav_git_proxy), onBack)
 
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
 
-            SettingsSection("代理地址") {
+            SettingsSection(stringResource(R.string.label_proxy_address)) {
                 SettingsField(
-                    label = "libgit2 的 HTTP 代理",
+                    label = stringResource(R.string.label_git_proxy_sub),
                     value = draft,
                     onValueChange = { draft = it },
-                    placeholder = "http://127.0.0.1:7890 或 socks5://127.0.0.1:1080",
+                    placeholder = stringResource(R.string.hint_proxy_example),
                     isError = showError,
                     feedback = {
                         // 反馈紧贴输入框：这是本页存在的全部理由
@@ -93,7 +95,7 @@ fun GitProxyScreen(onBack: () -> Unit) {
                         TextButton(
                             onClick = { persist(draft) },
                             enabled = validation.ok && draft.trim() != saved,
-                        ) { Text("保存", color = if (validation.ok) Primer.AccentText else Primer.TextTertiary) }
+                        ) { Text(stringResource(R.string.action_save), color = if (validation.ok) Primer.AccentText else Primer.TextTertiary) }
                         Spacer(Modifier.width(4.dp))
                         TextButton(
                             onClick = {
@@ -101,27 +103,26 @@ fun GitProxyScreen(onBack: () -> Unit) {
                                 persist("")
                             },
                             enabled = saved.isNotEmpty(),
-                        ) { Text("清除", color = Primer.TextTertiary) }
+                        ) { Text(stringResource(R.string.action_clear_selection), color = Primer.TextTertiary) }
                     },
                 )
             }
 
             // 当前生效值：脱敏显示（规范 §6.5）—— 完整地址（可能含账号密码）不出现在列表里
             if (saved.isNotEmpty()) {
-                SettingsSection("当前生效") {
+                SettingsSection(stringResource(R.string.state_currently_active)) {
                     InfoRow(
                         icon = Icons.Filled.Check,
-                        name = "代理地址",
+                        name = stringResource(R.string.label_proxy_address),
                         value = displayGitProxy(saved),
                         divider = false,
                     )
                 }
             }
 
-            SettingsSection("说明") {
+            SettingsSection(stringResource(R.string.translate_notes_section)) {
                 SettingsProse(
-                    "仅作用于「本地仓库」的 clone / pull / push（libgit2），普通网页请求不走这里。\n" +
-                        "地址里的用户名与密码不会显示出来 —— 列表里只保留 host:port。",
+                    stringResource(R.string.note_proxy_scope_detail),
                     divider = false,
                 )
             }

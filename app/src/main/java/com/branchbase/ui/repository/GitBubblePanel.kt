@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,6 +40,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.ui.profile.CommitMode
 import com.branchbase.ui.theme.AnimatedStateIcon
 import com.branchbase.ui.theme.rememberPressFeedback
@@ -182,7 +184,7 @@ private fun BubbleHandle(
         ) {
             AnimatedStateIcon(
                 icon = if (expanded) Icons.Filled.Close else handleIcon,
-                contentDescription = if (expanded) "收起 Git 面板" else "展开 Git 面板",
+                contentDescription = if (expanded) stringResource(R.string.action_collapse_git_panel) else stringResource(R.string.action_expand_git_panel),
                 tint = Color.White,
                 modifier = Modifier.size(24.dp),
             )

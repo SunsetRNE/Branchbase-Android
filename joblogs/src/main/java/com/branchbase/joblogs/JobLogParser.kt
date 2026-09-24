@@ -28,7 +28,7 @@ fun splitJobLogBySteps(log: String): List<LogSegment> {
         // 以前会多出一段「全部日志」+ 一行空串），丢掉；
         // 「绝不丢内容」约束的是正文，不是填充空行。
         if (current.any { it.isNotBlank() }) {
-            segments += LogSegment(currentTitle ?: "全部日志", current.toList())
+            segments += LogSegment(currentTitle ?: LogSegment.UNGROUPED_TITLE, current.toList())
         }
         current = mutableListOf()
     }
@@ -53,6 +53,6 @@ fun splitJobLogBySteps(log: String): List<LogSegment> {
     flush()
 
     // 完全没有 group：内容整体落在「全部日志」一段里，直接返回
-    if (segments.size == 1 && segments[0].title == "全部日志") return segments
+    if (segments.size == 1 && segments[0].title == LogSegment.UNGROUPED_TITLE) return segments
     return segments
 }

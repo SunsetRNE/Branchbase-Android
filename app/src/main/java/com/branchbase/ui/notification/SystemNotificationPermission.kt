@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.branchbase.R
 import com.branchbase.downloader.NotificationPermission
 import com.branchbase.ui.theme.Primer
 
@@ -121,12 +123,12 @@ fun NotificationPermissionBanner(
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Filled.Notifications, "系统通知", tint = Primer.Blue500, modifier = Modifier.size(20.dp))
+        Icon(Icons.Filled.Notifications, stringResource(R.string.label_system_notifications), tint = Primer.Blue500, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text("通知未开启", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+            Text(stringResource(R.string.state_notifications_off), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
             Text(
-                "开启后下载进度与完成提醒才会出现在通知栏（不影响下载本身）。",
+                stringResource(R.string.note_enable_notifications),
                 fontSize = 11.5.sp,
                 color = Primer.TextTertiary,
                 lineHeight = 16.sp,
@@ -135,7 +137,7 @@ fun NotificationPermissionBanner(
         }
         Spacer(Modifier.width(10.dp))
         Text(
-            if (state.canRequest) "开启" else "去设置",
+            if (state.canRequest) stringResource(R.string.action_enable) else stringResource(R.string.action_open_settings),
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
             color = Primer.Blue500,
@@ -143,7 +145,7 @@ fun NotificationPermissionBanner(
         )
         Spacer(Modifier.width(12.dp))
         Text(
-            "不再提示",
+            stringResource(R.string.action_dont_ask_again),
             fontSize = 11.5.sp,
             color = Primer.TextTertiary,
             modifier = Modifier.clickable { onDismiss() },

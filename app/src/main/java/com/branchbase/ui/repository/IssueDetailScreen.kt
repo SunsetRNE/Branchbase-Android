@@ -56,6 +56,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -75,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import androidx.compose.animation.animateContentSize
+import com.branchbase.R
 import com.branchbase.ui.theme.selectionColor
 import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
@@ -85,6 +87,9 @@ import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import androidx.annotation.StringRes
+import com.branchbase.ui.LocalizedText
+import com.branchbase.ui.resolve
 
 /**
  * Issue 单消息页（需求 ④，对标 github.com issue 页）。
@@ -271,12 +276,12 @@ fun IssueDetailScreen(
                     else -> "/repos/$owner/$repo/issues/$number/reactions/$id"
                 }
                 val err = if (deletePath != null) RustBridge.deleteJson(host, token, deletePath)
-                else "本地没有记录这条反应的 id（可能是在其它设备上添加的）"
+                else context.getString(R.string.error_reaction_id_missing)
                 if (err == null) {
                     IssueReactionStore.remove(context, key)
                     updateReaction(comment, content, delta = -1, mine = false)
                 } else {
-                    toast("取消反应失败：$err")
+                    toast(context.getString(R.string.error_remove_reaction_failed, err))
                 }
             } else {
                 val json = RustBridge.postJson(host, token, path, "{\"content\":\"$content\"}")
@@ -285,7 +290,7 @@ fun IssueDetailScreen(
                     if (id > 0) IssueReactionStore.put(context, key, id)
                     updateReaction(comment, content, delta = 1, mine = true)
                 } else {
-                    toast("添加反应失败，请重试")
+                    toast(context.getString(R.string.error_add_reaction_failed))
                 }
             }
             reactionsBusy[key] = false
@@ -305,7 +310,7 @@ fun IssueDetailScreen(
                     }
                 }
             } else {
-                toast("更新评论失败：$err")
+                toast(context.getString(R.string.error_update_comment_failed, err))
             }
         }
     }
@@ -317,7 +322,7 @@ fun IssueDetailScreen(
                 detail = detail?.copy(body = newBody)
                 bodyHtml = null
             } else {
-                toast("更新正文失败：$err")
+                toast(context.getString(R.string.error_update_body_failed, err))
             }
         }
     }
@@ -329,7 +334,7 @@ fun IssueDetailScreen(
         val body = text.trim()
         if (body.isEmpty() && closeAs == null) return
         if (target != null && body.isEmpty()) {
-            toast("正文不能为空")
+            toast(context.getString(R.string.error_body_empty))
             return
         }
         submitting = true
@@ -347,9 +352,9 @@ fun IssueDetailScreen(
                     }
                     editing = null
                     draft = ""
-                    toast("已保存修改")
+                    toast(context.getString(R.string.toast_changes_saved))
                 } else {
-                    toast("保存失败：$err")
+                    toast(context.getString(R.string.error_save_failed, err))
                     submitting = false
                     return@launch
                 }
@@ -371,7 +376,7 @@ fun IssueDetailScreen(
                     previewTab = false
                     pendingScrollToEnd = true
                 } else {
-                    toast("评论失败：$err")
+                    toast(context.getString(R.string.error_comment_failed, err))
                 }
             }
             if (closeAs != null) {
@@ -381,11 +386,20 @@ fun IssueDetailScreen(
                     entries = entries + TimelineEntry.Event(
                         kind = "closed",
                         actor = login,
-                        text = "$login 关闭了此 issue" + if (closeAs == "not_planned") "（不计划实施）" else "（已完成）",
+                        // 原来是「已解析串 + 已解析串」的拼接 —— 既让状态里存了文案（语言切换后不更新），
+                        // 又拼不出英文语序。改成 LocalizedText 后两者一起解决。
+                        text = LocalizedText(
+                            if (closeAs == "not_planned") {
+                                R.string.timeline_closed_not_planned
+                            } else {
+                                R.string.timeline_closed_completed
+                            },
+                            listOf(login),
+                        ),
                         createdAt = java.time.Instant.now().toString(),
                     )
                 } else {
-                    toast("关闭失败：$err")
+                    toast(context.getString(R.string.error_close_failed, err))
                 }
             }
             submitting = false
@@ -400,11 +414,11 @@ fun IssueDetailScreen(
                 entries = entries + TimelineEntry.Event(
                     kind = "reopened",
                     actor = login,
-                    text = "$login 重新打开了此 issue",
+                    text = LocalizedText(R.string.timeline_reopened, listOf(login)),
                     createdAt = java.time.Instant.now().toString(),
                 )
             } else {
-                toast("重新打开失败：$err")
+                toast(context.getString(R.string.error_reopen_failed, err))
             }
         }
     }
@@ -444,7 +458,7 @@ fun IssueDetailScreen(
 
         when {
             loading && detail == null -> IssueLoading()
-            detail == null -> IssueCenteredText("加载失败")
+            detail == null -> IssueCenteredText(stringResource(R.string.error_load_failed))
             else -> {
                 LazyColumn(
                     state = listState,
@@ -466,7 +480,9 @@ fun IssueDetailScreen(
                             CommentHeader(
                                 author = d.author,
                                 avatarUrl = d.authorAvatar,
-                                badge = "作者",
+                                badgeRes = R.string.badge_author,
+                                // 主帖的徽章恒为「作者」：这里就是 issue 作者本人
+                                isAuthor = true,
                                 createdAt = d.createdAt,
                                 edited = false,
                             ) {}
@@ -484,7 +500,7 @@ fun IssueDetailScreen(
                                             source = d.body,
                                             linkBase = MarkdownLinkBase("https://$host", owner, repo),
                                             onLinkClick = { openLink(context, it) },
-                                            onCopyCode = { copyToClipboard(context, it, "代码已复制") },
+                                            onCopyCode = { copyToClipboard(context, it, context.getString(R.string.toast_code_copied)) },
                                             onToggleTask = if (d.author == login) {
                                                 ({ task ->
                                                     patchIssueBody(toggleTaskLine(d.body, task.line, !task.checked))
@@ -523,7 +539,7 @@ fun IssueDetailScreen(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
-                                    "显示更早的 $hiddenCount 条",
+                                    stringResource(R.string.action_show_earlier, hiddenCount),
                                     fontSize = 12.5.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = Primer.Blue500,
@@ -547,10 +563,10 @@ fun IssueDetailScreen(
                                     expanded = expanded,
                                     onToggleExpand = { expandedComments[entry.comment.id] = !expanded },
                                     onToggleReaction = { content -> toggleReaction(entry.comment, content) },
-                                    onCopyCode = { copyToClipboard(context, it, "代码已复制") },
+                                    onCopyCode = { copyToClipboard(context, it, context.getString(R.string.toast_code_copied)) },
                                     onLinkClick = { openLink(context, it) },
-                                    onCopyLink = { copyToClipboard(context, "$issueUrl#issuecomment-${entry.comment.id}", "已复制评论链接") },
-                                    onCopyMarkdown = { copyToClipboard(context, entry.comment.body, "已复制 Markdown 原文") },
+                                    onCopyLink = { copyToClipboard(context, "$issueUrl#issuecomment-${entry.comment.id}", context.getString(R.string.toast_comment_link_copied)) },
+                                    onCopyMarkdown = { copyToClipboard(context, entry.comment.body, context.getString(R.string.toast_markdown_copied)) },
                                     onOpenBrowser = { openLink(context, issueUrl) },
                                     canEdit = mineComment,
                                     onEdit = {
@@ -609,9 +625,9 @@ fun IssueDetailScreen(
                             editing = null
                             draft = ""
                         }
-                        toast("评论已删除")
+                        toast(context.getString(R.string.toast_comment_deleted))
                     } else {
-                        toast("删除失败：$err")
+                        toast(context.getString(R.string.error_delete_failed, err))
                     }
                 }
             },
@@ -634,17 +650,17 @@ private fun DeleteCommentDialog(
 ) {
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("删除这条评论？", fontSize = 15.sp, fontWeight = FontWeight.Bold) },
+        title = { Text(stringResource(R.string.confirm_delete_comment_title), fontSize = 15.sp, fontWeight = FontWeight.Bold) },
         text = {
             Text(
-                "删除后无法恢复，评论会从 GitHub 上移除。",
+                stringResource(R.string.confirm_delete_comment_body),
                 fontSize = 13.sp,
                 color = Primer.TextSecondary,
             )
         },
         confirmButton = {
             Text(
-                "删除",
+                stringResource(R.string.action_delete),
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 color = Primer.Red500,
@@ -656,7 +672,7 @@ private fun DeleteCommentDialog(
         },
         dismissButton = {
             Text(
-                "取消",
+                stringResource(R.string.action_cancel),
                 fontSize = 13.sp,
                 color = Primer.TextSecondary,
                 modifier = Modifier
@@ -698,7 +714,7 @@ private fun IssueAppBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(onClick = onBack, modifier = Modifier.size(38.dp)) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Primer.IconPrimary)
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back), tint = Primer.IconPrimary)
         }
         Column(Modifier.weight(1f)) {
             Text("#$number", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
@@ -710,20 +726,20 @@ private fun IssueAppBar(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        IconButton(onClick = { copyToClipboard(context, issueUrl, "已复制链接") }, modifier = Modifier.size(38.dp)) {
-            Icon(Icons.Filled.ContentCopy, "复制链接", tint = Primer.IconPrimary, modifier = Modifier.size(18.dp))
+        IconButton(onClick = { copyToClipboard(context, issueUrl, context.getString(R.string.toast_link_copied)) }, modifier = Modifier.size(38.dp)) {
+            Icon(Icons.Filled.ContentCopy, stringResource(R.string.action_copy_link), tint = Primer.IconPrimary, modifier = Modifier.size(18.dp))
         }
         Box {
             IconButton(onClick = { menu = true }, modifier = Modifier.size(38.dp)) {
-                Icon(Icons.Filled.MoreVert, "更多", tint = Primer.IconPrimary)
+                Icon(Icons.Filled.MoreVert, stringResource(R.string.action_more), tint = Primer.IconPrimary)
             }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 DropdownMenuItem(
-                    text = { Text("在浏览器打开", fontSize = 13.sp) },
+                    text = { Text(stringResource(R.string.action_open_in_browser), fontSize = 13.sp) },
                     onClick = { menu = false; openLink(context, issueUrl) },
                 )
                 DropdownMenuItem(
-                    text = { Text("分享", fontSize = 13.sp) },
+                    text = { Text(stringResource(R.string.action_share), fontSize = 13.sp) },
                     onClick = {
                         menu = false
                         runCatching {
@@ -731,7 +747,7 @@ private fun IssueAppBar(
                                 type = "text/plain"
                                 putExtra(Intent.EXTRA_TEXT, issueUrl)
                             }
-                            context.startActivity(Intent.createChooser(send, "分享 issue"))
+                            context.startActivity(Intent.createChooser(send, context.getString(R.string.action_share_issue)))
                         }
                     },
                 )
@@ -775,7 +791,7 @@ private fun IssueHead(d: IssueDetail) {
             }
             Spacer(Modifier.width(8.dp))
             Text(
-                "${d.author} 创建于 ${shortTime(d.createdAt)} · ${d.commentsCount} 条评论",
+                stringResource(R.string.label_issue_meta, d.author, shortTime(d.createdAt).resolve(), d.commentsCount),
                 fontSize = 12.sp,
                 color = Primer.TextTertiary,
                 maxLines = 1,
@@ -872,7 +888,7 @@ private fun TimelineFilterRow(
 private fun CommentShell(
     author: String,
     avatarUrl: String?,
-    badge: String?,
+    @StringRes badgeRes: Int?,
     createdAt: String,
     text: String,
     reactions: List<ReactionSummary>,
@@ -886,7 +902,7 @@ private fun CommentShell(
             .clip(RoundedCornerShape(10.dp))
             .border(1.dp, Primer.Gray200, RoundedCornerShape(10.dp)),
     ) {
-        CommentHeader(author, avatarUrl, badge, createdAt, edited = false) {}
+        CommentHeader(author, avatarUrl, badgeRes, isAuthor = false, createdAt, edited = false) {}
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
             MarkdownBody(text, onLinkClick = onLinkClick, onCopyCode = onCopyCode)
         }
@@ -900,7 +916,8 @@ private fun CommentShell(
 private fun CommentHeader(
     author: String,
     avatarUrl: String?,
-    badge: String?,
+    @StringRes badgeRes: Int?,
+    isAuthor: Boolean,
     createdAt: String,
     edited: Boolean,
     trailing: @Composable () -> Unit,
@@ -915,29 +932,32 @@ private fun CommentHeader(
         AuthorAvatar(author, avatarUrl, 20)
         Spacer(Modifier.width(8.dp))
         Text(author, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
-        if (badge != null) {
+        if (badgeRes != null) {
             Spacer(Modifier.width(6.dp))
             Text(
-                badge,
+                stringResource(badgeRes),
                 fontSize = 10.5.sp,
                 fontWeight = FontWeight.Bold,
-                color = if (badge == "作者") Primer.Blue500 else Primer.TextSecondary,
+                // 高亮走**语义位**（isAuthor）而不是比对徽章文案：
+                // 徽章文案迟早要抽成资源并翻译，`badge == "作者"` 会在英文界面上永不成立 ——
+                // 那时表现不是崩溃，而是「作者徽章悄悄变成灰色」，最难发现的一类失效。
+                color = if (isAuthor) Primer.Blue500 else Primer.TextSecondary,
                 modifier = Modifier
                     .clip(CircleShape)
                     .border(
                         1.dp,
-                        if (badge == "作者") Primer.Blue500.copy(alpha = 0.5f) else Primer.Gray200,
+                        if (isAuthor) Primer.Blue500.copy(alpha = 0.5f) else Primer.Gray200,
                         CircleShape,
                     )
-                    .background(if (badge == "作者") Primer.Blue500.copy(alpha = 0.08f) else Color.Transparent)
+                    .background(if (isAuthor) Primer.Blue500.copy(alpha = 0.08f) else Color.Transparent)
                     .padding(horizontal = 7.dp, vertical = 1.dp),
             )
         }
         Spacer(Modifier.width(6.dp))
-        Text("评论于 ${shortTime(createdAt)}", fontSize = 11.5.sp, color = Primer.TextTertiary)
+        Text(stringResource(R.string.label_commented_at, shortTime(createdAt).resolve()), fontSize = 11.5.sp, color = Primer.TextTertiary)
         if (edited) {
             Spacer(Modifier.width(4.dp))
-            Text("· 已编辑", fontSize = 11.sp, color = Primer.TextTertiary)
+            Text(stringResource(R.string.suffix_edited), fontSize = 11.sp, color = Primer.TextTertiary)
         }
         Spacer(Modifier.weight(1f))
         trailing()
@@ -974,17 +994,25 @@ private fun CommentCard(
             .clip(RoundedCornerShape(10.dp))
             .border(
                 1.dp,
-                if (comment.badge == "作者") Primer.Blue500.copy(alpha = 0.35f) else Primer.Gray200,
+                // 同 CommentHeader：描边高亮也走语义位，不比对徽章文案
+                if (comment.isIssueAuthor) Primer.Blue500.copy(alpha = 0.35f) else Primer.Gray200,
                 RoundedCornerShape(10.dp),
             )
             // 长评论「展开/收起」是文本长度变化：让高度做动画，避免整条时间线突然弹跳
             .animateContentSize(),
     ) {
-        CommentHeader(comment.author, comment.avatarUrl, comment.badge, comment.createdAt, comment.isEdited) {
+        CommentHeader(
+            comment.author,
+            comment.avatarUrl,
+            comment.badgeRes,
+            isAuthor = comment.isIssueAuthor,
+            comment.createdAt,
+            comment.isEdited,
+        ) {
             Box {
                 Icon(
                     Icons.Filled.MoreVert,
-                    "评论操作",
+                    stringResource(R.string.label_comment_actions),
                     tint = Primer.IconSecondary,
                     modifier = Modifier
                         .size(24.dp)
@@ -993,24 +1021,24 @@ private fun CommentCard(
                 )
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     DropdownMenuItem(
-                        text = { Text("复制评论链接", fontSize = 13.sp) },
+                        text = { Text(stringResource(R.string.action_copy_comment_link), fontSize = 13.sp) },
                         onClick = { menu = false; onCopyLink() },
                     )
                     DropdownMenuItem(
-                        text = { Text("复制 Markdown 原文", fontSize = 13.sp) },
+                        text = { Text(stringResource(R.string.action_copy_markdown), fontSize = 13.sp) },
                         onClick = { menu = false; onCopyMarkdown() },
                     )
                     DropdownMenuItem(
-                        text = { Text("在浏览器打开", fontSize = 13.sp) },
+                        text = { Text(stringResource(R.string.action_open_in_browser), fontSize = 13.sp) },
                         onClick = { menu = false; onOpenBrowser() },
                     )
                     if (canEdit) {
                         DropdownMenuItem(
-                            text = { Text("编辑评论", fontSize = 13.sp) },
+                            text = { Text(stringResource(R.string.action_edit_comment), fontSize = 13.sp) },
                             onClick = { menu = false; onEdit() },
                         )
                         DropdownMenuItem(
-                            text = { Text("删除评论", fontSize = 13.sp, color = Primer.Red500) },
+                            text = { Text(stringResource(R.string.action_delete_comment), fontSize = 13.sp, color = Primer.Red500) },
                             onClick = { menu = false; onDelete() },
                         )
                     }
@@ -1030,7 +1058,7 @@ private fun CommentCard(
             if (collapsible) {
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    if (expanded) "收起" else "展开全文",
+                    if (expanded) stringResource(R.string.action_collapse) else stringResource(R.string.action_expand_full_text),
                     fontSize = 12.5.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Primer.Blue500,
@@ -1077,7 +1105,7 @@ private fun ReactionRow(
                 )
             }
             Text(
-                "＋",
+                stringResource(R.string.label_plus),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 color = Primer.TextSecondary,
@@ -1091,7 +1119,7 @@ private fun ReactionRow(
         DropdownMenu(expanded = picker, onDismissRequest = { picker = false }) {
             REACTION_ORDER.forEach { (content, e) ->
                 DropdownMenuItem(
-                    text = { Text("$e  添加反应", fontSize = 13.sp) },
+                    text = { Text(stringResource(R.string.action_add_reaction, e), fontSize = 13.sp) },
                     onClick = { picker = false; onToggle(content) },
                 )
             }
@@ -1103,6 +1131,7 @@ private fun ReactionRow(
 
 @Composable
 private fun EventRow(entry: TimelineEntry.Event) {
+    val context = LocalContext.current
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1128,14 +1157,14 @@ private fun EventRow(entry: TimelineEntry.Event) {
         }
         Spacer(Modifier.width(10.dp))
         Text(
-            entry.text,
+            entry.text.resolve(context),
             fontSize = 12.5.sp,
             color = Primer.TextSecondary,
             lineHeight = 18.sp,
             modifier = Modifier.weight(1f),
         )
         Spacer(Modifier.width(8.dp))
-        Text(shortTime(entry.createdAt), fontSize = 11.sp, color = Primer.TextTertiary)
+        Text(shortTime(entry.createdAt).resolve(), fontSize = 11.sp, color = Primer.TextTertiary)
     }
 }
 
@@ -1178,14 +1207,14 @@ private fun CommentComposer(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "正在编辑 @$editingAuthor 的评论",
+                    stringResource(R.string.label_editing_comment, editingAuthor),
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Primer.Blue600,
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    "取消编辑",
+                    stringResource(R.string.action_cancel_edit),
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.Bold,
                     color = Primer.Blue500,
@@ -1205,13 +1234,13 @@ private fun CommentComposer(
                     .background(Primer.Gray150)
                     .padding(2.dp),
             ) {
-                ComposerTab("写", !previewTab) { onPreviewTab(false) }
-                ComposerTab("预览", previewTab) { onPreviewTab(true) }
+                ComposerTab(stringResource(R.string.tab_write), !previewTab) { onPreviewTab(false) }
+                ComposerTab(stringResource(R.string.label_preview), previewTab) { onPreviewTab(true) }
             }
             Spacer(Modifier.weight(1f))
             if (issueClosed) {
                 Text(
-                    "重新打开",
+                    stringResource(R.string.action_reopen),
                     fontSize = 12.5.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Primer.Blue500,
@@ -1235,7 +1264,7 @@ private fun CommentComposer(
                     .padding(10.dp),
             ) {
                 if (draft.isBlank()) {
-                    Text("还没有内容，切回「写」开始输入。", fontSize = 12.5.sp, color = Primer.TextTertiary)
+                    Text(stringResource(R.string.state_preview_empty), fontSize = 12.5.sp, color = Primer.TextTertiary)
                 } else {
                     MarkdownBody(draft)
                 }
@@ -1251,7 +1280,7 @@ private fun CommentComposer(
                     .padding(10.dp),
             ) {
                 if (draft.isEmpty()) {
-                    Text("留下评论（支持 Markdown）", fontSize = 13.sp, color = Primer.TextTertiary)
+                    Text(stringResource(R.string.hint_leave_comment), fontSize = 13.sp, color = Primer.TextTertiary)
                 }
                 BasicTextField(
                     value = draft,
@@ -1266,15 +1295,15 @@ private fun CommentComposer(
         Spacer(Modifier.height(6.dp))
         // Markdown 工具栏
         Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
-            MdTool("B", "加粗") { onDraft(wrap(draft, "**", "**")) }
-            MdTool("I", "斜体") { onDraft(wrap(draft, "*", "*")) }
-            MdTool("</>", "代码") { onDraft(wrap(draft, "`", "`")) }
-            MdTool("≡", "列表") { onDraft("$draft\n- ") }
-            MdTool("☑", "任务") { onDraft("$draft\n- [ ] ") }
-            MdTool("❝", "引用") { onDraft("$draft\n> ") }
-            MdTool("@", "提及") { onDraft("$draft@") }
+            MdTool("B", stringResource(R.string.md_bold)) { onDraft(wrap(draft, "**", "**")) }
+            MdTool("I", stringResource(R.string.md_italic)) { onDraft(wrap(draft, "*", "*")) }
+            MdTool("</>", stringResource(R.string.nav_code)) { onDraft(wrap(draft, "`", "`")) }
+            MdTool("≡", stringResource(R.string.md_list)) { onDraft("$draft\n- ") }
+            MdTool("☑", stringResource(R.string.nav_tasks)) { onDraft("$draft\n- [ ] ") }
+            MdTool("❝", stringResource(R.string.md_quote)) { onDraft("$draft\n> ") }
+            MdTool("@", stringResource(R.string.md_mention)) { onDraft("$draft@") }
             Spacer(Modifier.weight(1f))
-            Text("Markdown 已支持", fontSize = 11.sp, color = Primer.TextTertiary)
+            Text(stringResource(R.string.label_markdown_supported), fontSize = 11.sp, color = Primer.TextTertiary)
         }
 
         Spacer(Modifier.height(8.dp))
@@ -1291,9 +1320,9 @@ private fun CommentComposer(
                 ) {
                     Text(
                         when {
-                            editing -> "编辑中"
-                            issueClosed -> "已关闭"
-                            else -> "关闭并评论 ▾"
+                            editing -> stringResource(R.string.state_editing)
+                            issueClosed -> stringResource(R.string.state_closed)
+                            else -> stringResource(R.string.action_close_and_comment)
                         },
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -1302,15 +1331,15 @@ private fun CommentComposer(
                 }
                 DropdownMenu(expanded = closeMenu, onDismissRequest = { onCloseMenu(false) }) {
                     DropdownMenuItem(
-                        text = { Text("关闭并评论（已完成）", fontSize = 13.sp) },
+                        text = { Text(stringResource(R.string.action_close_comment_completed), fontSize = 13.sp) },
                         onClick = { onCloseMenu(false); onCommentAndClose("completed") },
                     )
                     DropdownMenuItem(
-                        text = { Text("关闭并评论（不计划实施）", fontSize = 13.sp) },
+                        text = { Text(stringResource(R.string.action_close_comment_not_planned), fontSize = 13.sp) },
                         onClick = { onCloseMenu(false); onCommentAndClose("not_planned") },
                     )
                     DropdownMenuItem(
-                        text = { Text("只提交评论，不关闭", fontSize = 13.sp) },
+                        text = { Text(stringResource(R.string.action_comment_only), fontSize = 13.sp) },
                         onClick = { onCloseMenu(false); onComment() },
                     )
                 }
@@ -1333,7 +1362,7 @@ private fun CommentComposer(
                     Spacer(Modifier.width(5.dp))
                 }
                 Text(
-                    if (editing) "保存修改" else "评论",
+                    if (editing) stringResource(R.string.action_save_changes) else stringResource(R.string.action_comment),
                     fontSize = 12.5.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
@@ -1457,5 +1486,5 @@ private fun copyToClipboard(context: Context, text: String, okMessage: String) {
 
 private fun openLink(context: Context, url: String) {
     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
-        .onFailure { Toast.makeText(context, "没有可用的浏览器", Toast.LENGTH_SHORT).show() }
+        .onFailure { Toast.makeText(context, context.getString(R.string.error_no_browser), Toast.LENGTH_SHORT).show() }
 }

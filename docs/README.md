@@ -27,6 +27,7 @@
     ├── morph-design.md           ← **图标形变规格**（术语表 / 六步管线与失真点 / 六类成因 / 验收清单 / 极端组合台账）
     ├── screens-design.md         ← **页面重绘**（运行详情卡片流 / 发布三档性质 / 消息卡片流与多选）
     ├── reachability-design.md    ← **远端可达性判定**（三档口径 / 四种跃迁 / 跃迁时丢连接池并重探）
+    ├── i18n-migration.md         ← **界面语言（i18n）**（语言体系 / A′·C′ 范式 / `LocalizedText` / 术语约定 / 刻意不译 / 剩余工作）
     ├── VERSION-NOTES.md          ← **版本变更记录**（逐版 versionName 说明 + versionCode 流水；新增一版先改这里）
     └── prototypes/               ← 原型**说明文档**的入库副本（原型本体不在这里）
         ├── log-redesign.md

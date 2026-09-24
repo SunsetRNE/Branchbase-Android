@@ -23,6 +23,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
+import com.branchbase.R
 import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
@@ -86,11 +88,11 @@ fun WorkflowActionSheet(
     val loaded = spec
     val dispatchable = !loading && loaded != null && loaded.enabled && workflow.path.isNotBlank()
     val dispatchSubtitle = when {
-        loading -> "正在读取工作流文件…"
-        workflow.path.isBlank() -> "缺少工作流文件路径"
-        loaded == null || !loaded.enabled -> "该工作流未声明 workflow_dispatch（无法手动触发）"
-        loaded.inputs.isEmpty() -> "直接执行，无需参数"
-        else -> "需要填写 ${loaded.inputs.size} 个参数"
+        loading -> stringResource(R.string.state_reading_workflow_file)
+        workflow.path.isBlank() -> stringResource(R.string.error_missing_workflow_path)
+        loaded == null || !loaded.enabled -> stringResource(R.string.state_no_workflow_dispatch)
+        loaded.inputs.isEmpty() -> stringResource(R.string.note_no_parameters)
+        else -> stringResource(R.string.note_parameters_required, loaded.inputs.size)
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
@@ -104,7 +106,7 @@ fun WorkflowActionSheet(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        workflow.name.ifBlank { "未命名工作流" },
+                        workflow.name.ifBlank { stringResource(R.string.label_unnamed_workflow) },
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = Primer.TextPrimary,
@@ -112,7 +114,7 @@ fun WorkflowActionSheet(
                     )
                     Spacer(Modifier.height(3.dp))
                     Text(
-                        workflow.path.ifBlank { "缺少工作流文件路径" },
+                        workflow.path.ifBlank { stringResource(R.string.error_missing_workflow_path) },
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         color = Primer.TextTertiary,
@@ -133,22 +135,22 @@ fun WorkflowActionSheet(
 
             WorkflowActionRow(
                 icon = Icons.Filled.PlayArrow,
-                title = "执行工作流",
+                title = stringResource(R.string.action_run_workflow),
                 subtitle = dispatchSubtitle,
                 enabled = dispatchable,
                 onClick = onDispatch,
             )
             WorkflowActionRow(
                 icon = Icons.Filled.Description,
-                title = "查看工作流文件",
-                subtitle = workflow.path.ifBlank { "缺少工作流文件路径" },
+                title = stringResource(R.string.action_view_workflow_file),
+                subtitle = workflow.path.ifBlank { stringResource(R.string.error_missing_workflow_path) },
                 enabled = true,
                 onClick = onOpenFile,
             )
             WorkflowActionRow(
                 icon = Icons.AutoMirrored.Filled.OpenInNew,
-                title = "在浏览器打开",
-                subtitle = workflow.htmlUrl.ifBlank { "该工作流没有网页地址" },
+                title = stringResource(R.string.action_open_in_browser),
+                subtitle = workflow.htmlUrl.ifBlank { stringResource(R.string.state_no_workflow_url) },
                 enabled = workflow.htmlUrl.isNotBlank(),
                 onClick = onOpenBrowser,
             )

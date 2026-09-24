@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -57,6 +58,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.translate.TranslateConfig
 import com.branchbase.translate.TranslatePageCommands
 import com.branchbase.translate.TranslatePageSnapshot
@@ -309,7 +311,7 @@ private fun TranslateBall(host: TranslateBubbleHost, onDrag: (Offset) -> Unit) {
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = if (snapshot.busy) "…" else "译",
+                text = if (snapshot.busy) "…" else stringResource(R.string.bubble_translate_char),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
@@ -360,13 +362,13 @@ private fun TranslatePanel(host: TranslateBubbleHost, width: Dp, maxHeight: Dp) 
             Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
                 ProgressBlock(snapshot, settings)
                 Spacer(Modifier.height(6.dp))
-                BlockTitle("快捷设置")
-                ToggleRow("本页翻译", snapshot.on) {
+                BlockTitle(stringResource(R.string.label_quick_settings))
+                ToggleRow(stringResource(R.string.label_translate_this_page), snapshot.on) {
                     if (snapshot.on) {
                         host.command(TranslatePageCommands.OFF)
                         Toast.makeText(
                             context,
-                            "已关闭本页翻译，悬浮球已收起；重新开启：设置 → 沉浸式翻译 → 自动翻译正文",
+                            context.getString(R.string.note_page_translation_off),
                             Toast.LENGTH_LONG,
                         ).show()
                     } else {
@@ -374,19 +376,19 @@ private fun TranslatePanel(host: TranslateBubbleHost, width: Dp, maxHeight: Dp) 
                     }
                 }
                 SegRow(
-                    label = "显示方式",
-                    options = listOf("1" to "原文+译文", "0" to "仅译文"),
+                    label = stringResource(R.string.translate_display_mode),
+                    options = listOf("1" to stringResource(R.string.label_original_plus_translation), "0" to stringResource(R.string.label_translation_only)),
                     selected = if (settings.dual) "1" else "0",
                 ) { value ->
                     persist { TranslateSettings.setDual(context, value == "1") }
                     host.command(TranslatePageCommands.DUAL, value)
                 }
                 SegRow(
-                    label = "译文样式",
+                    label = stringResource(R.string.translate_style_section),
                     options = listOf(
-                        TranslateConfig.STYLE_CARD to "卡片",
-                        TranslateConfig.STYLE_UNDERLINE to "下划线",
-                        TranslateConfig.STYLE_PLAIN to "淡灰",
+                        TranslateConfig.STYLE_CARD to stringResource(R.string.translate_style_card),
+                        TranslateConfig.STYLE_UNDERLINE to stringResource(R.string.translate_style_underline),
+                        TranslateConfig.STYLE_PLAIN to stringResource(R.string.translate_style_plain),
                     ),
                     selected = settings.style,
                 ) { value ->
@@ -394,40 +396,40 @@ private fun TranslatePanel(host: TranslateBubbleHost, width: Dp, maxHeight: Dp) 
                     host.command(TranslatePageCommands.STYLE, value)
                 }
                 SegRow(
-                    label = "目标语言",
-                    options = listOf("zh-CN" to "中文", "en" to "English"),
+                    label = stringResource(R.string.translate_target_language),
+                    options = listOf("zh-CN" to stringResource(R.string.label_chinese), "en" to "English"),
                     selected = settings.target,
                 ) { value ->
                     persist { TranslateSettings.setTarget(context, value) }
                     host.command(TranslatePageCommands.TARGET, value)
                 }
-                ToggleRow("自动翻译正文", settings.enabled) { next ->
+                ToggleRow(stringResource(R.string.translate_auto_toggle), settings.enabled) { next ->
                     persist { TranslateSettings.setEnabled(context, next) }
                     // 总开关要**立刻**作用到当前页：关掉就把本页翻译一起关掉（悬浮球随之收起），
                     // 打开就直接开始翻。只落盘不通知页面的话，会出现「开关显示已关，
                     // 页面还在翻、悬浮球还在」——这正是用户报的「悬浮球不受控制」。
                     host.command(if (next) TranslatePageCommands.ON else TranslatePageCommands.OFF)
                 }
-                ToggleRow("本地缓存", settings.persist) { next ->
+                ToggleRow(stringResource(R.string.translate_cache_disk_toggle), settings.persist) { next ->
                     persist { TranslateSettings.setPersist(context, next) }
                 }
-                ToggleRow("保护代码与链接", settings.protect) { next ->
+                ToggleRow(stringResource(R.string.translate_guard_toggle), settings.protect) { next ->
                     persist { TranslateSettings.setProtect(context, next) }
                 }
 
                 Spacer(Modifier.height(6.dp))
-                BlockTitle("操作")
+                BlockTitle(stringResource(R.string.label_actions))
                 ActionRow(
                     listOfNotNull(
-                        if (snapshot.blocked) "重试" to { host.command(TranslatePageCommands.RETRY) } else null,
-                        "翻译当前视口" to { host.command(TranslatePageCommands.SCAN_VISIBLE) },
-                        "翻译全文" to { host.command(TranslatePageCommands.SCAN_ALL) },
-                        "清空本页译文" to { host.command(TranslatePageCommands.CLEAR) },
-                        "重置悬浮球" to { host.resetBall() },
+                        if (snapshot.blocked) stringResource(R.string.action_retry) to { host.command(TranslatePageCommands.RETRY) } else null,
+                        stringResource(R.string.action_translate_viewport) to { host.command(TranslatePageCommands.SCAN_VISIBLE) },
+                        stringResource(R.string.action_translate_all) to { host.command(TranslatePageCommands.SCAN_ALL) },
+                        stringResource(R.string.action_clear_page_translations) to { host.command(TranslatePageCommands.CLEAR) },
+                        stringResource(R.string.action_reset_bubble) to { host.resetBall() },
                     ),
                 )
                 Text(
-                    "更多设置：App「设置 → 沉浸式翻译」",
+                    stringResource(R.string.note_more_settings_path),
                     fontSize = 11.sp,
                     color = Primer.TextTertiary,
                     modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
@@ -446,7 +448,7 @@ private fun PanelHeader(snapshot: TranslatePageSnapshot, onClose: () -> Unit) {
             .padding(start = 12.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("沉浸式翻译", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
+        Text(stringResource(R.string.translate_title), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
         Spacer(Modifier.width(8.dp))
         StatusChip(snapshot)
         Spacer(Modifier.weight(1f))
@@ -457,7 +459,7 @@ private fun PanelHeader(snapshot: TranslatePageSnapshot, onClose: () -> Unit) {
                 .clickable { onClose() },
             contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.Filled.Close, contentDescription = "收起", tint = Primer.IconSecondary, modifier = Modifier.size(18.dp))
+            Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.action_collapse), tint = Primer.IconSecondary, modifier = Modifier.size(18.dp))
         }
     }
 }
@@ -465,13 +467,13 @@ private fun PanelHeader(snapshot: TranslatePageSnapshot, onClose: () -> Unit) {
 @Composable
 private fun StatusChip(snapshot: TranslatePageSnapshot) {
     val (text, fg, bg) = when (snapshot.status) {
-        TranslatePageSnapshot.STATUS_TRANSLATING -> Triple("翻译中…", Primer.Blue600, Primer.Blue400.copy(alpha = .25f))
-        TranslatePageSnapshot.STATUS_DONE -> Triple("已完成", Primer.Green500, Primer.Green100)
-        TranslatePageSnapshot.STATUS_AUTH -> Triple("Key 无效", Primer.Red500, Primer.Red100)
-        TranslatePageSnapshot.STATUS_QUOTA -> Triple("额度用尽", Primer.Orange500, Primer.Gray100)
-        TranslatePageSnapshot.STATUS_PAUSED -> Triple("已暂停", Primer.Red500, Primer.Red100)
-        TranslatePageSnapshot.STATUS_FAILED -> Triple("翻译失败", Primer.Red500, Primer.Red100)
-        else -> Triple("空闲", Primer.TextSecondary, Primer.Gray100)
+        TranslatePageSnapshot.STATUS_TRANSLATING -> Triple(stringResource(R.string.state_translating), Primer.Blue600, Primer.Blue400.copy(alpha = .25f))
+        TranslatePageSnapshot.STATUS_DONE -> Triple(stringResource(R.string.state_completed), Primer.Green500, Primer.Green100)
+        TranslatePageSnapshot.STATUS_AUTH -> Triple(stringResource(R.string.state_key_invalid), Primer.Red500, Primer.Red100)
+        TranslatePageSnapshot.STATUS_QUOTA -> Triple(stringResource(R.string.state_quota_exhausted), Primer.Orange500, Primer.Gray100)
+        TranslatePageSnapshot.STATUS_PAUSED -> Triple(stringResource(R.string.state_paused), Primer.Red500, Primer.Red100)
+        TranslatePageSnapshot.STATUS_FAILED -> Triple(stringResource(R.string.state_translation_failed), Primer.Red500, Primer.Red100)
+        else -> Triple(stringResource(R.string.state_idle), Primer.TextSecondary, Primer.Gray100)
     }
     Box(
         Modifier
@@ -485,7 +487,7 @@ private fun StatusChip(snapshot: TranslatePageSnapshot) {
 
 @Composable
 private fun ProgressBlock(snapshot: TranslatePageSnapshot, settings: TranslateConfig) {
-    BlockTitle("本页进度")
+    BlockTitle(stringResource(R.string.label_page_progress))
     val total = maxOf(snapshot.candidates, snapshot.translated)
     val fraction = if (total > 0) (snapshot.translated.toFloat() / total).coerceIn(0f, 1f) else 0f
     Box(
@@ -504,10 +506,10 @@ private fun ProgressBlock(snapshot: TranslatePageSnapshot, settings: TranslateCo
         )
     }
     Spacer(Modifier.height(5.dp))
-    KeyValue("已译 ${snapshot.translated} / 候选 $total 段", "${snapshot.chars} 字符 · ${(fraction * 100).roundToInt()}%")
+    KeyValue(stringResource(R.string.label_translated_of_total, snapshot.translated, total), stringResource(R.string.label_chars_percent, snapshot.chars, (fraction * 100).roundToInt()))
     KeyValue(
-        "服务：${if (settings.providerKind == TranslateProvider.DEEPSEEK) "DeepSeek" else "MyMemory"}",
-        "目标：${if (settings.target == TranslateConfig.EN) "English" else "中文"} · ${styleLabel(settings.style)}",
+        stringResource(R.string.label_service, if (settings.providerKind == TranslateProvider.DEEPSEEK) "DeepSeek" else "MyMemory"),
+        stringResource(R.string.label_target_language_style, if (settings.target == TranslateConfig.EN) "English" else stringResource(R.string.label_chinese), styleLabel(settings.style)),
     )
 }
 

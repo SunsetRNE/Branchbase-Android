@@ -52,6 +52,9 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -73,7 +76,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import com.branchbase.R
+import com.branchbase.ui.LocalizedText
 import com.branchbase.ui.settings.GitProxyScreen
+import com.branchbase.ui.settings.LanguageScreen
 import com.branchbase.ui.settings.RepoCredentialsScreen
 import com.branchbase.ui.repository.repoRelationOf
 import com.branchbase.ui.repository.RepoRelation
@@ -264,7 +270,7 @@ fun ProfileScreen(
             // 气泡导航栏（基础形态 ④）：3 主项 + 右侧手柄弹出 More 菜单
             ProfileBubbleNavigationBar(
                 selected = tab,
-                onSelect = { tab = it; Logger.ui("切换到「${it.label}」", "Compose") },
+                onSelect = { tab = it; Logger.ui("切换到「${it.logLabel}」", "Compose") },
                 onLogout = onLogout,
                 onNavigate = { subPage = it; Logger.ui("打开「${it.label}」", "Compose") },
             )
@@ -288,7 +294,7 @@ fun ProfileScreen(
                     is ProfileRoute.Sub -> when (r.page) {
                         SubPage.Stars -> StarsScreen(sessionJson, onBack = { subPage = null }, onOpenRepo = onOpenRepo)
                         SubPage.Projects -> ProjectsScreen(sessionJson, onBack = { subPage = null })
-                        SubPage.Settings -> SettingsScreen(onBack = { subPage = null }, onOpenLocalRepo = { subPage = SubPage.LocalRepo }, onOpenAbout = { subPage = SubPage.About }, onOpenLog = { subPage = SubPage.Log }, onOpenNotificationSettings = { subPage = SubPage.NotificationSettings }, onOpenTranslate = { subPage = SubPage.Translate }, onOpenAccounts = { subPage = SubPage.Accounts }, onOpenCommitMode = { subPage = SubPage.CommitMode }, onOpenGitProxy = { subPage = SubPage.GitProxy }, onOpenRepoCredentials = { subPage = SubPage.RepoCredentials }, onLogout = onLogout)
+                        SubPage.Settings -> SettingsScreen(onBack = { subPage = null }, onOpenLocalRepo = { subPage = SubPage.LocalRepo }, onOpenAbout = { subPage = SubPage.About }, onOpenLog = { subPage = SubPage.Log }, onOpenNotificationSettings = { subPage = SubPage.NotificationSettings }, onOpenTranslate = { subPage = SubPage.Translate }, onOpenAccounts = { subPage = SubPage.Accounts }, onOpenCommitMode = { subPage = SubPage.CommitMode }, onOpenGitProxy = { subPage = SubPage.GitProxy }, onOpenRepoCredentials = { subPage = SubPage.RepoCredentials }, onOpenLanguage = { subPage = SubPage.Language }, onLogout = onLogout)
                         SubPage.LocalRepo -> LocalRepoScreen(sessionJson, onBack = { subPage = SubPage.Settings })
                         SubPage.About -> AboutScreen(onBack = { subPage = SubPage.Settings })
                         SubPage.Log -> LogScreen(onBack = { subPage = SubPage.Settings })
@@ -303,6 +309,7 @@ fun ProfileScreen(
                         SubPage.Accounts -> AccountsScreen(onBack = { subPage = SubPage.Settings }, onAdd = {})
                         SubPage.CommitMode -> CommitModeScreen(onBack = { subPage = SubPage.Settings })
                         SubPage.GitProxy -> GitProxyScreen(onBack = { subPage = SubPage.Settings })
+                        SubPage.Language -> LanguageScreen(onBack = { subPage = SubPage.Settings })
                         // 返回目标不写死：走 [profileBackTarget]（本页 depth = 2 → SubPage.Settings），
                         // 与系统返回键同一条规则（规范 §3.1）
                         SubPage.RepoCredentials -> RepoCredentialsScreen(onBack = { subPage = profileBackTarget(subPage) })
@@ -322,7 +329,7 @@ fun ProfileScreen(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back), tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
                             Spacer(Modifier.width(4.dp))
                             Text(login, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
                         }
@@ -391,7 +398,7 @@ private sealed interface ProfileRoute : PageLevel {
 internal fun subPageDepth(page: SubPage): Int = when (page) {
     SubPage.LocalRepo, SubPage.About, SubPage.Log, SubPage.NotificationSettings,
     SubPage.Translate, SubPage.Accounts, SubPage.CommitMode, SubPage.GitProxy,
-    SubPage.RepoCredentials,
+    SubPage.RepoCredentials, SubPage.Language,
     -> 2
 
     else -> 1
@@ -412,10 +419,17 @@ internal fun profileBackTarget(page: SubPage?): SubPage? = when {
     else -> null
 }
 
-private enum class ProfileTab(val label: String, val icon: ImageVector) {
-    Overview("概览", Icons.Filled.Person),
-    Repositories("仓库", Icons.Filled.Folder),
-    Activity("动态", Icons.Filled.Timeline),
+/**
+ * 底部导航的三个主项。
+ *
+ * [labelRes] 是**显示**文案，跟随界面语言；[logLabel] 是**日志**专用的中文名。
+ * 两者不能合并：日志按约定固定中文（`tools/perf/frame-baseline.py` 的段落分类
+ * 直接匹配这些中文词），界面语言一换，日志侧的分析脚本就会失配。
+ */
+private enum class ProfileTab(@StringRes val labelRes: Int, val logLabel: String, val icon: ImageVector) {
+    Overview(R.string.profile_tab_overview, "概览", Icons.Filled.Person),
+    Repositories(R.string.profile_tab_repositories, "仓库", Icons.Filled.Folder),
+    Activity(R.string.profile_tab_activity, "动态", Icons.Filled.Timeline),
 }
 
 // ───────────────────────── Overview 页 ─────────────────────────
@@ -459,9 +473,9 @@ private fun ProfileOverview(
                                     val ok = AvatarCache.refresh(context, login, avatarUrl)
                                     if (ok) {
                                         avatarTick++
-                                        Toast.makeText(context, "头像已刷新", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, context.getString(R.string.toast_avatar_refreshed), Toast.LENGTH_SHORT).show()
                                     } else {
-                                        Toast.makeText(context, "刷新失败（检查网络）", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, context.getString(R.string.error_refresh_failed_network), Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             },
@@ -484,21 +498,21 @@ private fun ProfileOverview(
                         .border(1.dp, Primer.BorderEmphasis, RoundedCornerShape(6.dp)).clickable { onEdit() },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("编辑资料", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Primer.TextPrimary)
+                    Text(stringResource(R.string.action_edit_profile), fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Primer.TextPrimary)
                 }
                 Spacer(Modifier.height(10.dp))
                 Row {
-                    Text("${followers} 关注者", fontSize = 14.sp, color = Primer.TextSecondary)
+                    Text(stringResource(R.string.label_followers, followers), fontSize = 14.sp, color = Primer.TextSecondary)
                     Text(" · ", fontSize = 14.sp, color = Primer.TextSecondary)
-                    Text("${following} 正在关注", fontSize = 14.sp, color = Primer.TextSecondary)
+                    Text(stringResource(R.string.label_following, following), fontSize = 14.sp, color = Primer.TextSecondary)
                     Text(" · ", fontSize = 14.sp, color = Primer.TextSecondary)
-                    Text("${publicRepos} 仓库", fontSize = 14.sp, color = Primer.TextSecondary)
+                    Text(stringResource(R.string.label_repo_count_public, publicRepos), fontSize = 14.sp, color = Primer.TextSecondary)
                 }
             }
         }
         // 热门仓库
         item {
-            SectionTitle("热门仓库", "自定义置顶")
+            SectionTitle(stringResource(R.string.label_popular_repos), stringResource(R.string.label_custom_pins))
             Column(Modifier.padding(horizontal = 16.dp)) {
                 if (loading) {
                     // 骨架屏：结构和尺寸与 [RepoCard] 一一对应（同 6dp 圆角 / 同边框 / 同 12dp 内边距）。
@@ -508,7 +522,7 @@ private fun ProfileOverview(
                         repeat(PROFILE_REPO_SKELETON_COUNT) { RepoCardSkeleton() }
                     }
                 } else if (pinnedRepos.isEmpty()) {
-                    Text("暂无置顶仓库", fontSize = 13.sp, color = Primer.TextTertiary)
+                    Text(stringResource(R.string.state_no_pinned_repos), fontSize = 13.sp, color = Primer.TextTertiary)
                 } else {
                     pinnedRepos.forEach { repo -> RepoCard(repo, onClick = { onOpenRepo(repo.fullName) }) }
                 }
@@ -535,19 +549,21 @@ private fun SectionTitle(title: String, sub: String? = null) {
 
 @Composable
 private fun ProfileRepositories(repos: List<RepoItem>, loading: Boolean, onOpenRepo: (String) -> Unit) {
-    var filter by remember { mutableStateOf("全部") }
+    // null = 不筛选。拿哨兵字符串「全部」当"不筛选"的话，展示文案一旦抽成资源并翻译，
+    // `filter == "全部"` 在英文界面下永不成立 —— 筛选会直接失效（不崩溃，只是点了没反应）。
+    var filter by remember { mutableStateOf<String?>(null) }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         // 搜索框
         Box(Modifier.fillMaxWidth().height(36.dp).clip(RoundedCornerShape(6.dp)).background(Primer.Gray150).border(1.dp, Primer.BorderEmphasis, RoundedCornerShape(6.dp)).padding(horizontal = 12.dp), contentAlignment = Alignment.CenterStart) {
-            Text("🔍 查找仓库…", fontSize = 13.sp, color = Primer.TextTertiary)
+            Text(stringResource(R.string.hint_find_repo), fontSize = 13.sp, color = Primer.TextTertiary)
         }
         Spacer(Modifier.height(10.dp))
         // 语言筛选
-        val langs = listOf("全部", "Kotlin", "Shell", "Python", "C++")
+        val langs = listOf<String?>(null, "Kotlin", "Shell", "Python", "C++")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             langs.forEach { lang ->
-                FilterChip(lang, selected = filter == lang) { filter = lang }
+                FilterChip(lang ?: stringResource(R.string.filter_all), selected = filter == lang) { filter = lang }
             }
         }
         Spacer(Modifier.height(12.dp))
@@ -561,7 +577,7 @@ private fun ProfileRepositories(repos: List<RepoItem>, loading: Boolean, onOpenR
             }
         } else {
             LazyColumn {
-                items(repos.filter { filter == "全部" || it.language == filter }) { repo ->
+                items(repos.filter { filter == null || it.language == filter }) { repo ->
                     RepoCard(repo, onClick = { onOpenRepo(repo.fullName) })
                 }
             }
@@ -606,7 +622,8 @@ private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
 internal data class ActivityEvent(
     val type: String,
     val repo: String,
-    val detail: String,
+    /** 行动描述；[LocalizedText] 而不是 String —— 解析期不认识 Context，见其 KDoc。 */
+    val detail: LocalizedText,
     val createdAt: Long,
     /** 触发者登录名（`actor.login`）——「哪个仓库」之外，活动流还要能读出「谁做的」。 */
     val actor: String = "",
@@ -652,47 +669,67 @@ internal fun parseEvents(json: String?): List<ActivityEvent> {
                 val head = payload?.optString("head").orEmpty().take(7).takeIf { it.isNotBlank() }
                 val detail = when (type) {
                     "PushEvent" -> pushDetail(branch, 1, head)
-                    "CreateEvent" -> {
-                        val kind = when (payload?.optString("ref_type").orEmpty()) {
-                            "branch" -> "分支"
-                            "tag" -> "标签"
-                            "repository" -> "仓库"
-                            else -> "内容"
-                        }
-                        val name = payload?.optString("ref").orEmpty()
-                        if (name.isNotBlank()) "创建了$kind $name" else "创建了$kind"
-                    }
-                    "DeleteEvent" -> {
-                        val kind = when (payload?.optString("ref_type").orEmpty()) {
-                            "branch" -> "分支"
-                            "tag" -> "标签"
-                            else -> "引用"
-                        }
-                        val name = payload?.optString("ref").orEmpty()
-                        if (name.isNotBlank()) "删除了$kind $name" else "删除了$kind"
-                    }
-                    "WatchEvent" -> "星标了仓库"
-                    "ForkEvent" -> "复刻了仓库"
-                    "IssueCommentEvent" -> "评论了 issue #${payload?.optJSONObject("issue")?.optInt("number") ?: 0}"
+                    "CreateEvent" -> createdOrDeleted(
+                        res = R.string.activity_created_named,
+                        plainRes = R.string.activity_created,
+                        kindRes = when (payload?.optString("ref_type").orEmpty()) {
+                            "branch" -> R.string.activity_kind_branch
+                            "tag" -> R.string.activity_kind_tag
+                            "repository" -> R.string.activity_kind_repository
+                            else -> R.string.activity_kind_content
+                        },
+                        name = payload?.optString("ref").orEmpty(),
+                    )
+                    "DeleteEvent" -> createdOrDeleted(
+                        res = R.string.activity_deleted_named,
+                        plainRes = R.string.activity_deleted,
+                        kindRes = when (payload?.optString("ref_type").orEmpty()) {
+                            "branch" -> R.string.activity_kind_branch
+                            "tag" -> R.string.activity_kind_tag
+                            else -> R.string.activity_kind_ref
+                        },
+                        name = payload?.optString("ref").orEmpty(),
+                    )
+                    "WatchEvent" -> LocalizedText(R.string.activity_starred_repo)
+                    "ForkEvent" -> LocalizedText(R.string.activity_forked_repo)
+                    "IssueCommentEvent" -> LocalizedText(
+                        R.string.activity_commented_issue,
+                        listOf(payload?.optJSONObject("issue")?.optInt("number") ?: 0),
+                    )
                     // 编号在 payload 顶层（payload.pull_request.number 未必存在）
                     "PullRequestEvent" -> {
                         val n = payload?.optInt("number") ?: payload?.optJSONObject("pull_request")?.optInt("number") ?: 0
-                        "${eventAction(payload?.optString("action").orEmpty())}拉取请求 #$n"
+                        LocalizedText(
+                            R.string.activity_pull_request_action,
+                            listOf(eventActionText(payload?.optString("action").orEmpty()), n),
+                        )
                     }
                     "PullRequestReviewEvent" -> {
                         val n = payload?.optJSONObject("pull_request")?.optInt("number") ?: 0
-                        if (n > 0) "审查了拉取请求 #$n" else "审查了拉取请求"
+                        if (n > 0) {
+                            LocalizedText(R.string.activity_reviewed_pr, listOf(n))
+                        } else {
+                            LocalizedText(R.string.activity_reviewed_pr_plain)
+                        }
                     }
-                    "ReleaseEvent" -> "发布了 ${payload?.optJSONObject("release")?.optString("tag_name").orEmpty()}"
-                    "PublicEvent" -> "公开了仓库"
+                    "ReleaseEvent" -> LocalizedText(
+                        R.string.activity_published_release,
+                        listOf(payload?.optJSONObject("release")?.optString("tag_name").orEmpty()),
+                    )
+                    "PublicEvent" -> LocalizedText(R.string.activity_made_public)
                     "IssuesEvent" -> {
                         val n = payload?.optJSONObject("issue")?.optInt("number") ?: 0
-                        val action = eventAction(payload?.optString("action").orEmpty())
-                        if (n > 0) "$action issue #$n" else "$action issue"
+                        val action = eventActionText(payload?.optString("action").orEmpty())
+                        if (n > 0) {
+                            LocalizedText(R.string.activity_issue_action, listOf(action, n))
+                        } else {
+                            LocalizedText(R.string.activity_issue_action_plain, listOf(action))
+                        }
                     }
-                    "MemberEvent" -> "添加了协作者"
-                    "GollumEvent" -> "更新了 wiki"
-                    else -> type.removeSuffix("Event")
+                    "MemberEvent" -> LocalizedText(R.string.activity_added_collaborator)
+                    "GollumEvent" -> LocalizedText(R.string.activity_updated_wiki)
+                    // 认不出的事件类型原样透出（后端新增时不是把整行吞掉）
+                    else -> LocalizedText(raw = type.removeSuffix("Event"))
                 }
                 add(
                     ActivityEvent(
@@ -721,16 +758,41 @@ internal fun parseEvents(json: String?): List<ActivityEvent> {
         .sortedByDescending { it.createdAt }
 }
 
-/** 事件动作的中文说法（原先直接把 `opened` / `closed` 原样拼进句子）。 */
-private fun eventAction(action: String): String = when (action) {
-    "opened" -> "打开"
-    "closed" -> "关闭"
-    "reopened" -> "重新打开"
-    "merged" -> "合并"
-    "labeled" -> "标记"
-    "assigned" -> "指派"
-    "" -> ""
-    else -> action
+/**
+ * 「创建 / 删除」共用一份拼法（只差动作词），参数是 `(动作, 类型, 名字)`。
+ *
+ * `name` 为空时退到不带名字的短句 —— 两种情况各占一条资源，因为英文里
+ * 「Created branch main」与「Created a branch」不是同一个句子。
+ */
+private fun createdOrDeleted(
+    @StringRes res: Int,
+    @StringRes plainRes: Int,
+    @StringRes kindRes: Int,
+    name: String,
+): LocalizedText {
+    val kind = LocalizedText(kindRes)
+    return if (name.isNotBlank()) {
+        LocalizedText(res, listOf(kind, name))
+    } else {
+        LocalizedText(plainRes, listOf(kind))
+    }
+}
+
+/**
+ * 事件动作的文案（原先直接把 `opened` / `closed` 原样拼进句子）。
+ *
+ * 认不出来的动作**原样透出**（[LocalizedText.raw]）：GitHub 以后新增动作时
+ * 至少还看得到接口给的原词，而不是整句变成空白。
+ */
+private fun eventActionText(action: String): LocalizedText = when (action) {
+    "opened" -> LocalizedText(R.string.event_action_opened)
+    "closed" -> LocalizedText(R.string.event_action_closed)
+    "reopened" -> LocalizedText(R.string.event_action_reopened)
+    "merged" -> LocalizedText(R.string.event_action_merged)
+    "labeled" -> LocalizedText(R.string.event_action_labeled)
+    "assigned" -> LocalizedText(R.string.event_action_assigned)
+    "" -> LocalizedText(raw = "")
+    else -> LocalizedText(raw = action)
 }
 
 /**
@@ -791,12 +853,18 @@ internal fun collapsePushes(events: List<ActivityEvent>): List<ActivityEvent> {
 }
 
 /** 推送行文案（单条与折叠后共用一处，避免两处拼法分家）。 */
-private fun pushDetail(branch: String?, count: Int, head: String?): String = when {
-    branch.isNullOrBlank() -> if (count > 1) "推送了 $count 次" else "推送了代码"
-    count > 1 && head != null -> "推送到 $branch · $count 次推送 · 最新 $head"
-    count > 1 -> "推送到 $branch · $count 次推送"
-    head != null -> "推送到 $branch · $head"
-    else -> "推送到 $branch"
+private fun pushDetail(branch: String?, count: Int, head: String?): LocalizedText = when {
+    branch.isNullOrBlank() ->
+        if (count > 1) {
+            LocalizedText(R.string.activity_push_times, listOf(count))
+        } else {
+            LocalizedText(R.string.activity_push_plain)
+        }
+    count > 1 && head != null ->
+        LocalizedText(R.string.activity_push_branch_count_head, listOf(branch, count, head))
+    count > 1 -> LocalizedText(R.string.activity_push_branch_count, listOf(branch, count))
+    head != null -> LocalizedText(R.string.activity_push_branch_head, listOf(branch, head))
+    else -> LocalizedText(R.string.activity_push_branch, listOf(branch))
 }
 
 /** 本地时区的「日」键（判定「同一天的连续推送」用；跨时区不会把两天误判成一天）。 */
@@ -836,16 +904,23 @@ internal fun eventFetchFailure(raw: String?): String = when {
     else -> raw.take(140)
 }
 
+/**
+ * 相对时间（「刚刚」/「5 分钟前」…）。
+ *
+ * 是 `@Composable` 因为量词要按语言选形：中文只有一种写法，英文得区分
+ * `1 minute ago` / `2 minutes ago`，而倍数词只有 `pluralStringResource` 拿得到。
+ * `ms <= 0` 返回空串（时间解析失败时行里不占位）。
+ */
+@Composable
 private fun relativeTime(ms: Long): String {
     if (ms <= 0) return ""
-    val diff = System.currentTimeMillis() - ms
-    val min = diff / 60000
+    val min = (System.currentTimeMillis() - ms) / 60000
     return when {
-        min < 1 -> "刚刚"
-        min < 60 -> "${min} 分钟前"
-        min < 1440 -> "${min / 60} 小时前"
-        min < 43200 -> "${min / 1440} 天前"
-        else -> "${min / 43200} 个月前"
+        min < 1 -> stringResource(R.string.relative_just_now)
+        min < 60 -> pluralStringResource(R.plurals.relative_minutes, min.toInt(), min)
+        min < 1440 -> pluralStringResource(R.plurals.relative_hours, (min / 60).toInt(), min / 60)
+        min < 43200 -> pluralStringResource(R.plurals.relative_days, (min / 1440).toInt(), min / 1440)
+        else -> pluralStringResource(R.plurals.relative_months, (min / 43200).toInt(), min / 43200)
     }
 }
 
@@ -916,7 +991,7 @@ private fun ProfileActivity(
         if (events.isEmpty()) loading = true
         error = null
         if (login.isBlank()) {
-            error = "未获取到登录名，请重新登录"
+            error = context.getString(R.string.error_login_name_missing)
             loading = false
             return@LaunchedEffect
         }
@@ -949,7 +1024,7 @@ private fun ProfileActivity(
         val parsed = fetched.events
         if (parsed.isNotEmpty()) eventSourceMemory.clear(sourceKey)
         if (parsed.isEmpty()) {
-            error = "无法加载动态（网络或权限受限）"
+            error = context.getString(R.string.error_activity_unavailable)
         } else {
             events = parsed
             Logger.net("GET $source → ${events.size} 条", "GitHubAPI")
@@ -987,7 +1062,7 @@ private fun ProfileActivity(
     LaunchedEffect(calendar, events, loading, calLoading) {
         if (calendar == null && !calLoading && !loading && events.isNotEmpty()) {
             calendar = fallbackCalendarFromEvents(events, 13)
-            calDegraded = "近 90 天公开活动"
+            calDegraded = context.getString(R.string.label_activity_90_days)
         }
     }
 
@@ -1007,9 +1082,9 @@ private fun ProfileActivity(
             // 未就绪时给骨架值条，**不给 0**：0 也是「内容」，用户会先读到它，
             // 再从 0 跳到真实值 —— 这是这一屏第三处小闪。失败（stats == null）时给「—」而不是 0。
             val stats = remember(calendar) { contributionStats(calendar) }
-            SectionTitle("动态概览", if (stats != null) "按贡献日历" else null)
+            SectionTitle(stringResource(R.string.label_activity_overview), if (stats != null) stringResource(R.string.label_by_contribution_calendar) else null)
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                val labels = listOf("近 7 天", "近 30 天", "近一年")
+                val labels = listOf(stringResource(R.string.label_last_7_days), stringResource(R.string.label_last_30_days), stringResource(R.string.label_last_year))
                 val values = listOf(stats?.week, stats?.month, stats?.year)
                 labels.forEachIndexed { i, label ->
                     PlaceholderSwap(
@@ -1029,7 +1104,7 @@ private fun ProfileActivity(
             ContributionWall(
                 calendar = calendar,
                 loading = calLoading,
-                error = if (calendar == null && !calLoading) "贡献数据不可用（可能是令牌缺少 read:user 权限）" else null,
+                error = if (calendar == null && !calLoading) stringResource(R.string.error_contributions_unavailable) else null,
                 degradedNote = calDegraded,
                 selectedDate = selectedDay?.date,
                 onDaySelected = { selectedDay = it },
@@ -1060,7 +1135,7 @@ private fun ProfileActivity(
                     } else {
                         val collapsed = remember(events) { collapsePushes(events) }
                         // 类型分布（Top 5）
-                        SectionTitle("活动类型分布")
+                        SectionTitle(stringResource(R.string.label_activity_by_type))
                         Column(Modifier.padding(horizontal = 16.dp)) {
                             PlaceholderSwap(
                                 loading = loading,
@@ -1078,7 +1153,7 @@ private fun ProfileActivity(
                         }
 
                         // 活动热力（按天聚合，13 周 = events API 的 90 天上限）
-                        SectionTitle("活动热力", "过去 90 天")
+                        SectionTitle(stringResource(R.string.label_activity_heatmap), stringResource(R.string.label_past_90_days))
                         Column(Modifier.padding(horizontal = 16.dp)) {
                             PlaceholderSwap(
                                 loading = loading,
@@ -1088,7 +1163,7 @@ private fun ProfileActivity(
                         }
 
                         // 时间线：连续推送先折叠（同仓库 + 同分支 + 同一天），再截前 30 条
-                        SectionTitle("最近活动")
+                        SectionTitle(stringResource(R.string.label_recent_activity))
                         Column(Modifier.padding(horizontal = 16.dp)) {
                             PlaceholderSwap(
                                 loading = loading,
@@ -1121,14 +1196,14 @@ private fun ActivityEmptyState(error: String?) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            if (error != null) "动态加载失败" else "暂无公开动态",
+            if (error != null) stringResource(R.string.error_activity_load_failed) else stringResource(R.string.state_no_public_activity),
             fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
             color = Primer.TextSecondary,
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            error ?: "推送、星标、开 PR 等活动会显示在这里",
+            error ?: stringResource(R.string.note_activity_hint),
             fontSize = 12.sp,
             color = Primer.TextTertiary,
         )
@@ -1302,14 +1377,14 @@ private fun ContributionDayDetail(day: ContributionDay) {
             Text(day.date, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
             Spacer(Modifier.weight(1f))
             Text(
-                if (day.count > 0) "${day.count} 次贡献" else "无贡献",
+                if (day.count > 0) pluralStringResource(R.plurals.label_contribution_count, day.count, day.count) else stringResource(R.string.state_no_contributions),
                 fontSize = 11.5.sp,
                 color = if (day.count > 0) Primer.Green500 else Primer.TextTertiary,
             )
         }
         if (day.count == 0) {
             Spacer(Modifier.height(4.dp))
-            Text("这一天没有公开贡献记录", fontSize = 11.5.sp, color = Primer.TextTertiary)
+            Text(stringResource(R.string.note_no_contributions_day), fontSize = 11.5.sp, color = Primer.TextTertiary)
         }
     }
 }
@@ -1334,7 +1409,7 @@ private fun TypeBar(label: String, count: Int, percent: Int) {
     Column(Modifier.padding(bottom = 10.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(label, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
-            Text("$count 次", fontSize = 11.5.sp, color = Primer.TextTertiary)
+            Text(stringResource(R.string.label_times_count, count), fontSize = 11.5.sp, color = Primer.TextTertiary)
         }
         Spacer(Modifier.height(4.dp))
         Box(Modifier.fillMaxWidth(percent / 100f).height(7.dp).clip(RoundedCornerShape(4.dp)).background(Primer.Blue500))
@@ -1402,18 +1477,18 @@ private fun ActivityHeatmap(events: List<ActivityEvent>) {
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "共 ${dayCounts.sum()} 次活动 · 最深 $max 次/天",
+                stringResource(R.string.label_activity_totals, dayCounts.sum(), max),
                 fontSize = 11.5.sp,
                 color = Primer.TextTertiary,
             )
             Spacer(Modifier.weight(1f))
-            Text("少", fontSize = 9.5.sp, color = Primer.TextTertiary)
+            Text(stringResource(R.string.label_less), fontSize = 9.5.sp, color = Primer.TextTertiary)
             levels.forEach { c ->
                 Spacer(Modifier.width(3.dp))
                 Box(Modifier.width(10.dp).height(10.dp).clip(RoundedCornerShape(2.dp)).background(c))
             }
             Spacer(Modifier.width(3.dp))
-            Text("多", fontSize = 9.5.sp, color = Primer.TextTertiary)
+            Text(stringResource(R.string.label_more), fontSize = 9.5.sp, color = Primer.TextTertiary)
         }
     }
 }
@@ -1465,6 +1540,7 @@ private val EVENT_VISUAL_FALLBACK = EventVisual(Icons.Filled.History, TintRole.N
  */
 @Composable
 private fun EventRow(e: ActivityEvent, onClick: () -> Unit) {
+    val context = LocalContext.current
     val visual = EVENT_VISUALS[e.type] ?: EVENT_VISUAL_FALLBACK
     Row(
         Modifier.fillMaxWidth()
@@ -1496,7 +1572,7 @@ private fun EventRow(e: ActivityEvent, onClick: () -> Unit) {
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    e.repo.ifBlank { "（未知仓库）" },
+                    e.repo.ifBlank { stringResource(R.string.label_unknown_repo) },
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Primer.TextPrimary,
@@ -1508,7 +1584,7 @@ private fun EventRow(e: ActivityEvent, onClick: () -> Unit) {
                 Text(relativeTime(e.createdAt), fontSize = 11.5.sp, color = Primer.TextTertiary)
             }
             Spacer(Modifier.height(2.dp))
-            Text(e.detail, fontSize = 12.5.sp, color = Primer.TextSecondary, lineHeight = 17.sp)
+            Text(e.detail.resolve(context), fontSize = 12.5.sp, color = Primer.TextSecondary, lineHeight = 17.sp)
             if (e.title != null) {
                 Spacer(Modifier.height(2.dp))
                 Text(
@@ -1536,7 +1612,7 @@ private fun EventRow(e: ActivityEvent, onClick: () -> Unit) {
  * 登出 = `Red500`（危险色，文字也同步用红）。这样一眼能区分「去哪」而不是「一排灰图标」。
  */
 private data class MoreBubbleItem(
-    val label: String,
+    @StringRes val labelRes: Int,
     val icon: ImageVector,
     val tint: TintRole,
     val page: SubPage? = null,
@@ -1544,10 +1620,10 @@ private data class MoreBubbleItem(
 )
 
 private val moreBubbleItems = listOf(
-    MoreBubbleItem("星标", Icons.Filled.Star, TintRole.WARNING, SubPage.Stars),
-    MoreBubbleItem("项目", Icons.Filled.Dashboard, TintRole.DONE, SubPage.Projects),
-    MoreBubbleItem("任务", Icons.Filled.Timeline, TintRole.ACCENT, SubPage.Tasks),
-    MoreBubbleItem("设置", Icons.Filled.Settings, TintRole.NEUTRAL, SubPage.Settings),
+    MoreBubbleItem(R.string.profile_bubble_stars, Icons.Filled.Star, TintRole.WARNING, SubPage.Stars),
+    MoreBubbleItem(R.string.nav_projects, Icons.Filled.Dashboard, TintRole.DONE, SubPage.Projects),
+    MoreBubbleItem(R.string.nav_tasks, Icons.Filled.Timeline, TintRole.ACCENT, SubPage.Tasks),
+    MoreBubbleItem(R.string.nav_settings, Icons.Filled.Settings, TintRole.NEUTRAL, SubPage.Settings),
 )
 
 /**
@@ -1637,7 +1713,7 @@ private fun ProfileBubbleNavigationBar(
             ) {
                 Icon(
                     Icons.Filled.MoreHoriz,
-                    contentDescription = if (expanded) "收起更多菜单" else "更多",
+                    contentDescription = if (expanded) stringResource(R.string.action_collapse_more_menu) else stringResource(R.string.action_more),
                     tint = selectionColor(expanded, on = Color.White, off = Primer.IconPrimary),
                     modifier = Modifier
                         .size(22.dp)
@@ -1681,7 +1757,7 @@ private fun ProfileBubbleNavigationBar(
                                     exit = fadeOut(tween(90)),
                                 ) {
                                     MoreBubbleRow(
-                                        label = item.label,
+                                        label = stringResource(item.labelRes),
                                         icon = item.icon,
                                         tint = item.tint.color(),
                                         onClick = {
@@ -1708,7 +1784,7 @@ private fun ProfileBubbleNavigationBar(
                                 exit = fadeOut(tween(90)),
                             ) {
                                 MoreBubbleRow(
-                                    label = "登出",
+                                    label = stringResource(R.string.action_sign_out_alt),
                                     icon = Icons.AutoMirrored.Filled.Logout,
                                     tint = Primer.Red500,
                                     danger = true,
@@ -1811,6 +1887,7 @@ private fun ProfileNavItem(
     modifier: Modifier = Modifier,
 ) {
     val press = rememberPressFeedback()
+    val label = stringResource(tab.labelRes)
     // 选中态渐变（图标/文字同色系），避免每次切 Tab 都「跳」一下
     val tint = selectionColor(selected, on = Primer.Blue500, off = Primer.IconPrimary)
     val iconScale = animateFloatAsState(
@@ -1842,7 +1919,7 @@ private fun ProfileNavItem(
         ) {
             Icon(
                 tab.icon,
-                contentDescription = tab.label,
+                contentDescription = label,
                 tint = tint,
                 modifier = Modifier
                     .size(20.dp)
@@ -1854,7 +1931,7 @@ private fun ProfileNavItem(
         }
         Spacer(Modifier.height(2.dp))
         Text(
-            tab.label,
+            label,
             fontSize = 11.sp,
             color = tint,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,

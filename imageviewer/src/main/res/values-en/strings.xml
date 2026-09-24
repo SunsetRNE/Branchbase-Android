@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- See values/strings.xml: this module's locales must be a subset of :app's. -->
+    <string name="imageviewer_image">Image</string>
+    <string name="imageviewer_hint">Pinch to zoom · double-tap to enlarge · pull down to close</string>
+    <string name="imageviewer_open_in_browser">Open in browser</string>
+    <string name="imageviewer_close">Close</string>
+    <string name="imageviewer_load_failed">Failed to load the image</string>
+    <string name="imageviewer_tap_to_retry">Tap to retry</string>
+</resources>

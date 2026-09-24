@@ -32,6 +32,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
@@ -115,7 +117,7 @@ fun FileViewerScreen(
     // 本次编辑的提交模式覆盖（气泡面板就地切换，不必再进设置）
     var modeOverride by remember { mutableStateOf<CommitMode?>(null) }
     var submitting by remember { mutableStateOf(false) }
-    var feedback by remember { mutableStateOf<String?>(null) }
+    var feedback by remember { mutableStateOf<Feedback?>(null) }
 
     // ── 决策页状态机 ──
     var page by remember { mutableStateOf<FilePage>(FilePage.None) }
@@ -223,7 +225,7 @@ fun FileViewerScreen(
         }
         if (json == null) {
             // 只有「本次确实直出过缓存」才静默保留旧内容；否则保持原有错误提示
-            if (!shown) error = "文件不存在或无法读取"
+            if (!shown) error = context.getString(R.string.error_file_unreadable)
         } else if (json != appliedJson) {
             content = parseFileContent(json)
             sha = runCatching { JSONObject(json).optString("sha") }.getOrDefault("")
@@ -243,8 +245,10 @@ fun FileViewerScreen(
         if (raw == null) {
             // 锚点：`敏感扫描` —— 「以为扫过了」是最危险的状态，拦下这件事必须留痕
             Logger.warn(LogCategory.LOCAL_TASK, "敏感扫描", "扫描不可用，已拦下提交（$owner/$repo $path）")
-            feedback = "提交前扫描不可用（本地引擎未就绪），为安全起见已拦下本次提交；" +
-                "可改用网页端提交，或重装带完整引擎的版本后重试。"
+            feedback = Feedback(
+                context.getString(R.string.error_scan_unavailable_blocked),
+                ok = false,
+            )
             return
         }
         val hits = parseSensitiveHits(raw)
@@ -290,8 +294,8 @@ fun FileViewerScreen(
      * 与单文件模式（[doCommitSingle] 逐个 PUT /contents）的区别就在这里。
      */
     fun doBatchCommit(message: String, selectedPaths: List<String>) {
-        if (message.isBlank()) { feedback = "请输入提交信息"; return }
-        if (selectedPaths.isEmpty()) { feedback = "请至少勾选一个文件"; return }
+        if (message.isBlank()) { feedback = Feedback(context.getString(R.string.error_commit_message_required), ok = false); return }
+        if (selectedPaths.isEmpty()) { feedback = Feedback(context.getString(R.string.error_tick_at_least_one), ok = false); return }
         scope.launch {
             // 离线冲突检测：当前编辑文件若被他人改过 → 冲突决策页（P2-4）
             detectRemoteChange()?.let { remote ->
@@ -310,7 +314,7 @@ fun FileViewerScreen(
                 text?.let { rel to it }
             }
             if (files.isEmpty()) {
-                feedback = "没有可提交的内容"
+                feedback = Feedback(context.getString(R.string.error_nothing_to_commit_content), ok = false)
                 submitting = false
                 return@launch
             }
@@ -318,12 +322,12 @@ fun FileViewerScreen(
             val taskId = com.branchbase.ui.task.TaskStore.start(
                 context,
                 com.branchbase.ui.task.TaskKind.COMMIT,
-                "提交 ${files.size} 个文件到 $owner/$repo",
+                context.getString(R.string.label_commit_files_to, files.size, owner, repo),
             )
             val result = RustBridge.commitFiles(host, token, owner, repo, "main", message, files)
             if (result != null && !result.startsWith("ERROR:")) {
                 com.branchbase.ui.task.TaskStore.success(
-                    context, taskId, "已提交 ${files.size} 个文件 · ${result.take(7)}",
+                    context, taskId, context.getString(R.string.state_committed_files_sha, files.size, result.take(7)),
                 )
                 // 提交成功的草稿清理掉
                 files.forEach { (rel, _) -> runCatching { File(root, rel).delete() } }
@@ -332,11 +336,11 @@ fun FileViewerScreen(
                 val manager = cacheManager()
                 files.forEach { (rel, _) -> manager.delete(fileCacheKey(rel)) }
                 if (files.any { it.first == path }) { content = draft; editing = false }
-                feedback = "已提交 ${files.size} 个文件"
+                feedback = Feedback(context.getString(R.string.state_committed_files_only, files.size), ok = true)
             } else {
-                val reason = result?.removePrefix("ERROR:") ?: "提交失败"
+                val reason = result?.removePrefix("ERROR:") ?: context.getString(R.string.error_commit_failed)
                 com.branchbase.ui.task.TaskStore.fail(context, taskId, reason)
-                feedback = "提交失败：$reason"
+                feedback = Feedback(context.getString(R.string.error_commit_failed_reason, reason), ok = false)
             }
             submitting = false
         }
@@ -344,7 +348,7 @@ fun FileViewerScreen(
 
     // 提交（①单文件提交 PUT contents）
     fun doCommitSingle() {
-        if (commitMsg.isBlank()) { feedback = "请输入提交信息"; return }
+        if (commitMsg.isBlank()) { feedback = Feedback(context.getString(R.string.error_commit_message_required), ok = false); return }
         scope.launch {
             // 离线冲突检测：远端已变 → 冲突决策页（P2-4）
             detectRemoteChange()?.let { remote ->
@@ -353,12 +357,12 @@ fun FileViewerScreen(
             }
             submitting = true
             feedback = null
-            val taskId = com.branchbase.ui.task.TaskStore.start(context, com.branchbase.ui.task.TaskKind.COMMIT, "提交 $path")
+            val taskId = com.branchbase.ui.task.TaskStore.start(context, com.branchbase.ui.task.TaskKind.COMMIT, context.getString(R.string.label_commit_path, path))
             val result = RustBridge.putContents(host, token, owner, repo, path, commitMsg, draft, sha, "main")
             if (result != null && !result.startsWith("ERROR:")) {
-                com.branchbase.ui.task.TaskStore.success(context, taskId, "PUT /contents 成功")
+                com.branchbase.ui.task.TaskStore.success(context, taskId, context.getString(R.string.state_put_contents_ok))
             } else {
-                com.branchbase.ui.task.TaskStore.fail(context, taskId, result?.removePrefix("ERROR:") ?: "提交失败")
+                com.branchbase.ui.task.TaskStore.fail(context, taskId, result?.removePrefix("ERROR:") ?: context.getString(R.string.error_commit_failed))
             }
             submitting = false
             if (result != null && !result.startsWith("ERROR:")) {
@@ -367,9 +371,9 @@ fun FileViewerScreen(
                 clearDraft()
                 // 远端内容已变：失效文件内容缓存（TTL 10 分钟），否则提交后返回再进来还是旧内容
                 cacheManager().delete(fileCacheKey())
-                feedback = "已提交"
+                feedback = Feedback(context.getString(R.string.state_committed), ok = true)
             } else {
-                feedback = "提交失败"
+                feedback = Feedback(context.getString(R.string.error_commit_failed), ok = false)
             }
         }
     }
@@ -377,7 +381,7 @@ fun FileViewerScreen(
     // 执行本地 git commit（identity 已就绪）
     fun doGitCommit(message: String) {
         scope.launch {
-            val taskId = com.branchbase.ui.task.TaskStore.start(context, com.branchbase.ui.task.TaskKind.COMMIT, "本地提交 $path")
+            val taskId = com.branchbase.ui.task.TaskStore.start(context, com.branchbase.ui.task.TaskKind.COMMIT, context.getString(R.string.label_commit_local_path, path))
             val prefs = context.getSharedPreferences("branchbase", android.content.Context.MODE_PRIVATE)
             val repoDir = File(
                 com.branchbase.core.LocalRepos.rootFor(
@@ -392,16 +396,16 @@ fun FileViewerScreen(
                 prefs.getString("commit.author.email", "branchbase@users.noreply.github.com") ?: "branchbase@users.noreply.github.com",
             )
             if (sha != null) {
-                com.branchbase.ui.task.TaskStore.success(context, taskId, "已提交 $sha")
+                com.branchbase.ui.task.TaskStore.success(context, taskId, context.getString(R.string.toast_committed, sha))
                 clearDraft()
                 editing = false
                 // 本地提交后文件已变：失效内容缓存。本地提交的两条入口（doLocalCommit 直接提交 /
                 // Identity 页补完身份后提交）最终都汇入这里，所以落点放在这个成功分支。
                 cacheManager().delete(fileCacheKey())
-                feedback = "已提交（本地 git · $sha）"
+                feedback = Feedback(context.getString(R.string.state_committed_local_sha, sha), ok = true)
             } else {
-                com.branchbase.ui.task.TaskStore.fail(context, taskId, "提交失败（引擎不可用）")
-                feedback = "提交失败（引擎不可用）"
+                com.branchbase.ui.task.TaskStore.fail(context, taskId, context.getString(R.string.error_commit_failed_engine))
+                feedback = Feedback(context.getString(R.string.error_commit_failed_engine), ok = false)
             }
         }
     }
@@ -410,7 +414,7 @@ fun FileViewerScreen(
     fun doLocalCommit() {
         // 与单文件/多文件路径保持一致：提交信息必填。
         // （此前缺校验，libgit2 允许空 message，会推出一个 subject 为空的提交）
-        if (commitMsg.isBlank()) { feedback = "请输入提交信息"; return }
+        if (commitMsg.isBlank()) { feedback = Feedback(context.getString(R.string.error_commit_message_required), ok = false); return }
         scope.launch {
             // 按账号隔离的目录：repos/{login}/{repo}（此前硬编码 repos/{owner}/{repo}，
             // 只在 owner == login 时恰好成立，换别人的仓库会找不到）
@@ -422,14 +426,14 @@ fun FileViewerScreen(
                 repo,
             )
             if (!File(repoDir, ".git").exists()) {
-                feedback = "本地仓库不存在：请先在「设置 → 本地仓库」拉取"
+                feedback = Feedback(context.getString(R.string.error_local_repo_missing_clone), ok = false)
                 return@launch
             }
             val target = File(repoDir, path)
             val wrote = withContext(Dispatchers.IO) {
                 runCatching { target.parentFile?.mkdirs(); target.writeText(draft); true }.getOrDefault(false)
             }
-            if (!wrote) { feedback = "写入工作树失败"; return@launch }
+            if (!wrote) { feedback = Feedback(context.getString(R.string.error_write_worktree_failed), ok = false); return@launch }
             val prefs = context.getSharedPreferences("branchbase", android.content.Context.MODE_PRIVATE)
             if (prefs.getString("commit.author.name", null) == null || prefs.getString("commit.author.email", null) == null) {
                 page = FilePage.Identity(commitMsg)
@@ -487,7 +491,7 @@ fun FileViewerScreen(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back), tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
             Spacer(Modifier.width(8.dp))
             Text(
                 path.substringAfterLast('/'),
@@ -498,13 +502,13 @@ fun FileViewerScreen(
                 modifier = Modifier.weight(1f),
             )
             if (!editing && error == null && !loading) {
-                Text("编辑", fontSize = 14.sp, color = Primer.Blue500, modifier = Modifier.clickable {
+                Text(stringResource(R.string.action_edit), fontSize = 14.sp, color = Primer.Blue500, modifier = Modifier.clickable {
                     editing = true
                     draft = content
                     // 草稿恢复检测（P2-1）：存在未提交草稿且与远端不同 → 决策页
                     val saved = loadDraft()
                     if (saved != null && saved != content) {
-                        page = FilePage.Draft(listOf(DraftInfo(path, "本地草稿", saved.lines().size, draftRemoteChanged())))
+                        page = FilePage.Draft(listOf(DraftInfo(path, context.getString(R.string.label_local_draft), saved.lines().size, draftRemoteChanged())))
                     }
                 })
             }
@@ -536,19 +540,29 @@ fun FileViewerScreen(
                         value = commitMsg,
                         onValueChange = { commitMsg = it },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("提交信息（必填）", fontSize = 13.sp, color = Primer.TextTertiary) },
+                        placeholder = { Text(stringResource(R.string.label_commit_message_required), fontSize = 13.sp, color = Primer.TextTertiary) },
                     )
                     Spacer(Modifier.height(8.dp))
-                    if (submitting) Text("提交中…", fontSize = 12.sp, color = Primer.TextTertiary)
-                    feedback?.let { Text(it, fontSize = 12.sp, color = if (it == "已提交") Primer.Green500 else Primer.Red500) }
+                    if (submitting) Text(stringResource(R.string.state_committing), fontSize = 12.sp, color = Primer.TextTertiary)
+                    feedback?.let { fb ->
+                        // 语气来自产生方（见 Feedback）：改前这里比对 `it == "已提交"`，
+                        // 于是「已提交 3 个文件」「已提交（本地 git · abc1234）」这些成功消息全被渲染成红色
+                        Text(fb.text, fontSize = 12.sp, color = if (fb.ok) Primer.Green500 else Primer.Red500)
+                    }
                     Spacer(Modifier.height(8.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
-                        TextButton(onClick = { editing = false }, modifier = Modifier.weight(1f)) { Text("取消") }
+                        TextButton(onClick = { editing = false }, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.action_cancel)) }
                         TextButton(
-                            onClick = { if (saveDraft()) feedback = "草稿已保存" else feedback = "草稿保存失败" },
+                            onClick = {
+                                feedback = if (saveDraft()) {
+                                    Feedback(context.getString(R.string.toast_draft_saved), ok = true)
+                                } else {
+                                    Feedback(context.getString(R.string.error_draft_save_failed), ok = false)
+                                }
+                            },
                             modifier = Modifier.weight(1f),
-                        ) { Text("保存草稿") }
-                        Button(onClick = { onCommitClick() }, enabled = !submitting, modifier = Modifier.weight(1f)) { Text("提交") }
+                        ) { Text(stringResource(R.string.action_save_draft)) }
+                        Button(onClick = { onCommitClick() }, enabled = !submitting, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.action_commit)) }
                     }
                 }
             }
@@ -603,25 +617,29 @@ fun FileViewerScreen(
                 actions = buildList {
                     if (editing) {
                         add(
-                            GitBubbleAction("commit", "提交", Icons.Filled.Check, enabled = !submitting) {
+                            GitBubbleAction("commit", stringResource(R.string.action_commit), Icons.Filled.Check, enabled = !submitting) {
                                 onCommitClick()
                             },
                         )
                         add(
-                            GitBubbleAction("draft", "保存草稿", Icons.Filled.Save) {
-                                feedback = if (saveDraft()) "草稿已保存" else "草稿保存失败"
+                            GitBubbleAction("draft", stringResource(R.string.action_save_draft), Icons.Filled.Save) {
+                                feedback = if (saveDraft()) {
+                                    Feedback(context.getString(R.string.toast_draft_saved), ok = true)
+                                } else {
+                                    Feedback(context.getString(R.string.error_draft_save_failed), ok = false)
+                                }
                             },
                         )
-                        add(GitBubbleAction("cancel", "取消编辑", Icons.Filled.Close) { editing = false })
+                        add(GitBubbleAction("cancel", stringResource(R.string.action_cancel_edit), Icons.Filled.Close) { editing = false })
                     } else if (!loading && error == null) {
                         add(
-                            GitBubbleAction("edit", "编辑", Icons.Filled.Edit) {
+                            GitBubbleAction("edit", stringResource(R.string.action_edit), Icons.Filled.Edit) {
                                 editing = true
                                 draft = content
                                 // 草稿恢复检测（P2-1）：存在未提交草稿且与远端不同 → 决策页
                                 val saved = loadDraft()
                                 if (saved != null && saved != content) {
-                                    page = FilePage.Draft(listOf(DraftInfo(path, "本地草稿", saved.lines().size, draftRemoteChanged())))
+                                    page = FilePage.Draft(listOf(DraftInfo(path, context.getString(R.string.label_local_draft), saved.lines().size, draftRemoteChanged())))
                                 }
                             },
                         )
@@ -629,21 +647,21 @@ fun FileViewerScreen(
                     add(
                         GitBubbleAction(
                             "mode",
-                            "提交模式：${effectiveMode?.label ?: "未设置"}",
+                            stringResource(R.string.label_commit_mode_value, effectiveMode?.label ?: stringResource(R.string.state_not_set)),
                             Icons.Filled.Settings,
                         ) {
                             modePickerForCommit = false
                             showModePicker = true
                         },
                     )
-                    add(GitBubbleAction("branch", "分支管理", Icons.Filled.AccountTree) { onOpenBranchManage() })
+                    add(GitBubbleAction("branch", stringResource(R.string.nav_branch_manage), Icons.Filled.AccountTree) { onOpenBranchManage() })
                     add(
                         GitBubbleAction(
                             "sync",
-                            if (localGit.exists) "本地分支同步" else "本地仓库未拉取",
+                            if (localGit.exists) stringResource(R.string.nav_local_branch_sync) else stringResource(R.string.state_local_repo_missing),
                             Icons.Filled.Sync,
                             badge = when {
-                                localGit.diverged -> "分叉"
+                                localGit.diverged -> stringResource(R.string.state_diverged)
                                 localGit.ahead > 0 -> "↑${localGit.ahead}"
                                 localGit.behind > 0 -> "↓${localGit.behind}"
                                 else -> null
@@ -769,7 +787,7 @@ fun FileViewerScreen(
                             content = p.remote
                             clearDraft()
                             editing = false
-                            feedback = "已载入远端版本，本地草稿已删除"
+                            feedback = Feedback(context.getString(R.string.state_loaded_remote_draft_cleared), ok = true)
                         }
                         // 复制远端为新文件：本地草稿保留，远端另存一份
                         else -> {
@@ -778,7 +796,7 @@ fun FileViewerScreen(
                                 side.parentFile?.mkdirs()
                                 side.writeText(p.remote)
                             }
-                            feedback = "远端版本已另存为 ${side.name}"
+                            feedback = Feedback(context.getString(R.string.state_remote_saved_as, side.name), ok = true)
                         }
                     }
                 },
@@ -799,7 +817,7 @@ fun FileViewerScreen(
                 if (modePickerForCommit) {
                     onCommitClick()
                 } else {
-                    feedback = "提交模式已改为「${mode.label}」（本次编辑立即生效）"
+                    feedback = Feedback(context.getString(R.string.state_commit_mode_changed, mode.label), ok = true)
                 }
             },
         )

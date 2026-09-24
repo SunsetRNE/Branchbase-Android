@@ -20,6 +20,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.ui.log.LogCategory
 import com.branchbase.ui.log.Logger
 import com.branchbase.core.RustBridge
@@ -135,7 +137,7 @@ private fun DisabledOptionRow(title: String, desc: String, reason: String) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextTertiary)
                 Text(
-                    "不可用",
+                    stringResource(R.string.state_unavailable),
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     color = Primer.WarningText,
@@ -167,6 +169,7 @@ fun ForkDecisionScreen(
     onBack: () -> Unit,
     onResolved: (message: String?) -> Unit,
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf<GitStatus?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -188,12 +191,12 @@ fun ForkDecisionScreen(
         loading = true
         val s = withContext(Dispatchers.IO) { RustBridge.gitStatus(repoDir)?.let { parseGitStatus(it) } }
         status = s
-        loadError = if (s == null) "无法读取仓库状态（目录无效或状态读取失败）" else null
+        loadError = if (s == null) context.getString(R.string.error_repo_status_unreadable) else null
         // 锚点：`决策页` —— 预检结论必须留痕：用户说「放弃本地点不动」时，日志能直接回答为什么
         Logger.local(
             "分叉页(${repoName})：status=${if (s == null) "读不到" else "ok"} branch=${s?.branch} " +
                 "ahead=${s?.ahead} behind=${s?.behind} hasRemoteRef=${s?.hasRemoteRef} → " +
-                (discardLocalBlockReason(s?.hasRemoteRef ?: false, s?.branch ?: "")?.let { "放弃本地被拦：$it" } ?: "放弃本地可用"),
+                (discardLocalBlockReason(s?.hasRemoteRef ?: false, s?.branch ?: "")?.let { context.getString(R.string.state_discard_blocked, it) } ?: context.getString(R.string.state_discard_available)),
             "决策页",
         )
         // 预检不通过时把选中项退回「保留本地」，避免停在「选项已灰、底部按钮还亮着」的半截状态
@@ -203,16 +206,16 @@ fun ForkDecisionScreen(
 
     fun doResolve() {
         when (option) {
-            0 -> onResolved("已保留本地提交 · 引导桌面解决")
+            0 -> onResolved(context.getString(R.string.state_kept_local_desktop))
             1 -> {
                 // 兜底（正常路径下该选项已禁用）：预检不通过就不执行，也不编造原因
                 discardBlock?.let { feedback = it; return }
-                if (!confirmed) { feedback = "请先勾选二次确认"; return }
+                if (!confirmed) { feedback = context.getString(R.string.error_confirm_required); return }
                 scope.launch {
                     busy = true
                     val ok = withContext(Dispatchers.IO) { RustBridge.gitResetHardRemote(repoDir, branch) }
                     busy = false
-                    onResolved(if (ok) "已放弃本地提交" else failureMessage("放弃本地提交"))
+                    onResolved(if (ok) context.getString(R.string.state_discarded_local) else failureMessage(context.getString(R.string.action_discard_local_commit)))
                 }
             }
             2 -> onBack()
@@ -220,64 +223,64 @@ fun ForkDecisionScreen(
     }
 
     DecisionScreenShell(
-        title = "同步失败 · 分叉",
+        title = stringResource(R.string.state_sync_failed_diverged),
         subtitle = repoName,
         onBack = onBack,
     content = {
-        DecisionNote("本地与远端各领先对方，无法快进合并（non-fast-forward）。App 不做 merge/rebase（对齐 D11），请选择如何处理。")
+        DecisionNote(stringResource(R.string.note_diverged_explain))
 
         // 分叉示意
-        FactCard("分叉示意") {
+        FactCard(stringResource(R.string.label_divergence_diagram)) {
             Row(
                 Modifier.fillMaxWidth().padding(vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ForkNode(color = Primer.Green500, label = "本地 ${status?.branch ?: "main"}", count = "ahead ${status?.ahead ?: 0} · 未推送", modifier = Modifier.weight(1f))
+                ForkNode(color = Primer.Green500, label = stringResource(R.string.label_local_branch, status?.branch ?: "main"), count = stringResource(R.string.label_ahead_unpushed, status?.ahead ?: 0), modifier = Modifier.weight(1f))
                 Box(Modifier.padding(horizontal = 8.dp)) {
-                    Text("已分叉", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Primer.WarningText)
+                    Text(stringResource(R.string.state_diverged_badge), fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Primer.WarningText)
                 }
-                ForkNode(color = Primer.Blue500, label = "远端 origin", count = "ahead ${status?.behind ?: 0} · 他人新提交", modifier = Modifier.weight(1f))
+                ForkNode(color = Primer.Blue500, label = stringResource(R.string.label_remote_origin), count = stringResource(R.string.label_behind_new_commits, status?.behind ?: 0), modifier = Modifier.weight(1f))
             }
         }
 
         // 未推送提交清单
-        FactCard("本地未推送提交（放弃将永久丢失）") {
+        FactCard(stringResource(R.string.label_local_unpushed_commits)) {
             val ups = status?.unpushed.orEmpty()
             if (ups.isEmpty()) {
-                FactRow("（无数据）", mono = true)
+                FactRow(stringResource(R.string.state_no_data), mono = true)
             } else {
                 ups.forEach { c -> FactRow("${c.sha}  ${c.message}", mono = true) }
             }
         }
 
         // 处理方式
-        FactCard("处理方式") {
+        FactCard(stringResource(R.string.label_handling)) {
             Column {
                 DecisionOptionRow(
-                    title = "保留本地提交，引导桌面解决",
-                    desc = "本地工作区原样保留，App 不删除任何数据。请复制仓库路径到桌面端解决。",
+                    title = stringResource(R.string.action_keep_local_desktop),
+                    desc = stringResource(R.string.note_keep_local_workspace),
                     selected = option == 0,
                     tag = OptionTag.RECOMMENDED,
                     onSelect = { option = 0 },
                 )
                 if (discardBlock == null) {
                     DecisionOptionRow(
-                        title = "放弃本地提交",
-                        desc = "reset --hard origin/$branch 后重试 pull。本地 ${status?.ahead ?: 0} 个未推送提交永久丢失。",
+                        title = stringResource(R.string.action_discard_local_commit),
+                        desc = stringResource(R.string.confirm_reset_hard_loss, branch, status?.ahead ?: 0),
                         selected = option == 1,
                         tag = OptionTag.DANGER,
                         onSelect = { option = 1 },
                     )
                 } else {
                     DisabledOptionRow(
-                        title = "放弃本地提交",
-                        desc = "reset --hard origin/$branch 后重试 pull。本地 ${status?.ahead ?: 0} 个未推送提交永久丢失。",
+                        title = stringResource(R.string.action_discard_local_commit),
+                        desc = stringResource(R.string.confirm_reset_hard_loss, branch, status?.ahead ?: 0),
                         reason = discardBlock,
                     )
                 }
                 DecisionOptionRow(
-                    title = "取消",
-                    desc = "回到工作区，保持 ahead 状态，稍后可再处理。",
+                    title = stringResource(R.string.action_cancel),
+                    desc = stringResource(R.string.note_back_to_worktree_ahead),
                     selected = option == 2,
                     onSelect = { option = 2 },
                 )
@@ -287,27 +290,27 @@ fun ForkDecisionScreen(
         if (option == 1) {
             Spacer(Modifier.height(4.dp))
             DangerConfirmCard(
-                description = "将丢弃本地 ${status?.ahead ?: 0} 个未推送提交，改动不可恢复。建议先到桌面端备份。",
-                confirmLabel = "我确认放弃这些提交",
+                description = stringResource(R.string.confirm_discard_unpushed_body, status?.ahead ?: 0),
+                confirmLabel = stringResource(R.string.confirm_discard_commits_checkbox),
                 confirmed = confirmed,
                 onToggle = { confirmed = !confirmed },
             )
         }
 
-        if (loading) FeedbackLine("加载仓库状态…")
+        if (loading) FeedbackLine(stringResource(R.string.state_loading_repo_status))
         loadError?.let { FeedbackLine(it, error = true) }
         feedback?.let { FeedbackLine(it, error = true) }
-        if (busy) FeedbackLine("执行中…")
+        if (busy) FeedbackLine(stringResource(R.string.state_running))
     },
     bottom = {
-        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("取消") }
+        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.action_cancel)) }
         Button(
             onClick = { doResolve() },
             enabled = !busy && !(option == 1 && (discardBlock != null || !confirmed)),
             colors = if (option == 1 && discardBlock == null) ButtonDefaults.buttonColors(containerColor = Primer.Red500) else ButtonDefaults.buttonColors(containerColor = Primer.Green500),
             modifier = Modifier.weight(1f),
         ) {
-            Text(if (option == 1) "确认放弃本地提交" else if (option == 0) "保留并引导桌面" else "返回工作区", color = Color.White)
+            Text(if (option == 1) stringResource(R.string.confirm_discard_local_commit_title) else if (option == 0) stringResource(R.string.action_keep_and_desktop) else stringResource(R.string.action_back_to_worktree), color = Color.White)
         }
     })
 }
@@ -335,6 +338,8 @@ fun GitifyRollbackScreen(
     onDeletedRepo: () -> Unit,
     onResolved: (message: String?) -> Unit,
 ) {
+    // 本页的反馈文案走资源，需要 Context（页内没有其他取 Context 的地方）
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf<GitStatus?>(null) }
     var option by remember { mutableStateOf(0) }
@@ -353,16 +358,16 @@ fun GitifyRollbackScreen(
 
     fun doResolve() {
         when (option) {
-            0 -> onResolved("已保留 .git（偏好普通文件夹）")
+            0 -> onResolved(context.getString(R.string.state_kept_git))
             1 -> {
-                if (!confirmed) { feedback = "请先勾选二次确认"; return }
+                if (!confirmed) { feedback = context.getString(R.string.error_confirm_required); return }
                 scope.launch {
                     busy = true
                     val ok = withContext(Dispatchers.IO) {
                         runCatching { java.io.File(repoDir, ".git").deleteRecursively() }.getOrDefault(false)
                     }
                     busy = false
-                    onResolved(if (ok) "已移除 .git，文件保留" else "移除失败")
+                    onResolved(if (ok) context.getString(R.string.state_removed_git) else context.getString(R.string.error_remove_failed))
                 }
             }
             2 -> onDeletedRepo()
@@ -370,51 +375,51 @@ fun GitifyRollbackScreen(
     }
 
     DecisionScreenShell(
-        title = "关闭 Git 化",
-        subtitle = "$repoName · 回退",
+        title = stringResource(R.string.action_turn_off_gitify),
+        subtitle = stringResource(R.string.label_repo_revert, repoName),
         onBack = onBack,
         content = {
-        DecisionNote("「Git 化」是 ③ 的子开关（D10）。关闭后提交将走 App REST（①②），本地 .git 的处理方式请选择。")
+        DecisionNote(stringResource(R.string.note_gitify_off))
 
-        FactCard("仓库状态") {
-            FactRow("领先远端", "${status?.ahead ?: 0} 个提交（未推送）", rightColor = if ((status?.ahead ?: 0) > 0) Primer.Red500 else Primer.TextTertiary)
-            FactRow("工作区改动", "${status?.dirty?.size ?: 0} 个文件", rightColor = if ((status?.dirty?.size ?: 0) > 0) Primer.Red500 else Primer.TextTertiary)
+        FactCard(stringResource(R.string.label_repo_status)) {
+            FactRow(stringResource(R.string.label_ahead_of_remote), stringResource(R.string.label_ahead_commits, status?.ahead ?: 0), rightColor = if ((status?.ahead ?: 0) > 0) Primer.Red500 else Primer.TextTertiary)
+            FactRow(stringResource(R.string.label_worktree_changes), stringResource(R.string.label_dirty_file_count, status?.dirty?.size ?: 0), rightColor = if ((status?.dirty?.size ?: 0) > 0) Primer.Red500 else Primer.TextTertiary)
         }
 
-        FactCard("未推送提交") {
+        FactCard(stringResource(R.string.label_unpushed_commits)) {
             val ups = status?.unpushed.orEmpty()
-            if (ups.isEmpty()) FactRow("（无）", mono = true) else ups.forEach { c -> FactRow("${c.sha}  ${c.message}", mono = true) }
+            if (ups.isEmpty()) FactRow(stringResource(R.string.label_none), mono = true) else ups.forEach { c -> FactRow("${c.sha}  ${c.message}", mono = true) }
         }
 
-        FactCard("回退方式") {
+        FactCard(stringResource(R.string.label_revert_method)) {
             Column {
-                DecisionOptionRow("保留 .git 不变", "仅记录「偏好普通文件夹」，仓库与历史完好，可随时重新开启 Git 化。无损。", option == 0, OptionTag.RECOMMENDED) { option = 0 }
-                DecisionOptionRow("移除 .git，保留文件", "工作树文件不变，但历史与 ${status?.ahead ?: 0} 个未推送提交永久丢失（需二次确认）。", option == 1, OptionTag.DANGER) { option = 1 }
-                DecisionOptionRow("删除整个本地仓库", "跳转「删除本地仓库」确认（含未推送警告升级）。", option == 2, OptionTag.DANGER) { option = 2 }
+                DecisionOptionRow(stringResource(R.string.label_keep_git), stringResource(R.string.note_keep_git_desc), option == 0, OptionTag.RECOMMENDED) { option = 0 }
+                DecisionOptionRow(stringResource(R.string.label_remove_git_keep_files), stringResource(R.string.note_remove_git_desc, status?.ahead ?: 0), option == 1, OptionTag.DANGER) { option = 1 }
+                DecisionOptionRow(stringResource(R.string.label_delete_whole_repo), stringResource(R.string.note_delete_whole_repo_desc), option == 2, OptionTag.DANGER) { option = 2 }
             }
         }
 
         if (option == 1) {
             Spacer(Modifier.height(4.dp))
             DangerConfirmCard(
-                description = "将永久丢失 ${status?.ahead ?: 0} 个未推送提交与全部历史。",
-                confirmLabel = "我确认移除 .git",
+                description = stringResource(R.string.warning_remove_git_loss, status?.ahead ?: 0),
+                confirmLabel = stringResource(R.string.confirm_remove_git_checkbox),
                 confirmed = confirmed,
                 onToggle = { confirmed = !confirmed },
             )
         }
         feedback?.let { FeedbackLine(it, error = true) }
-        if (busy) FeedbackLine("执行中…")
+        if (busy) FeedbackLine(stringResource(R.string.state_running))
     },
     bottom = {
-        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("取消") }
+        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.action_cancel)) }
         Button(
             onClick = { doResolve() },
             enabled = !busy && !(option == 1 && !confirmed),
             colors = ButtonDefaults.buttonColors(containerColor = if (option == 0) Primer.Green500 else Primer.Red500),
             modifier = Modifier.weight(1f),
         ) {
-            Text("确定", color = Color.White)
+            Text(stringResource(R.string.action_ok), color = Color.White)
         }
     })
 }
@@ -430,6 +435,7 @@ fun UpstreamSetupScreen(
     onBack: () -> Unit,
     onResolved: (message: String?, fork: Boolean) -> Unit,
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var remoteUrl by remember { mutableStateOf("") }
     var upstreamBranch by remember { mutableStateOf("main") }
@@ -452,7 +458,7 @@ fun UpstreamSetupScreen(
 
     fun doPush() {
         if (option == 1) { onBack(); return }
-        if (remoteUrl.isBlank()) { feedback = "请填写远端 URL"; return }
+        if (remoteUrl.isBlank()) { feedback = context.getString(R.string.error_remote_url_required); return }
         scope.launch {
             busy = true
             val result = withContext(Dispatchers.IO) {
@@ -462,23 +468,23 @@ fun UpstreamSetupScreen(
             when (result) {
                 // 引擎的 push_set_upstream 只有一条路径：推完**总是** set_upstream（core/src/git/mod.rs:858-863）。
                 // 所以不存在「推送成功但没记录 upstream」这个状态可报 —— 页面也不再提供这个做不到的选项。
-                null -> onResolved("已推送并设为上游分支 origin/$upstreamBranch", false)
+                null -> onResolved(context.getString(R.string.toast_pushed_set_upstream, upstreamBranch), false)
                 "nff" -> onResolved(null, true)
-                else -> feedback = "推送失败：$result"
+                else -> feedback = context.getString(R.string.error_push_failed_result, result)
             }
         }
     }
 
     DecisionScreenShell(
-        title = "设置上游分支",
-        subtitle = "$repoName · 首次推送",
+        title = stringResource(R.string.action_set_upstream),
+        subtitle = stringResource(R.string.label_repo_first_push, repoName),
         onBack = onBack,
         content = {
-        DecisionNote("本地仓库由 git init 创建（非 clone），首次推送前需确定远端与上游分支。设置后写入 .git/config，无需重复设置。本应用只有这一条推送路径：引擎总会把该分支设为上游。")
+        DecisionNote(stringResource(R.string.note_first_push))
 
-        FactCard("远端配置") {
+        FactCard(stringResource(R.string.label_remote_config)) {
             Column(Modifier.padding(12.dp)) {
-                Text("远端 URL", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
+                Text(stringResource(R.string.label_remote_url), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
                 OutlinedTextField(
                     value = remoteUrl,
                     onValueChange = { remoteUrl = it },
@@ -486,7 +492,7 @@ fun UpstreamSetupScreen(
                     textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
                     singleLine = true,
                 )
-                Text("上游分支名", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary, modifier = Modifier.padding(top = 10.dp))
+                Text(stringResource(R.string.label_upstream_branch_name), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary, modifier = Modifier.padding(top = 10.dp))
                 OutlinedTextField(
                     value = upstreamBranch,
                     onValueChange = { upstreamBranch = it },
@@ -497,24 +503,24 @@ fun UpstreamSetupScreen(
             }
         }
 
-        FactCard("推送方式") {
+        FactCard(stringResource(R.string.label_push_method)) {
             Column {
                 DecisionOptionRow(
-                    "推送并设为上游分支",
-                    "git push -u origin $upstreamBranch：本应用总会把该分支设为上游（引擎没有「仅本次推送、不记录 upstream」这条路），以后直接 push/pull 即可。",
+                    stringResource(R.string.action_push_and_set_upstream),
+                    stringResource(R.string.note_push_sets_upstream, upstreamBranch),
                     option == 0,
                     OptionTag.RECOMMENDED,
                 ) { option = 0 }
-                DecisionOptionRow("取消", "保持未推送状态，稍后再处理。", option == 1) { option = 1 }
+                DecisionOptionRow(stringResource(R.string.action_cancel), stringResource(R.string.note_leave_unpushed), option == 1) { option = 1 }
             }
         }
         feedback?.let { FeedbackLine(it, error = true) }
-        if (busy) FeedbackLine("推送中…")
+        if (busy) FeedbackLine(stringResource(R.string.state_pushing))
     },
     bottom = {
-        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("取消") }
+        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.action_cancel)) }
         Button(onClick = { doPush() }, enabled = !busy, modifier = Modifier.weight(1f)) {
-            Text(if (option == 1) "返回工作区" else "推送并设为上游")
+            Text(if (option == 1) stringResource(R.string.action_back_to_worktree) else stringResource(R.string.action_push_and_set_upstream_short))
         }
     })
 }
@@ -556,7 +562,7 @@ fun UndoCommitScreen(
     androidx.compose.runtime.LaunchedEffect(repoDir) {
         val s = withContext(Dispatchers.IO) { RustBridge.gitStatus(repoDir)?.let { parseGitStatus(it) } }
         status = s
-        loadError = if (s == null) "无法读取仓库状态（目录无效或状态读取失败）" else null
+        loadError = if (s == null) context.getString(R.string.error_repo_status_unreadable) else null
         newMessage = s?.unpushed?.firstOrNull()?.message ?: ""
         // 预检不通过时把选中项退回 amend：否则会停在「选中的那一行已变灰、底部按钮也点不动」的无解状态
         if (s != null) {
@@ -568,9 +574,9 @@ fun UndoCommitScreen(
                 "撤销页(${repoName})：分支=$b 未推送=${s.unpushed.size} hasParent=${s.hasParent} " +
                     "hasRemoteRef=${s.hasRemoteRef} → " +
                     listOfNotNull(
-                        resetSoftBlockReason(s.hasParent)?.let { "撤销保留改动被拦：$it" },
-                        resetHardBlockReason(s.hasParent, s.hasRemoteRef, b)?.let { "撤销并丢弃被拦：$it" },
-                    ).ifEmpty { listOf("两个撤销动作可用") }.joinToString("；"),
+                        resetSoftBlockReason(s.hasParent)?.let { context.getString(R.string.state_undo_keep_blocked, it) },
+                        resetHardBlockReason(s.hasParent, s.hasRemoteRef, b)?.let { context.getString(R.string.state_undo_discard_blocked, it) },
+                    ).ifEmpty { listOf(context.getString(R.string.state_both_undo_available)) }.joinToString("；"),
                 "决策页",
             )
         } else {
@@ -588,15 +594,15 @@ fun UndoCommitScreen(
         // 「没有可操作的提交」只在未推送形态下成立（那一形态的目标来自 unpushed 清单）。
         // revert 形态的目标来自输入框（默认 HEAD），以前这条守卫把它一并拦掉，
         // 于是「创建 revert 提交」永远只回一句「没有可操作的提交」——报的不是真实原因。
-        if (hasUnpushed && head == null) { feedback = "没有可操作的提交"; return }
+        if (hasUnpushed && head == null) { feedback = context.getString(R.string.state_no_commit_to_act); return }
         when {
             hasUnpushed && option == 0 -> { // amend
-                if (newMessage.isBlank()) { feedback = "请输入新的提交信息"; return }
+                if (newMessage.isBlank()) { feedback = context.getString(R.string.error_new_commit_message_required); return }
                 scope.launch {
                     busy = true
                     val ok = withContext(Dispatchers.IO) { RustBridge.gitAmend(repoDir, newMessage) }
                     busy = false
-                    onResolved(if (ok) "已修改提交信息" else failureMessage("修改提交信息"))
+                    onResolved(if (ok) context.getString(R.string.state_commit_message_updated) else failureMessage(context.getString(R.string.action_edit_commit_message)))
                 }
             }
             hasUnpushed && option == 1 -> {
@@ -606,21 +612,21 @@ fun UndoCommitScreen(
                     busy = true
                     val ok = withContext(Dispatchers.IO) { RustBridge.gitResetSoft(repoDir) }
                     busy = false
-                    onResolved(if (ok) "已撤销提交 · 改动保留在工作区" else failureMessage("撤销提交"))
+                    onResolved(if (ok) context.getString(R.string.state_undo_commit_kept) else failureMessage(context.getString(R.string.action_undo_commit)))
                 }
             }
             hasUnpushed && option == 2 -> {
                 hardBlock?.let { feedback = it; return }
-                if (!confirmed) { feedback = "请先勾选二次确认"; return }
+                if (!confirmed) { feedback = context.getString(R.string.error_confirm_required); return }
                 scope.launch {
                     busy = true
                     val ok = withContext(Dispatchers.IO) { RustBridge.gitResetHardRemote(repoDir, branch) }
                     busy = false
-                    onResolved(if (ok) "已撤销并丢弃改动" else failureMessage("撤销并丢弃改动"))
+                    onResolved(if (ok) context.getString(R.string.state_undo_discarded) else failureMessage(context.getString(R.string.action_undo_discard)))
                 }
             }
             !hasUnpushed && option == 0 -> { // revert
-                if (revertSha.isBlank()) { feedback = "请输入提交 sha（或 HEAD）"; return }
+                if (revertSha.isBlank()) { feedback = context.getString(R.string.error_commit_sha_required); return }
                 val message = "Revert \"${head?.message ?: revertSha}\""
                 scope.launch {
                     busy = true
@@ -630,8 +636,8 @@ fun UndoCommitScreen(
                     busy = false
                     // gitRevert 把所有失败折叠成 null，页面分不出具体是哪一种：只列常见原因，不编造单一归因
                     onResolved(
-                        if (sha != null) "已创建 revert 提交"
-                        else "revert 失败（原因见日志 · 常见：工作区有未提交改动 / sha 无效）"
+                        if (sha != null) context.getString(R.string.state_revert_created)
+                        else context.getString(R.string.error_revert_failed)
                     )
                 }
             }
@@ -640,48 +646,48 @@ fun UndoCommitScreen(
     }
 
     DecisionScreenShell(
-        title = "撤销提交",
-        subtitle = "$repoName · 长按触发",
+        title = stringResource(R.string.action_undo_commit),
+        subtitle = stringResource(R.string.label_repo_long_press, repoName),
         onBack = onBack,
         content = {
-        head?.let { DecisionNote("目标提交 ${it.sha} · ${it.message}") }
+        head?.let { DecisionNote(stringResource(R.string.label_target_commit, it.sha, it.message)) }
         // 初始提交：先把原因说清楚，而不是等用户点了再报一句归因错误的话
         if (firstCommit) {
-            DecisionNote("这是仓库的第一个提交：没有可撤销的上一次提交（reset --soft 必然失败；reset --hard 会清空本地历史，本页也不提供）。仍可修改提交信息。")
+            DecisionNote(stringResource(R.string.note_first_commit_no_undo))
         }
         loadError?.let { FeedbackLine(it, error = true) }
 
         if (hasUnpushed) {
-            FactCard("未推送提交 · 可自由改写") {
+            FactCard(stringResource(R.string.label_unpushed_rewritable)) {
                 Column {
-                    DecisionOptionRow("修改提交信息（amend）", "重写这次提交的 message（树内容不变），仅用于未推送提交。", option == 0, OptionTag.RECOMMENDED) { option = 0 }
+                    DecisionOptionRow(stringResource(R.string.action_amend_message), stringResource(R.string.note_amend_message), option == 0, OptionTag.RECOMMENDED) { option = 0 }
                     if (softBlock == null) {
-                        DecisionOptionRow("撤销提交，保留改动（reset --soft）", "改动回到工作区（dirty），可重新编辑再提交。", option == 1) { option = 1 }
+                        DecisionOptionRow(stringResource(R.string.action_undo_commit_soft), stringResource(R.string.note_undo_soft), option == 1) { option = 1 }
                     } else {
-                        DisabledOptionRow("撤销提交，保留改动（reset --soft）", "改动回到工作区（dirty），可重新编辑再提交。", softBlock)
+                        DisabledOptionRow(stringResource(R.string.action_undo_commit_soft), stringResource(R.string.note_undo_soft), softBlock)
                     }
                     if (hardBlock == null) {
-                        DecisionOptionRow("撤销并丢弃改动（reset --hard）", "该提交的改动永久丢失，需勾选二次确认。", option == 2, OptionTag.DANGER) { option = 2 }
+                        DecisionOptionRow(stringResource(R.string.action_undo_discard_hard), stringResource(R.string.confirm_permanent_loss), option == 2, OptionTag.DANGER) { option = 2 }
                     } else {
-                        DisabledOptionRow("撤销并丢弃改动（reset --hard）", "该提交的改动永久丢失，需勾选二次确认。", hardBlock)
+                        DisabledOptionRow(stringResource(R.string.action_undo_discard_hard), stringResource(R.string.confirm_permanent_loss), hardBlock)
                     }
                 }
             }
             if (option == 0) {
-                FactCard("新的提交信息") {
+                FactCard(stringResource(R.string.label_new_commit_message)) {
                     Column(Modifier.padding(12.dp)) {
                         OutlinedTextField(
                             value = newMessage,
                             onValueChange = { newMessage = it },
                             modifier = Modifier.fillMaxWidth(),
                             textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
-                            placeholder = { Text("简要描述…", fontSize = 13.sp, color = Primer.TextTertiary) },
+                            placeholder = { Text(stringResource(R.string.hint_brief_description), fontSize = 13.sp, color = Primer.TextTertiary) },
                         )
                         Spacer(Modifier.height(8.dp))
                         // amend 的事实说明：引擎重建 HEAD 提交时**刻意沿用**原 author/committer 的姓名与时间
                         // （core/src/git/mod.rs:730-743）—— 不写明的话，用户会以为时间戳也跟着改了。
                         Text(
-                            "amend 会重建这次提交（提交 sha 变化），但作者与提交时间沿用原提交 —— 刻意设计，不改时间戳。",
+                            stringResource(R.string.note_amend_recreates),
                             fontSize = 12.sp,
                             color = Primer.TextTertiary,
                             lineHeight = 18.sp,
@@ -692,8 +698,8 @@ fun UndoCommitScreen(
             if (option == 2) {
                 Spacer(Modifier.height(4.dp))
                 DangerConfirmCard(
-                    description = "该提交的改动将永久丢失（${head?.sha ?: "HEAD"}）。",
-                    confirmLabel = "我确认丢弃这些改动",
+                    description = stringResource(R.string.confirm_discard_commit_changes, head?.sha ?: "HEAD"),
+                    confirmLabel = stringResource(R.string.confirm_discard_changes_checkbox),
                     confirmed = confirmed,
                     onToggle = { confirmed = !confirmed },
                 )
@@ -703,8 +709,8 @@ fun UndoCommitScreen(
             // 没有上游分支时它同样为空，此时**并不知道**哪些提交已推送 —— 标题不能替用户下结论。
             FactCard(revertFormTitle(hasStatus = status != null, hasUpstream = status?.hasUpstream == true)) {
                 Column {
-                    DecisionOptionRow("创建 revert 提交", "新提交反向撤销该提交改动，历史保留（对齐 D11 边界）。", option == 0, OptionTag.RECOMMENDED) { option = 0 }
-                    DecisionOptionRow("取消", "不做任何操作。", option == 1) { option = 1 }
+                    DecisionOptionRow(stringResource(R.string.action_create_revert), stringResource(R.string.note_revert_keeps_history), option == 0, OptionTag.RECOMMENDED) { option = 0 }
+                    DecisionOptionRow(stringResource(R.string.action_cancel), stringResource(R.string.note_do_nothing), option == 1) { option = 1 }
                 }
                 if (option == 0) {
                     Column(Modifier.padding(12.dp)) {
@@ -714,18 +720,18 @@ fun UndoCommitScreen(
                             modifier = Modifier.fillMaxWidth(),
                             textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
                             singleLine = true,
-                            label = { Text("提交 sha（或 HEAD）", fontSize = 11.sp) },
+                            label = { Text(stringResource(R.string.label_commit_sha), fontSize = 11.sp) },
                         )
                     }
                 }
-                DecisionNote("说明：已推送提交不能 reset/amend（会破坏他人已拉取的历史），只提供 revert。")
+                DecisionNote(stringResource(R.string.note_pushed_commit_revert_only))
             }
         }
         feedback?.let { FeedbackLine(it, error = true) }
-        if (busy) FeedbackLine("执行中…")
+        if (busy) FeedbackLine(stringResource(R.string.state_running))
     },
     bottom = {
-        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("取消") }
+        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.action_cancel)) }
         Button(
             onClick = { doUndo() },
             // 预检拦下的选项在选项行里已禁用；这里再兜一层「status 晚到」时选中项失效的情况
@@ -737,11 +743,11 @@ fun UndoCommitScreen(
         ) {
             Text(
                 when {
-                    hasUnpushed && option == 0 -> "修改提交信息"
-                    hasUnpushed && option == 1 -> "撤销并保留改动"
-                    hasUnpushed -> "撤销并丢弃改动"
-                    option == 0 -> "创建 revert 提交"
-                    else -> "取消"
+                    hasUnpushed && option == 0 -> stringResource(R.string.action_edit_commit_message)
+                    hasUnpushed && option == 1 -> stringResource(R.string.action_undo_keep_changes)
+                    hasUnpushed -> stringResource(R.string.action_undo_discard)
+                    option == 0 -> stringResource(R.string.action_create_revert)
+                    else -> stringResource(R.string.action_cancel)
                 },
                 color = Color.White,
             )

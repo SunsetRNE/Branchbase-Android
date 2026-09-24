@@ -1,6 +1,7 @@
 package com.branchbase.ui.auth
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,6 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.ui.theme.color
 import com.branchbase.ui.theme.TintRole
 import com.branchbase.core.RustBridge
@@ -149,15 +151,15 @@ fun WelcomeScreen(
             Spacer(Modifier.height(22.dp))
             Text("Branchbase", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
             Spacer(Modifier.height(6.dp))
-            Text("GitHub 第三方客户端", fontSize = 14.sp, color = Primer.TextTertiary)
+            Text(stringResource(R.string.app_tagline), fontSize = 14.sp, color = Primer.TextTertiary)
 
             Spacer(Modifier.weight(1f))
 
             // ① 授权登录（OAuth）
-            PrimaryButton("授权登录", onOAuthLogin)
+            PrimaryButton(stringResource(R.string.login_oauth), onOAuthLogin)
             Spacer(Modifier.height(6.dp))
             Text(
-                "推荐 · 网页点一下授权即可；账号开了双重验证时需要输入数字口令",
+                stringResource(R.string.login_oauth_hint),
                 fontSize = 11.5.sp,
                 color = Primer.TextTertiary,
                 lineHeight = 16.sp,
@@ -166,10 +168,10 @@ fun WelcomeScreen(
             Spacer(Modifier.height(14.dp))
 
             // ② 密钥登录（PAT）
-            OutlineButton("密钥登录", onKeyLogin)
+            OutlineButton(stringResource(R.string.login_access_key), onKeyLogin)
             Spacer(Modifier.height(6.dp))
             Text(
-                "网页端生成密钥并勾选权限；登录时无需数字口令验证",
+                stringResource(R.string.login_key_hint),
                 fontSize = 11.5.sp,
                 color = Primer.TextTertiary,
                 lineHeight = 16.sp,
@@ -212,7 +214,7 @@ fun ThemeModeSwitch(modifier: Modifier = Modifier) {
     ) {
         AnimatedStateIcon(
             icon = icon,
-            contentDescription = "主题：${mode.label}（点击切换）",
+            contentDescription = stringResource(R.string.login_theme_switch, mode.label),
             tint = Primer.IconPrimary,
             modifier = Modifier.size(20.dp),
         )
@@ -319,14 +321,14 @@ private val keyScopes: List<Pair<String, String>> =
 @Composable
 fun OAuthIntroScreen(onBack: () -> Unit, onStart: () -> Unit, onSwitchToKey: () -> Unit) {
     AuthIntroScaffold(
-        title = "授权登录",
-        subtitle = "通过 GitHub 官方 OAuth 授权，最省事的一条路；首次在新设备登录时需要过一次口令 / 设备验证。",
+        title = stringResource(R.string.login_oauth),
+        subtitle = stringResource(R.string.login_oauth_desc),
         steps = oauthFlowSteps,
-        footNote = "适合：已经在 GitHub 网页端登录、且记得住/拿得到数字口令的账号。",
-        primaryText = "开始授权登录",
+        footNote = stringResource(R.string.login_oauth_fit),
+        primaryText = stringResource(R.string.action_start_oauth),
         onBack = onBack,
         onStart = onStart,
-        secondaryText = "改用密钥登录（免口令）",
+        secondaryText = stringResource(R.string.action_switch_to_key),
         onSecondary = onSwitchToKey,
         extra = { CodeCellsRow() },
     )
@@ -340,14 +342,14 @@ fun OAuthIntroScreen(onBack: () -> Unit, onStart: () -> Unit, onSwitchToKey: () 
 @Composable
 fun KeyIntroScreen(onBack: () -> Unit, onStart: () -> Unit, onSwitchToOAuth: () -> Unit) {
     AuthIntroScaffold(
-        title = "密钥登录",
-        subtitle = "在 GitHub 网页端生成一枚访问密钥，填进 App 即可；登录时不需要数字口令验证。",
+        title = stringResource(R.string.login_access_key),
+        subtitle = stringResource(R.string.login_key_desc),
         steps = keyFlowSteps,
-        footNote = "适合：不想每次都输数字口令，或主要用手机做提交/发 PR 的账号。",
-        primaryText = "填写密钥",
+        footNote = stringResource(R.string.login_key_fit),
+        primaryText = stringResource(R.string.action_enter_key),
         onBack = onBack,
         onStart = onStart,
-        secondaryText = "改用授权登录（一键授权）",
+        secondaryText = stringResource(R.string.action_switch_to_oauth),
         onSecondary = onSwitchToOAuth,
         extra = { ScopeChecklist() },
     )
@@ -477,7 +479,7 @@ private fun FlowStepRow(index: Int, step: AuthFlowStep, last: Boolean) {
                             .background(step.tint.color().copy(alpha = 0.14f))
                             .padding(horizontal = 6.dp, vertical = 1.dp),
                     ) {
-                        Text("要点", fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = step.tint.color())
+                        Text(stringResource(R.string.label_key_points), fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = step.tint.color())
                     }
                 }
             }
@@ -505,7 +507,7 @@ private fun CodeCellsRow() {
             .background(Primer.Gray100)
             .padding(12.dp),
     ) {
-        Text("口令验证长这样", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
+        Text(stringResource(R.string.label_code_prompt_example), fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             repeat(6) { i ->
@@ -535,16 +537,13 @@ private fun CodeCellsRow() {
         Spacer(Modifier.height(10.dp))
         // 两种情况互斥，且都只影响「首次新设备登录」——这是最容易误解的一步，写清楚
         Text(
-            "• 开了双重验证：输入 6 位口令，或在 GitHub Mobile 上确认\n" +
-                "• 没开双重验证：首次在新设备登录会走「设备验证」，验证码发到邮箱；" +
-                "装了 GitHub Mobile 则会收到一个口令（两位数），在手机上确认即可\n" +
-                "• 两种都只在新设备首次登录时出现；启用双重验证后设备验证不再触发",
+            stringResource(R.string.login_twofactor_bullets),
             fontSize = 11.sp,
             color = Primer.TextTertiary,
             lineHeight = 17.sp,
         )
         Spacer(Modifier.height(6.dp))
-        DocLink("GitHub 文档：登录时验证新设备", GITHUB_DEVICE_VERIFY_DOC)
+        DocLink(stringResource(R.string.label_github_docs_device_verification), GITHUB_DEVICE_VERIFY_DOC)
     }
 }
 
@@ -587,7 +586,7 @@ private fun ScopeChecklist() {
             .background(Primer.Gray100)
             .padding(12.dp),
     ) {
-        Text("勾选这些权限即可", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
+        Text(stringResource(R.string.label_tick_scopes), fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
         Spacer(Modifier.height(6.dp))
         keyScopes.forEachIndexed { i, (scope, desc) ->
             val on = i < ticked
@@ -650,11 +649,11 @@ fun KeyInputScreen(
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
-        SubPageHeader("密钥登录", onBack)
+        SubPageHeader(stringResource(R.string.login_access_key), onBack)
 
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = HorizontalPadding)) {
             Text(
-                "粘贴在 GitHub 网页端生成的访问密钥。密钥只保存在本机，不会上传到任何服务器。",
+                stringResource(R.string.note_paste_key),
                 fontSize = 12.5.sp,
                 color = Primer.TextTertiary,
                 lineHeight = 19.sp,
@@ -667,8 +666,8 @@ fun KeyInputScreen(
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !busy,
                 singleLine = true,
-                label = { Text("访问密钥", fontSize = 12.sp) },
-                placeholder = { Text("ghp_… 或 github_pat_…", fontSize = 13.sp, color = Primer.TextTertiary) },
+                label = { Text(stringResource(R.string.label_access_key), fontSize = 12.sp) },
+                placeholder = { Text(stringResource(R.string.hint_key_placeholder), fontSize = 13.sp, color = Primer.TextTertiary) },
                 visualTransformation = if (visible) {
                     VisualTransformation.None
                 } else {
@@ -676,7 +675,7 @@ fun KeyInputScreen(
                 },
                 trailingIcon = {
                     Text(
-                        if (visible) "隐藏" else "显示",
+                        if (visible) stringResource(R.string.action_hide) else stringResource(R.string.action_show),
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = Primer.Blue500,
@@ -696,7 +695,7 @@ fun KeyInputScreen(
             Spacer(Modifier.height(12.dp))
             // 直接跳到「新建经典密钥」页并预填权限，省得用户自己找、自己勾
             Text(
-                "去网页端生成密钥（已预填所需权限）",
+                stringResource(R.string.action_generate_key_web),
                 fontSize = 12.5.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Primer.Blue500,
@@ -714,9 +713,7 @@ fun KeyInputScreen(
 
             Spacer(Modifier.height(10.dp))
             Text(
-                "• 经典密钥：勾选 repo / read:user / read:org / notifications 四项\n" +
-                    "• 细粒度密钥：至少给 Contents、Issues、Pull requests、Notifications 读权限（含 Metadata）\n" +
-                    "• 登录时不要求数字口令验证；密钥可随时在网页端撤销",
+                stringResource(R.string.login_key_scopes_bullets),
                 fontSize = 11.5.sp,
                 color = Primer.TextTertiary,
                 lineHeight = 18.sp,
@@ -738,9 +735,9 @@ fun KeyInputScreen(
                         strokeWidth = 2.dp,
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text("校验中…", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                    Text(stringResource(R.string.state_checking), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
                 } else {
-                    Text("登录", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                    Text(stringResource(R.string.action_sign_in), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -766,9 +763,9 @@ fun TwoFactorScreen(
             .padding(top = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("双重验证", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
+        Text(stringResource(R.string.label_two_factor), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
         Spacer(Modifier.height(6.dp))
-        Text("输入 GitHub 生成的 6 位验证码", fontSize = 14.sp, color = Primer.TextTertiary)
+        Text(stringResource(R.string.hint_enter_code), fontSize = 14.sp, color = Primer.TextTertiary)
 
         Spacer(Modifier.height(28.dp))
 
@@ -798,7 +795,7 @@ fun TwoFactorScreen(
 
         Spacer(Modifier.height(12.dp))
 
-        PrimaryButton("验证") {
+        PrimaryButton(stringResource(R.string.action_verify)) {
             if (RustBridge.validateTwoFactor(code)) {
                 onVerify(code)
             }

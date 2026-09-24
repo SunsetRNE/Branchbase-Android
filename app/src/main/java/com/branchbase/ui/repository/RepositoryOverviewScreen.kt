@@ -30,6 +30,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,6 +46,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.cache.PreloadStore
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
@@ -237,7 +240,7 @@ fun RepositoryOverviewContent(
             // 实际分支：用户选择 ?: 仓库默认分支 ?: 上一次的值（**不用猜的兜底**）
             if (knownBranch != null) effectiveBranch = knownBranch
             infoLoading = repoInfo == null
-            if (repoInfo == null && !loading) error = "仓库不存在或无权访问"
+            if (repoInfo == null && !loading) error = context.getString(R.string.error_repo_not_found_or_forbidden)
 
             langJob.await()?.let { languages = it; repoOverviewMemory.putLanguages(owner, repo, it) }
             langLoading = false
@@ -310,10 +313,10 @@ fun RepositoryOverviewContent(
                 // 分支同步入口不在这里：它是写操作、又占掉首屏一整行，已收进底部栏 ⋮ 气泡
                 // （见 RepositoryScreen 的 bubbleEntries，按 canPush 门控）。
 
-                item { SectionTitle("自述文件 README") }
+                item { SectionTitle(stringResource(R.string.label_readme)) }
                 when {
-                    readmeLoading -> item { SectionLoading("正在加载自述文件…") }
-                    readmeHtml == null -> item { EmptyHint("暂无自述文件") }
+                    readmeLoading -> item { SectionLoading(stringResource(R.string.state_loading_readme)) }
+                    readmeHtml == null -> item { EmptyHint(stringResource(R.string.state_no_readme)) }
                     else -> item {
                         ReadmeWebView(
                             html = readmeHtml!!,
@@ -330,19 +333,19 @@ fun RepositoryOverviewContent(
                     }
                 }
 
-                item { SectionTitle("许可证 License") }
+                item { SectionTitle(stringResource(R.string.label_license)) }
                 item { LicenseRow(repoInfo?.license) }
 
-                item { SectionTitle("贡献者 Contributors") }
+                item { SectionTitle(stringResource(R.string.label_contributors)) }
                 when {
-                    contribLoading -> item { SectionLoading("正在加载贡献者…") }
-                    contributors.isEmpty() -> item { EmptyHint("暂无贡献者") }
+                    contribLoading -> item { SectionLoading(stringResource(R.string.state_loading_contributors)) }
+                    contributors.isEmpty() -> item { EmptyHint(stringResource(R.string.state_no_contributors)) }
                     else -> items(contributors, key = { it.login }) { ContributorRow(it) }
                 }
 
-                item { SectionTitle("项目语言 Languages") }
+                item { SectionTitle(stringResource(R.string.label_languages)) }
                 if (langLoading) {
-                    item { SectionLoading("正在加载语言构成…") }
+                    item { SectionLoading(stringResource(R.string.state_loading_languages)) }
                 } else {
                     item { LanguageSection(languages) }
                 }
@@ -406,7 +409,7 @@ private fun ActionRow(
     ) {
         ActionButton(
             icon = if (starred) Icons.Filled.Star else Icons.Filled.StarBorder,
-            label = if (starred) "已星标" else "星标",
+            label = if (starred) stringResource(R.string.state_starred) else stringResource(R.string.action_star),
             count = stars,
             selected = starred,
             enabled = !busy,
@@ -415,14 +418,14 @@ private fun ActionRow(
         )
         ActionButton(
             icon = Icons.AutoMirrored.Filled.CallSplit,
-            label = "复刻",
+            label = stringResource(R.string.action_fork),
             count = forks,
             enabled = forkDecision.mode != ForkMode.DISABLED,
             onClick = onForkClick,
         )
         ActionButton(
             icon = if (ignoring) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-            label = if (ignoring) "已忽略" else "关注",
+            label = if (ignoring) stringResource(R.string.state_ignored) else stringResource(R.string.action_watch),
             count = watchers,
             selected = ignoring,
             onClick = onWatchClick,
@@ -503,7 +506,7 @@ private fun LicenseRow(license: String?) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = license ?: "无",
+            text = license ?: stringResource(R.string.label_none_value),
             fontSize = 13.sp,
             color = if (license != null) Primer.Blue500 else Primer.TextTertiary,
             fontWeight = FontWeight.Medium,
@@ -526,14 +529,14 @@ private fun ContributorRow(c: Contributor) {
         Avatar(url = c.avatarUrl, login = c.login, size = 26.dp)
         Spacer(Modifier.width(10.dp))
         Text(c.login, fontSize = 13.sp, color = Primer.Blue500, modifier = Modifier.weight(1f))
-        Text("${c.commits} 次提交", fontSize = 12.sp, color = Primer.TextTertiary)
+        Text(pluralStringResource(R.plurals.label_commit_count, c.commits.toInt(), c.commits), fontSize = 12.sp, color = Primer.TextTertiary)
     }
 }
 
 @Composable
 private fun LanguageSection(langs: List<LanguageStat>) {
     if (langs.isEmpty()) {
-        EmptyHint("暂无语言数据")
+        EmptyHint(stringResource(R.string.state_no_language_data))
         return
     }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
@@ -595,7 +598,7 @@ private fun SectionLoading(text: String) {
 @Composable
 private fun ErrorState(message: String) {
     Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Text("加载失败", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+        Text(stringResource(R.string.error_load_failed), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
         Spacer(Modifier.height(4.dp))
         Text(message, fontSize = 12.sp, color = Primer.TextTertiary)
     }

@@ -1,0 +1,41 @@
+<resources>
+    <!--
+        :downloader 模块自带的文案（模块自治：删掉这个模块，这些文案一起消失）。
+
+        为什么放在模块里而不是让 :app 注入 —— 它们只被这个模块的通知用到，
+        与 App 的任何类型无关；模块内已有 res/xml（FileProvider 路径），加资源目录不引入新耦合。
+
+        ⚠️ 本模块出现任何一种语言目录，`:app` 必须也有同名目录：
+        `android:localeConfig` 由 AGP 按 **:app 自己的 res 目录**生成（不含库模块），
+        只在这里加 `values-de/` 会出现「通知是德文、界面是中文，且语言列表里没有德语」。
+        `tools/i18n/check-i18n.py` 会拦这种情况。
+    -->
+    <string name="downloader_channel_name">下载</string>
+    <string name="downloader_channel_desc">下载进度与完成提醒</string>
+    <!-- 下载失败分类的文案（`DownloadErrors.kt`：模型只带 DownloadErrorCode，文案在这里）-->
+    <string name="downloader_error_bad_request">下载请求被拒绝（HTTP 400）</string>
+    <string name="downloader_error_unauthorized">登录状态已失效，请重新登录（HTTP 401）</string>
+    <string name="downloader_error_forbidden">没有下载该文件的权限（HTTP 403）</string>
+    <string name="downloader_error_not_found">文件不存在或已被删除（HTTP 404）</string>
+    <string name="downloader_error_request_timeout">服务端响应超时（HTTP 408）</string>
+    <string name="downloader_error_gone">文件已被移除（HTTP 410）</string>
+    <string name="downloader_error_too_many_requests">请求过于频繁，请稍后再试（HTTP 429）</string>
+    <string name="downloader_error_server">GitHub 服务端错误（HTTP %1$s），请稍后重试</string>
+    <string name="downloader_error_http_other">下载失败（HTTP %1$s）</string>
+    <string name="downloader_error_redirect">重定向异常（HTTP %1$s）</string>
+    <string name="downloader_error_range_invalid">断点信息已失效，请重试</string>
+    <string name="downloader_error_unknown_host">网络不可达：无法解析服务器地址</string>
+    <string name="downloader_error_connect_timeout">连接超时，请检查网络后重试</string>
+    <string name="downloader_error_tls">安全连接失败（证书校验未通过）</string>
+    <string name="downloader_error_connect_failed">无法连接服务器，请检查网络</string>
+    <string name="downloader_error_interrupted">下载被中断，请重试</string>
+    <string name="downloader_error_file_not_found">文件不存在或已被删除</string>
+    <string name="downloader_error_io">网络中断，请重试</string>
+    <string name="downloader_error_unknown">下载失败（%1$s），请重试</string>
+    <string name="downloader_finished">下载完成</string>
+    <string name="downloader_failed">下载失败</string>
+    <string name="downloader_failed_with_reason">下载失败：%1$s</string>
+    <string name="downloader_placeholder_text">准备下载</string>
+    <string name="downloader_error_background_timeout">后台下载超时（系统限制），可重试续传</string>
+    <string name="downloader_error_checksum">文件校验失败（sha256 不匹配）</string>
+</resources>

@@ -33,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,6 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.branchbase.R
 import com.branchbase.core.Account
 import com.branchbase.core.AccountStatus
 import com.branchbase.core.AccountStore
@@ -138,9 +140,9 @@ fun AccountsScreen(
         modifier = Modifier.fillMaxSize().background(Primer.BackgroundPrimary)
             .statusBarsPadding().navigationBarsPadding(),
     ) {
-        SubPageHeader("账号", onBack) {
+        SubPageHeader(stringResource(R.string.nav_account), onBack) {
             Text(
-                "全部检查",
+                stringResource(R.string.action_check_all),
                 fontSize = 13.sp,
                 color = if (checking.isEmpty()) Primer.Blue500 else Primer.TextTertiary,
                 modifier = Modifier.clickable(enabled = checking.isEmpty()) {
@@ -158,9 +160,9 @@ fun AccountsScreen(
             // 总高超出容器，超出部分画到边界之外（被底部导航栏压住）
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("还没有账号", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
+                    Text(stringResource(R.string.state_no_accounts), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
                     Spacer(Modifier.height(4.dp))
-                    Text("登录后即可管理本地仓库与任务", fontSize = 12.sp, color = Primer.TextTertiary)
+                    Text(stringResource(R.string.note_sign_in_to_manage), fontSize = 12.sp, color = Primer.TextTertiary)
                 }
             }
         } else {
@@ -175,7 +177,7 @@ fun AccountsScreen(
                         onSwitch = {
                             if (AccountStore.switchTo(context, a.id)) {
                                 reload()
-                                feedback = "已切换到 @${a.login}"
+                                feedback = context.getString(R.string.state_switched_account, a.login)
                                 // 重建 Activity：登录态从 session 键恢复，全 App 切到新账号
                                 (context as? android.app.Activity)?.recreate()
                             }
@@ -216,12 +218,12 @@ fun AccountsScreen(
                         Spacer(Modifier.width(6.dp))
                         // 「添加账号」= 再登一个号（当前账号保持登录、凭据不动）。
                         // 它的出口是登录流程里的返回键 → 回到本页，因此这里不再自称「登录」。
-                        Text("添加账号", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
+                        Text(stringResource(R.string.action_add_account), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
                     }
                 }
                 item {
                     Text(
-                        "每个账号的本地仓库与任务互相隔离（repos/{login}/…）。删除账号不会删除它们，重新登录同一账号即可再次看到。",
+                        stringResource(R.string.note_account_isolation),
                         fontSize = 11.5.sp,
                         color = Primer.TextTertiary,
                         lineHeight = 17.sp,
@@ -241,7 +243,7 @@ fun AccountsScreen(
             onDismissRequest = { deleteTarget = null },
             title = {
                 Text(
-                    "删除「${target.login} · ${target.auth.label}」？",
+                    stringResource(R.string.confirm_delete_account_title, target.login, target.auth.label),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     color = Primer.TextPrimary,
@@ -253,8 +255,7 @@ fun AccountsScreen(
                     if (sameLoginOthers > 0) {
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            "同一账号还有 ${sameLoginOthers} 条其它登录方式的记录（账号列表里单独一行），" +
-                                "这次只删这一条。",
+                            stringResource(R.string.note_delete_account_only_this, sameLoginOthers),
                             fontSize = 12.sp,
                             color = Primer.TextSecondary,
                             lineHeight = 18.sp,
@@ -262,8 +263,7 @@ fun AccountsScreen(
                     }
                     Spacer(Modifier.height(10.dp))
                     Text(
-                        "该账号名下的本地仓库（${LocalRepos.count(context, target.login)} 个）与任务记录会保留，" +
-                            "重新登录同一账号后即可再次看到；其他账号看不到这些数据。",
+                        stringResource(R.string.note_delete_account_keeps_data, LocalRepos.count(context, target.login)),
                         fontSize = 12.sp,
                         color = Primer.TextTertiary,
                         lineHeight = 18.sp,
@@ -275,11 +275,11 @@ fun AccountsScreen(
                     val login = target.login
                     AccountStore.remove(context, target.id)
                     reload()
-                    feedback = "已删除 $login · ${target.auth.label}"
+                    feedback = context.getString(R.string.state_account_deleted, login, target.auth.label)
                     deleteTarget = null
-                }) { Text("删除", color = Primer.DangerText) }
+                }) { Text(stringResource(R.string.action_delete), color = Primer.DangerText) }
             },
-            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
 }
@@ -317,7 +317,7 @@ private fun AccountCard(
                     Text(account.login, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
                     if (isCurrent) {
                         Spacer(Modifier.width(6.dp))
-                        Badge("当前", Primer.AccentText, Primer.InfoSurfaceSoft, Primer.Border)
+                        Badge(stringResource(R.string.label_current), Primer.AccentText, Primer.InfoSurfaceSoft, Primer.Border)
                     }
                 }
                 Spacer(Modifier.height(2.dp))
@@ -326,23 +326,23 @@ private fun AccountCard(
             Box {
                 Icon(
                     Icons.Filled.MoreVert,
-                    contentDescription = "更多",
+                    contentDescription = stringResource(R.string.action_more),
                     tint = Primer.TextSecondary,
                     modifier = Modifier.size(22.dp).iconTap { menuOpen = true },
                 )
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     DropdownMenuItem(
-                        text = { Text("检查状态", fontSize = 13.sp) },
+                        text = { Text(stringResource(R.string.action_check_status), fontSize = 13.sp) },
                         onClick = { menuOpen = false; onCheck() },
                     )
                     if (!isCurrent) {
                         DropdownMenuItem(
-                            text = { Text("切换到此账号", fontSize = 13.sp) },
+                            text = { Text(stringResource(R.string.action_switch_to_account), fontSize = 13.sp) },
                             onClick = { menuOpen = false; onSwitch() },
                         )
                     }
                     DropdownMenuItem(
-                        text = { Text("删除账号", fontSize = 13.sp, color = Primer.DangerText) },
+                        text = { Text(stringResource(R.string.action_delete_account), fontSize = 13.sp, color = Primer.DangerText) },
                         onClick = { menuOpen = false; onDelete() },
                     )
                 }
@@ -361,7 +361,7 @@ private fun AccountCard(
             Spacer(Modifier.width(6.dp))
             Badge(account.auth.label, Primer.TextTertiary, Primer.Gray150, Primer.Border)
             Spacer(Modifier.width(6.dp))
-            Badge("$repoCount 个本地仓库", Primer.TextTertiary, Primer.Gray150, Primer.Border)
+            Badge(stringResource(R.string.label_local_repo_count, repoCount), Primer.TextTertiary, Primer.Gray150, Primer.Border)
             if (account.lastCheck > 0) {
                 Spacer(Modifier.width(6.dp))
                 Badge(relativeCheck(account.lastCheck), Primer.TextTertiary, Primer.Gray150, Primer.Border)

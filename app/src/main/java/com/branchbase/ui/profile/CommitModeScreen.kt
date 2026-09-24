@@ -12,6 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -20,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.theme.Primer
 
@@ -41,10 +43,10 @@ fun CommitModeScreen(onBack: () -> Unit) {
             .statusBarsPadding().navigationBarsPadding()
             .verticalScroll(rememberScrollState()),
     ) {
-        SubPageHeader("提交模式", onBack)
+        SubPageHeader(stringResource(R.string.nav_commit_mode), onBack)
 
         Text(
-            "决定你改完代码后，改动以什么方式落到 GitHub。切换后立即生效，已存在的本地仓库不受影响。",
+            stringResource(R.string.note_commit_mode_explain),
             fontSize = 12.sp,
             color = Primer.TextTertiary,
             lineHeight = 18.sp,
@@ -65,7 +67,7 @@ fun CommitModeScreen(onBack: () -> Unit) {
         }
 
         Text(
-            "当前：${mode?.label ?: "未配置（首次提交时会询问）"}",
+            stringResource(R.string.label_current_mode, mode?.label ?: stringResource(R.string.state_not_configured_will_ask)),
             fontSize = 11.5.sp,
             color = Primer.TextTertiary,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),

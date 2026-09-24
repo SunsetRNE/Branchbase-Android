@@ -1,6 +1,7 @@
 package com.branchbase.ui.repository
 
 import com.branchbase.joblogs.LogSegment
+import com.branchbase.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -249,15 +250,20 @@ class WorkflowModelsTest {
     }
 
     @Test
-    fun `状态与事件中文标签`() {
-        assertEquals("成功", runStatusLabel("completed", "success"))
-        assertEquals("失败", runStatusLabel("completed", "failure"))
-        assertEquals("进行中", runStatusLabel("in_progress", null))
-        assertEquals("排队中", runStatusLabel("queued", null))
-        assertEquals("启动失败", runStatusLabel("completed", "startup_failure"))
-        assertEquals("手动触发", eventLabel("workflow_dispatch"))
-        assertEquals("推送", eventLabel("push"))
-        assertEquals("—", eventLabel(""))
+    fun `状态与事件标签映射到资源`() {
+        // ⚠️ 断言的是**资源 ID**，不是文案：标签已经资源化
+        // （`runStatusLabelResOrNull` 返回 `@StringRes Int?`），文案在 values*/strings.xml 里。
+        // 断言 ID 与断言文案等价 —— 都钉住「这个状态 → 这个标签」的映射，且改译文不会红。
+        assertEquals(R.string.workflow_status_success, runStatusLabelResOrNull("completed", "success"))
+        assertEquals(R.string.workflow_status_failure, runStatusLabelResOrNull("completed", "failure"))
+        assertEquals(R.string.workflow_status_in_progress, runStatusLabelResOrNull("in_progress", null))
+        assertEquals(R.string.workflow_status_queued, runStatusLabelResOrNull("queued", null))
+        assertEquals(R.string.workflow_status_startup_failure, runStatusLabelResOrNull("completed", "startup_failure"))
+        assertEquals(R.string.workflow_event_workflow_dispatch, eventLabelResOrNull("workflow_dispatch"))
+        assertEquals(R.string.workflow_event_push, eventLabelResOrNull("push"))
+        // 没有专属资源时给 null，由调用方原样透出（空事件由它回落成 `—`）
+        assertNull("未知事件必须回落到原值而不是被吞掉", eventLabelResOrNull(""))
+        assertNull(runStatusLabelResOrNull("something_new", null))
     }
 
     // ── 日志分段 ──

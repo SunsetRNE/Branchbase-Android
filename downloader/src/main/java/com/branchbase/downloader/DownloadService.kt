@@ -95,7 +95,7 @@ class DownloadService : Service() {
             DownloadStore.update(active.id) {
                 it.copy(
                     status = DownloadStatus.FAILED,
-                    error = "后台下载超时（系统限制），可重试续传",
+                    failure = DownloadFailure(DownloadErrorCode.BACKGROUND_TIMEOUT),
                     updatedAtMs = System.currentTimeMillis(),
                 )
             }
@@ -144,7 +144,7 @@ class DownloadService : Service() {
                     DownloadStore.update(id) {
                         it.copy(
                             status = DownloadStatus.FAILED,
-                            error = "文件校验失败（sha256 不匹配）",
+                            failure = DownloadFailure(DownloadErrorCode.CHECKSUM_MISMATCH),
                             updatedAtMs = System.currentTimeMillis(),
                         )
                     }
@@ -160,7 +160,7 @@ class DownloadService : Service() {
                         downloadedBytes = result.bytes,
                         totalBytes = maxOf(result.bytes, it.totalBytes),
                         file = if (moved) finalFile else part,
-                        error = null,
+                        failure = null,
                         updatedAtMs = System.currentTimeMillis(),
                     )
                 }
@@ -170,7 +170,7 @@ class DownloadService : Service() {
                 DownloadStore.update(id) {
                     it.copy(
                         status = DownloadStatus.FAILED,
-                        error = result.message,
+                        failure = result.failure,
                         updatedAtMs = System.currentTimeMillis(),
                     )
                 }

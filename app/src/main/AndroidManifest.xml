@@ -27,11 +27,27 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.MyApplication"
         tools:targetApi="31">
+        <!--
+            `configChanges="locale|layoutDirection"`：语言/布局方向变化时**自己消化，不重建 Activity**。
+
+            为什么必须声明 —— API 33+ 的应用内语言（`LocaleManager.setApplicationLocales`）
+            默认行为是**重建 Activity**，除非应用自己处理 locale 配置变更。对这个 App 来说重建的代价
+            不是「闪一下」而是**丢状态**：`MainNavMemory` / `PageTransitions` 的导航记忆、
+            各页面的取数状态、README WebView 的滚动位置都会被清掉，回到用户眼前就是白闪 + 跳回顶部。
+
+            声明之后由框架负责把新 Configuration 应用到 Activity 的 Resources，
+            Compose 侧 `LocalConfiguration` 跟着更新，`stringResource` 自动取到新语言的文案。
+            系统语言变化（不只是应用内切换）走的也是这条路径 —— 同样不重建，同样不闪。
+
+            ⚠️ 代价：非 Compose 表面（前台服务通知、分享 chooser 等）不再伴随重建被动刷新，
+            需要它们自己保证取到的是当前 locale 的文案。
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
             android:launchMode="singleTask"
+            android:configChanges="locale|layoutDirection"
             android:theme="@style/Theme.MyApplication">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

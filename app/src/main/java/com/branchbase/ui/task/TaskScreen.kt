@@ -30,6 +30,8 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +47,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.ui.navigation.PageLevel
 import com.branchbase.ui.navigation.PageSwitcher
 import com.branchbase.ui.theme.iconTap
@@ -116,7 +119,7 @@ fun TaskScreen(onBack: () -> Unit) {
                             TaskStore.delete(context, current.id)
                             detail = null
                             reload()
-                            feedback = "已删除记录 #${current.id}"
+                            feedback = context.getString(R.string.toast_deleted_record_current, current.id)
                         }
                     },
                 )
@@ -146,14 +149,14 @@ fun TaskScreen(onBack: () -> Unit) {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack, "返回",
+                            Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back),
                             tint = Primer.IconPrimary,
                             modifier = Modifier.size(24.dp).iconTap { onBack() },
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text("任务", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+                        Text(stringResource(R.string.nav_tasks), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
                         Spacer(Modifier.weight(1f))
-                        Text("${tasks.size} 条记录", fontSize = 12.sp, color = Primer.TextTertiary)
+                        Text(pluralStringResource(R.plurals.label_record_count, tasks.size, tasks.size), fontSize = 12.sp, color = Primer.TextTertiary)
                     }
 
                     // 筛选 chips
@@ -192,10 +195,10 @@ fun TaskScreen(onBack: () -> Unit) {
                     if (shown.isEmpty()) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("暂无任务记录", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
+                                Text(stringResource(R.string.state_no_task_records), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
                                 Spacer(Modifier.height(4.dp))
                                 Text(
-                                    "拉取仓库、提交文件、创建 PR 等操作会在这里留下记录",
+                                    stringResource(R.string.note_task_records_hint),
                                     fontSize = 12.sp,
                                     color = Primer.TextTertiary,
                                 )
@@ -213,7 +216,7 @@ fun TaskScreen(onBack: () -> Unit) {
                                             scope.launch {
                                                 TaskStore.delete(context, t.id)
                                                 reload()
-                                                feedback = "已删除记录 #${t.id}"
+                                                feedback = context.getString(R.string.toast_deleted_record, t.id)
                                             }
                                         },
                                     )
@@ -227,12 +230,12 @@ fun TaskScreen(onBack: () -> Unit) {
                         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        BottomBtn("清理已完成", Primer.TextSecondary, Modifier.weight(1f)) {
+                        BottomBtn(stringResource(R.string.action_clear_completed), Primer.TextSecondary, Modifier.weight(1f)) {
                             clearAllMode = false
                             confirmed = false
                             showClearDialog = true
                         }
-                        BottomBtn("全部清除", Primer.Red500, Modifier.weight(1f)) {
+                        BottomBtn(stringResource(R.string.action_clear_all), Primer.Red500, Modifier.weight(1f)) {
                             clearAllMode = true
                             confirmed = false
                             showClearDialog = true
@@ -245,17 +248,17 @@ fun TaskScreen(onBack: () -> Unit) {
                     val running = tasks.count { it.status == TaskStatus.RUNNING }
                     AlertDialog(
                         onDismissRequest = { showClearDialog = false },
-                        title = { Text(if (clearAllMode) "清除全部任务记录" else "清理已完成/失败记录") },
+                        title = { Text(if (clearAllMode) stringResource(R.string.action_clear_all_task_records) else stringResource(R.string.action_clear_finished_records)) },
                         text = {
                             Column {
                                 Text(
-                                    if (clearAllMode) "将清除全部 $finished 条已结束记录与 $running 个运行中记录（运行中任务会被中断记录）。"
-                                    else "将清理 $finished 条已结束记录，保留 $running 个运行中任务。",
+                                    if (clearAllMode) stringResource(R.string.confirm_clear_all_body, finished, running)
+                                    else stringResource(R.string.confirm_clear_finished_body, finished, running),
                                     fontSize = 13.sp,
                                     color = Primer.TextSecondary,
                                 )
                                 Spacer(Modifier.height(6.dp))
-                                Text("任务记录仅存本地，删除后不可恢复。", fontSize = 12.sp, color = Primer.TextTertiary)
+                                Text(stringResource(R.string.note_records_local_only), fontSize = 12.sp, color = Primer.TextTertiary)
                                 Spacer(Modifier.height(10.dp))
                                 Row(
                                     Modifier.clickable { confirmed = !confirmed },
@@ -270,7 +273,7 @@ fun TaskScreen(onBack: () -> Unit) {
                                         contentAlignment = Alignment.Center,
                                     ) { if (confirmed) Text("✓", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                                     Spacer(Modifier.width(8.dp))
-                                    Text("我确认清理这些记录", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+                                    Text(stringResource(R.string.confirm_clear_records_checkbox), fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
                                 }
                             }
                         },
@@ -282,12 +285,12 @@ fun TaskScreen(onBack: () -> Unit) {
                                         val n = if (clearAllMode) TaskStore.clearAll(context) else TaskStore.clearFinished(context)
                                         showClearDialog = false
                                         reload()
-                                        feedback = "已清理 $n 条记录"
+                                        feedback = context.getString(R.string.toast_cleared_records, n)
                                     }
                                 },
-                            ) { Text("清理", color = if (confirmed) Primer.Red500 else Primer.TextTertiary) }
+                            ) { Text(stringResource(R.string.action_clear_records), color = if (confirmed) Primer.Red500 else Primer.TextTertiary) }
                         },
-                        dismissButton = { TextButton(onClick = { showClearDialog = false }) { Text("取消") } },
+                        dismissButton = { TextButton(onClick = { showClearDialog = false }) { Text(stringResource(R.string.action_cancel)) } },
                     )
                 }
                     }
@@ -359,7 +362,7 @@ fun TaskScreen(onBack: () -> Unit) {
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        "删除",
+                        stringResource(R.string.action_delete),
                         fontSize = 11.sp,
                         color = Primer.Red500,
                         modifier = Modifier.clickable { onDelete() },
@@ -367,10 +370,10 @@ fun TaskScreen(onBack: () -> Unit) {
                 }
                 Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 11.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("开始 ${formatTime(task.createdAt)}", fontSize = 11.5.sp, color = Primer.TextTertiary)
+                        Text(stringResource(R.string.label_started_at, formatTime(task.createdAt)), fontSize = 11.5.sp, color = Primer.TextTertiary)
                         Text(
-                            if (task.status == TaskStatus.RUNNING) "已运行 ${formatDuration(System.currentTimeMillis() - task.createdAt)}"
-                            else "耗时 ${formatDuration((task.finishedAt ?: task.updatedAt) - task.createdAt)}",
+                            if (task.status == TaskStatus.RUNNING) stringResource(R.string.label_running_for, formatDuration(System.currentTimeMillis() - task.createdAt))
+                            else stringResource(R.string.label_took, formatDuration((task.finishedAt ?: task.updatedAt) - task.createdAt)),
                             fontSize = 11.5.sp,
                             color = Primer.TextTertiary,
                         )
@@ -420,22 +423,22 @@ private fun TaskDetailScreen(task: TaskRecord, onBack: () -> Unit, onDelete: () 
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                Icons.AutoMirrored.Filled.ArrowBack, "返回",
+                Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back),
                 tint = Primer.IconPrimary,
                 modifier = Modifier.size(24.dp).iconTap { onBack() },
             )
             Spacer(Modifier.width(8.dp))
-            Text("任务详情", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+            Text(stringResource(R.string.label_task_details), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
             Spacer(Modifier.weight(1f))
             Text("#${task.id}", fontSize = 12.sp, color = Primer.TextTertiary)
         }
 
         Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
-            DetailCard("基本信息") {
-                DetailRow("任务", task.title)
-                DetailRow("类型", "${task.kind.label} · ${if (task.durable) "长任务" else "短任务"}", mono = true)
+            DetailCard(stringResource(R.string.label_basic_info)) {
+                DetailRow(stringResource(R.string.nav_tasks), task.title)
+                DetailRow(stringResource(R.string.label_type), stringResource(R.string.label_task_kind, task.kind.label, if (task.durable) stringResource(R.string.label_long_task) else stringResource(R.string.label_short_task)), mono = true)
                 DetailRow(
-                    "状态", task.status.label,
+                    stringResource(R.string.label_status), task.status.label,
                     valueColor = when (task.status) {
                         TaskStatus.RUNNING -> Primer.Blue500
                         TaskStatus.SUCCESS -> Primer.Green500
@@ -443,17 +446,17 @@ private fun TaskDetailScreen(task: TaskRecord, onBack: () -> Unit, onDelete: () 
                         TaskStatus.CANCELED -> Primer.Gray500
                     },
                 )
-                DetailRow("开始", formatDateTime(task.createdAt), mono = true)
-                task.finishedAt?.let { DetailRow("结束", formatDateTime(it), mono = true) }
+                DetailRow(stringResource(R.string.label_started), formatDateTime(task.createdAt), mono = true)
+                task.finishedAt?.let { DetailRow(stringResource(R.string.label_finished), formatDateTime(it), mono = true) }
                 DetailRow(
-                    "耗时",
+                    stringResource(R.string.label_duration),
                     formatDuration((task.finishedAt ?: task.updatedAt) - task.createdAt),
                 )
             }
             Spacer(Modifier.height(10.dp))
-            DetailCard("详情") {
+            DetailCard(stringResource(R.string.label_details)) {
                 Text(
-                    task.detail.ifBlank { "（无）" },
+                    task.detail.ifBlank { stringResource(R.string.label_none) },
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
                     color = if (task.status == TaskStatus.FAILED) Primer.Red500 else Primer.TextSecondary,
@@ -461,9 +464,9 @@ private fun TaskDetailScreen(task: TaskRecord, onBack: () -> Unit, onDelete: () 
                 )
             }
             Spacer(Modifier.height(10.dp))
-            DetailCard("存储") {
-                DetailRow("位置", "Room · tasks.db（仅本地）", mono = true)
-                DetailRow("更新", formatDateTime(task.updatedAt), mono = true)
+            DetailCard(stringResource(R.string.label_storage)) {
+                DetailRow(stringResource(R.string.label_location), stringResource(R.string.label_storage_local), mono = true)
+                DetailRow(stringResource(R.string.action_update), formatDateTime(task.updatedAt), mono = true)
             }
         }
 
@@ -471,8 +474,8 @@ private fun TaskDetailScreen(task: TaskRecord, onBack: () -> Unit, onDelete: () 
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            BottomBtn("返回", Primer.TextSecondary, Modifier.weight(1f)) { onBack() }
-            BottomBtn("删除记录", Primer.Red500, Modifier.weight(1f)) { onDelete() }
+            BottomBtn(stringResource(R.string.action_back), Primer.TextSecondary, Modifier.weight(1f)) { onBack() }
+            BottomBtn(stringResource(R.string.action_delete_record), Primer.Red500, Modifier.weight(1f)) { onDelete() }
         }
     }
 }

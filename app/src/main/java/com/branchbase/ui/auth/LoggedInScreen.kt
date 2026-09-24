@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -24,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.branchbase.R
 import com.branchbase.ui.theme.Primer
 import org.json.JSONObject
 
@@ -37,7 +39,7 @@ fun LoggedInScreen(
 ) {
     // 解析会话 JSON，提取用户信息（失败则用占位）
     val user = runCatching { JSONObject(sessionJson).getJSONObject("user") }.getOrNull()
-    val login = user?.optString("login", "未知用户") ?: "未知用户"
+    val login = user?.optString("login", stringResource(R.string.label_unknown_user)) ?: stringResource(R.string.label_unknown_user)
     val name = user?.optString("name")?.takeIf { it.isNotBlank() }
     val avatarUrl = user?.optString("avatar_url")?.takeIf { it.isNotBlank() }
 
@@ -93,7 +95,7 @@ fun LoggedInScreen(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                "✓ 已登录 GitHub",
+                stringResource(R.string.state_signed_in_github),
                 modifier = Modifier.padding(vertical = 14.dp),
                 color = Primer.Green500,
                 fontWeight = FontWeight.SemiBold,
@@ -105,7 +107,7 @@ fun LoggedInScreen(
 
         // 登出按钮
         TextButton(onClick = onLogout) {
-            Text("登出", color = Primer.Red500, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.action_sign_out_alt), color = Primer.Red500, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         }
         Spacer(Modifier.height(32.dp))
     }

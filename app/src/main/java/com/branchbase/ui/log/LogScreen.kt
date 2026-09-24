@@ -42,6 +42,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,6 +58,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.ui.theme.selectionColor
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Primer
@@ -117,10 +119,10 @@ fun LogScreen(onBack: () -> Unit) {
     fun shareZip(ok: LogExporter.Result.Ok) {
         val sent = runCatching {
             context.startActivity(
-                Intent.createChooser(LogExporter.shareIntent(context, ok), "分享日志包"),
+                Intent.createChooser(LogExporter.shareIntent(context, ok), context.getString(R.string.action_share_log_bundle)),
             )
         }.isSuccess
-        if (!sent) exportError = "没有可用的分享应用（日志包已保存到 ${ok.displayDir}）"
+        if (!sent) exportError = context.getString(R.string.error_no_share_app, ok.displayDir)
     }
 
     fun doExport() {
@@ -144,7 +146,7 @@ fun LogScreen(onBack: () -> Unit) {
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (granted) doExport() else {
-            exportError = "没有存储权限，无法写入 Download/${LogExporter.DIR_NAME}/"
+            exportError = context.getString(R.string.error_no_storage_permission, LogExporter.DIR_NAME)
             exportNeedsPermission = true
         }
     }
@@ -185,18 +187,18 @@ fun LogScreen(onBack: () -> Unit) {
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back), tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
             Spacer(Modifier.width(8.dp))
-            Text("日志", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+            Text(stringResource(R.string.nav_logs), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
             Spacer(Modifier.weight(1f))
             // ── 导出（直接替换掉原来的「导出 .log」）──
             // 旧行为是把全文塞进剪贴板：长日志既慢、又容易被别的输入框截断，而且出了 App 就没了。
             // 现在一次点击就是完整链路：打包 zip → 落盘 `Download/Branchbase/` → 拉起系统分享。
             // （单条/全量复制仍然可用：点日志行复制单条、过滤面板里有「复制」，都不受影响。）
             TextButton(onClick = { startExport() }, enabled = !exporting) {
-                Text(if (exporting) "导出中…" else "导出", color = Primer.Blue500, fontSize = 13.sp)
+                Text(if (exporting) stringResource(R.string.state_exporting) else stringResource(R.string.action_export), color = Primer.Blue500, fontSize = 13.sp)
             }
-            TextButton(onClick = { LogManager.clear(); refresh() }) { Text("清空", color = Primer.Red500, fontSize = 13.sp) }
+            TextButton(onClick = { LogManager.clear(); refresh() }) { Text(stringResource(R.string.action_clear), color = Primer.Red500, fontSize = 13.sp) }
         }
 
         // 工具栏：搜索 + 级别下拉 + 过滤
@@ -208,17 +210,17 @@ fun LogScreen(onBack: () -> Unit) {
             OutlinedTextField(
                 value = keyword,
                 onValueChange = { keyword = it },
-                placeholder = { Text("搜索日志", fontSize = 13.sp) },
+                placeholder = { Text(stringResource(R.string.action_search_logs), fontSize = 13.sp) },
                 singleLine = true,
                 modifier = Modifier.weight(1f).height(48.dp),
                 textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
             )
             Box {
                 TextButton(onClick = { levelMenu = true }) {
-                    Text(curLevel?.name ?: "级别", fontSize = 12.sp)
+                    Text(curLevel?.name ?: stringResource(R.string.label_level), fontSize = 12.sp)
                 }
                 DropdownMenu(expanded = levelMenu, onDismissRequest = { levelMenu = false }) {
-                    DropdownMenuItem(text = { Text("全部级别") }, onClick = { curLevel = null; levelMenu = false })
+                    DropdownMenuItem(text = { Text(stringResource(R.string.filter_all_levels)) }, onClick = { curLevel = null; levelMenu = false })
                     LogLevel.entries.forEach { lv ->
                         DropdownMenuItem(text = { Text(lv.name) }, onClick = { curLevel = lv; levelMenu = false })
                     }
@@ -234,7 +236,7 @@ fun LogScreen(onBack: () -> Unit) {
             ) {
                 Icon(
                     Icons.Filled.FilterList,
-                    "过滤",
+                    stringResource(R.string.action_filter),
                     tint = selectionColor(filtered, on = Color.White, off = Primer.IconSecondary),
                 )
             }
@@ -248,7 +250,7 @@ fun LogScreen(onBack: () -> Unit) {
             LogCategory.entries.forEach { c ->
                 StatBadge(c.label, counts[c] ?: 0, catColor[c]!!)
             }
-            StatBadge("共", logs.size, null)
+            StatBadge(stringResource(R.string.label_total), logs.size, null)
         }
 
         // 双加载
@@ -256,7 +258,7 @@ fun LogScreen(onBack: () -> Unit) {
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(10.dp))
                 .background(Primer.Gray150).padding(4.dp),
         ) {
-            listOf(LogMode.STREAM to "时间流", LogMode.RAW to "原始日志").forEach { (m, label) ->
+            listOf(LogMode.STREAM to stringResource(R.string.label_timeline), LogMode.RAW to stringResource(R.string.label_raw_log)).forEach { (m, label) ->
                 Text(
                     label,
                     fontSize = 13.sp,
@@ -275,7 +277,7 @@ fun LogScreen(onBack: () -> Unit) {
         // 日志内容
         if (mode == LogMode.STREAM) {
             if (filtered.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("（无匹配日志）", color = Primer.TextTertiary, fontSize = 13.sp) }
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(stringResource(R.string.state_no_matching_logs), color = Primer.TextTertiary, fontSize = 13.sp) }
             } else {
                 LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
                     items(filtered, key = ::logItemKey) { e ->
@@ -294,7 +296,7 @@ fun LogScreen(onBack: () -> Unit) {
             ) {
                 if (filtered.isEmpty()) {
                     Text(
-                        "（无日志）",
+                        stringResource(R.string.state_no_logs),
                         fontSize = 12.sp,
                         color = Color(0xFFC9D1D9),
                         lineHeight = 20.sp,
@@ -340,14 +342,14 @@ fun LogScreen(onBack: () -> Unit) {
     exportError?.let { message ->
         AlertDialog(
             onDismissRequest = { exportError = null },
-            title = { Text("导出失败") },
+            title = { Text(stringResource(R.string.error_export_failed)) },
             text = {
                 Column {
                     Text(message, fontSize = 13.sp)
                     if (exportNeedsPermission) {
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "到「系统设置 → 应用 → Branchbase → 权限」里允许存储，再回来点一次导出。",
+                            stringResource(R.string.note_allow_storage),
                             fontSize = 12.sp,
                             color = Primer.TextTertiary,
                         )
@@ -367,13 +369,13 @@ fun LogScreen(onBack: () -> Unit) {
                                 ),
                             )
                         }
-                    }) { Text("去授权", color = Primer.Blue500) }
+                    }) { Text(stringResource(R.string.action_grant_permission), color = Primer.Blue500) }
                 } else {
-                    TextButton(onClick = { exportError = null }) { Text("知道了", color = Primer.Blue500) }
+                    TextButton(onClick = { exportError = null }) { Text(stringResource(R.string.action_got_it), color = Primer.Blue500) }
                 }
             },
             dismissButton = if (exportNeedsPermission) {
-                { TextButton(onClick = { exportError = null }) { Text("稍后", color = Primer.TextSecondary) } }
+                { TextButton(onClick = { exportError = null }) { Text(stringResource(R.string.action_later), color = Primer.TextSecondary) } }
             } else {
                 null
             },
@@ -443,34 +445,34 @@ private fun FilterDialog(
     val tags = remember(logs) { listOf(null) + logs.map { it.tag }.distinct() }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("过滤", fontWeight = FontWeight.Bold) },
+        title = { Text(stringResource(R.string.action_filter), fontWeight = FontWeight.Bold) },
         text = {
             Column {
-                Text("日志类别", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Primer.TextTertiary)
-                FilterOption("全部", curCategory == null) { onCategory(null) }
+                Text(stringResource(R.string.label_log_category), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Primer.TextTertiary)
+                FilterOption(stringResource(R.string.filter_all), curCategory == null) { onCategory(null) }
                 LogCategory.entries.forEach { c ->
                     FilterOption(c.label, curCategory == c, dot = catColor[c]) { onCategory(c) }
                 }
                 Spacer(Modifier.height(8.dp))
-                Text("级别", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Primer.TextTertiary)
-                FilterOption("全部级别", curLevel == null) { onLevel(null) }
+                Text(stringResource(R.string.label_level), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Primer.TextTertiary)
+                FilterOption(stringResource(R.string.filter_all_levels), curLevel == null) { onLevel(null) }
                 LogLevel.entries.forEach { lv ->
                     FilterOption(lv.name, curLevel == lv) { onLevel(lv) }
                 }
                 Spacer(Modifier.height(8.dp))
-                Text("模块 tag", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Primer.TextTertiary)
+                Text(stringResource(R.string.label_module_tag), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Primer.TextTertiary)
                 tags.forEach { t ->
-                    FilterOption(t ?: "全部 tag", curTag == t) { onTag(t) }
+                    FilterOption(t ?: stringResource(R.string.label_all_tags), curTag == t) { onTag(t) }
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onCopy(); onDismiss() }) { Text("复制日志") }
+            TextButton(onClick = { onCopy(); onDismiss() }) { Text(stringResource(R.string.action_copy_logs)) }
         },
         dismissButton = {
             Row {
-                TextButton(onClick = { onClear(); onDismiss() }) { Text("清空", color = Primer.Red500) }
-                TextButton(onClick = onDismiss) { Text("关闭") }
+                TextButton(onClick = { onClear(); onDismiss() }) { Text(stringResource(R.string.action_clear), color = Primer.Red500) }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_close)) }
             }
         },
     )

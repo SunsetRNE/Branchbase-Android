@@ -59,7 +59,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -71,12 +74,17 @@ import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.repository.RepoRelation
 import com.branchbase.ui.theme.selectionColor
 import com.branchbase.BuildConfig
+import com.branchbase.R
 import com.branchbase.core.AccountStatus
 import com.branchbase.core.AuthKind
 import com.branchbase.core.RepoCredentialStore
+import com.branchbase.ui.settings.currentAppLanguageTag
 import com.branchbase.ui.settings.frameWatchEnabled
 import com.branchbase.ui.settings.gitProxy
+import com.branchbase.ui.settings.languagePickerAvailable
+import com.branchbase.ui.settings.languageRowValue
 import com.branchbase.ui.settings.setFrameWatchEnabled
+import com.branchbase.ui.settings.supportedAppLanguages
 import com.branchbase.translate.TranslateSettings
 import com.branchbase.core.AccountStore
 import com.branchbase.ui.log.FrameWatch
@@ -152,6 +160,7 @@ enum class SubPage(val label: String) {
     CommitMode("提交模式"),
     GitProxy("Git 代理"),
     RepoCredentials("仓库凭据"),
+    Language("语言"),
 }
 
 // ───────────────────────── 缓存机制（内存缓存 + TTL 过期） ─────────────────────────
@@ -234,7 +243,7 @@ internal fun SubPageHeader(title: String, onBack: () -> Unit, trailing: @Composa
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
+        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back), tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
         Spacer(Modifier.width(8.dp))
         Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
         Spacer(Modifier.weight(1f))
@@ -247,7 +256,7 @@ internal fun SubPageHeader(title: String, onBack: () -> Unit, trailing: @Composa
 private fun RefreshButton(onRefresh: () -> Unit) {
     Icon(
         Icons.Filled.Refresh,
-        contentDescription = "刷新",
+        contentDescription = stringResource(R.string.action_refresh),
         tint = Primer.Blue500,
         modifier = Modifier.size(20.dp).iconTap { onRefresh() },
     )
@@ -306,7 +315,7 @@ fun StarsScreen(sessionJson: String, onBack: () -> Unit, onOpenRepo: (String) ->
     Column(
         modifier = Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding(),
     ) {
-        SubPageHeader("星标", onBack) {
+        SubPageHeader(stringResource(R.string.nav_starred), onBack) {
             Text("${repos.size}", fontSize = 13.sp, color = Primer.TextTertiary)
             Spacer(Modifier.width(12.dp))
             RefreshButton { refreshKey++ }
@@ -314,9 +323,9 @@ fun StarsScreen(sessionJson: String, onBack: () -> Unit, onOpenRepo: (String) ->
         // 原先这里是一个不可点的「搜索星标」占位框，已随占位清理移除；
         // 需要搜索时走首页的搜索入口（全局搜索页支持按仓库/代码等类型检索）。
         if (loading) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("加载中", color = Primer.TextTertiary) }
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text(stringResource(R.string.state_loading), color = Primer.TextTertiary) }
         } else if (repos.isEmpty()) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("暂无星标", fontSize = 13.sp, color = Primer.TextTertiary) }
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text(stringResource(R.string.state_no_starred), fontSize = 13.sp, color = Primer.TextTertiary) }
         } else {
             LazyColumn {
                 items(repos) { repo -> StarredRepoCard(repo, onClick = { onOpenRepo(repo.fullName) }) }
@@ -359,7 +368,7 @@ private fun StarredRepoCard(repo: RepoItem, onClick: () -> Unit) {
             Modifier.clip(RoundedCornerShape(6.dp)).background(Primer.WarningSurface).border(1.dp, Primer.Border, RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 3.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text("已星标", fontSize = 12.sp, color = Primer.WarningTextStrong)
+            Text(stringResource(R.string.state_starred), fontSize = 12.sp, color = Primer.WarningTextStrong)
         }
     }
 }
@@ -400,7 +409,7 @@ fun ProjectsScreen(sessionJson: String, onBack: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding(),
     ) {
-        SubPageHeader("项目", onBack) {
+        SubPageHeader(stringResource(R.string.nav_projects), onBack) {
             RefreshButton { refreshKey++ }
             Spacer(Modifier.width(12.dp))
             Box(
@@ -410,14 +419,14 @@ fun ProjectsScreen(sessionJson: String, onBack: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(2.dp))
-                    Text("新建", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color.White)
+                    Text(stringResource(R.string.action_new), fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color.White)
                 }
             }
         }
         if (loading) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("加载中", color = Primer.TextTertiary) }
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text(stringResource(R.string.state_loading), color = Primer.TextTertiary) }
         } else if (projects.isEmpty()) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("暂无项目", fontSize = 13.sp, color = Primer.TextTertiary) }
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text(stringResource(R.string.state_no_projects), fontSize = 13.sp, color = Primer.TextTertiary) }
         } else {
             LazyColumn {
                 items(projects) { project -> ProjectCard(project) }
@@ -478,6 +487,7 @@ fun SettingsScreen(
     onOpenCommitMode: () -> Unit,
     onOpenGitProxy: () -> Unit,
     onOpenRepoCredentials: () -> Unit,
+    onOpenLanguage: () -> Unit,
     onLogout: () -> Unit,
 ) {
     LaunchedEffect(Unit) { Logger.ui("进入设置页", "Compose") }
@@ -509,7 +519,15 @@ fun SettingsScreen(
     val logErrors = remember { LogManager.all().count { it.level == LogLevel.ERROR } }
     // 网络代理的显示值：同理进 remember —— 它原来写在 item 的组合体里，
     // 每次这一项被滚回来组合一次就要读一次 prefs
-    val proxyValue = remember { displayGitProxy(gitProxy(context)).ifEmpty { "未设置" } }
+    val proxyValue = remember { displayGitProxy(gitProxy(context)).ifEmpty { context.getString(R.string.state_not_set) } }
+
+    // 语言行的可见性与取值。三条都是系统状态（LocaleConfig / LocaleManager），
+    // 同上进 remember —— 设置页组合期读系统服务一律不裸调。
+    // ⚠️ 取键必须是 uiLocale：语言切换后值列要跟着变，用无参 remember 会停在切换前的语言上。
+    val uiLocale = LocalConfiguration.current.locales[0]
+    val languageAvailable = remember(uiLocale) { languagePickerAvailable(context) }
+    val languageTag = remember(uiLocale) { currentAppLanguageTag(context) }
+    val languageSupported = remember(uiLocale) { supportedAppLanguages(context) }
 
     LazyColumn(
         // 惰性化：设置页有 8 组卡片、二十多行，`Column + verticalScroll` 会在**首帧**
@@ -519,7 +537,7 @@ fun SettingsScreen(
     ) {
 
         item {
-            SubPageHeader("设置", onBack)
+            SubPageHeader(stringResource(R.string.nav_settings), onBack)
         }
 
         item {
@@ -528,7 +546,7 @@ fun SettingsScreen(
 
         // ── ① 账户：身份是第一信息（规范 §3.2） ──
         item {
-            SettingsSection("账户") {
+            SettingsSection(stringResource(R.string.label_account_group)) {
                 AccountRow(
                     login = account?.login,
                     host = account?.host,
@@ -545,11 +563,11 @@ fun SettingsScreen(
                 if (patMode) {
                     NavRow(
                         icon = Icons.Filled.Key,
-                        name = "仓库凭据",
+                        name = stringResource(R.string.nav_repo_credentials),
                         // 值列只报条数：令牌与本机 host 一律不进值列（规范 §4.3 / §6.5）。
                         // 数量用「N 条」，未配置用「未设置」（规范 §6.1：禁止「无」「空」「——」）
-                        value = if (repoCredentialCount > 0) "$repoCredentialCount 条" else "未设置",
-                        sub = "只在当前账号打不开的私有仓库上生效。",
+                        value = if (repoCredentialCount > 0) stringResource(R.string.label_credential_count, repoCredentialCount) else stringResource(R.string.state_not_set),
+                        sub = stringResource(R.string.note_repo_credentials_scope),
                         onClick = onOpenRepoCredentials,
                     )
                 }
@@ -558,27 +576,43 @@ fun SettingsScreen(
 
         // ── ② 外观：三档分段控件，取代「点一下循环」（规范 §5.2） ──
         item {
-            SettingsSection("外观") {
+            SettingsSection(stringResource(R.string.label_appearance_group)) {
                 ChoiceRow(
                     icon = Icons.Filled.Palette,
-                    name = "主题",
-                    sub = "选「跟随系统」时，App 会随系统的浅色 / 深色自动切换。",
+                    name = stringResource(R.string.label_theme),
+                    sub = stringResource(R.string.note_theme_follow_system),
                     options = ThemeMode.entries.map { it to it.label },
                     selected = themeMode,
                     onSelect = { ThemeRuntime.set(context, it) },
                     divider = false,
                 )
+                // 语言是**条件行**（同 §3.2.1 的「仓库凭据」）：API 33 以下没有 LocaleManager，
+                // 清单里只有一种语言时也没有可选项 —— 两种情况下整行不出现，而不是置灰。
+                // 判定收在 languagePickerAvailable 里（它同时覆盖这两个条件）。
+                if (languageAvailable) {
+                    NavRow(
+                        icon = Icons.Filled.Language,
+                        name = stringResource(R.string.settings_language),
+                        // 值列与语言页里的名称同源（都是母语自称），别一处写 English、一处写「英语」
+                        value = languageRowValue(
+                            languageTag,
+                            languageSupported,
+                            stringResource(R.string.language_follow_system),
+                        ),
+                        onClick = onOpenLanguage,
+                    )
+                }
             }
         }
 
         // ── ③ 通知 ──
         item {
-            SettingsSection("通知") {
+            SettingsSection(stringResource(R.string.nav_notifications)) {
                 // 这一行**不是**开关：系统通知权限不是 App 的布尔值，App 只能申请或跳系统设置。
                 // 用导航行 + 状态胶囊，才不会让「开了但系统没授权」变成一个骗人的开关（规范 §4.3）。
                 NavRow(
                     icon = Icons.Filled.Notifications,
-                    name = "通知",
+                    name = stringResource(R.string.nav_notifications),
                     sub = notificationPermission.hint,
                     value = notificationPermission.label,
                     onClick = onOpenNotificationSettings,
@@ -589,14 +623,14 @@ fun SettingsScreen(
 
         // ── ④ 翻译 ──
         item {
-            SettingsSection("翻译") {
+            SettingsSection(stringResource(R.string.label_translation_group)) {
                 SwitchRow(
                     icon = Icons.Filled.Translate,
-                    name = "自动翻译正文",
+                    name = stringResource(R.string.translate_auto_toggle),
                     sub = if (translateEnabled) {
-                        "进入自述文件等正文页会自动翻译，页面上出现可移动悬浮球。"
+                        stringResource(R.string.note_translate_enabled)
                     } else {
-                        "关闭后不进正文页翻译，页面上的悬浮球也会收起。"
+                        stringResource(R.string.note_translate_disabled)
                     },
                     checked = translateEnabled,
                     onCheckedChange = {
@@ -607,7 +641,7 @@ fun SettingsScreen(
                 )
                 NavRow(
                     icon = Icons.Filled.Tune,
-                    name = "沉浸式翻译",
+                    name = stringResource(R.string.translate_title),
                     onClick = onOpenTranslate,
                 )
             }
@@ -615,26 +649,26 @@ fun SettingsScreen(
 
         // ── ⑤ 代码与提交 ──
         item {
-            SettingsSection("代码与提交") {
+            SettingsSection(stringResource(R.string.label_code_commit_group)) {
                 NavRow(
                     icon = Icons.Filled.Commit,
-                    name = "提交模式",
-                    value = mode?.label ?: "未设置",
+                    name = stringResource(R.string.nav_commit_mode),
+                    value = mode?.label ?: stringResource(R.string.state_not_set),
                     onClick = onOpenCommitMode,
                     divider = false,
                 )
                 if (mode == CommitMode.LOCAL_REPO) {
                     NavRow(
                         icon = Icons.Filled.Folder,
-                        name = "本地仓库",
+                        name = stringResource(R.string.nav_local_repo),
                         onClick = onOpenLocalRepo,
                     )
                 } else {
                     // 禁用态**不能只调 alpha**：说明原因 + 给出去开启的路（规范 §6.3）
                     DisabledNavRow(
                         icon = Icons.Filled.Folder,
-                        name = "本地仓库",
-                        reason = "开启需先将「提交模式」设为「本地仓库（Git）」。",
+                        name = stringResource(R.string.nav_local_repo),
+                        reason = stringResource(R.string.note_local_repo_requires_git_mode),
                         onFix = onOpenCommitMode,
                     )
                 }
@@ -643,13 +677,13 @@ fun SettingsScreen(
 
         // ── ⑥ 网络 ──
         item {
-            SettingsSection("网络") {
+            SettingsSection(stringResource(R.string.label_network_group)) {
                 NavRow(
                     icon = Icons.Filled.Language,
-                    name = "Git 代理",
+                    name = stringResource(R.string.nav_git_proxy),
                     // 值列只显示 host:port，凭据不进列表（规范 §6.5）
                     value = proxyValue,
-                    sub = "仅作用于本地仓库的 clone / pull / push。",
+                    sub = stringResource(R.string.note_proxy_scope),
                     onClick = onOpenGitProxy,
                     divider = false,
                 )
@@ -658,16 +692,16 @@ fun SettingsScreen(
 
         // ── ⑦ 关于与诊断：兜底组，位置固定（规范 §3.3） ──
         item {
-            SettingsSection("关于与诊断") {
+            SettingsSection(stringResource(R.string.label_about_group)) {
                 // 慢帧日志：诊断仪表。默认值随编译通道（Beta 开 / 正式版关，见 build.gradle.kts 的
                 // FRAME_WATCH_DEFAULT），这里可以随时覆盖 —— 正式版用户要抓一次卡顿就靠它。
                 SwitchRow(
                     icon = Icons.Filled.Speed,
-                    name = "慢帧日志",
+                    name = stringResource(R.string.label_frame_watch),
                     sub = if (frameWatch) {
-                        "记录每次卡顿的耗时与分段（等待 / 动画 / 绘制 …）并带上页面名；日志每天 0 点换目录、旧的丢弃。"
+                        stringResource(R.string.note_frame_watch_desc)
                     } else {
-                        "关闭后不再记录慢帧；已经写进日志的内容不受影响。"
+                        stringResource(R.string.note_frame_watch_disabled)
                     },
                     checked = frameWatch,
                     onCheckedChange = {
@@ -679,13 +713,13 @@ fun SettingsScreen(
                 )
                 NavRow(
                     icon = Icons.AutoMirrored.Filled.Article,
-                    name = "日志",
-                    value = if (logErrors > 0) "$logErrors 条错误" else null,
+                    name = stringResource(R.string.nav_logs),
+                    value = if (logErrors > 0) pluralStringResource(R.plurals.label_error_count, logErrors, logErrors) else null,
                     onClick = onOpenLog,
                 )
                 NavRow(
                     icon = Icons.Filled.Info,
-                    name = "关于",
+                    name = stringResource(R.string.nav_about),
                     value = BuildConfig.STANDARD_VERSION,
                     onClick = onOpenAbout,
                 )
@@ -697,8 +731,8 @@ fun SettingsScreen(
             SettingsSection {
                 DangerRow(
                     icon = Icons.AutoMirrored.Filled.Logout,
-                    name = if (account != null) "退出登录 ${account.login}" else "退出登录",
-                    hint = "不可撤销",
+                    name = if (account != null) stringResource(R.string.confirm_sign_out_title, account.login) else stringResource(R.string.action_sign_out),
+                    hint = stringResource(R.string.label_irreversible),
                     onClick = { confirmLogout = true },
                     divider = false,
                 )
@@ -717,7 +751,7 @@ fun SettingsScreen(
             onDismissRequest = { confirmLogout = false },
             title = {
                 Text(
-                    if (account != null) "退出登录 ${account.login}" else "退出登录",
+                    if (account != null) stringResource(R.string.confirm_sign_out_title, account.login) else stringResource(R.string.action_sign_out),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Primer.TextPrimary,
@@ -725,9 +759,7 @@ fun SettingsScreen(
             },
             text = {
                 Text(
-                    "将清除本机保存的凭据，并切回未登录状态。\n" +
-                        "本地仓库目录、已下载内容与站内通知不受影响。\n" +
-                        "此操作不可撤销 —— 需要重新走一次授权才能恢复。",
+                    stringResource(R.string.confirm_sign_out_body),
                     fontSize = 13.sp,
                     lineHeight = 19.sp,
                     color = Primer.TextSecondary,
@@ -737,9 +769,9 @@ fun SettingsScreen(
                 TextButton(onClick = {
                     confirmLogout = false
                     onLogout()
-                }) { Text("退出登录", color = Primer.DangerText) }
+                }) { Text(stringResource(R.string.action_sign_out), color = Primer.DangerText) }
             },
-            dismissButton = { TextButton(onClick = { confirmLogout = false }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { confirmLogout = false }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
 }
@@ -767,14 +799,14 @@ fun NotificationSettingsScreen(onBack: () -> Unit) {
         modifier = Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding()
             .verticalScroll(rememberScrollState()),
     ) {
-        SubPageHeader("通知", onBack)
+        SubPageHeader(stringResource(R.string.nav_notifications), onBack)
         Spacer(Modifier.height(6.dp))
 
-        SettingsSection("系统通知") {
+        SettingsSection(stringResource(R.string.label_system_notifications)) {
             // 已开启 → 进系统设置（可关掉 / 改渠道）；未开启 → 能弹授权框就弹，否则去设置页
             NavRow(
                 icon = Icons.Filled.Notifications,
-                name = "允许发送通知",
+                name = stringResource(R.string.label_allow_notifications),
                 sub = permission.hint,
                 value = permission.label,
                 onClick = { if (permission.granted) permission.openSettings() else permission.request() },
@@ -782,11 +814,11 @@ fun NotificationSettingsScreen(onBack: () -> Unit) {
             )
         }
 
-        SettingsSection("通知显示模式") {
+        SettingsSection(stringResource(R.string.label_notification_display_mode)) {
             NotifLayout.entries.forEachIndexed { i, l ->
                 ModeOptionRow(
-                    label = l.label,
-                    desc = l.desc,
+                    label = stringResource(l.labelRes),
+                    desc = stringResource(l.descRes),
                     selected = layout == l,
                     divider = i != 0,
                 ) {
@@ -796,10 +828,9 @@ fun NotificationSettingsScreen(onBack: () -> Unit) {
             }
         }
 
-        SettingsSection("说明") {
+        SettingsSection(stringResource(R.string.translate_notes_section)) {
             SettingsProse(
-                "「允许发送通知」只控制系统通知栏的提醒（下载进度 / 下载完成）：关掉它，站内通知列表与未读徽标照常工作。\n" +
-                    "通知列表的展示方式：「平铺」为默认：每条通知独立成卡；分组/合并/两级模式可将相关通知折叠，减少列表长度。",
+                stringResource(R.string.note_notification_settings_desc),
                 divider = false,
             )
         }
@@ -814,6 +845,10 @@ fun NotificationSettingsScreen(onBack: () -> Unit) {
  *
  * 每行**必须**有说明 —— 单选列表的选择质量完全取决于说明文案。
  *
+ * [desc] 可空，但那是**例外**而不是退路：只有「名称本身已经用了读者自己的语言、
+ * 再写一遍就是用说明复述名称」时才允许省略（规范 §6.2 禁止复述），
+ * 语言页每种语言的**母语自称**就是这种情况。凡是能提供增量信息的，都必须写。
+ *
  * 两处配色是**按对比度审计定的**，不是随手挑的：
  * - 未选中描边走 [Primer.BorderControl]（可交互控件边界，WCAG 1.4.11 要 ≥3:1）；
  *   `Primer.Border` 是装饰性描边，只有 1.80:1。
@@ -823,7 +858,7 @@ fun NotificationSettingsScreen(onBack: () -> Unit) {
 @Composable
 internal fun ModeOptionRow(
     label: String,
-    desc: String,
+    desc: String?,
     selected: Boolean,
     divider: Boolean = false,
     onClick: () -> Unit,
@@ -853,8 +888,12 @@ internal fun ModeOptionRow(
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
-                Spacer(Modifier.height(2.dp))
-                Text(desc, fontSize = 12.sp, color = Primer.TextTertiary)
+                // 没有增量信息时连 2dp 间距一起省掉：留一个空 Text 会让这一行比同级行矮不下去、
+                // 也高不起来，视觉上像是「说明没加载出来」
+                if (desc != null) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(desc, fontSize = 12.sp, color = Primer.TextTertiary)
+                }
             }
         }
     }
@@ -956,14 +995,14 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
     fun doPull(name: String) {
         scope.launch {
             feedback = null
-            val taskId = TaskStore.start(context, TaskKind.PULL, "更新仓库 $name")
+            val taskId = TaskStore.start(context, TaskKind.PULL, context.getString(R.string.action_update_repo, name))
             val pullResult = withContext(Dispatchers.IO) { RustBridge.gitPullDetailed(dirOf(name), token) }
             // 错误同时落日志：UI 的 feedback 一闪而过无法回看，日志才能事后定位
             Logger.net("git pull ($name) → ${pullResult ?: "成功"}", "LocalGit")
             when (pullResult) {
-                null -> { TaskStore.success(context, taskId, "已更新"); feedback = "已更新 $name" }
-                "nff" -> { TaskStore.fail(context, taskId, "本地与远端分叉（需决策）"); page = LocalPage.Fork(name) }
-                else -> { TaskStore.fail(context, taskId, pullResult); feedback = "更新失败：$pullResult" }
+                null -> { TaskStore.success(context, taskId, context.getString(R.string.state_updated)); feedback = context.getString(R.string.toast_updated, name) }
+                "nff" -> { TaskStore.fail(context, taskId, context.getString(R.string.state_diverged_needs_decision)); page = LocalPage.Fork(name) }
+                else -> { TaskStore.fail(context, taskId, pullResult); feedback = context.getString(R.string.error_update_failed, pullResult) }
             }
         }
     }
@@ -973,15 +1012,15 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
         scope.launch {
             feedback = null
             val st = withContext(Dispatchers.IO) { RustBridge.gitStatus(dirOf(name))?.let { parseGitStatus(it) } }
-            if (st == null) { feedback = "无法读取仓库状态（引擎不可用）"; return@launch }
+            if (st == null) { feedback = context.getString(R.string.error_repo_status_engine_unavailable); return@launch }
             if (!st.hasUpstream) { page = LocalPage.Upstream(name); return@launch }
-            val taskId = TaskStore.start(context, TaskKind.PUSH, "推送仓库 $name")
+            val taskId = TaskStore.start(context, TaskKind.PUSH, context.getString(R.string.action_push_repo, name))
             val pushResult = withContext(Dispatchers.IO) { RustBridge.gitPushDetailed(dirOf(name), token, st.branch) }
             Logger.net("git push ${st.branch} ($name) → ${pushResult ?: "成功"}", "LocalGit")
             when (pushResult) {
-                null -> { TaskStore.success(context, taskId, "已推送 ${st.branch}"); feedback = "已推送 $name" }
-                "nff" -> { TaskStore.fail(context, taskId, "推送被拒（远端领先）"); page = LocalPage.Fork(name) }
-                else -> { TaskStore.fail(context, taskId, pushResult); feedback = "推送失败：$pushResult" }
+                null -> { TaskStore.success(context, taskId, context.getString(R.string.toast_pushed_branch, st.branch)); feedback = context.getString(R.string.toast_pushed, name) }
+                "nff" -> { TaskStore.fail(context, taskId, context.getString(R.string.state_push_rejected)); page = LocalPage.Fork(name) }
+                else -> { TaskStore.fail(context, taskId, pushResult); feedback = context.getString(R.string.error_push_failed, pushResult) }
             }
         }
     }
@@ -1002,7 +1041,7 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
     fun doStageCommit(name: String) {
         scope.launch {
             val st = withContext(Dispatchers.IO) { RustBridge.gitStatus(dirOf(name))?.let { parseGitStatus(it) } }
-            if (st == null || st.dirty.isEmpty()) { feedback = "工作区没有改动可提交"; return@launch }
+            if (st == null || st.dirty.isEmpty()) { feedback = context.getString(R.string.error_nothing_to_commit); return@launch }
             page = LocalPage.Stage(name)
         }
     }
@@ -1010,14 +1049,14 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
     /** 执行本地 git commit（identity 已就绪）。 */
     fun doGitCommit(repoName: String, message: String) {
         scope.launch {
-            val taskId = TaskStore.start(context, TaskKind.COMMIT, "本地提交 $repoName")
+            val taskId = TaskStore.start(context, TaskKind.COMMIT, context.getString(R.string.action_commit_local, repoName))
             val sha = withContext(Dispatchers.IO) {
                 RustBridge.gitCommit(dirOf(repoName), message, authorName(), authorEmail())
             }
             Logger.net("git commit ($repoName) → ${sha?.take(7) ?: "失败"}", "LocalGit")
-            if (sha != null) TaskStore.success(context, taskId, "已提交 $sha")
-            else TaskStore.fail(context, taskId, "提交失败（引擎不可用）")
-            feedback = if (sha != null) "已提交（本地 git）" else "提交失败（引擎不可用）"
+            if (sha != null) TaskStore.success(context, taskId, context.getString(R.string.toast_committed, sha))
+            else TaskStore.fail(context, taskId, context.getString(R.string.error_commit_failed_engine))
+            feedback = if (sha != null) context.getString(R.string.state_committed_local_git) else context.getString(R.string.error_commit_failed_engine)
             page = LocalPage.List
         }
     }
@@ -1098,7 +1137,7 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
                     scope.launch {
                         File(repoRoot, p.name).deleteRecursively()
                         repos = listLocalRepos(repoRoot)
-                        feedback = "已删除 ${p.name}"
+                        feedback = context.getString(R.string.toast_deleted, p.name)
                         page = LocalPage.List
                     }
                 },
@@ -1175,7 +1214,7 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
                         Logger.net("git checkout $target (${p.name}) → ${err ?: "成功"}", "LocalGit")
                         branchBusy = false
                         if (err == null) {
-                            feedback = "已切换到 $target"
+                            feedback = context.getString(R.string.toast_switched, target)
                             page = LocalPage.List
                         } else {
                             branchError = err
@@ -1190,7 +1229,7 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
                         Logger.net("git branch -d $target (${p.name}) → ${err ?: "成功"}", "LocalGit")
                         branchBusy = false
                         if (err == null) {
-                            feedback = "已删除分支 $target"
+                            feedback = context.getString(R.string.toast_deleted_branch, target)
                             reloadKey++
                         } else {
                             branchError = err
@@ -1207,7 +1246,7 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
                         Logger.net("git switch -c $newBranch (${p.name}) → ${err ?: "成功"}", "LocalGit")
                         branchBusy = false
                         if (err == null) {
-                            feedback = "已创建并切换到 $newBranch"
+                            feedback = context.getString(R.string.toast_created_and_switched, newBranch)
                             page = LocalPage.List
                         } else {
                             branchError = err
@@ -1246,24 +1285,24 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
         showPicker = false
         // repos 根目录必须存在（libgit2 clone 不会自动创建父目录）
         if (!repoRoot.exists() && !repoRoot.mkdirs()) {
-            feedback = "无法创建本地仓库目录"
+            feedback = context.getString(R.string.error_cannot_create_repo_dir)
             return
         }
         val target = File(repoRoot, name)
         if (target.exists()) {
-            feedback = "「$name」已存在"
+            feedback = context.getString(R.string.error_already_exists, name)
             return
         }
         scope.launch {
             cloning = true
             feedback = null
-            val taskId = TaskStore.start(context, TaskKind.CLONE, "拉取仓库 $fullName")
+            val taskId = TaskStore.start(context, TaskKind.CLONE, context.getString(R.string.action_clone_repo, fullName))
             val error = RustBridge.gitCloneDetailed("https://github.com/$fullName", target.absolutePath, "", token)
-            if (error == null) TaskStore.success(context, taskId, "已拉取到 ${target.name}")
+            if (error == null) TaskStore.success(context, taskId, context.getString(R.string.toast_cloned_to, target.name))
             else TaskStore.fail(context, taskId, error)
             Logger.remote(if (error == null) "git clone $fullName 完成" else "git clone $fullName 失败：$error", "libgit2")
             cloning = false
-            feedback = if (error == null) "已拉取 $name" else "拉取失败：$error"
+            feedback = if (error == null) context.getString(R.string.toast_cloned, name) else context.getString(R.string.error_clone_failed, error)
             repos = listLocalRepos(repoRoot)
         }
     }
@@ -1273,8 +1312,8 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding(),
     ) {
-        SubPageHeader("本地仓库", onBack) {
-            Text("${repos.size} 个", fontSize = 12.sp, color = Primer.TextTertiary)
+        SubPageHeader(stringResource(R.string.nav_local_repo), onBack) {
+            Text(stringResource(R.string.label_repo_count, repos.size), fontSize = 12.sp, color = Primer.TextTertiary)
         }
 
         // ＋拉取仓库
@@ -1291,12 +1330,12 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.Add, null, tint = Color.White, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
-                Text("拉取仓库", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color.White)
+                Text(stringResource(R.string.action_clone_repository), fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color.White)
             }
         }
 
         if (cloning) {
-            Text("正在克隆…", fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp))
+            Text(stringResource(R.string.state_cloning), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp))
         }
 
         if (repos.isEmpty()) {
@@ -1304,9 +1343,9 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Filled.Folder, null, tint = Primer.IconSecondary, modifier = Modifier.size(40.dp))
                     Spacer(Modifier.height(10.dp))
-                    Text("暂无本地仓库", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+                    Text(stringResource(R.string.state_no_local_repos), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
                     Spacer(Modifier.height(4.dp))
-                    Text("点击「拉取仓库」将仓库克隆到本地", fontSize = 12.sp, color = Primer.TextTertiary)
+                    Text(stringResource(R.string.note_clone_hint), fontSize = 12.sp, color = Primer.TextTertiary)
                 }
             }
         } else {
@@ -1339,12 +1378,12 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
                     .background(Primer.BackgroundPrimary, RoundedCornerShape(12.dp))
                     .padding(16.dp),
             ) {
-                Text("选择要拉取的仓库", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
+                Text(stringResource(R.string.label_choose_repo_to_clone), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
                 Spacer(Modifier.height(10.dp))
                 if (loadingRepos) {
-                    Text("加载中…", fontSize = 13.sp, color = Primer.TextTertiary)
+                    Text(stringResource(R.string.state_loading_ellipsis), fontSize = 13.sp, color = Primer.TextTertiary)
                 } else if (myRepos.isEmpty()) {
-                    Text("暂无仓库", fontSize = 13.sp, color = Primer.TextTertiary)
+                    Text(stringResource(R.string.state_no_repos), fontSize = 13.sp, color = Primer.TextTertiary)
                 } else {
                     LazyColumn(Modifier.heightIn(max = 400.dp)) {
                         items(myRepos) { repo ->
@@ -1375,8 +1414,8 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
     deleteTarget?.let { name ->
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
-            title = { Text("删除本地仓库") },
-            text = { Text("确定删除「$name」吗？仅删除本地副本，不影响远端仓库。") },
+            title = { Text(stringResource(R.string.action_delete_local_repo)) },
+            text = { Text(stringResource(R.string.confirm_delete_local_copy, name)) },
             confirmButton = {
                 TextButton(onClick = {
                     deleteTarget = null
@@ -1384,9 +1423,9 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
                         File(repoRoot, name).deleteRecursively()
                         repos = listLocalRepos(repoRoot)
                     }
-                }) { Text("删除", color = Primer.Red500) }
+                }) { Text(stringResource(R.string.action_delete), color = Primer.Red500) }
             },
-            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
 }
@@ -1454,17 +1493,17 @@ private fun LocalRepoRow(
         }
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text("更新", fontSize = 12.sp, color = Primer.Blue500, modifier = Modifier.clickable { onPull() })
-            Text("推送", fontSize = 12.sp, color = Primer.Blue500, modifier = Modifier.clickable { onPush() })
-            Text("分支同步", fontSize = 12.sp, color = Primer.Blue500, modifier = Modifier.clickable { onSync() })
-            Text("提交", fontSize = 12.sp, color = Primer.Green500, modifier = Modifier.clickable { onCommit() })
-            Text("撤销", fontSize = 12.sp, color = Primer.TextSecondary, modifier = Modifier.clickable { onUndo() })
+            Text(stringResource(R.string.action_update), fontSize = 12.sp, color = Primer.Blue500, modifier = Modifier.clickable { onPull() })
+            Text(stringResource(R.string.action_push), fontSize = 12.sp, color = Primer.Blue500, modifier = Modifier.clickable { onPush() })
+            Text(stringResource(R.string.nav_branch_sync), fontSize = 12.sp, color = Primer.Blue500, modifier = Modifier.clickable { onSync() })
+            Text(stringResource(R.string.action_commit), fontSize = 12.sp, color = Primer.Green500, modifier = Modifier.clickable { onCommit() })
+            Text(stringResource(R.string.action_undo), fontSize = 12.sp, color = Primer.TextSecondary, modifier = Modifier.clickable { onUndo() })
         }
         Spacer(Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text("上游", fontSize = 12.sp, color = Primer.TextSecondary, modifier = Modifier.clickable { onUpstream() })
-            Text("回退 Git 化", fontSize = 12.sp, color = Primer.TextSecondary, modifier = Modifier.clickable { onRollback() })
-            Text("删除", fontSize = 12.sp, color = Primer.Red500, modifier = Modifier.clickable { onDelete() })
+            Text(stringResource(R.string.nav_upstream), fontSize = 12.sp, color = Primer.TextSecondary, modifier = Modifier.clickable { onUpstream() })
+            Text(stringResource(R.string.nav_revert_gitify), fontSize = 12.sp, color = Primer.TextSecondary, modifier = Modifier.clickable { onRollback() })
+            Text(stringResource(R.string.action_delete), fontSize = 12.sp, color = Primer.Red500, modifier = Modifier.clickable { onDelete() })
         }
     }
 }
@@ -1530,11 +1569,11 @@ private fun BranchesScreen(
         Modifier.fillMaxSize().background(Primer.BackgroundPrimary)
             .statusBarsPadding().navigationBarsPadding(),
     ) {
-        SubPageHeader("分支 · $repoName", onBack) { RefreshButton { onRefresh() } }
+        SubPageHeader(stringResource(R.string.label_branches_of_repo, repoName), onBack) { RefreshButton { onRefresh() } }
 
         if (dirtyCount > 0) {
             Text(
-                "工作区有 $dirtyCount 个改动；切换分支若会覆盖它们将被拒绝",
+                stringResource(R.string.note_dirty_blocks_switch, dirtyCount),
                 fontSize = 11.5.sp,
                 color = Primer.WarningTextStrong,
                 lineHeight = 16.sp,
@@ -1578,7 +1617,7 @@ private fun BranchesScreen(
                             )
                             if (b.isHead) {
                                 Spacer(Modifier.width(6.dp))
-                                Text("当前", fontSize = 10.sp, color = Primer.Green500)
+                                Text(stringResource(R.string.label_current), fontSize = 10.sp, color = Primer.Green500)
                             }
                         }
                         val meta = buildString {
@@ -1593,7 +1632,7 @@ private fun BranchesScreen(
                     if (!b.isHead) {
                         val protected = isProtectedBranch(b.name)
                         Text(
-                            "删除",
+                            stringResource(R.string.action_delete),
                             fontSize = 12.sp,
                             color = if (protected) Primer.TextTertiary else Primer.Red500,
                             modifier = Modifier.clickable(enabled = !protected && !busy) { confirmDelete = b.name },
@@ -1611,7 +1650,7 @@ private fun BranchesScreen(
                         .padding(vertical = 13.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("＋ 新建分支", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
+                    Text(stringResource(R.string.action_new_branch_plus), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
                 }
                 Spacer(Modifier.height(16.dp))
             }
@@ -1621,11 +1660,11 @@ private fun BranchesScreen(
     if (showCreate) {
         AlertDialog(
             onDismissRequest = { showCreate = false },
-            title = { Text("新建分支", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary) },
+            title = { Text(stringResource(R.string.action_new_branch), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary) },
             text = {
                 Column {
                     Text(
-                        "基于当前分支创建，创建后自动切换过去。",
+                        stringResource(R.string.note_new_branch_from_current),
                         fontSize = 12.sp, color = Primer.TextTertiary, lineHeight = 18.sp,
                     )
                     Spacer(Modifier.height(10.dp))
@@ -1633,7 +1672,7 @@ private fun BranchesScreen(
                         value = newName,
                         onValueChange = { newName = it },
                         singleLine = true,
-                        placeholder = { Text("分支名，如 feature/login", fontSize = 12.sp, color = Primer.TextTertiary) },
+                        placeholder = { Text(stringResource(R.string.hint_branch_name), fontSize = 12.sp, color = Primer.TextTertiary) },
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -1642,46 +1681,45 @@ private fun BranchesScreen(
                 TextButton(
                     enabled = newName.isNotBlank() && !busy,
                     onClick = { val n = newName.trim(); showCreate = false; newName = ""; onCreate(n) },
-                ) { Text("创建并切换", color = Primer.Blue500) }
+                ) { Text(stringResource(R.string.action_create_and_switch), color = Primer.Blue500) }
             },
-            dismissButton = { TextButton(onClick = { showCreate = false }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { showCreate = false }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
 
     confirmDelete?.let { target ->
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
-            title = { Text("删除分支 $target？", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary) },
+            title = { Text(stringResource(R.string.confirm_delete_branch, target), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary) },
             text = {
                 Text(
-                    "只删除本地分支，不影响远端；未合并的提交会丢失。",
+                    stringResource(R.string.note_delete_local_branch),
                     fontSize = 12.sp, color = Primer.TextTertiary, lineHeight = 18.sp,
                 )
             },
             confirmButton = {
-                TextButton(onClick = { confirmDelete = null; onDelete(target) }) { Text("删除", color = Primer.Red500) }
+                TextButton(onClick = { confirmDelete = null; onDelete(target) }) { Text(stringResource(R.string.action_delete), color = Primer.Red500) }
             },
-            dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
 
     confirmSwitch?.let { target ->
         AlertDialog(
             onDismissRequest = { confirmSwitch = null },
-            title = { Text("先撤销改动？", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary) },
+            title = { Text(stringResource(R.string.confirm_discard_first_title), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary) },
             text = {
                 Text(
-                    "工作区有 $dirtyCount 个改动，切换分支可能失败或覆盖它们。\n" +
-                        "确认后会先撤销所有改动再切换（此操作不可撤销）。",
+                    stringResource(R.string.confirm_discard_before_switch_body, dirtyCount),
                     fontSize = 12.sp, color = Primer.TextTertiary, lineHeight = 18.sp,
                 )
             },
             confirmButton = {
                 TextButton(onClick = { confirmSwitch = null; onCheckout(target) }) {
-                    Text("撤销并切换", color = Primer.Red500)
+                    Text(stringResource(R.string.action_discard_and_switch), color = Primer.Red500)
                 }
             },
-            dismissButton = { TextButton(onClick = { confirmSwitch = null }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { confirmSwitch = null }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
 }
@@ -1754,7 +1792,7 @@ fun AboutScreen(onBack: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding(),
     ) {
-        SubPageHeader("关于", onBack)
+        SubPageHeader(stringResource(R.string.nav_about), onBack)
         Column(
             // weight(1f)：与顶部 SubPageHeader 同级；fillMaxSize() 会超出容器，底部内容被压住
             modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
@@ -1764,37 +1802,36 @@ fun AboutScreen(onBack: () -> Unit) {
 
             // 版本信息
             AboutCard(topGap = 10.dp) {
-                AboutInfoRow("工程版本号", BuildConfig.ENGINEERING_VERSION)
+                AboutInfoRow(stringResource(R.string.label_engineering_version), BuildConfig.ENGINEERING_VERSION)
                 AboutRowDivider()
-                AboutInfoRow("标准版本号", BuildConfig.STANDARD_VERSION)
+                AboutInfoRow(stringResource(R.string.label_standard_version), BuildConfig.STANDARD_VERSION)
                 AboutRowDivider()
-                AboutInfoRow("构建时间", BuildConfig.BUILD_TIME)
+                AboutInfoRow(stringResource(R.string.label_build_time), BuildConfig.BUILD_TIME)
                 AboutRowDivider()
-                AboutInfoRow("七位哈希", BuildConfig.GIT_HASH)
+                AboutInfoRow(stringResource(R.string.label_short_hash), BuildConfig.GIT_HASH)
                 AboutRowDivider()
-                AboutInfoRow("Git 配置包", "libgit2 1.7.2")
+                AboutInfoRow(stringResource(R.string.label_git_bundle), "libgit2 1.7.2")
                 AboutRowDivider()
                 // 第三方代码编辑器痕迹：独立模块 :editor 封装，移除时删这行 + 该模块
                 AboutInfoRow(
-                    "代码编辑器",
-                    "${com.branchbase.editor.EditorModuleInfo.NAME} " +
-                        "${com.branchbase.editor.EditorModuleInfo.VERSION}（${com.branchbase.editor.EditorModuleInfo.MODULE}）",
+                    stringResource(R.string.label_code_editor),
+                    stringResource(R.string.label_editor_module_info, com.branchbase.editor.EditorModuleInfo.NAME, com.branchbase.editor.EditorModuleInfo.VERSION, com.branchbase.editor.EditorModuleInfo.MODULE),
                 )
             }
 
             // 构建校验：三行原始值 + 一行结论说明（原独立横幅的去重落点）
             AboutCard(topGap = 10.dp) {
-                AboutInfoRow("发布版本", variant.label)
+                AboutInfoRow(stringResource(R.string.label_release_build), variant.label)
                 AboutRowDivider()
-                AboutInfoRow("签名校验", if (variant != ReleaseVariant.UNKNOWN) "匹配" else "异常（未知签名）")
+                AboutInfoRow(stringResource(R.string.label_signature_check), if (variant != ReleaseVariant.UNKNOWN) stringResource(R.string.label_match) else stringResource(R.string.state_signature_abnormal))
                 AboutRowDivider()
                 AboutInfoRow(
-                    "远程校验",
+                    stringResource(R.string.label_remote_check),
                     when {
-                        remoteChecking -> "校验中…"
-                        remoteFingerprint.isNullOrBlank() -> "无法获取校验文件"
-                        remoteFingerprint.equals(localFingerprint, ignoreCase = true) -> "匹配"
-                        else -> "不匹配"
+                        remoteChecking -> stringResource(R.string.state_checking)
+                        remoteFingerprint.isNullOrBlank() -> stringResource(R.string.error_checksum_unavailable)
+                        remoteFingerprint.equals(localFingerprint, ignoreCase = true) -> stringResource(R.string.label_match)
+                        else -> stringResource(R.string.state_mismatch)
                     },
                 )
                 AboutRowDivider()
@@ -1804,11 +1841,11 @@ fun AboutScreen(onBack: () -> Unit) {
             // 项目主页 + 开发交流群：关于页是用户找「去哪儿反馈」的地方，链接统一从这里出去。
             // QQ 群链接里的 authKey 会过期，所以群号也直接写在行里（过期了按号搜索即可）。
             AboutCard(topGap = 10.dp) {
-                AboutLinkRow("项目主页（仅 Android）", "SunsetRNE/Branchbase-Android") {
+                AboutLinkRow(stringResource(R.string.label_project_home), "SunsetRNE/Branchbase-Android") {
                     openExternal(context, REPO_URL)
                 }
                 AboutRowDivider()
-                AboutLinkRow("开发交流（QQ 群）", "790735040") {
+                AboutLinkRow(stringResource(R.string.label_community_qq), "790735040") {
                     openExternal(context, QUN_URL)
                 }
             }
@@ -1833,7 +1870,7 @@ private fun AboutIdentityRow(chip: String, fg: Color, bg: Color) {
         Column(Modifier.weight(1f)) {
             Text("Branchbase", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
             Spacer(Modifier.height(2.dp))
-            Text("GitHub 第三方客户端", fontSize = 11.5.sp, color = Primer.TextTertiary)
+            Text(stringResource(R.string.app_tagline), fontSize = 11.5.sp, color = Primer.TextTertiary)
         }
         Spacer(Modifier.width(8.dp))
         Text(
@@ -1969,7 +2006,7 @@ internal fun RepoRelationBadge(relation: RepoRelation?, modifier: Modifier = Mod
         RepoRelation.NOT_COLLABORATOR -> Primer.Red500 to Primer.DangerSurface
     }
     Text(
-        relation.label,
+        stringResource(relation.labelRes),
         fontSize = 10.sp,
         fontWeight = FontWeight.Bold,
         color = fg,

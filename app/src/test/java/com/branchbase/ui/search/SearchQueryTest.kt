@@ -19,7 +19,7 @@ class SearchQueryTest {
     fun `查询串拼上语言_高级筛选与类型限定`() {
         val q = buildSearchQuery(
             query = "  compose  ",
-            type = "拉取请求",
+            type = SearchType.PULLS,
             language = "kotlin",
             advanced = mapOf("星标数" to ">100"),
             advancedFilters = filters,
@@ -29,29 +29,29 @@ class SearchQueryTest {
 
     @Test
     fun `议题与拉取请求复用同一接口但用 type 限定区分`() {
-        assertTrue(buildSearchQuery("x", "议题", null, emptyMap(), filters).endsWith("type:issue"))
-        assertTrue(buildSearchQuery("x", "拉取请求", null, emptyMap(), filters).endsWith("type:pr"))
+        assertTrue(buildSearchQuery("x", SearchType.ISSUES, null, emptyMap(), filters).endsWith("type:issue"))
+        assertTrue(buildSearchQuery("x", SearchType.PULLS, null, emptyMap(), filters).endsWith("type:pr"))
         // 其它类型不加限定符（加上会搜不出东西）
-        assertFalse(buildSearchQuery("x", "仓库", null, emptyMap(), filters).contains("type:"))
+        assertFalse(buildSearchQuery("x", SearchType.REPOS, null, emptyMap(), filters).contains("type:"))
     }
 
     @Test
     fun `空的语言与筛选值不拼进查询串`() {
-        val q = buildSearchQuery("x", "仓库", "", mapOf("星标数" to "", "主题" to "android"), filters)
+        val q = buildSearchQuery("x", SearchType.REPOS, "", mapOf("星标数" to "", "主题" to "android"), filters)
         assertEquals("x topic:android", q)
     }
 
     @Test
     fun `未知筛选名不会拼出半截语法`() {
         // 表里没有的筛选项（比如老版本残留的键）必须整个跳过，否则会拼出半截语法
-        val q = buildSearchQuery("x", "仓库", null, mapOf("已删除的筛选项" to ">1"), filters)
+        val q = buildSearchQuery("x", SearchType.REPOS, null, mapOf("已删除的筛选项" to ">1"), filters)
         assertEquals("x", q)
     }
 
     @Test
     fun `缓存键必须绑定账号`() {
-        val a = searchCacheKey("仓库", "foo", "", login = "alice")
-        val b = searchCacheKey("仓库", "foo", "", login = "bob")
+        val a = searchCacheKey(SearchType.REPOS, "foo", "", login = "alice")
+        val b = searchCacheKey(SearchType.REPOS, "foo", "", login = "bob")
         // 搜索结果含私有仓库/私有代码：同一查询在不同账号下必须各存一份
         assertFalse(a == b)
         assertTrue(a.contains("alice"))
@@ -59,9 +59,23 @@ class SearchQueryTest {
 
     @Test
     fun `只有仓库类型带排序键`() {
-        assertTrue(searchCacheKey("仓库", "foo", "stars", "alice").endsWith("stars"))
+        assertTrue(searchCacheKey(SearchType.REPOS, "foo", "stars", "alice").endsWith("stars"))
         // 其余类型不支持排序：带上会让 sortKey 残留污染缓存键
-        assertFalse(searchCacheKey("用户", "foo", "stars", "alice").contains("stars"))
+        assertFalse(searchCacheKey(SearchType.USERS, "foo", "stars", "alice").contains("stars"))
+    }
+
+    @Test
+    fun `缓存键用稳定英文键而不是展示文案`() {
+        // 缓存是落库的：键里若混进展示文案，切一次界面语言就等于换了一套键，
+        // 旧行全成孤儿（读不到、也不会被 TTL 之外的逻辑清掉）。
+        val key = searchCacheKey(SearchType.PULLS, "foo", "", login = "alice")
+        assertTrue("缓存键里出现了展示文案", key.contains(SearchType.PULLS.cacheKey))
+        SearchType.entries.forEach { t ->
+            assertFalse(
+                "SearchType.${t.name} 的 cacheKey 混进了非 ASCII 字符：${t.cacheKey}",
+                t.cacheKey.any { it.code > 127 },
+            )
+        }
     }
 
     @Test

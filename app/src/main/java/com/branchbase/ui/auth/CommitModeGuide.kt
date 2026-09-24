@@ -21,6 +21,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,6 +34,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.navigation.rememberTopLevelBackAction
 import com.branchbase.ui.main.MainScreen
@@ -89,9 +91,9 @@ private fun CommitModeGuideScreen(onConfirm: (CommitMode) -> Unit, onSkip: () ->
             .padding(24.dp),
     ) {
         Spacer(Modifier.height(40.dp))
-        Text("选择编写代码提交时的默认行为", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
+        Text(stringResource(R.string.note_choose_commit_default), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
         Spacer(Modifier.height(6.dp))
-        Text("之后可在「设置」里随时更改；选择「跳过」将在提交时再次询问。", fontSize = 13.sp, color = Primer.TextTertiary)
+        Text(stringResource(R.string.note_commit_mode_later), fontSize = 13.sp, color = Primer.TextTertiary)
         Spacer(Modifier.height(24.dp))
 
         CommitMode.entries.forEach { m ->
@@ -102,14 +104,14 @@ private fun CommitModeGuideScreen(onConfirm: (CommitMode) -> Unit, onSkip: () ->
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(onClick = onSkip, modifier = Modifier.weight(1f)) {
-                Text("跳过", color = Primer.TextSecondary)
+                Text(stringResource(R.string.action_skip), color = Primer.TextSecondary)
             }
             Button(
                 onClick = { selected?.let(onConfirm) },
                 enabled = selected != null,
                 modifier = Modifier.weight(1f),
             ) {
-                Text("确定")
+                Text(stringResource(R.string.action_ok))
             }
         }
         Spacer(Modifier.height(16.dp))

@@ -25,6 +25,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,6 +39,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
@@ -137,9 +139,9 @@ fun SecurityAlertScreen(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back), tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
             Spacer(Modifier.width(8.dp))
-            Text("安全警报", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+            Text(stringResource(R.string.nav_security_alerts), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
         }
 
         Column(
@@ -153,7 +155,7 @@ fun SecurityAlertScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Warning, null, tint = Primer.Red500, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("检测到安全风险", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.DangerText)
+                    Text(stringResource(R.string.state_security_risk), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.DangerText)
                 }
                 Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
                 detail?.summary?.let {
@@ -170,23 +172,23 @@ fun SecurityAlertScreen(
                 }
                 detail != null -> {
                     val d = detail!!
-                    InfoRow("仓库", "$owner/$repo")
-                    InfoRow("类型", "安全警报")
-                    d.severity?.let { InfoRow("严重级别", it, valueColor = severityColor(it)) }
-                    d.dependency?.let { InfoRow("受影响范围", it) }
-                    d.publishedAt?.let { InfoRow("发现时间", it.take(10)) }
+                    InfoRow(stringResource(R.string.label_repository), "$owner/$repo")
+                    InfoRow(stringResource(R.string.label_type), stringResource(R.string.nav_security_alerts))
+                    d.severity?.let { InfoRow(stringResource(R.string.label_severity), it, valueColor = severityColor(it)) }
+                    d.dependency?.let { InfoRow(stringResource(R.string.label_affected_scope), it) }
+                    d.publishedAt?.let { InfoRow(stringResource(R.string.label_detected_at), it.take(10)) }
                     d.cveId?.let { InfoRow("CVE", it) }
                     d.description?.let { desc ->
                         Spacer(Modifier.height(12.dp))
-                        Text("描述", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+                        Text(stringResource(R.string.label_description_plain), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
                         Spacer(Modifier.height(4.dp))
                         Text(desc, fontSize = 13.sp, color = Primer.TextSecondary, lineHeight = 20.sp)
                     }
                 }
                 else -> {
                     // 拉取失败 / 无权限：回退骨架
-                    InfoRow("仓库", "$owner/$repo")
-                    InfoRow("类型", "安全警报")
+                    InfoRow(stringResource(R.string.label_repository), "$owner/$repo")
+                    InfoRow(stringResource(R.string.label_type), stringResource(R.string.nav_security_alerts))
                 }
             }
 
@@ -196,7 +198,7 @@ fun SecurityAlertScreen(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Primer.Blue500).clickable { onOpenRepo() }.padding(vertical = 12.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("查看仓库", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                Text(stringResource(R.string.action_view_repository), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
             }
             Spacer(Modifier.height(16.dp))
         }

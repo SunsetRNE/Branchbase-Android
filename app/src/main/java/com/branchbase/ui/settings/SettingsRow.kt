@@ -25,6 +25,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -36,6 +37,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.ui.theme.Avatar
 import com.branchbase.ui.theme.Primer
 import com.branchbase.ui.theme.selectionColor
@@ -562,7 +564,7 @@ fun AccountRow(
         Spacer(Modifier.width(IconGap))
         Column(Modifier.weight(1f, fill = false).padding(vertical = 14.dp)) {
             Text(
-                login ?: "未登录",
+                login ?: stringResource(R.string.state_not_signed_in),
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Primer.TextPrimary,
@@ -571,7 +573,7 @@ fun AccountRow(
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                host ?: "登录后才能同步仓库与通知",
+                host ?: stringResource(R.string.note_sign_in_to_sync),
                 fontSize = 12.sp,
                 color = Primer.TextTertiary,
                 maxLines = 1,

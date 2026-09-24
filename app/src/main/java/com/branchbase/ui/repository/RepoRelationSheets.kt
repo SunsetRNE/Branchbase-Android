@@ -31,6 +31,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +46,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -106,7 +108,7 @@ fun WatchPanelSheet(
             Text(
                 buildString {
                     append(current.title)
-                    watchersCount?.let { append(" · $it 人正在关注") }
+                    watchersCount?.let { append(stringResource(R.string.suffix_watchers, it)) }
                 },
                 fontSize = 12.sp,
                 color = Primer.TextTertiary,
@@ -138,7 +140,7 @@ fun WatchPanelSheet(
                     Spacer(Modifier.height(6.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         SheetPrimaryButton(
-                            text = "应用自定义",
+                            text = stringResource(R.string.action_apply_custom),
                             enabled = !loadingTypes && (picked.isNotEmpty() || types.isNotEmpty()),
                             onClick = { onSelect(WatchLevel.CUSTOM, picked) },
                         )
@@ -151,8 +153,8 @@ fun WatchPanelSheet(
             // 而不是等用户勾完再报「操作失败」
             if (!hasWebSession) {
                 NoticeRow(
-                    text = "自定义通知只有网页端点支持，登录网页会话后可直接在这里设置。",
-                    action = "登录",
+                    text = stringResource(R.string.note_custom_notifications_web),
+                    action = stringResource(R.string.action_sign_in),
                     onAction = onLoginWeb,
                 )
             }
@@ -208,11 +210,11 @@ private fun CustomThreadList(
         loading -> Row(Modifier.padding(start = 28.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             CircularProgressIndicator(color = Primer.Blue500, strokeWidth = 2.dp, modifier = Modifier.size(12.dp))
             Spacer(Modifier.width(8.dp))
-            Text("正在读取可订阅事件…", fontSize = 12.sp, color = Primer.TextTertiary)
+            Text(stringResource(R.string.state_loading_events), fontSize = 12.sp, color = Primer.TextTertiary)
         }
 
         types.isEmpty() -> Text(
-            "暂时读不到事件清单（需要网络）。",
+            stringResource(R.string.error_event_list_unavailable),
             fontSize = 12.sp,
             color = Primer.TextTertiary,
             modifier = Modifier.padding(start = 28.dp, top = 6.dp, bottom = 6.dp),
@@ -237,7 +239,7 @@ private fun CustomThreadList(
                         modifier = Modifier.weight(1f),
                     )
                     if (!type.enabled) {
-                        Text("该仓库未启用", fontSize = 11.sp, color = Primer.TextTertiary)
+                        Text(stringResource(R.string.state_not_enabled_for_repo), fontSize = 11.sp, color = Primer.TextTertiary)
                     }
                 }
             }
@@ -333,7 +335,7 @@ fun ForkSheet(
             Text("Create a new fork", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
             Spacer(Modifier.height(2.dp))
             Text(
-                "从 $sourceOwner/$repoName 复刻一份到你自己的账户或组织。",
+                stringResource(R.string.note_fork_into_account, sourceOwner, repoName),
                 fontSize = 12.sp,
                 color = Primer.TextTertiary,
             )
@@ -351,7 +353,7 @@ fun ForkSheet(
                         .padding(horizontal = 10.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(owner.ifBlank { "选择账户" }, fontSize = 13.sp, color = Primer.TextPrimary, modifier = Modifier.weight(1f))
+                    Text(owner.ifBlank { stringResource(R.string.label_choose_account) }, fontSize = 13.sp, color = Primer.TextPrimary, modifier = Modifier.weight(1f))
                     Icon(Icons.Filled.ExpandMore, contentDescription = null, tint = Primer.TextTertiary, modifier = Modifier.size(16.dp))
                 }
                 DropdownMenu(expanded = ownerMenu, onDismissRequest = { ownerMenu = false }) {
@@ -386,11 +388,11 @@ fun ForkSheet(
             Spacer(Modifier.height(4.dp))
             Text(
                 text = when {
-                    name.isBlank() -> "名称不能为空"
-                    checking -> "正在检查 $owner 下是否已有同名仓库…"
-                    taken -> "$owner 下已存在同名仓库，换个名字，或直接打开那一个。"
-                    checkState == false -> "$owner 下没有同名仓库，可以创建。"
-                    else -> "改名后 GitHub 不会自动成为原仓库的复刻网络成员。"
+                    name.isBlank() -> stringResource(R.string.error_name_required)
+                    checking -> stringResource(R.string.state_checking_name, owner)
+                    taken -> stringResource(R.string.error_name_taken_owner, owner)
+                    checkState == false -> stringResource(R.string.state_name_available, owner)
+                    else -> stringResource(R.string.note_rename_fork_network)
                 },
                 fontSize = 11.5.sp,
                 lineHeight = 16.sp,
@@ -417,9 +419,9 @@ fun ForkSheet(
                     Text("Copy the DEFAULT branch only", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Primer.TextPrimary)
                     Text(
                         text = if (branchCount != null && branchCount > 1) {
-                            "源仓库共 $branchCount 个分支。勾选后只复制默认分支 $defaultBranch，其余分支不会出现在你的复刻里。"
+                            stringResource(R.string.note_copy_default_branch_only, branchCount, defaultBranch)
                         } else {
-                            "勾选后只复制默认分支 $defaultBranch；不勾则复制全部分支。"
+                            stringResource(R.string.note_copy_default_branch_toggle, defaultBranch)
                         },
                         fontSize = 11.5.sp,
                         color = Primer.TextTertiary,

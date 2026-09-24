@@ -41,6 +41,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
@@ -65,8 +66,9 @@ import coil.request.ImageRequest
  * 模块既不认识 GitHub、也不自己拼任何凭据。
  *
  * ## 文案
- * 加载失败一律中文（`图片加载失败 / 点按重试`），不把
- * `UnknownHostException: Unable to resolve host …` 这类英文抛给用户。
+ * 加载失败只显示模块自己的两条文案（`imageviewer_load_failed` / `imageviewer_tap_to_retry`），
+ * 不把 `UnknownHostException: Unable to resolve host …` 这类英文异常抛给用户。
+ * 文案住在模块自己的 `strings.xml`（带 `imageviewer_` 前缀，理由见那里的注释）。
  */
 @Composable
 fun ImageViewerDialog(
@@ -156,7 +158,7 @@ fun ImageViewerDialog(
                                 .apply { headers.forEach { (name, value) -> addHeader(name, value) } }
                                 .crossfade(true)
                                 .build(),
-                            contentDescription = title ?: "图片",
+                            contentDescription = title ?: stringResource(R.string.imageviewer_image),
                             contentScale = ContentScale.Fit,
                             modifier = Modifier
                                 .fillMaxSize()
@@ -174,7 +176,7 @@ fun ImageViewerDialog(
                 }
 
                 Text(
-                    "双指缩放 · 双击放大 · 下拉关闭",
+                    stringResource(R.string.imageviewer_hint),
                     color = Color.White.copy(alpha = 0.55f),
                     fontSize = 11.sp,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
@@ -228,7 +230,7 @@ private fun ViewerTopBar(title: String?, onOpenInBrowser: () -> Unit, onClose: (
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            title?.takeIf { it.isNotBlank() } ?: "图片",
+            title?.takeIf { it.isNotBlank() } ?: stringResource(R.string.imageviewer_image),
             color = Color.White,
             fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
@@ -237,7 +239,7 @@ private fun ViewerTopBar(title: String?, onOpenInBrowser: () -> Unit, onClose: (
             modifier = Modifier.weight(1f),
         )
         Text(
-            "用浏览器打开",
+            stringResource(R.string.imageviewer_open_in_browser),
             color = Color(0xFF8AB4F8),
             fontSize = 12.5.sp,
             modifier = Modifier
@@ -248,7 +250,7 @@ private fun ViewerTopBar(title: String?, onOpenInBrowser: () -> Unit, onClose: (
         Spacer(Modifier.width(10.dp))
         Icon(
             Icons.Filled.Close,
-            contentDescription = "关闭",
+            contentDescription = stringResource(R.string.imageviewer_close),
             tint = Color.White,
             modifier = Modifier.size(22.dp).clickable { onClose() },
         )
@@ -275,9 +277,9 @@ private fun ViewerOverlay(state: AsyncImagePainter.State, onRetry: () -> Unit) {
     ) {
         if (failed) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("图片加载失败", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.imageviewer_load_failed), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.size(6.dp))
-                Text("点按重试", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                Text(stringResource(R.string.imageviewer_tap_to_retry), color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
             }
         } else {
             CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(28.dp))

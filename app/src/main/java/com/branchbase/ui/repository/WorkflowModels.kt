@@ -4,6 +4,10 @@ import com.branchbase.joblogs.LogSegment
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
+import androidx.annotation.StringRes
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import com.branchbase.R
 
 /**
  * 工作流（Actions）运行详情 / 手动触发相关的模型与纯逻辑。
@@ -238,43 +242,60 @@ fun formatDuration(ms: Long?): String {
     }
 }
 
-/** 运行/步骤状态的中文标签（GitHub 的 status + conclusion 组合）。 */
-fun runStatusLabel(status: String, conclusion: String?): String = when (conclusion.normalizedConclusion()) {
-    "success" -> "成功"
-    "failure" -> "失败"
-    "cancelled" -> "已取消"
-    "skipped" -> "已跳过"
-    "timed_out" -> "超时"
-    "action_required" -> "待处理"
-    "neutral" -> "中性"
-    "stale" -> "已过期"
-    "startup_failure" -> "启动失败"
-    else -> when (status) {
-        "queued" -> "排队中"
-        "in_progress" -> "进行中"
-        "requested" -> "已请求"
-        "waiting" -> "等待中"
-        "pending" -> "等待中"
-        "completed" -> "已完成"
-        else -> status.ifBlank { "未知" }
+/**
+ * 运行/步骤状态的资源 ID（GitHub 的 status + conclusion 组合）；**null = 没有专属资源**，
+ * 调用方原样透出 status。
+ *
+ * 模型层不认识 Context，所以这里只给 ID；「未知状态原样透出」这条约定由 [runStatusLabel]
+ * 落地，映射本身仍可单测（见 `WorkflowModelsTest`）。
+ */
+fun runStatusLabelResOrNull(status: String, conclusion: String?): Int? =
+    when (conclusion.normalizedConclusion()) {
+        "success" -> R.string.workflow_status_success
+        "failure" -> R.string.workflow_status_failure
+        "cancelled" -> R.string.workflow_status_cancelled
+        "skipped" -> R.string.workflow_status_skipped
+        "timed_out" -> R.string.workflow_status_timed_out
+        "action_required" -> R.string.workflow_status_action_required
+        "neutral" -> R.string.workflow_status_neutral
+        "stale" -> R.string.workflow_status_stale
+        "startup_failure" -> R.string.workflow_status_startup_failure
+        else -> when (status) {
+            "queued" -> R.string.workflow_status_queued
+            "in_progress" -> R.string.workflow_status_in_progress
+            "requested" -> R.string.workflow_status_requested
+            "waiting", "pending" -> R.string.workflow_status_waiting
+            "completed" -> R.string.workflow_status_completed
+            "" -> R.string.workflow_status_unknown
+            else -> null
+        }
     }
+
+/** 运行/步骤状态的展示文案。`let` 是 inline，所以这里能调 [stringResource]。 */
+@Composable
+fun runStatusLabel(status: String, conclusion: String?): String =
+    runStatusLabelResOrNull(status, conclusion)?.let { stringResource(it) } ?: status
+
+/** 触发事件的资源 ID（GitHub 的 event 字段）；null = 没有专属资源，调用方原样透出。 */
+fun eventLabelResOrNull(event: String): Int? = when (event) {
+    "push" -> R.string.workflow_event_push
+    "pull_request" -> R.string.workflow_event_pull_request
+    "workflow_dispatch" -> R.string.workflow_event_workflow_dispatch
+    "schedule" -> R.string.workflow_event_schedule
+    "release" -> R.string.workflow_event_release
+    "issues" -> R.string.workflow_event_issues
+    "issue_comment" -> R.string.workflow_event_issue_comment
+    "pull_request_review" -> R.string.workflow_event_pull_request_review
+    "merge_group" -> R.string.workflow_event_merge_queue
+    "dynamic" -> R.string.workflow_event_dynamic
+    "repository_dispatch" -> R.string.workflow_event_repository_dispatch
+    else -> null
 }
 
-/** 触发事件的中文标签（GitHub 的 event 字段）。 */
-fun eventLabel(event: String): String = when (event) {
-    "push" -> "推送"
-    "pull_request" -> "拉取请求"
-    "workflow_dispatch" -> "手动触发"
-    "schedule" -> "定时"
-    "release" -> "发布"
-    "issues" -> "Issue"
-    "issue_comment" -> "Issue 评论"
-    "pull_request_review" -> "PR 审查"
-    "merge_group" -> "合并队列"
-    "dynamic" -> "动态"
-    "repository_dispatch" -> "仓库事件"
-    else -> event.ifBlank { "—" }
-}
+/** 触发事件的展示文案（空事件用 `—`）。 */
+@Composable
+fun eventLabel(event: String): String =
+    eventLabelResOrNull(event)?.let { stringResource(it) } ?: event.ifBlank { "—" }
 
 // ── 日志分段 ──
 

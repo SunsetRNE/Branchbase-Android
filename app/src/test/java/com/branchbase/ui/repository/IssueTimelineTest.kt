@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.branchbase.R
 
 /**
  * Issue 详情 / 时间线解析单测（需求 ④ 的数据层）。
@@ -83,13 +84,20 @@ class IssueTimelineTest {
         val comment = (entries[1] as TimelineEntry.Comment).comment
         assertEquals("linzhi", comment.author)
         assertEquals("MEMBER", comment.authorAssociation)
-        assertEquals("Member", comment.badge)
+        // 断言资源 ID：徽章已资源化（`badgeRes`），文案在 values*/strings.xml 里
+        assertEquals(R.string.badge_member, comment.badgeRes)
         assertEquals(1, comment.reactions.size)
         assertEquals(2, comment.reactions[0].count)
         assertEquals("👍", comment.reactions[0].emoji)
 
         val closed = entries[3] as TimelineEntry.Event
-        assertTrue(closed.text.contains("已完成"))
+        // 事件文案是「资源 ID + 参数」：断言 ID，不再断言渲染后的文案
+        assertEquals(R.string.timeline_closed_completed, closed.text.res)
+        assertEquals(listOf("wangyan"), closed.text.args)
+        // 双参数模板的顺序也要钉住（里程碑事件是「actor + 里程碑名」）
+        val milestoned = entries[2] as TimelineEntry.Event
+        assertEquals(R.string.timeline_milestoned, milestoned.text.res)
+        assertEquals(listOf("wangyan", "v1.0.14"), milestoned.text.args)
     }
 
     @Test
@@ -99,7 +107,7 @@ class IssueTimelineTest {
               "user":{"login":"wangyan"},"author_association":"OWNER"}]
         """.trimIndent()
         val c = (parseIssueTimeline(json, issueAuthor = "wangyan").first() as TimelineEntry.Comment).comment
-        assertEquals("作者", c.badge)
+        assertEquals("作者徽章优先级高于组织身份", R.string.badge_author, c.badgeRes)
     }
 
     @Test

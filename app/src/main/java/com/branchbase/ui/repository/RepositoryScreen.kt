@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -50,6 +51,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -69,6 +71,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.json.JSONObject
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.ui.theme.selectionColor
 import com.branchbase.cache.PreloadStore
 import com.branchbase.cache.PrefetchReason
@@ -102,10 +105,19 @@ import kotlinx.coroutines.launch
  * 底部导航：
  * 底部 5 项（项目页/代码/issue/工作流/发布）+ ⋮ 气泡（拉取请求/提交/设置）。
  * README 链接与星标/复刻/关注按钮的回调在此统一路由。
+ *
+ * [labelRes] 是**显示**文案，跟随界面语言；[logLabel] 是**日志**专用的中文名。
+ * 两者不能合并：日志按约定固定中文，界面语言一换，日志侧就对不上了（同 `ProfileTab`）。
  */
-enum class RepoPage(val label: String) {
-    Overview("项目页"), Code("代码"), Issues("issue"), Workflows("工作流"), Releases("发布"),
-    PullRequests("拉取请求"), Commits("提交"), Settings("设置"),
+enum class RepoPage(@param:StringRes val labelRes: Int, val logLabel: String) {
+    Overview(R.string.repo_page_overview, "项目页"),
+    Code(R.string.repo_page_code, "代码"),
+    Issues(R.string.repo_page_issues, "issue"),
+    Workflows(R.string.repo_page_workflows, "工作流"),
+    Releases(R.string.repo_page_releases, "发布"),
+    PullRequests(R.string.repo_page_pull_requests, "拉取请求"),
+    Commits(R.string.repo_page_commits, "提交"),
+    Settings(R.string.repo_page_settings, "设置"),
 }
 
 /**
@@ -326,7 +338,7 @@ fun RepositoryScreen(
     /** 星标：收藏 ↔ 取消收藏（双向态）。乐观更新 + 失败回滚。 */
     fun toggleStar() {
         if (sessionToken.isBlank()) {
-            toast("请先登录")
+            toast(context.getString(R.string.error_sign_in_first))
             return
         }
         if (starBusy) return
@@ -375,7 +387,7 @@ fun RepositoryScreen(
     fun onForkClick() {
         when (forkDecision.mode) {
             ForkMode.LIST_ONLY -> peoplePage = "fork"
-            ForkMode.DISABLED -> toast(forkDecision.reason ?: "该仓库已关闭复刻")
+            ForkMode.DISABLED -> toast(forkDecision.reason ?: context.getString(R.string.state_fork_disabled))
             ForkMode.DIALOG -> showForkDialog = true
         }
     }
@@ -481,7 +493,7 @@ fun RepositoryScreen(
                 canPush = repoCanPush,
                 onSelect = {
                     page = it
-                    Logger.ui("切换到「${it.label}」", "Compose")
+                    Logger.ui("切换到「${it.logLabel}」", "Compose")
                 },
                 bubbleExpanded = bubbleExpanded,
                 onBubbleToggle = {
@@ -491,7 +503,7 @@ fun RepositoryScreen(
                 onBubbleItem = {
                     bubbleExpanded = false
                     page = it
-                    Logger.ui("打开「${it.label}」", "Compose")
+                    Logger.ui("打开「${it.logLabel}」", "Compose")
                 },
                 onBubbleAction = { key ->
                     bubbleExpanded = false
@@ -660,7 +672,7 @@ fun RepositoryScreen(
                                     ?.let { json -> runCatching { JSONObject(json).optString("login") }.getOrNull() }
                                     ?.takeIf { it.isNotBlank() && it != "null" }
                             },
-                            rememberLabel = "记住这个仓库的凭据（设置 → 仓库凭据 可删除）",
+                            rememberLabel = stringResource(R.string.label_remember_repo_credentials),
                             onConfirm = { token, login, remember ->
                                 tokenOverride = token
                                 overrideLogin = login
@@ -688,7 +700,7 @@ fun RepositoryScreen(
                             onLoggedIn = { login ->
                                 showWebLogin = false
                                 webSessionTick++ // 触发关系态重判：网页版能给出最准的判定
-                                toast("已登录网页会话：$login")
+                                toast(context.getString(R.string.state_web_session_login, login))
                             },
                         )
                     }
@@ -977,9 +989,9 @@ fun RepositoryScreen(
             onCreated = { full ->
                 showForkDialog = false
                 if (full.isBlank()) {
-                    toast("复刻已提交（GitHub 异步创建，稍后可用）")
+                    toast(context.getString(R.string.state_fork_submitted))
                 } else {
-                    toast("已复刻到 $full")
+                    toast(context.getString(R.string.state_forked_to, full))
                     val (newOwner, newRepo) = full.split("/", limit = 2).let { it.first() to it.getOrElse(1) { repo } }
                     onOpenRepo(newOwner, newRepo)
                 }
@@ -1149,20 +1161,20 @@ private fun CodePageGitPanel(
     val actions = listOf(
         GitBubbleAction(
             key = "mode",
-            label = "提交模式：${modeLabel ?: "未设置"}",
+            label = stringResource(R.string.label_commit_mode_value_alt, modeLabel ?: stringResource(R.string.state_not_set)),
             icon = Icons.Filled.Settings,
             onClick = onPickMode,
         ),
         GitBubbleAction(
             key = "branch",
-            label = "分支管理",
+            label = stringResource(R.string.nav_branch_manage),
             icon = Icons.Filled.AccountTree,
             badge = branches.size.takeIf { it > 0 }?.toString(),
             onClick = onOpenBranchManage,
         ),
         GitBubbleAction(
             key = "compare",
-            label = "对比分支",
+            label = stringResource(R.string.action_compare_branches),
             icon = Icons.Filled.CompareArrows,
             enabled = otherBranch != null,
             onClick = { otherBranch?.let { onOpenCompare(defaultBranch, it) } },
@@ -1170,14 +1182,14 @@ private fun CodePageGitPanel(
         GitBubbleAction(
             key = "sync",
             label = when {
-                !localGit.exists -> "本地仓库未拉取"
-                localGit.needsPush -> "推送本地分支"
-                localGit.needsPull -> "拉取远端分支"
-                else -> "本地分支同步"
+                !localGit.exists -> stringResource(R.string.state_local_repo_missing)
+                localGit.needsPush -> stringResource(R.string.action_push_local_branch)
+                localGit.needsPull -> stringResource(R.string.action_pull_remote_branch)
+                else -> stringResource(R.string.nav_local_branch_sync)
             },
             icon = Icons.Filled.Sync,
             badge = when {
-                localGit.diverged -> "分叉"
+                localGit.diverged -> stringResource(R.string.state_diverged)
                 localGit.ahead > 0 -> "↑${localGit.ahead}"
                 localGit.behind > 0 -> "↓${localGit.behind}"
                 else -> null
@@ -1187,7 +1199,7 @@ private fun CodePageGitPanel(
         ),
         GitBubbleAction(
             key = "refresh",
-            label = "刷新",
+            label = stringResource(R.string.action_refresh),
             icon = Icons.Filled.Refresh,
             onClick = onRefresh,
         ),
@@ -1249,7 +1261,7 @@ private fun RepoHeaderRow(
     ) {
         Icon(
             Icons.AutoMirrored.Filled.ArrowBack,
-            contentDescription = "返回",
+            contentDescription = stringResource(R.string.action_back),
             tint = Primer.IconPrimary,
             modifier = Modifier.size(24.dp).iconTap { onBack() },
         )
@@ -1269,7 +1281,7 @@ private fun RepoHeaderRow(
         }
         Icon(
             Icons.Filled.Refresh,
-            contentDescription = "刷新",
+            contentDescription = stringResource(R.string.action_refresh),
             tint = Primer.IconPrimary,
             modifier = Modifier.size(22.dp).iconTap { onRefresh() },
         )
@@ -1301,7 +1313,7 @@ private fun BranchChip(branch: String?, onClick: () -> Unit) {
         )
         Spacer(Modifier.width(5.dp))
         Text(
-            branch?.takeIf { it.isNotBlank() } ?: "默认分支",
+            branch?.takeIf { it.isNotBlank() } ?: stringResource(R.string.label_default_branch),
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
             color = Primer.TextPrimary,
@@ -1340,12 +1352,12 @@ private fun BranchSwitchDialog(
         onDismissRequest = onDismiss,
         title = {
             Column {
-                Text("切换分支", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
+                Text(stringResource(R.string.action_switch_branch), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
                 Spacer(Modifier.height(2.dp))
                 Text(
                     buildString {
-                        append("共 ${branches.size} 个分支")
-                        if (cached) append(" · 列表来自本地缓存")
+                        append(stringResource(R.string.label_branch_total, branches.size))
+                        if (cached) append(stringResource(R.string.suffix_from_local_cache))
                     },
                     fontSize = 11.5.sp,
                     color = Primer.TextTertiary,
@@ -1367,7 +1379,7 @@ private fun BranchSwitchDialog(
                     Spacer(Modifier.width(7.dp))
                     Box(Modifier.weight(1f)) {
                         if (query.isEmpty()) {
-                            Text("搜索分支", fontSize = 12.5.sp, color = Primer.TextTertiary)
+                            Text(stringResource(R.string.hint_search_branches), fontSize = 12.5.sp, color = Primer.TextTertiary)
                         }
                         BasicTextField(
                             value = query,
@@ -1383,14 +1395,14 @@ private fun BranchSwitchDialog(
                 Spacer(Modifier.height(8.dp))
                 when {
                     branches.isEmpty() -> Text(
-                        "分支列表尚未加载完成：稍等片刻，或关闭弹窗后在顶部栏点刷新。",
+                        stringResource(R.string.note_branch_list_loading),
                         fontSize = 12.5.sp,
                         color = Primer.TextTertiary,
                         lineHeight = 18.sp,
                         modifier = Modifier.padding(vertical = 10.dp),
                     )
                     filtered.isEmpty() -> Text(
-                        "没有匹配「$keyword」的分支",
+                        stringResource(R.string.state_no_branch_match, keyword),
                         fontSize = 12.5.sp,
                         color = Primer.TextTertiary,
                         modifier = Modifier.padding(vertical = 10.dp),
@@ -1408,7 +1420,7 @@ private fun BranchSwitchDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("关闭", color = Primer.Blue500) }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_close), color = Primer.Blue500) }
         },
     )
 }
@@ -1442,7 +1454,7 @@ private fun BranchRow(item: BranchItem, selected: Boolean, onClick: () -> Unit) 
         )
         if (item.protected) {
             Text(
-                "受保护",
+                stringResource(R.string.state_protected),
                 fontSize = 10.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Primer.TextSecondary,
@@ -1454,7 +1466,7 @@ private fun BranchRow(item: BranchItem, selected: Boolean, onClick: () -> Unit) 
             Spacer(Modifier.width(6.dp))
         }
         if (selected) {
-            Icon(Icons.Filled.Check, contentDescription = "当前分支", tint = Primer.Blue500, modifier = Modifier.size(16.dp))
+            Icon(Icons.Filled.Check, contentDescription = stringResource(R.string.label_current_branch_marker), tint = Primer.Blue500, modifier = Modifier.size(16.dp))
         }
     }
 }
@@ -1482,15 +1494,16 @@ private val bottomTabs = listOf(
  * 硬塞进 `RepoPage` 会让那个 `when` 多出一条永远走不到的支路。
  */
 private sealed interface BubbleEntry {
-    val label: String
+    /** 显示文案。气泡项是**界面**，语言切换要跟着变，所以带资源 ID 而不是字符串。 */
+    @get:StringRes val labelRes: Int
     val icon: ImageVector
 
     data class Page(val page: RepoPage, override val icon: ImageVector) : BubbleEntry {
-        override val label: String get() = page.label
+        override val labelRes: Int get() = page.labelRes
     }
 
     /** [key] 由 [RepoBottomBar] 的 `onBubbleAction` 分派。 */
-    data class Action(override val label: String, override val icon: ImageVector, val key: String) : BubbleEntry
+    data class Action(@get:StringRes override val labelRes: Int, override val icon: ImageVector, val key: String) : BubbleEntry
 }
 
 /** 气泡动作 key：分支同步（服务端合并，需要写权限）。 */
@@ -1509,7 +1522,7 @@ private fun bubbleEntries(canPush: Boolean): List<BubbleEntry> = listOfNotNull(
     BubbleEntry.Page(RepoPage.PullRequests, Icons.AutoMirrored.Filled.CallSplit),
     BubbleEntry.Page(RepoPage.Commits, Icons.Filled.History),
     BubbleEntry.Page(RepoPage.Settings, Icons.Filled.Settings),
-    BubbleEntry.Action("分支同步", Icons.Filled.Sync, BUBBLE_ACTION_BRANCH_SYNC).takeIf { canPush },
+    BubbleEntry.Action(R.string.bubble_branch_sync, Icons.Filled.Sync, BUBBLE_ACTION_BRANCH_SYNC).takeIf { canPush },
 )
 
 @Composable
@@ -1541,7 +1554,7 @@ private fun RepoBottomBar(
         Box(contentAlignment = Alignment.Center) {
             Icon(
                 Icons.Filled.MoreVert,
-                contentDescription = "更多",
+                contentDescription = stringResource(R.string.action_more),
                 tint = if (entries.any { it is BubbleEntry.Page && it.page == selected }) Primer.Blue500 else Primer.IconPrimary,
                 modifier = Modifier
                     .size(46.dp)
@@ -1551,7 +1564,7 @@ private fun RepoBottomBar(
             DropdownMenu(expanded = bubbleExpanded, onDismissRequest = { onBubbleToggle(false) }) {
                 entries.forEach { entry ->
                     DropdownMenuItem(
-                        text = { Text(entry.label) },
+                        text = { Text(stringResource(entry.labelRes)) },
                         leadingIcon = { Icon(entry.icon, null, tint = Primer.IconSecondary, modifier = Modifier.size(18.dp)) },
                         onClick = {
                             when (entry) {
@@ -1580,7 +1593,7 @@ private fun RowScope.BottomTab(page: RepoPage, icon: ImageVector, selected: Bool
         Icon(icon, null, tint = tint, modifier = Modifier.size(20.dp))
         Spacer(Modifier.height(2.dp))
         Text(
-            page.label,
+            stringResource(page.labelRes),
             fontSize = 9.5.sp,
             color = selectionColor(selected, on = Primer.Blue500, off = Primer.TextTertiary),
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
@@ -1605,14 +1618,14 @@ private fun RepoCredentialBanner(login: String?, onUseAccount: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            "此仓库使用独立凭据" + (login?.takeIf { it.isNotBlank() }?.let { "（@$it）" } ?: "") +
-                "：读与写都用它，操作身份与当前账号不同。",
+            stringResource(R.string.label_repo_uses_own_credentials) + (login?.takeIf { it.isNotBlank() }?.let { stringResource(R.string.suffix_at_login, it) } ?: "") +
+                stringResource(R.string.suffix_own_credentials_note),
             fontSize = 11.5.sp,
             color = Primer.WarningText,
             modifier = Modifier.weight(1f),
         )
         Text(
-            "改用账号",
+            stringResource(R.string.action_use_account_instead),
             fontSize = 11.5.sp,
             color = Primer.Blue500,
             modifier = Modifier

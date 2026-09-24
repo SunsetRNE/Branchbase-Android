@@ -19,6 +19,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +35,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.profile.CommitMode
 import com.branchbase.ui.profile.CommitModePickerDialog
@@ -83,20 +85,20 @@ internal fun StageCommitScreen(
 
     fun attemptCommit() {
         if (mode == null) { showModePicker = true; return }
-        if (selectedCount == 0) { feedback = "请先勾选要提交的文件"; return }
-        if (message.isBlank()) { feedback = "请输入提交信息"; return }
+        if (selectedCount == 0) { feedback = context.getString(R.string.error_tick_files_first); return }
+        if (message.isBlank()) { feedback = context.getString(R.string.error_commit_message_required); return }
         val selected = files.filterIndexed { i, _ -> checks[i] }.map { it.path }
         onCommit(message, selected)
     }
 
     DecisionScreenShell(
-        title = "提交更改",
-        subtitle = "$repoName · ${mode?.label ?: "模式未配置"}",
+        title = stringResource(R.string.action_commit_changes),
+        subtitle = stringResource(R.string.label_repo_mode, repoName, mode?.label ?: stringResource(R.string.state_mode_not_configured)),
         onBack = onBack,
     content = {
         if (mode == null) {
             Text(
-                "⚠ 未选择提交模式 · 提交时将询问。确定后固化到本地配置，可随时在设置中更改。",
+                stringResource(R.string.note_no_commit_mode),
                 fontSize = 12.sp,
                 color = Primer.WarningTextStrong,
                 lineHeight = 18.sp,
@@ -110,7 +112,7 @@ internal fun StageCommitScreen(
         }
 
         if (files.isNotEmpty()) {
-            FactCard("变更文件（勾选本次提交范围）") {
+            FactCard(stringResource(R.string.label_changed_files_scope)) {
                 Column {
                     files.forEachIndexed { i, f ->
                         Row(
@@ -137,7 +139,7 @@ internal fun StageCommitScreen(
                         }
                     }
                     Text(
-                        "已选 $selectedCount / ${files.size} 个文件",
+                        stringResource(R.string.label_selected_files, selectedCount, files.size),
                         fontSize = 12.sp,
                         color = if (selectedCount > 0) Primer.Green500 else Primer.TextTertiary,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -145,16 +147,16 @@ internal fun StageCommitScreen(
                 }
             }
         } else {
-            DecisionNote("模式 ① 单文件提交：跳过勾选，直接填写提交信息（PUT contents）。")
+            DecisionNote(stringResource(R.string.note_mode_single_file))
         }
 
-        FactCard("提交信息") {
+        FactCard(stringResource(R.string.label_commit_message)) {
             Column(Modifier.padding(12.dp)) {
                 OutlinedTextField(
                     value = message,
                     onValueChange = { message = it },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("简要描述本次更改…", fontSize = 13.sp, color = Primer.TextTertiary) },
+                    placeholder = { Text(stringResource(R.string.hint_describe_change), fontSize = 13.sp, color = Primer.TextTertiary) },
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
                 )
             }
@@ -163,8 +165,8 @@ internal fun StageCommitScreen(
         feedback?.let { FeedbackLine(it, error = true) }
     },
     bottom = {
-        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("取消") }
-        Button(onClick = { attemptCommit() }, modifier = Modifier.weight(1f)) { Text("提交") }
+        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.action_cancel)) }
+        Button(onClick = { attemptCommit() }, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.action_commit)) }
     })
 
     // 提交模式延迟决定弹窗（未配置时）
@@ -211,27 +213,28 @@ fun AuthorIdentityScreen(
     onBack: () -> Unit,
     onConfirm: (name: String, email: String, saveGlobally: Boolean) -> Unit,
 ) {
+    val context = LocalContext.current
     var name by remember { mutableStateOf(suggestedName) }
     var email by remember { mutableStateOf(suggestedEmail) }
     var save by remember { mutableStateOf(true) }
     var feedback by remember { mutableStateOf<String?>(null) }
 
     fun doConfirm() {
-        if (name.isBlank()) { feedback = "请输入作者名称"; return }
-        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) { feedback = "邮箱格式不正确"; return }
+        if (name.isBlank()) { feedback = context.getString(R.string.error_author_name_required); return }
+        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) { feedback = context.getString(R.string.error_invalid_email); return }
         onConfirm(name.trim(), email.trim(), save)
     }
 
     DecisionScreenShell(
-        title = "确认提交身份",
-        subtitle = "首次 · 公开可见",
+        title = stringResource(R.string.label_confirm_commit_identity),
+        subtitle = stringResource(R.string.label_first_time_public),
         onBack = onBack,
         content = {
-        DecisionNote("本地 git commit 需要签名身份（author）。此身份会写入每个提交，公开可见。")
+        DecisionNote(stringResource(R.string.note_commit_identity))
 
-        FactCard("签名信息") {
+        FactCard(stringResource(R.string.label_signature_info)) {
             Column(Modifier.padding(12.dp)) {
-                Text("作者名称（必填）", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
+                Text(stringResource(R.string.label_author_name_required), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -239,7 +242,7 @@ fun AuthorIdentityScreen(
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
                     singleLine = true,
                 )
-                Text("作者邮箱（必填）", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary, modifier = Modifier.padding(top = 10.dp))
+                Text(stringResource(R.string.label_author_email_required), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary, modifier = Modifier.padding(top = 10.dp))
                 OutlinedTextField(
                     value = email,
                     onValueChange = { email = it },
@@ -250,19 +253,19 @@ fun AuthorIdentityScreen(
             }
         }
 
-        FactCard("保存范围") {
+        FactCard(stringResource(R.string.label_save_scope)) {
             Column {
-                DecisionOptionRow("保存为全局默认", "存 SharedPreferences（commit.author.*），所有仓库复用。", save, OptionTag.RECOMMENDED) { save = true }
-                DecisionOptionRow("仅本次使用", "不落盘，下次提交时重新询问。", !save) { save = false }
+                DecisionOptionRow(stringResource(R.string.label_save_global_default), stringResource(R.string.note_save_global_default), save, OptionTag.RECOMMENDED) { save = true }
+                DecisionOptionRow(stringResource(R.string.label_use_once), stringResource(R.string.note_use_once), !save) { save = false }
             }
         }
 
-        DecisionNote("noreply 邮箱可保护真实邮箱不被公开抓取，推荐保持默认。")
+        DecisionNote(stringResource(R.string.note_noreply_email))
         feedback?.let { FeedbackLine(it, error = true) }
     },
     bottom = {
-        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("取消") }
-        Button(onClick = { doConfirm() }, modifier = Modifier.weight(1f)) { Text("保存并继续提交") }
+        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.action_cancel)) }
+        Button(onClick = { doConfirm() }, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.action_save_and_continue)) }
     })
 }
 
@@ -276,6 +279,8 @@ fun SensitiveWarningScreen(
     onBack: () -> Unit,
     onProceed: () -> Unit,
 ) {
+    // 本页的确认提示走资源，需要 Context（局部 fun doResolve 在非组合上下文里取值）
+    val context = LocalContext.current
     var option by remember { mutableStateOf(0) } // 0=返回修改 1=仍要提交
     var confirmed by remember { mutableStateOf(false) }
     var feedback by remember { mutableStateOf<String?>(null) }
@@ -283,18 +288,18 @@ fun SensitiveWarningScreen(
     fun doResolve() {
         when (option) {
             0 -> onBack()
-            1 -> if (confirmed) onProceed() else feedback = "请先勾选确认"
+            1 -> if (confirmed) onProceed() else feedback = context.getString(R.string.error_confirm_required_short)
         }
     }
 
     DecisionScreenShell(
-        title = "检测到敏感信息",
-        subtitle = "提交前 · ${hits.size} 处命中",
+        title = stringResource(R.string.state_sensitive_detected),
+        subtitle = stringResource(R.string.label_hits_before_commit, hits.size),
         onBack = onBack,
         content = {
-        DecisionNote("本次提交内容命中 ${hits.size} 处疑似密钥特征。提交后内容将随仓库历史永久公开，即使后续删除仍可被恢复。")
+        DecisionNote(stringResource(R.string.warning_secrets_detected, hits.size))
 
-        FactCard("命中明细（已打码 · 本地扫描不上传）") {
+        FactCard(stringResource(R.string.label_hit_details)) {
             Column {
                 hits.forEach { h ->
                     Row(
@@ -302,7 +307,7 @@ fun SensitiveWarningScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text("第 ${h.line} 行", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.DangerText)
+                            Text(stringResource(R.string.label_line_number, h.line), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.DangerText)
                             Text(h.mask, fontSize = 11.sp, color = Primer.DangerText, fontFamily = FontFamily.Monospace, maxLines = 1)
                         }
                         Text(h.kind, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Primer.DangerText, modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Primer.DangerSurface).padding(horizontal = 6.dp, vertical = 2.dp))
@@ -311,18 +316,18 @@ fun SensitiveWarningScreen(
             }
         }
 
-        FactCard("处理方式") {
+        FactCard(stringResource(R.string.label_handling)) {
             Column {
-                DecisionOptionRow("返回修改", "回到编辑器，移除或替换密钥后重新提交。", option == 0, OptionTag.RECOMMENDED) { option = 0 }
-                DecisionOptionRow("仍要提交", "需勾选下方确认（内容可公开 / 密钥将立即作废）。", option == 1, OptionTag.DANGER) { option = 1 }
+                DecisionOptionRow(stringResource(R.string.action_back_to_edit), stringResource(R.string.note_remove_secret), option == 0, OptionTag.RECOMMENDED) { option = 0 }
+                DecisionOptionRow(stringResource(R.string.action_commit_anyway), stringResource(R.string.note_tick_secret_confirm), option == 1, OptionTag.DANGER) { option = 1 }
             }
         }
 
         if (option == 1) {
             Spacer(Modifier.height(4.dp))
             DangerConfirmCard(
-                description = "提交公开后，即使删除提交，密钥仍可能被爬取。建议立即在服务商后台吊销。",
-                confirmLabel = "我确认内容可公开（或密钥将立即作废）",
+                description = stringResource(R.string.warning_revoke_key),
+                confirmLabel = stringResource(R.string.confirm_public_checkbox),
                 confirmed = confirmed,
                 onToggle = { confirmed = !confirmed },
             )
@@ -330,14 +335,14 @@ fun SensitiveWarningScreen(
         feedback?.let { FeedbackLine(it, error = true) }
     },
     bottom = {
-        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("取消") }
+        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.action_cancel)) }
         Button(
             onClick = { doResolve() },
             enabled = !(option == 1 && !confirmed),
             colors = ButtonDefaults.buttonColors(containerColor = if (option == 1) Primer.Red500 else Primer.Green500),
             modifier = Modifier.weight(1f),
         ) {
-            Text(if (option == 0) "返回修改" else "仍要提交", color = Color.White)
+            Text(if (option == 0) stringResource(R.string.action_back_to_edit) else stringResource(R.string.action_commit_anyway), color = Color.White)
         }
     })
 }
@@ -356,6 +361,7 @@ fun DraftRecoverScreen(
     onDiscard: () -> Unit,
     onViewRemote: () -> Unit,
 ) {
+    val context = LocalContext.current
     var option by remember { mutableStateOf(0) } // 0=恢复 1=丢弃 2=查看远端
     var confirmed by remember { mutableStateOf(false) }
     var feedback by remember { mutableStateOf<String?>(null) }
@@ -363,47 +369,47 @@ fun DraftRecoverScreen(
     fun doResolve() {
         when (option) {
             0 -> onRecover()
-            1 -> if (confirmed) onDiscard() else feedback = "请先勾选二次确认"
+            1 -> if (confirmed) onDiscard() else feedback = context.getString(R.string.error_confirm_required)
             2 -> onViewRemote()
         }
     }
 
     DecisionScreenShell(
-        title = "发现未保存草稿",
-        subtitle = "编辑中断恢复",
+        title = stringResource(R.string.state_unsaved_draft_found),
+        subtitle = stringResource(R.string.label_recover_interrupted_edit),
         onBack = onBack,
         content = {
-        DecisionNote("上次编辑因切后台/进程被杀中断。草稿存于 files/edit/（D3 隔离目录）。")
+        DecisionNote(stringResource(R.string.note_draft_interrupted))
 
-        FactCard("草稿信息") {
+        FactCard(stringResource(R.string.label_draft_info)) {
             Column {
                 drafts.forEach { d ->
-                    FactRow(d.path, "修改于 ${d.modifiedAt} · ${d.changedLines} 行变更", mono = true)
+                    FactRow(d.path, stringResource(R.string.label_draft_modified, d.modifiedAt, d.changedLines), mono = true)
                 }
             }
         }
 
-        FactCard("远端状态") {
+        FactCard(stringResource(R.string.label_remote_status)) {
             FactRow(
-                "sha 对比",
-                if (drafts.any { it.remoteChanged }) "远端已变化（存在多端编辑冲突）" else "远端未变化（可安全恢复编辑）",
+                stringResource(R.string.label_sha_comparison),
+                if (drafts.any { it.remoteChanged }) stringResource(R.string.state_remote_changed) else stringResource(R.string.state_remote_unchanged),
                 rightColor = if (drafts.any { it.remoteChanged }) Primer.WarningText else Primer.TextTertiary,
             )
         }
 
-        FactCard("恢复方式") {
+        FactCard(stringResource(R.string.label_recovery_method)) {
             Column {
-                DecisionOptionRow("恢复草稿", "载入草稿继续编辑，${drafts.size} 个文件恢复为未保存状态。", option == 0, OptionTag.RECOMMENDED) { option = 0 }
-                DecisionOptionRow("丢弃草稿", "草稿永久删除（需二次确认），打开远端最新版本。", option == 1, OptionTag.DANGER) { option = 1 }
-                DecisionOptionRow("查看远端最新", "丢弃草稿并打开远端只读视图（不进入编辑态）。", option == 2) { option = 2 }
+                DecisionOptionRow(stringResource(R.string.action_restore_draft), stringResource(R.string.note_load_draft, drafts.size), option == 0, OptionTag.RECOMMENDED) { option = 0 }
+                DecisionOptionRow(stringResource(R.string.action_discard_draft), stringResource(R.string.note_discard_draft_open_remote), option == 1, OptionTag.DANGER) { option = 1 }
+                DecisionOptionRow(stringResource(R.string.action_view_remote_latest), stringResource(R.string.note_discard_open_readonly), option == 2) { option = 2 }
             }
         }
 
         if (option == 1) {
             Spacer(Modifier.height(4.dp))
             DangerConfirmCard(
-                description = "${drafts.size} 个草稿文件将永久删除，未保存内容无法找回。",
-                confirmLabel = "我确认丢弃草稿",
+                description = stringResource(R.string.warning_drafts_deleted, drafts.size),
+                confirmLabel = stringResource(R.string.confirm_discard_drafts_checkbox),
                 confirmed = confirmed,
                 onToggle = { confirmed = !confirmed },
             )
@@ -411,7 +417,7 @@ fun DraftRecoverScreen(
         feedback?.let { FeedbackLine(it, error = true) }
     },
     bottom = {
-        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("取消") }
+        TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.action_cancel)) }
         Button(
             onClick = { doResolve() },
             enabled = !(option == 1 && !confirmed),
@@ -420,9 +426,9 @@ fun DraftRecoverScreen(
         ) {
             Text(
                 when (option) {
-                    0 -> "恢复草稿"
-                    1 -> "丢弃草稿"
-                    else -> "查看远端最新"
+                    0 -> stringResource(R.string.action_restore_draft)
+                    1 -> stringResource(R.string.action_discard_draft)
+                    else -> stringResource(R.string.action_view_remote_latest)
                 },
                 color = Color.White,
             )

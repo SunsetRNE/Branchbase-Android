@@ -19,7 +19,7 @@ fun interface AuthProvider {
 /** 一次下载的终态。 */
 sealed interface DownloadResult {
     data class Ok(val bytes: Long) : DownloadResult
-    data class Failed(val message: String) : DownloadResult
+    data class Failed(val failure: DownloadFailure) : DownloadResult
     data object Canceled : DownloadResult
 }
 
@@ -57,7 +57,9 @@ internal class HttpDownloadEngine(
                 if (code in 300..399) {
                     val location = conn.getHeaderField("Location")
                     if (location.isNullOrBlank() || redirects >= MAX_REDIRECTS) {
-                        return DownloadResult.Failed("重定向异常（HTTP $code）")
+                        return DownloadResult.Failed(
+                            DownloadFailure(DownloadErrorCode.REDIRECT_ERROR, listOf(code)),
+                        )
                     }
                     redirects++
                     current = URL(URL(current), location).toString()
@@ -66,9 +68,9 @@ internal class HttpDownloadEngine(
                 // 临时文件比远端还新/更完整时 Range 会被拒：断点信息已失效，删掉让用户重试
                 if (code == 416) {
                     target.delete()
-                    return DownloadResult.Failed("断点信息已失效，请重试")
+                    return DownloadResult.Failed(DownloadFailure(DownloadErrorCode.RANGE_INVALID))
                 }
-                if (code !in 200..299) return DownloadResult.Failed(DownloadErrors.fromStatus(code))
+                if (code !in 200..299) return DownloadResult.Failed(DownloadErrors.forStatus(code))
 
                 val append = code == 206
                 if (!append) resumeFrom = 0L
@@ -102,7 +104,7 @@ internal class HttpDownloadEngine(
             } catch (e: Exception) {
                 if (isCanceled()) return DownloadResult.Canceled
                 // 网络栈的原始异常（多为英文）不进用户视野，统一翻译成中文结论
-                return DownloadResult.Failed(DownloadErrors.fromException(e))
+                return DownloadResult.Failed(DownloadErrors.forException(e))
             } finally {
                 runCatching { conn.disconnect() }
             }

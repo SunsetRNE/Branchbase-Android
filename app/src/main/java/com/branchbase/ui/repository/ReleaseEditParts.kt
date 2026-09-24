@@ -38,6 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.core.AttachmentStatus
 import com.branchbase.core.DraftAttachment
 import com.branchbase.downloader.DownloadPaths
@@ -150,7 +152,7 @@ internal fun ReleaseTypeRow(
                 Modifier.clickable { onLatest(!latest) },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("设为最新", fontSize = 10.5.sp, color = Primer.TextTertiary)
+                Text(stringResource(R.string.action_set_as_latest), fontSize = 10.5.sp, color = Primer.TextTertiary)
                 Spacer(Modifier.width(5.dp))
                 MiniSwitch(latest)
             }
@@ -215,7 +217,7 @@ internal fun ReleaseTagTitleRow(
             ) {
                 Icon(
                     Icons.Filled.Sell,
-                    contentDescription = "标签",
+                    contentDescription = stringResource(R.string.label_tag),
                     tint = Primer.IconSecondary,
                     modifier = Modifier.size(12.dp),
                 )
@@ -259,7 +261,7 @@ internal fun ReleaseTagTitleRow(
                 decorationBox = { inner ->
                     Box {
                         if (title.isEmpty()) {
-                            Text("标题（留空则用 tag）", fontSize = 13.5.sp, color = Primer.TextTertiary)
+                            Text(stringResource(R.string.label_title_optional_tag), fontSize = 13.5.sp, color = Primer.TextTertiary)
                         }
                         inner()
                     }
@@ -274,7 +276,7 @@ internal fun ReleaseTagTitleRow(
                 ) {
                     Icon(
                         Icons.Filled.AccountTree,
-                        contentDescription = "目标分支",
+                        contentDescription = stringResource(R.string.label_target_branch_name),
                         tint = Primer.IconSecondary,
                         modifier = Modifier.size(12.dp),
                     )
@@ -419,11 +421,11 @@ internal fun ReleaseAttachmentRow(
                 Spacer(Modifier.height(1.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val (dot, label) = when (attachment.status) {
-                        AttachmentStatus.UPLOADING -> Primer.Blue500 to "上传中…"
-                        AttachmentStatus.DONE -> Primer.Green500 to "已上传"
-                        AttachmentStatus.FAILED -> Primer.Red500 to (attachment.error ?: "上传失败")
+                        AttachmentStatus.UPLOADING -> Primer.Blue500 to stringResource(R.string.state_uploading)
+                        AttachmentStatus.DONE -> Primer.Green500 to stringResource(R.string.state_uploaded)
+                        AttachmentStatus.FAILED -> Primer.Red500 to (attachment.error ?: stringResource(R.string.error_upload_failed_short))
                         AttachmentStatus.READY -> Primer.Gray300 to
-                            if (attachment.reference) "引用中 · 待上传" else "待上传"
+                            if (attachment.reference) stringResource(R.string.state_referenced_pending) else stringResource(R.string.state_pending_upload)
                     }
                     Box(Modifier.size(5.dp).clip(CircleShape).background(dot))
                     Spacer(Modifier.width(5.dp))
@@ -446,10 +448,10 @@ internal fun ReleaseAttachmentRow(
             // 上传只有「发布 / 保存」一个入口（资产必须先挂到 release 上，见 ReleaseEditScreen 的说明），
             // 所以这里只给「失败重试」与完成态，不再放一个会和两步流程打架的「上传」
             when (attachment.status) {
-                AttachmentStatus.FAILED -> ReleaseHeaderAction("重试", onClick = onRetry)
+                AttachmentStatus.FAILED -> ReleaseHeaderAction(stringResource(R.string.action_retry), onClick = onRetry)
                 AttachmentStatus.DONE -> Icon(
                     Icons.Filled.Check,
-                    contentDescription = "已上传",
+                    contentDescription = stringResource(R.string.state_uploaded),
                     tint = Primer.SuccessTextStrong,
                     modifier = Modifier.size(14.dp),
                 )
@@ -459,7 +461,7 @@ internal fun ReleaseAttachmentRow(
             Spacer(Modifier.width(2.dp))
             Icon(
                 Icons.Filled.Close,
-                contentDescription = "移除",
+                contentDescription = stringResource(R.string.action_remove),
                 tint = Primer.IconSecondary,
                 modifier = Modifier.size(24.dp).iconTap { onRemove() },
             )
@@ -494,8 +496,8 @@ internal fun ReleaseAttachmentEmpty(onImport: () -> Unit) {
             Icon(Icons.Filled.Add, contentDescription = null, tint = Primer.IconSecondary, modifier = Modifier.size(13.dp))
         }
         Spacer(Modifier.width(9.dp))
-        Text("导入安装包或任意文件", fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.weight(1f))
-        Text("选择文件", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
+        Text(stringResource(R.string.action_import_any_file), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.weight(1f))
+        Text(stringResource(R.string.action_choose_file), fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
     }
 }
 
@@ -538,7 +540,7 @@ internal fun ReleaseStatusNote(text: String?, bad: Boolean) {
 internal fun ReleaseStoreInfoAction(onClick: () -> Unit) {
     Icon(
         Icons.Filled.Info,
-        contentDescription = "导入的文件存在哪？",
+        contentDescription = stringResource(R.string.faq_imported_files_location),
         tint = Primer.IconSecondary,
         modifier = Modifier.size(20.dp).iconTap { onClick() },
     )

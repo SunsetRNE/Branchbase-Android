@@ -18,7 +18,7 @@ package com.branchbase.ui.search
  */
 internal fun buildSearchQuery(
     query: String,
-    type: String,
+    type: SearchType,
     language: String?,
     advanced: Map<String, String>,
     advancedFilters: List<Pair<String, String>>,
@@ -29,10 +29,8 @@ internal fun buildSearchQuery(
         val syntax = advancedFilters.firstOrNull { it.first == name }?.second ?: return@forEach
         if (value.isNotBlank()) append(" $syntax$value")
     }
-    when (type) {
-        "议题" -> append(" type:issue")
-        "拉取请求" -> append(" type:pr")
-    }
+    // 类型限定符来自枚举，不再判别中文字面量：翻译搜索页的 Tab 文案不会改变查询串
+    type.queryQualifier?.let { append(" $it") }
 }
 
 /**
@@ -46,9 +44,16 @@ internal fun buildSearchQuery(
  * 同项目里 `SecurityAlertScreen` 早就为此用了 `PageCache.profileKey`，搜索这里漏了。
  *
  * 只有「仓库」类型带排序键：其余类型不支持排序，带上会让 `sortKey` 残留污染缓存键。
+ *
+ * 键里用 [SearchType.cacheKey]（稳定英文）而不是展示文案 —— 缓存是**落库**的，
+ * 切一次界面语言不该让整张缓存表变成读不到的孤儿。
  */
-internal fun searchCacheKey(type: String, query: String, sortKey: String, login: String): String =
-    if (type == "仓库") "search:$login:$type|$query|$sortKey" else "search:$login:$type|$query"
+internal fun searchCacheKey(type: SearchType, query: String, sortKey: String, login: String): String =
+    if (type == SearchType.REPOS) {
+        "search:$login:${type.cacheKey}|$query|$sortKey"
+    } else {
+        "search:$login:${type.cacheKey}|$query"
+    }
 
 /**
  * 把后端错误翻成**用户能据此行动**的一句话。

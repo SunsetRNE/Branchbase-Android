@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +44,7 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.ui.theme.Primer
 
 /**
@@ -482,7 +484,7 @@ fun MarkdownBody(
                         if (block.checked) {
                             Icon(
                                 Icons.Filled.Check,
-                                contentDescription = "已完成",
+                                contentDescription = stringResource(R.string.state_completed),
                                 tint = Color.White,
                                 modifier = Modifier.size(11.dp),
                             )
@@ -570,7 +572,7 @@ private fun CodeBlock(lang: String, code: String, onCopy: ((String) -> Unit)?) {
                 )
                 if (onCopy != null) {
                     Text(
-                        "复制",
+                        stringResource(R.string.action_copy),
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = Primer.TextSecondary,

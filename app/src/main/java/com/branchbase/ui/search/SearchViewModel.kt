@@ -24,7 +24,7 @@ import androidx.lifecycle.ViewModel
 class SearchViewModel : ViewModel() {
 
     val queryState = mutableStateOf("")
-    val typeState = mutableStateOf("仓库")
+    val typeState = mutableStateOf(SearchType.REPOS)
     val sortState = mutableStateOf("最佳匹配")
     val sortKeyState = mutableStateOf("")
     val languageState = mutableStateOf<String?>(null)

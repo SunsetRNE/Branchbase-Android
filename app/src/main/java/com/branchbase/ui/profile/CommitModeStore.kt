@@ -17,6 +17,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,6 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.ui.settings.SettingsKeys
 import com.branchbase.ui.theme.Primer
 
@@ -59,7 +61,7 @@ internal fun CommitModePickerDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("选择提交模式", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary) },
+        title = { Text(stringResource(R.string.label_choose_commit_mode), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary) },
         text = {
             Column {
                 CommitMode.entries.forEach { m ->
@@ -86,9 +88,9 @@ internal fun CommitModePickerDialog(
         },
         confirmButton = {
             TextButton(onClick = { selected?.let(onConfirm) }, enabled = selected != null) {
-                Text("确定")
+                Text(stringResource(R.string.action_ok))
             }
         },
-        dismissButton = { TextButton(onDismiss) { Text("取消") } },
+        dismissButton = { TextButton(onDismiss) { Text(stringResource(R.string.action_cancel)) } },
     )
 }

@@ -1,0 +1,1228 @@
+# 抽取翻译表：<原文>\t<英文>\t<资源名>
+# 由 tools/i18n/extract.py 使用；同一个字面量在全局共用一个资源。
+# 原文列必须与源码里的字符串**逐字一致**（含 \n 这类转义），否则工具会跳过它。
+
+沉浸式翻译	Immersive translation	translate_title
+自动翻译正文	Auto-translate article text	translate_auto_toggle
+沉浸式翻译的总开关：开启后进入自述文件等正文页会自动开始翻译，页面上出现可移动悬浮球（点开是翻译工具菜单）；关闭后不进正文页翻译，页面上的悬浮球也会收起。	Master switch for immersive translation: when on, article pages such as README start translating automatically and a draggable floating button appears (tap it for the translation tools). When off, article pages are not translated and the floating button is hidden.	translate_auto_toggle_desc
+翻译服务	Translation service	translate_service_section
+sk-…（platform.deepseek.com 申请）	sk-… (get one at platform.deepseek.com)	translate_key_placeholder
+隐藏	Hide	action_hide
+显示	Show	action_show
+模型（可留空用默认）	Model (leave blank for the default)	translate_model_label
+接入地址（可留空用官方）	Endpoint (leave blank for the official one)	translate_base_url_label
+测试中…	Testing…	translate_testing
+保存并测试连接	Save and test connection	translate_save_and_test
+Key 只保存在 App 私有目录，不会注入网页、不写日志；建议使用设置了额度上限的 Key。\n接口为 OpenAI 兼容格式，接入地址可填中转或自建网关（例如 https://你的域名/v1）。	The key is stored only in the app's private directory — it is never injected into web pages and never written to logs. A key with a spending limit is recommended.\nThe API is OpenAI-compatible, so the endpoint may be a proxy or a self-hosted gateway (for example https://your-domain/v1).	translate_key_note
+目标语言	Target language	translate_target_language
+显示方式	Display mode	translate_display_mode
+原文 + 译文对照	Original + translation	translate_mode_dual
+译文插在每段原文下方，原文保持不动（推荐）	The translation is inserted under each paragraph and the original stays in place (recommended)	translate_mode_dual_desc
+仅显示译文	Translation only	translate_mode_only
+隐藏原文，只留译文（小屏快速浏览用，可随时切回对照）	Hide the original and keep only the translation (for quick reading on a small screen; you can switch back at any time)	translate_mode_only_desc
+译文样式	Translation style	translate_style_section
+卡片	Card	translate_style_card
+蓝色左边框 + 浅灰底，边界最清楚（默认）	Blue left border on a light grey background — the clearest boundary (default)	translate_style_card_desc
+下划线	Underline	translate_style_underline
+无底色，只用虚线下划线标出译文	No background; the translation is marked with a dashed underline only	translate_style_underline_desc
+淡灰	Subtle grey	translate_style_plain
+无边框无底色，最不打扰阅读	No border and no background — the least distracting	translate_style_plain_desc
+翻译质量	Translation quality	translate_quality_section
+保护代码与链接	Protect code and links	translate_guard_toggle
+翻译前把 URL、@提及、#编号、提交 SHA 等标记临时占位，译完原样还原；避免它们被机器翻译改写（默认开启）。	Before translating, markers such as URLs, @mentions, #numbers and commit SHAs are temporarily replaced by placeholders and restored afterwards, so machine translation cannot rewrite them (on by default).	translate_guard_toggle_desc
+译文缓存	Translation cache	translate_cache_section
+本地缓存	On-disk cache	translate_cache_disk_toggle
+把译文落盘，重开 App 后同一段不再重复翻译（关闭只是不再读写磁盘，不清除已存内容）。	Store translations on disk so the same passage is not translated again after a restart (turning this off only stops reading and writing the disk; it does not clear what is already stored).	translate_cache_disk_toggle_desc
+清空译文缓存	Clear translation cache	translate_cache_clear
+内存 ${stats.memoryCount} 段 / 本地 ${stats.diskCount} 段	In memory: %1$s segments / On disk: %2$s segments	translate_cache_stats
+清空	Clear	action_clear
+已清空译文缓存	Translation cache cleared	translate_cache_cleared
+说明	Notes	translate_notes_section
+• 生效范围：自述文件（README）、Issue / PR 主帖、发布说明等**正文页**（评论区为 Compose 原生渲染，暂不在范围内）。\n• **开启入口只有本页的「自动翻译正文」**：开着时正文页会出现可移动悬浮球（可拖动），单击展开「翻译工具菜单」——显示进度（已译 / 候选段数、字符数）、常用开关与「翻译全文 / 清空本页译文」等操作，点面板外任意位置或右上角「×」收起为悬浮球。面板里的「本页翻译」开关一关，悬浮球立刻收起（不翻译时页面不留控件）；要再打开，回到本页开总开关。菜单里的开关与本页读写同一份设置，改哪边都是新的（Key / 模型 / 接入地址只能在**本页**改）。\n• 整页候选文本少于 5000 字符时一次翻完，更长时按视口滚动逐段翻译（省额度）。\n• 翻译服务：MyMemory 免费匿名（额度约 5000 词/天）；DeepSeek 需要你自己的 API Key，按 token 计费。服务不可用时（额度用尽 / Key 无效 / 连续失败）会自动暂停，并在悬浮球与工具菜单上给出提示。\n• 隐私：只把**正文段落文本**发往你选择的服务；DeepSeek 的 Key 存于应用私有目录、不注入网页、不写日志。正文里出现的 URL / @提及 / #编号 / 提交 SHA 会先占位保护、译后还原。	• Scope: article pages such as README files, issue / PR bodies and release notes (comments are rendered natively by Compose and are not covered yet).\n• The only entry point is “Auto-translate article text” on this page: while it is on, article pages show a draggable floating button. Tap it to open the translation tools — progress (translated / candidate segments, character count), the common switches, and actions such as “Translate all” and “Clear this page”. Tap anywhere outside the panel or the × in its top-right corner to collapse it back into the button. Turning off “Translate this page” in the panel hides the button immediately, so no control is left on the page when nothing is being translated; to bring it back, turn the master switch on again here. The switches in the panel and on this page read and write the same settings, so either side is always current (the key, model and endpoint can only be changed on this page).\n• Pages with fewer than 5000 candidate characters are translated in one go; longer pages are translated segment by segment as you scroll (to save quota).\n• Services: MyMemory is free and anonymous (about 5000 words per day); DeepSeek requires your own API key and is billed per token. When a service is unavailable (quota exhausted, invalid key, repeated failures) translation pauses automatically and a hint appears on the floating button and in the tools panel.\n• Privacy: only the text of article paragraphs is sent to the service you choose. The DeepSeek key is stored in the app's private directory, is not injected into web pages and is not written to logs. URLs, @mentions, #numbers and commit SHAs in the text are placeholder-protected first and restored after translation.	translate_notes_body
+连接正常	Connection OK	translate_test_ok
+取消	Cancel	action_cancel
+引擎不可用	Engine unavailable	error_engine_unavailable
+返回	Back	action_back
+删除	Delete	action_delete
+加载失败	Failed to load	error_load_failed
+已完成	Completed	state_completed
+刷新	Refresh	action_refresh
+在浏览器打开	Open in browser	action_open_in_browser
+执行中…	Running…	state_running
+提交	Commit	action_commit
+更多	More	action_more
+重试	Retry	action_retry
+全部	All	filter_all
+任务	Tasks	nav_tasks
+删除失败：$err	Delete failed: %1$s	error_delete_failed
+发布	Releases	nav_releases
+处理方式	What to do	label_handling
+草稿	Draft	label_draft
+请先勾选二次确认	Tick the confirmation box first	error_confirm_required
+保存	Save	action_save
+关闭	Close	action_close
+分支同步	Branch sync	nav_branch_sync
+分支管理	Branch management	nav_branch_manage
+刚刚	Just now	relative_just_now
+安全警报	Security alerts	nav_security_alerts
+提交失败（引擎不可用）	Commit failed (engine unavailable)	error_commit_failed_engine
+收起	Collapse	action_collapse
+日志	Logs	nav_logs
+本地仓库	Local repository	nav_local_repo
+校验中…	Checking…	state_checking
+类型	Type	label_type
+设置	Settings	nav_settings
+请输入提交信息	Enter a commit message	error_commit_message_required
+保存中…	Saving…	state_saving
+分享	Share	action_share
+切换并拉取	Switch and pull	action_switch_and_pull
+复刻	Fork	action_fork
+完成	Done	state_done
+密钥登录	Sign in with an access key	login_access_key
+对比分支	Compare branches	action_compare_branches
+已读	Read	state_read
+提交信息	Commit message	label_commit_message
+提交失败	Commit failed	error_commit_failed
+放弃本地提交	Discard local commit	action_discard_local_commit
+未设置	Not set	state_not_set
+确定	OK	action_ok
+编辑	Edit	action_edit
+缺少工作流文件路径	Missing workflow file path	error_missing_workflow_path
+过滤	Filter	action_filter
+退出登录	Sign out	action_sign_out
+通知	Notifications	nav_notifications
+默认分支	Default branch	label_default_branch
+Git 代理	Git proxy	nav_git_proxy
+GitHub 第三方客户端	Third-party GitHub client	app_tagline
+reset --hard origin/$branch 后重试 pull。本地 ${status?.ahead ?: 0} 个未推送提交永久丢失。	Retry pull after reset --hard origin/%1$s. The %2$s unpushed local commit(s) will be lost permanently.	confirm_reset_hard_loss
+下载	Downloads	nav_downloads
+不可用	Unavailable	state_unavailable
+丢弃草稿	Discard draft	action_discard_draft
+仍要删除	Delete anyway	action_delete_anyway
+仍要提交	Commit anyway	action_commit_anyway
+仓库凭据	Repository credentials	nav_repo_credentials
+代理地址	Proxy address	label_proxy_address
+代码	Code	nav_code
+代码已复制	Code copied	toast_code_copied
+位置	Location	label_location
+保存失败：$err	Save failed: %1$s	error_save_failed
+保存草稿	Save draft	action_save_draft
+保护分支与命名规则由远端在创建分支、开 PR 时校验，本地不做承诺。	Protection rules and naming conventions are enforced by the remote when creating a branch or opening a PR; nothing is promised locally.	note_branch_rules
+保留本地	Keep local	action_keep_local
+修改提交信息	Edit commit message	action_edit_commit_message
+先推送再删	Push first, then delete	action_push_then_delete
+全部级别	All levels	filter_all_levels
+关于	About	nav_about
+分叉	Diverged	state_diverged
+分支名，如 feature/login	Branch name, e.g. feature/login	hint_branch_name
+创建 revert 提交	Create revert commit	action_create_revert
+删除仓库	Delete repository	action_delete_repo
+删除分支 $target？	Delete branch %1$s?	confirm_delete_branch
+删除本地仓库	Delete local repository	action_delete_local_repo
+加载中	Loading	state_loading
+加载中…	Loading…	state_loading_ellipsis
+匹配	Match	label_match
+取消编辑	Cancel editing	action_cancel_edit
+受保护	Protected	state_protected
+图片	Image	label_image
+复制日志	Copy logs	action_copy_logs
+复制远端为新文件	Copy remote as a new file	action_copy_remote_as_new
+复制链接	Copy link	action_copy_link
+安装	Install	action_install
+导入的文件存在哪？	Where are imported files stored?	faq_imported_files_location
+已上传	Uploaded	state_uploaded
+已删除分支 $b	Deleted branch %1$s	toast_branch_deleted
+已提交 $sha	Committed %1$s	toast_committed
+已星标	Starred	state_starred
+当前	Current	label_current
+恢复草稿	Restore draft	action_restore_draft
+执行工作流	Run workflow	action_run_workflow
+授权登录	Sign in with OAuth	login_oauth
+推送	Push	action_push
+推送 $name	Push %1$s	action_push_branch
+提交失败：$reason	Commit failed: %1$s	error_commit_failed_reason
+提交模式	Commit mode	nav_commit_mode
+搜索	Search	action_search
+搜索日志	Search logs	action_search_logs
+撤销	Undo	action_undo
+撤销并丢弃改动	Undo and discard changes	action_undo_discard
+撤销并丢弃改动（reset --hard）	Undo and discard changes (reset --hard)	action_undo_discard_hard
+撤销提交	Undo commit	action_undo_commit
+撤销提交，保留改动（reset --soft）	Undo commit and keep changes (reset --soft)	action_undo_commit_soft
+改动回到工作区（dirty），可重新编辑再提交。	The changes return to the working tree (dirty) and can be edited and committed again.	note_undo_soft
+放弃本地	Discard local	action_discard_local
+新建分支	New branch	action_new_branch
+新建发布	New release	action_new_release
+无法读取仓库状态（目录无效或状态读取失败）	Cannot read repository status (invalid directory or status read failed)	error_repo_status_unreadable
+更新	Update	action_update
+更新内容	Update content	label_update_content
+最新发布	Latest release	label_latest_release
+最近活动	Recent activity	label_recent_activity
+未推送提交	Unpushed commits	label_unpushed_commits
+未知用户	Unknown user	label_unknown_user
+本地仓库未拉取	Local repository not cloned	state_local_repo_missing
+本地分支同步	Local branch sync	nav_local_branch_sync
+本地草稿	Local draft	label_local_draft
+查看远端最新	View latest from remote	action_view_remote_latest
+标记完成	Mark as done	action_mark_done
+没有需要同步的分支	No branches need syncing	state_nothing_to_sync
+清除	Clear	action_clear_selection
+登出	Sign out	action_sign_out_alt
+登录	Sign in	action_sign_in
+目标已是最新，无需同步	Already up to date; nothing to sync	state_already_up_to_date
+移入「已完成」	Move to Done	action_move_to_done
+筛选与视图	Filters and views	label_filters_and_views
+系统通知	System notifications	label_system_notifications
+级别	Level	label_level
+编辑资料	Edit profile	action_edit_profile
+草稿保存失败	Failed to save draft	error_draft_save_failed
+草稿已保存	Draft saved	toast_draft_saved
+覆盖	Overwrite	action_overwrite
+该提交的改动永久丢失，需勾选二次确认。	The changes in this commit will be lost permanently; tick the confirmation box to continue.	confirm_permanent_loss
+请先勾选确认	Tick the confirmation box first	error_confirm_required_short
+请选择	Please choose	state_please_choose
+账号	Account	nav_account
+返回修改	Back to editing	action_back_to_edit
+返回工作区	Back to working tree	action_back_to_worktree
+退出多选	Exit multi-select	action_exit_multiselect
+退出登录 ${account.login}	Sign out of %1$s	confirm_sign_out_title
+静音	Mute	action_mute
+预发布	Pre-release	label_prerelease
+预览	Preview	label_preview
+验证	Verify	action_verify
+默认分支已切换为 $b	Default branch switched to %1$s	toast_default_branch_switched
+（无）	(none)	label_none
+＋ 新建分支	+ New branch	action_new_branch_plus
+## 变更内容\n- 待补充\n\n## 测试\n- [ ] 已验证	## Changes\n- TBD\n\n## Tests\n- [ ] Verified	pr_template_default
+提交 ${changedFiles.size} 个文件到 $branch	Commit %1$s files to %2$s	pr_commit_files_to_branch
+读取待提交文件内容…	Reading the files to commit…	state_reading_commit_files
+读不到这些文件的内容：${resolution.paths.joinToString("、")}	Cannot read these files: %1$s	error_cannot_read_files
+$reason。新建的文件请先在文件页保存草稿；已提交的改动请确认路径仍然存在。	%1$s. For new files, save a draft on the file page first; for already committed changes, check that the path still exists.	error_commit_reason_hint
+读取 $baseBranch 的提交…	Reading commits from %1$s…	state_reading_base_commits
+无法读取 $baseBranch	Cannot read %1$s	error_cannot_read_branch
+无法读取基准分支 $baseBranch 的提交，本次没有做任何改动	Cannot read commits from the base branch %1$s; nothing was changed	error_cannot_read_base_commits
+创建分支 $branch…	Creating branch %1$s…	state_creating_branch
+分支 $branch 已存在，且包含 $baseBranch 之外的提交	Branch %1$s already exists and contains commits that are not in %2$s	error_branch_exists_with_commits
+$reason。请换一个分支名，避免覆盖别人（或你之前）的改动。	%1$s. Choose another branch name so you do not overwrite someone else's (or your own earlier) changes.	error_branch_name_taken
+创建分支失败：$branchErr	Failed to create the branch: %1$s	error_create_branch_failed
+提交 ${files.size} 个文件…	Committing %1$s files…	state_committing_files
+引擎没有返回结果，提交可能未落盘	The engine returned nothing; the commit may not have been written	error_engine_no_result_commit
+已提交 ${files.size} 个文件 · ${sha.take(7)}	Committed %1$s files · %2$s	state_committed_files
+请填写 PR 标题	Enter a PR title	error_pr_title_required
+分支 $branchName 还没有本次提交，请先返回上一步完成提交	Branch %1$s has no commit from this session yet; go back and commit first	error_branch_has_no_commit
+创建 PR…	Creating PR…	state_creating_pr
+创建 PR · $branchName → $baseBranch	Create PR · %1$s → %2$s	state_creating_pr_detail
+PR 已创建	PR created	state_pr_created
+PR 已创建 · $branchName → $baseBranch	PR created · %1$s → %2$s	state_pr_created_detail
+创建 PR 失败：$prErr	Failed to create the PR: %1$s	error_create_pr_failed
+开 PR · 一条龙	Open PR · one-stop	nav_pr_onestop
+$owner/$repo · 步骤 ${step + 1}/3	%1$s/%2$s · step %3$s of 3	label_step_of_three
+基于 $baseBranch 新建分支并提交，随后用该分支开 PR —— 全程不直接推送到 $baseBranch。	Create a branch from %1$s, commit, then open a PR from that branch — nothing is pushed directly to %2$s.	pr_onestop_intro
+分支命名	Branch name	label_branch_naming
+新分支名	New branch name	label_new_branch_name
+基于（base）	Based on (base)	label_based_on
+分支名校验：非空 / 不含空格（宿主没有提供现有分支清单，本次不查重）。保护分支与命名规则由远端在创建分支、开 PR 时校验，本地不做承诺。	Branch name rules: not empty / no spaces (no existing branch list was provided, so duplicates are not checked). Protection and naming rules are enforced by the remote when creating a branch or opening a PR; nothing is promised locally.	note_branch_name_rules_no_list
+分支名校验：非空 / 不含空格 / 不与 $owner/$repo 现有的 ${branches.size} 个分支重名。保护分支与命名规则由远端在创建分支、开 PR 时校验，本地不做承诺。	Branch name rules: not empty / no spaces / must not duplicate any of the %3$s existing branches in %1$s/%2$s. Protection and naming rules are enforced by the remote when creating a branch or opening a PR; nothing is promised locally.	note_branch_name_rules_with_list
+这一步真提交：先建分支，再用 Git Data API 把下列文件合成一个提交。文件内容优先取文件页的草稿，没有草稿的取它在 $baseBranch 上的当前内容。	This step really commits: it creates the branch, then combines the files below into a single commit through the Git Data API. File contents come from the file page draft when there is one, otherwise from the current content on %1$s.	note_real_commit
+变更文件 · 0 个	Changed files · 0	label_changed_files_zero
+变更文件 · ${changedFiles.size} 个	Changed files · %1$s	label_changed_files_count
+可改。提交成功后，它会成为 PR 标题的默认值（你已经手改过标题则不动你的）。	Editable. After a successful commit it becomes the default PR title (a title you edited by hand is left untouched).	note_commit_message_becomes_title
+已提交 ${committedSha!!.take(7)}（$committedCount 个文件）；提交信息改过了，再点「提交并继续」会再产生一个提交。	Committed %1$s (%2$s files); the message was changed, so tapping “Commit and continue” again creates another commit.	note_committed_message_changed
+已提交 ${committedSha!!.take(7)}（$committedCount 个文件）到 $branchName，点「提交并继续」直接进入下一步。	Committed %1$s (%2$s files) to %3$s; tap “Commit and continue” to go straight to the next step.	note_committed_continue
+目标	Target	label_target
+$baseBranch（合并到）	%1$s (merges into)	label_target_base
+$branchName（改动源）	%1$s (source of changes)	label_target_head
+本次提交	This commit	label_this_commit
+（尚无提交）	(no commit yet)	state_no_commit_yet
+文件	Files	label_files
+$committedCount 个	%1$s files	label_file_count
+PR 信息	PR details	label_pr_info
+标题	Title	label_title
+描述（模板预填）	Description (prefilled from the template)	label_description_prefilled
+选项	Options	label_options
+草稿 PR	Draft PR	label_draft_pr
+暂不通知审阅者，可随时转为正式	Reviewers are not notified; can be marked ready at any time	note_draft_pr
+分支 $branchName 上还没有本次提交 —— 先返回上一步完成提交，再创建 PR（否则 PR 里不会有改动）。	Branch %1$s has no commit from this session yet — go back and commit first, then create the PR (otherwise the PR will contain no changes).	warning_no_commit_before_pr
+上一步	Previous	action_previous
+下一步	Next	action_next
+提交并继续	Commit and continue	action_commit_and_continue
+创建草稿 PR	Create draft PR	action_create_draft_pr
+创建 PR	Create PR	action_create_pr
+引擎没有返回结果	The engine returned nothing	error_engine_no_result
+切换失败：$err	Switch failed: %1$s	error_switch_failed
+切换默认分支失败：$err	Failed to switch the default branch: %1$s	error_switch_default_failed
+没有需要检查的分支	No branches to check	state_no_branches_to_check
+已检查 ${targets.size} 个分支相对 $selectedDefault 的合并状态	Checked %1$s branches against %2$s	state_checked_branches
+（单次上限 $MERGE_CHECK_LIMIT，另有 $skipped 个未检查）	(limit %1$s per run; %2$s more were not checked)	note_merge_check_limit
+删除分支 $b 失败：$err	Failed to delete branch %1$s: %2$s	error_delete_branch_failed
+仓库已删除	Repository deleted	state_repo_deleted
+已删除仓库 $repoName	Deleted repository %1$s	toast_repo_deleted
+删除仓库 $repoName 失败：$err	Failed to delete repository %1$s: %2$s	error_delete_repo_failed
+仓库设置	Repository settings	nav_repo_settings
+$repoName · ⋮ 气泡进入	%1$s · opened from the ⋮ bubble	label_repo_settings_sub
+通用	General	label_general
+✓ 当前	✓ Current	state_current_check
+变更默认分支影响：README/PR 默认 base、clone 初始分支、未指定分支的 API 请求。	Changing the default branch affects: the default base for README/PRs, the initial branch on clone, and API requests that do not name a branch.	note_default_branch_impact
+合并状态：相对 $selectedDefault，按需检查	Merge status: relative to %1$s, checked on demand	label_merge_status
+检查中…	Checking…	state_checking_ellipsis
+检查	Check	action_check
+「已合并」= 该分支相对 $selectedDefault 没有独有提交（ahead_by = 0）。squash 合并过的分支仍会显示独有提交，那不代表没合并。没点「检查」的分支一律写「未检查」。	“Merged” means the branch has no commits unique to it relative to %1$s (ahead_by = 0). Branches merged with squash still show unique commits, which does not mean they were not merged. Branches that were never checked always read “Not checked”.	note_merged_semantics
+危险操作区	Danger zone	label_danger_zone
+已确认	Confirmed	state_confirmed
+点击确认	Tap to confirm	action_tap_to_confirm
+删除前挽留统计：$statsText（只读展示，不拦截）。	Retention stats before deletion: %1$s (shown for reference only; nothing is blocked).	label_retention_stats
+正在读取仓库统计…	Reading repository stats…	state_reading_repo_stats
+仓库统计不可用（星标 / 复刻没取到）—— 不展示估算值，也不作为拦截条件。	Repository stats are unavailable (stars / forks could not be fetched) — no estimates are shown and nothing is blocked.	note_repo_stats_unavailable
+将永久删除远端分支 $b（当前状态：${mergeStateLabel(state)}），该分支的改动无法找回。	Permanently deletes the remote branch %1$s (current state: %2$s); its changes cannot be recovered.	confirm_delete_remote_branch
+我确认删除该分支	I confirm deleting this branch	confirm_delete_branch_checkbox
+删除分支	Delete branch	action_delete_branch
+请先在危险操作区点击确认	Confirm in the danger zone first	error_confirm_in_danger_zone
+$repoName · ⚠ 升级警告	%1$s · ⚠ upgrade warning	label_upgrade_warning
+该仓库有 ${unpushed.size} 个未推送提交，删除后这些提交将永久丢失，无法恢复。	This repository has %1$s unpushed commits; deleting it loses them permanently and they cannot be recovered.	warning_unpushed_commits
+仓库统计：$it	Repository stats: %1$s	label_repo_stats
+跳转 push 流程；push 结束后回到本地仓库列表（不会自动回到本页）。	Opens the push flow; when it finishes you return to the local repository list (not back to this page).	note_push_flow_redirect
+勾选下方确认后启用删除按钮。	Tick the confirmation below to enable the delete button.	note_tick_to_enable_delete
+我确认放弃这 ${unpushed.size} 个未推送提交，并永久删除本地仓库。	I confirm discarding these %1$s unpushed commits and permanently deleting the local repository.	confirm_discard_local_repo
+我已确认（勾选开启）	I confirm (tick to enable)	confirm_checkbox_enable
+需要访问令牌	Access token required	state_token_required
+认证失败 · 私有仓库	Authentication failed · private repository	state_auth_failed_private
+该仓库为私有，当前 OAuth 授权不含 repo scope，需要 PAT（Personal Access Token）或重新授权。	This repository is private and the current OAuth grant does not include the repo scope; a PAT (personal access token) or a new authorisation is required.	note_private_needs_pat
+令牌	Token	label_token
+ghp_…（repo scope）	ghp_… (repo scope)	hint_token_placeholder
+不写日志 · 不上传服务器	Not logged · not uploaded to any server	note_token_not_logged
+已识别身份：@$it	Identified as: @%1$s	state_identified_as
+验证并继续	Verify and continue	action_verify_and_continue
+以 @$it 的身份打开这个仓库（本次会话内读写都用它）。	Open this repository as @%1$s (used for both reads and writes in this session).	note_open_as_identity
+先校验令牌有效性，再决定是否继续。	The token is validated before anything else happens.	note_token_validated_first
+改用 OAuth 重新授权	Re-authorise with OAuth	action_reauth_oauth
+跳转设置 → 账号管理，为当前账号补充 repo 权限。	Opens Settings → Accounts so you can add the repo scope to the current account.	note_reauth_oauth_path
+记住范围	Remember scope	label_remember_scope
+账号能打开这个仓库时仍然用账号；打不开时才回退到这条凭据（读写都用它）。	The account is still used whenever it can open the repository; this credential is only a fallback when it cannot (for both reads and writes).	note_credential_fallback
+请输入 PAT	Enter a PAT	error_pat_required
+令牌无效或权限不足：请确认已勾选 repo / read:user，且令牌未过期	Invalid token or insufficient permissions: make sure repo / read:user are ticked and the token has not expired	error_token_invalid_scope
+用这个令牌打开	Open with this token	action_open_with_token
+合并 PR #$prNumber	Merge PR #%1$s	action_merge_pr
+合并失败：$err	Merge failed: %1$s	error_merge_failed
+已合并 PR #$prNumber	Merged PR #%1$s	state_merged_pr
+（分支删除失败：$delErr）	 (branch deletion failed: %1$s)	suffix_branch_delete_failed
+提交压缩为 1 个，历史整洁（移动端推荐）。	Squash into a single commit — a tidy history (recommended on mobile).	merge_strategy_squash_desc
+保留全部提交 + 生成合并提交，历史完整。	Keep every commit and create a merge commit — a complete history.	merge_strategy_merge_desc
+提交逐个重放到 $baseBranch，线性历史无合并提交。	Replay the commits onto %1$s one by one — linear history with no merge commit.	merge_strategy_rebase_desc
+合并 PR	Merge PR	label_merge_pr
+$headBranch → $baseBranch · 能否合并（冲突 / 必需检查）由 GitHub 在点下合并时判定。	%1$s → %2$s · whether it can be merged (conflicts / required checks) is decided by GitHub when you tap Merge.	note_merge_decided_by_github
+合并策略	Merge strategy	label_merge_strategy
+合并后	After merging	label_after_merge
+删除 head 分支（$headBranch）	Delete the head branch (%1$s)	label_delete_head_branch
+合并后自动删除，保持分支列表整洁	Deleted automatically after merging, keeping the branch list tidy	note_delete_head_branch
+策略将按仓库记忆最近一次选择（Room），下次默认带入。	The strategy is remembered per repository (Room) and pre-selected next time.	note_strategy_remembered
+${names[strategy]} 并合并	%1$s and merge	action_merge_with_strategy
+同步冲突	Sync conflict	state_sync_conflict
+$fileName · 多端编辑	%1$s · edited on multiple devices	label_multi_device_edit
+离线期间，他人在其他设备修改了同一文件。远端 sha 已变化，本地草稿基于旧版本。	While you were offline, someone edited the same file on another device. The remote SHA has changed and your local draft is based on an older version.	note_offline_conflict
+$fileName · 并排对比	%1$s · side by side	label_side_by_side
+本地草稿（离线）	Local draft (offline)	label_local_draft_offline
+远端新版本	New remote version	label_remote_new_version
+本地改动不变。提交时将基于旧 sha 被拒 → 走 P0-1 分叉决策页。	Local changes are untouched. Committing will be rejected because it is based on the old SHA → the fork decision page is used.	note_local_unchanged_rejected
+放弃本地，载入远端	Discard local and load the remote	action_discard_local_load_remote
+本地草稿永久删除（需二次确认）。	The local draft is deleted permanently (confirmation required).	note_discard_local_permanent
+双开保全：本地草稿不动，远端另存为 ${fileName}.remote。	Keep both: the local draft is untouched and the remote is saved as %1$s.remote.	note_keep_both_remote_copy
+本地草稿将永久删除，未保存内容无法找回。	The local draft will be deleted permanently; unsaved content cannot be recovered.	warning_local_draft_lost
+我确认放弃本地草稿	I confirm discarding the local draft	confirm_discard_local_draft
+暂无星标	No starred repositories yet	state_no_starred
+项目	Projects	nav_projects
+新建	New	action_new
+暂无项目	No projects yet	state_no_projects
+账户	Account	label_account_group
+$repoCredentialCount 条	%1$s	label_credential_count
+只在当前账号打不开的私有仓库上生效。	Only applies to private repositories the current account cannot open.	note_repo_credentials_scope
+外观	Appearance	label_appearance_group
+主题	Theme	label_theme
+选「跟随系统」时，App 会随系统的浅色 / 深色自动切换。	With “Follow system”, the app switches between light and dark together with the system.	note_theme_follow_system
+翻译	Translation	label_translation_group
+进入自述文件等正文页会自动翻译，页面上出现可移动悬浮球。	Article pages such as README files are translated automatically and a draggable floating button appears.	note_translate_enabled
+关闭后不进正文页翻译，页面上的悬浮球也会收起。	When off, article pages are not translated and the floating button is hidden.	note_translate_disabled
+代码与提交	Code and commits	label_code_commit_group
+开启需先将「提交模式」设为「本地仓库（Git）」。	Turn on by setting Commit mode to “Local repository (Git)” first.	note_local_repo_requires_git_mode
+网络	Network	label_network_group
+仅作用于本地仓库的 clone / pull / push。	Only affects clone / pull / push for local repositories.	note_proxy_scope
+关于与诊断	About and diagnostics	label_about_group
+慢帧日志	Slow-frame log	label_frame_watch
+记录每次卡顿的耗时与分段（等待 / 动画 / 绘制 …）并带上页面名；日志每天 0 点换目录、旧的丢弃。	Records the duration and breakdown of every janky frame (wait / animation / draw …) together with the page name; the log moves to a new directory at midnight and old ones are discarded.	note_frame_watch_desc
+关闭后不再记录慢帧；已经写进日志的内容不受影响。	When off, no more slow frames are recorded; what is already in the log is unaffected.	note_frame_watch_disabled
+$logErrors 条错误	%1$s errors	label_error_count
+不可撤销	Cannot be undone	label_irreversible
+将清除本机保存的凭据，并切回未登录状态。\n本地仓库目录、已下载内容与站内通知不受影响。\n此操作不可撤销 —— 需要重新走一次授权才能恢复。	Clears the credentials stored on this device and returns to the signed-out state.\nLocal repository folders, downloaded content and in-app notifications are unaffected.\nThis cannot be undone — you will need to authorise again to restore access.	confirm_sign_out_body
+允许发送通知	Allow notifications	label_allow_notifications
+通知显示模式	Notification display mode	label_notification_display_mode
+「允许发送通知」只控制系统通知栏的提醒（下载进度 / 下载完成）：关掉它，站内通知列表与未读徽标照常工作。\n通知列表的展示方式：「平铺」为默认：每条通知独立成卡；分组/合并/两级模式可将相关通知折叠，减少列表长度。	“Allow notifications” only controls alerts in the system notification shade (download progress / completion): turn it off and the in-app notification list and unread badge keep working.\nHow the notification list is displayed: “Flat” is the default — every notification is its own card; the grouped / merged / two-level modes fold related notifications together to shorten the list.	note_notification_settings_desc
+更新仓库 $name	Update repository %1$s	action_update_repo
+已更新	Updated	state_updated
+已更新 $name	Updated %1$s	toast_updated
+本地与远端分叉（需决策）	Local and remote have diverged (decision needed)	state_diverged_needs_decision
+更新失败：$pullResult	Update failed: %1$s	error_update_failed
+无法读取仓库状态（引擎不可用）	Cannot read repository status (engine unavailable)	error_repo_status_engine_unavailable
+推送仓库 $name	Push repository %1$s	action_push_repo
+已推送 ${st.branch}	Pushed %1$s	toast_pushed_branch
+已推送 $name	Pushed %1$s	toast_pushed
+推送被拒（远端领先）	Push rejected (the remote is ahead)	state_push_rejected
+推送失败：$pushResult	Push failed: %1$s	error_push_failed
+工作区没有改动可提交	No changes in the working tree to commit	error_nothing_to_commit
+本地提交 $repoName	Commit locally %1$s	action_commit_local
+已提交（本地 git）	Committed (local git)	state_committed_local_git
+已删除 ${p.name}	Deleted %1$s	toast_deleted
+已切换到 $target	Switched to %1$s	toast_switched
+已删除分支 $target	Deleted branch %1$s	toast_deleted_branch
+已创建并切换到 $newBranch	Created and switched to %1$s	toast_created_and_switched
+无法创建本地仓库目录	Cannot create the local repository folder	error_cannot_create_repo_dir
+「$name」已存在	“%1$s” already exists	error_already_exists
+拉取仓库 $fullName	Clone repository %1$s	action_clone_repo
+已拉取到 ${target.name}	Cloned to %1$s	toast_cloned_to
+已拉取 $name	Cloned %1$s	toast_cloned
+拉取失败：$error	Clone failed: %1$s	error_clone_failed
+${repos.size} 个	%1$s	label_repo_count
+拉取仓库	Clone repository	action_clone_repository
+正在克隆…	Cloning…	state_cloning
+暂无本地仓库	No local repositories yet	state_no_local_repos
+点击「拉取仓库」将仓库克隆到本地	Tap “Clone repository” to clone one locally	note_clone_hint
+选择要拉取的仓库	Choose a repository to clone	label_choose_repo_to_clone
+暂无仓库	No repositories yet	state_no_repos
+确定删除「$name」吗？仅删除本地副本，不影响远端仓库。	Delete “%1$s”? Only the local copy is removed; the remote repository is unaffected.	confirm_delete_local_copy
+上游	Upstream	nav_upstream
+回退 Git 化	Revert gitify	nav_revert_gitify
+分支 · $repoName	Branches · %1$s	label_branches_of_repo
+工作区有 $dirtyCount 个改动；切换分支若会覆盖它们将被拒绝	The working tree has %1$s changes; switching branches is refused if it would overwrite them	note_dirty_blocks_switch
+基于当前分支创建，创建后自动切换过去。	Created from the current branch and switched to automatically.	note_new_branch_from_current
+创建并切换	Create and switch	action_create_and_switch
+只删除本地分支，不影响远端；未合并的提交会丢失。	Deletes the local branch only; the remote is unaffected. Unmerged commits will be lost.	note_delete_local_branch
+先撤销改动？	Discard changes first?	confirm_discard_first_title
+工作区有 $dirtyCount 个改动，切换分支可能失败或覆盖它们。\n确认后会先撤销所有改动再切换（此操作不可撤销）。	The working tree has %1$s changes; switching branches may fail or overwrite them.\nIf you confirm, all changes are discarded before switching (this cannot be undone).	confirm_discard_before_switch_body
+撤销并切换	Discard and switch	action_discard_and_switch
+工程版本号	Engineering version	label_engineering_version
+标准版本号	Standard version	label_standard_version
+构建时间	Build time	label_build_time
+七位哈希	Seven-digit hash	label_short_hash
+Git 配置包	Git bundle	label_git_bundle
+代码编辑器	Code editor	label_code_editor
+${com.branchbase.editor.EditorModuleInfo.NAME} ${com.branchbase.editor.EditorModuleInfo.VERSION}（${com.branchbase.editor.EditorModuleInfo.MODULE}）	%1$s %2$s (%3$s)	label_editor_module_info
+发布版本	Release build	label_release_build
+签名校验	Signature check	label_signature_check
+异常（未知签名）	Abnormal (unknown signature)	state_signature_abnormal
+远程校验	Remote check	label_remote_check
+无法获取校验文件	Cannot fetch the checksum file	error_checksum_unavailable
+不匹配	Mismatch	state_mismatch
+项目主页（仅 Android）	Project home (Android only)	label_project_home
+开发交流（QQ 群）	Community (QQ group)	label_community_qq
+放弃本地被拦：$it	Discard local blocked: %1$s	state_discard_blocked
+放弃本地可用	Discard local available	state_discard_available
+已保留本地提交 · 引导桌面解决	Kept the local commit · resolve on desktop	state_kept_local_desktop
+已放弃本地提交	Discarded the local commit	state_discarded_local
+同步失败 · 分叉	Sync failed · diverged	state_sync_failed_diverged
+本地与远端各领先对方，无法快进合并（non-fast-forward）。App 不做 merge/rebase（对齐 D11），请选择如何处理。	Local and remote have each moved ahead, so this cannot fast-forward. The app does not merge or rebase (per D11); choose how to proceed.	note_diverged_explain
+分叉示意	Divergence diagram	label_divergence_diagram
+本地 ${status?.branch ?: "main"}	Local %1$s	label_local_branch
+ahead ${status?.ahead ?: 0} · 未推送	ahead %1$s · unpushed	label_ahead_unpushed
+已分叉	Diverged	state_diverged_badge
+远端 origin	Remote origin	label_remote_origin
+ahead ${status?.behind ?: 0} · 他人新提交	ahead %1$s · new commits from others	label_behind_new_commits
+本地未推送提交（放弃将永久丢失）	Local unpushed commits (discarding them loses them permanently)	label_local_unpushed_commits
+（无数据）	(no data)	state_no_data
+保留本地提交，引导桌面解决	Keep the local commit and resolve on desktop	action_keep_local_desktop
+本地工作区原样保留，App 不删除任何数据。请复制仓库路径到桌面端解决。	The local working tree is left exactly as it is and the app deletes nothing. Copy the repository path and resolve it on desktop.	note_keep_local_workspace
+回到工作区，保持 ahead 状态，稍后可再处理。	Return to the working tree with the ahead state intact; you can deal with it later.	note_back_to_worktree_ahead
+将丢弃本地 ${status?.ahead ?: 0} 个未推送提交，改动不可恢复。建议先到桌面端备份。	%1$s unpushed local commits will be discarded and their changes cannot be recovered. Back them up on desktop first.	confirm_discard_unpushed_body
+我确认放弃这些提交	I confirm discarding these commits	confirm_discard_commits_checkbox
+加载仓库状态…	Loading repository status…	state_loading_repo_status
+确认放弃本地提交	Confirm discarding the local commit	confirm_discard_local_commit_title
+保留并引导桌面	Keep and resolve on desktop	action_keep_and_desktop
+已保留 .git（偏好普通文件夹）	Kept .git (prefers a plain folder)	state_kept_git
+已移除 .git，文件保留	Removed .git; files kept	state_removed_git
+移除失败	Removal failed	error_remove_failed
+关闭 Git 化	Turn off gitify	action_turn_off_gitify
+$repoName · 回退	%1$s · revert	label_repo_revert
+「Git 化」是 ③ 的子开关（D10）。关闭后提交将走 App REST（①②），本地 .git 的处理方式请选择。	“Gitify” is a sub-switch of ③ (D10). Once it is off, commits go through the app's REST path (①②); choose what to do with the local .git.	note_gitify_off
+仓库状态	Repository status	label_repo_status
+领先远端	Ahead of remote	label_ahead_of_remote
+${status?.ahead ?: 0} 个提交（未推送）	%1$s commits (unpushed)	label_ahead_commits
+工作区改动	Working tree changes	label_worktree_changes
+${status?.dirty?.size ?: 0} 个文件	%1$s files	label_dirty_file_count
+回退方式	Revert method	label_revert_method
+保留 .git 不变	Keep .git unchanged	label_keep_git
+仅记录「偏好普通文件夹」，仓库与历史完好，可随时重新开启 Git 化。无损。	Only records a preference for a plain folder; the repository and its history stay intact and gitify can be turned back on at any time. Lossless.	note_keep_git_desc
+移除 .git，保留文件	Remove .git, keep the files	label_remove_git_keep_files
+工作树文件不变，但历史与 ${status?.ahead ?: 0} 个未推送提交永久丢失（需二次确认）。	Working tree files are untouched, but the history and %1$s unpushed commits are lost permanently (confirmation required).	note_remove_git_desc
+删除整个本地仓库	Delete the whole local repository	label_delete_whole_repo
+跳转「删除本地仓库」确认（含未推送警告升级）。	Opens the “delete local repository” confirmation (including the unpushed-commits warning).	note_delete_whole_repo_desc
+将永久丢失 ${status?.ahead ?: 0} 个未推送提交与全部历史。	%1$s unpushed commits and the entire history will be lost permanently.	warning_remove_git_loss
+我确认移除 .git	I confirm removing .git	confirm_remove_git_checkbox
+请填写远端 URL	Enter the remote URL	error_remote_url_required
+已推送并设为上游分支 origin/$upstreamBranch	Pushed and set origin/%1$s as upstream	toast_pushed_set_upstream
+推送失败：$result	Push failed: %1$s	error_push_failed_result
+设置上游分支	Set upstream branch	action_set_upstream
+$repoName · 首次推送	%1$s · first push	label_repo_first_push
+本地仓库由 git init 创建（非 clone），首次推送前需确定远端与上游分支。设置后写入 .git/config，无需重复设置。本应用只有这一条推送路径：引擎总会把该分支设为上游。	This local repository was created with git init (not cloned), so the remote and upstream branch must be chosen before the first push. They are written to .git/config, so this is a one-time step. The app has only this one push path: the engine always sets the branch as upstream.	note_first_push
+远端配置	Remote configuration	label_remote_config
+远端 URL	Remote URL	label_remote_url
+上游分支名	Upstream branch name	label_upstream_branch_name
+推送方式	Push method	label_push_method
+推送并设为上游分支	Push and set as upstream branch	action_push_and_set_upstream
+git push -u origin $upstreamBranch：本应用总会把该分支设为上游（引擎没有「仅本次推送、不记录 upstream」这条路），以后直接 push/pull 即可。	git push -u origin %1$s: the app always sets this branch as upstream (the engine has no “push once without recording upstream” path), so later pushes and pulls just work.	note_push_sets_upstream
+保持未推送状态，稍后再处理。	Leave it unpushed and deal with it later.	note_leave_unpushed
+推送中…	Pushing…	state_pushing
+推送并设为上游	Push and set upstream	action_push_and_set_upstream_short
+撤销保留改动被拦：$it	Undo keeping changes blocked: %1$s	state_undo_keep_blocked
+撤销并丢弃被拦：$it	Undo and discard blocked: %1$s	state_undo_discard_blocked
+两个撤销动作可用	Both undo actions are available	state_both_undo_available
+没有可操作的提交	No commit to act on	state_no_commit_to_act
+请输入新的提交信息	Enter a new commit message	error_new_commit_message_required
+已修改提交信息	Commit message updated	state_commit_message_updated
+已撤销提交 · 改动保留在工作区	Commit undone · changes kept in the working tree	state_undo_commit_kept
+已撤销并丢弃改动	Undone and changes discarded	state_undo_discarded
+请输入提交 sha（或 HEAD）	Enter a commit SHA (or HEAD)	error_commit_sha_required
+已创建 revert 提交	Revert commit created	state_revert_created
+revert 失败（原因见日志 · 常见：工作区有未提交改动 / sha 无效）	Revert failed (see the log; common causes are uncommitted changes in the working tree or an invalid SHA)	error_revert_failed
+$repoName · 长按触发	%1$s · triggered by long-press	label_repo_long_press
+目标提交 ${it.sha} · ${it.message}	Target commit %1$s · %2$s	label_target_commit
+这是仓库的第一个提交：没有可撤销的上一次提交（reset --soft 必然失败；reset --hard 会清空本地历史，本页也不提供）。仍可修改提交信息。	This is the repository's first commit, so there is no previous commit to undo (reset --soft would always fail, and reset --hard would wipe the local history, which this page does not offer). The message can still be edited.	note_first_commit_no_undo
+未推送提交 · 可自由改写	Unpushed commit · free to rewrite	label_unpushed_rewritable
+修改提交信息（amend）	Edit the commit message (amend)	action_amend_message
+重写这次提交的 message（树内容不变），仅用于未推送提交。	Rewrites this commit's message (the tree is unchanged); only for unpushed commits.	note_amend_message
+新的提交信息	New commit message	label_new_commit_message
+简要描述…	Brief description…	hint_brief_description
+amend 会重建这次提交（提交 sha 变化），但作者与提交时间沿用原提交 —— 刻意设计，不改时间戳。	Amending recreates the commit (its SHA changes), but the author and commit time are carried over from the original — deliberate, timestamps are not rewritten.	note_amend_recreates
+该提交的改动将永久丢失（${head?.sha ?: "HEAD"}）。	The changes in this commit will be lost permanently (%1$s).	confirm_discard_commit_changes
+我确认丢弃这些改动	I confirm discarding these changes	confirm_discard_changes_checkbox
+新提交反向撤销该提交改动，历史保留（对齐 D11 边界）。	A new commit reverses this commit's changes and the history is preserved (per the D11 boundary).	note_revert_keeps_history
+不做任何操作。	Do nothing.	note_do_nothing
+提交 sha（或 HEAD）	Commit SHA (or HEAD)	label_commit_sha
+说明：已推送提交不能 reset/amend（会破坏他人已拉取的历史），只提供 revert。	Note: pushed commits cannot be reset or amended (that would break history others have already pulled); only revert is offered.	note_pushed_commit_revert_only
+撤销并保留改动	Undo and keep changes	action_undo_keep_changes
+请先勾选要提交的文件	Tick the files to commit first	error_tick_files_first
+提交更改	Commit changes	action_commit_changes
+$repoName · ${mode?.label ?: "模式未配置"}	%1$s · %2$s	label_repo_mode
+⚠ 未选择提交模式 · 提交时将询问。确定后固化到本地配置，可随时在设置中更改。	⚠ No commit mode selected · you will be asked when committing. Once chosen it is stored in the local configuration and can be changed in Settings at any time.	note_no_commit_mode
+变更文件（勾选本次提交范围）	Changed files (tick what this commit includes)	label_changed_files_scope
+已选 $selectedCount / ${files.size} 个文件	%1$s of %2$s files selected	label_selected_files
+模式 ① 单文件提交：跳过勾选，直接填写提交信息（PUT contents）。	Mode ① single-file commit: skip the selection and write the commit message directly (PUT contents).	note_mode_single_file
+简要描述本次更改…	Briefly describe this change…	hint_describe_change
+请输入作者名称	Enter the author name	error_author_name_required
+邮箱格式不正确	Invalid email format	error_invalid_email
+确认提交身份	Confirm commit identity	label_confirm_commit_identity
+首次 · 公开可见	First time · publicly visible	label_first_time_public
+本地 git commit 需要签名身份（author）。此身份会写入每个提交，公开可见。	A local git commit needs a signing identity (author). This identity is written into every commit and is publicly visible.	note_commit_identity
+签名信息	Signature information	label_signature_info
+作者名称（必填）	Author name (required)	label_author_name_required
+作者邮箱（必填）	Author email (required)	label_author_email_required
+保存范围	Save scope	label_save_scope
+保存为全局默认	Save as the global default	label_save_global_default
+存 SharedPreferences（commit.author.*），所有仓库复用。	Stored in SharedPreferences (commit.author.*) and reused for every repository.	note_save_global_default
+仅本次使用	Use once	label_use_once
+不落盘，下次提交时重新询问。	Not persisted; you will be asked again next time.	note_use_once
+noreply 邮箱可保护真实邮箱不被公开抓取，推荐保持默认。	A noreply email keeps your real address from being scraped publicly; keeping the default is recommended.	note_noreply_email
+保存并继续提交	Save and continue	action_save_and_continue
+检测到敏感信息	Sensitive information detected	state_sensitive_detected
+提交前 · ${hits.size} 处命中	Before commit · %1$s hits	label_hits_before_commit
+本次提交内容命中 ${hits.size} 处疑似密钥特征。提交后内容将随仓库历史永久公开，即使后续删除仍可被恢复。	This commit matches %1$s suspected secret patterns. Once committed, the content becomes permanently public in the repository history and can still be recovered after deletion.	warning_secrets_detected
+命中明细（已打码 · 本地扫描不上传）	Match details (masked · the scan runs locally and uploads nothing)	label_hit_details
+第 ${h.line} 行	Line %1$s	label_line_number
+回到编辑器，移除或替换密钥后重新提交。	Go back to the editor, remove or replace the secret, then commit again.	note_remove_secret
+需勾选下方确认（内容可公开 / 密钥将立即作废）。	Tick the confirmation below (the content may become public / the key must be revoked immediately).	note_tick_secret_confirm
+提交公开后，即使删除提交，密钥仍可能被爬取。建议立即在服务商后台吊销。	Once committed and public, the key can be scraped even if the commit is later deleted. Revoke it in the provider's console immediately.	warning_revoke_key
+我确认内容可公开（或密钥将立即作废）	I confirm the content may become public (or the key will be revoked immediately)	confirm_public_checkbox
+发现未保存草稿	Unsaved draft found	state_unsaved_draft_found
+编辑中断恢复	Recover interrupted editing	label_recover_interrupted_edit
+上次编辑因切后台/进程被杀中断。草稿存于 files/edit/（D3 隔离目录）。	The last edit was interrupted by backgrounding or the process being killed. Drafts live in files/edit/ (the D3 isolated directory).	note_draft_interrupted
+草稿信息	Draft information	label_draft_info
+修改于 ${d.modifiedAt} · ${d.changedLines} 行变更	Modified %1$s · %2$s lines changed	label_draft_modified
+远端状态	Remote status	label_remote_status
+sha 对比	SHA comparison	label_sha_comparison
+远端已变化（存在多端编辑冲突）	The remote has changed (conflicting edits from another device)	state_remote_changed
+远端未变化（可安全恢复编辑）	The remote is unchanged (safe to resume editing)	state_remote_unchanged
+恢复方式	Recovery method	label_recovery_method
+载入草稿继续编辑，${drafts.size} 个文件恢复为未保存状态。	Load the draft and keep editing; %1$s files return to an unsaved state.	note_load_draft
+草稿永久删除（需二次确认），打开远端最新版本。	The draft is deleted permanently (confirmation required) and the latest remote version is opened.	note_discard_draft_open_remote
+丢弃草稿并打开远端只读视图（不进入编辑态）。	Discard the draft and open the remote read-only view (no editing).	note_discard_open_readonly
+${drafts.size} 个草稿文件将永久删除，未保存内容无法找回。	%1$s draft files will be deleted permanently; unsaved content cannot be recovered.	warning_drafts_deleted
+我确认丢弃草稿	I confirm discarding the drafts	confirm_discard_drafts_checkbox
+消息加载失败	Failed to load messages	error_messages_load_failed
+标记已读失败，请重试	Failed to mark as read; try again	error_mark_read_failed
+未能定位到具体这次运行，已打开工作流列表	Could not locate that specific run; the workflow list was opened instead	note_run_not_located
+已把「${entry.title}」恢复为未读	Marked “%1$s” as unread again	toast_restored_unread
+标记完成失败，请重试	Failed to mark as done; try again	error_mark_done_failed
+标记已读	Mark as read	action_mark_read
+$what：成功 ${reps.size - rowsDone.size} 条，失败 ${rowsDone.size} 条	%1$s: %2$s succeeded, %3$s failed	toast_batch_result
+${reps.size} 条已$what	%1$s items · %2$s	toast_batch_summary
+已将 ${targets.size} 条标记为已读	Marked %1$s as read	toast_marked_read_count
+全部已读失败，请重试	Failed to mark all as read; try again	error_mark_all_read_failed
+已静音该会话	Conversation muted	toast_conversation_muted
+静音失败，请重试	Failed to mute; try again	error_mute_failed
+消息	Messages	nav_messages
+刷新消息	Refresh messages	action_refresh_messages
+首页阶段已预取 · 首帧直出，后台正在回源	Prefetched during startup · rendered from cache on the first frame while refreshing in the background	note_prefetched_first_frame
+加载更多	Load more	action_load_more
+${preview.author}：${preview.body}	%1$s: %2$s	label_preview_author_body
+展开其余 ${fold.count - 1} 次	Expand the other %1$s	action_expand_remaining_runs
+收起分组	Collapse group	action_collapse_group
+展开分组	Expand group	action_expand_group
+该筛选下没有消息	No messages under this filter	state_no_messages_in_filter
+暂无已完成消息	No completed messages yet	state_no_completed_messages
+没有未读消息	No unread messages	state_no_unread_messages
+暂无消息	No messages yet	state_no_messages
+批量「完成」后的消息会归档到这里。	Messages completed in bulk are archived here.	note_archived_here
+你已看完所有消息 🎉	You have read everything 🎉	state_all_caught_up
+当有人提及、评论或请求审查时，会在这里收到消息。	You will get messages here when someone mentions you, comments, or requests a review.	note_when_messages_arrive
+已选 $selectionCount 条消息	%1$s messages selected	label_selected_messages
+批量操作作用于当前筛选下的选中项	Bulk actions apply to the selected items under the current filter	note_bulk_scope
+完成所选（$selectionCount 条）	Mark selected as done (%1$s)	action_complete_selected
+全部标记为未读	Mark all as unread	action_mark_all_unread
+仅本地	Local only	label_local_only
+复制所选链接	Copy selected links	action_copy_selected_links
+分享第一条	Share the first one	action_share_first
+标记为已读	Mark as read	action_mark_as_read
+右滑同效	Swiping right does the same	hint_swipe_right_same
+标记为未读	Mark as unread	action_mark_as_unread
+静音该会话	Mute this conversation	action_mute_conversation
+不再收到此 thread	Stop receiving this thread	note_mute_thread
+多选	Multi-select	label_multi_select
+长按另一条可区间选择	Long-press another one to select a range	hint_long_press_range
+长按唤出本面板；进入多选后，长按另一条可从锚点整段选择，按住横向划过可连续刷选。	Long-press to open this panel; in multi-select, long-press another message to select the whole range from the anchor, or hold and drag sideways to keep extending the selection.	note_multiselect_help
+本地没有记录这条反应的 id（可能是在其它设备上添加的）	This reaction's id is not recorded locally (it may have been added on another device)	error_reaction_id_missing
+取消反应失败：$err	Failed to remove the reaction: %1$s	error_remove_reaction_failed
+添加反应失败，请重试	Failed to add the reaction; try again	error_add_reaction_failed
+更新评论失败：$err	Failed to update the comment: %1$s	error_update_comment_failed
+更新正文失败：$err	Failed to update the body: %1$s	error_update_body_failed
+正文不能为空	The body cannot be empty	error_body_empty
+已保存修改	Changes saved	toast_changes_saved
+评论失败：$err	Comment failed: %1$s	error_comment_failed
+关闭失败：$err	Failed to close: %1$s	error_close_failed
+重新打开失败：$err	Failed to reopen: %1$s	error_reopen_failed
+作者	Author	label_author
+显示更早的 $hiddenCount 条	Show %1$s earlier	action_show_earlier
+已复制评论链接	Comment link copied	toast_comment_link_copied
+已复制 Markdown 原文	Markdown source copied	toast_markdown_copied
+评论已删除	Comment deleted	toast_comment_deleted
+删除这条评论？	Delete this comment?	confirm_delete_comment_title
+删除后无法恢复，评论会从 GitHub 上移除。	This cannot be undone; the comment is removed from GitHub.	confirm_delete_comment_body
+已复制链接	Link copied	toast_link_copied
+分享 issue	Share issue	action_share_issue
+${d.author} 创建于 ${shortTime(d.createdAt)} · ${d.commentsCount} 条评论	%1$s opened on %2$s · %3$s comments	label_issue_meta
+评论于 ${shortTime(createdAt)}	Commented %1$s	label_commented_at
+· 已编辑	 · edited	suffix_edited
+评论操作	Comment actions	label_comment_actions
+复制评论链接	Copy comment link	action_copy_comment_link
+复制 Markdown 原文	Copy Markdown source	action_copy_markdown
+编辑评论	Edit comment	action_edit_comment
+删除评论	Delete comment	action_delete_comment
+展开全文	Show full text	action_expand_full_text
+＋	+	label_plus
+$e  添加反应	%1$s  Add reaction	action_add_reaction
+正在编辑 @$editingAuthor 的评论	Editing @%1$s's comment	label_editing_comment
+写	Write	tab_write
+重新打开	Reopen	action_reopen
+还没有内容，切回「写」开始输入。	Nothing here yet — switch back to “Write” to start typing.	state_preview_empty
+留下评论（支持 Markdown）	Leave a comment (Markdown supported)	hint_leave_comment
+加粗	Bold	md_bold
+斜体	Italic	md_italic
+列表	List	md_list
+引用	Quote	md_quote
+提及	Mention	md_mention
+Markdown 已支持	Markdown supported	label_markdown_supported
+编辑中	Editing	state_editing
+已关闭	Closed	state_closed
+关闭并评论 ▾	Close and comment ▾	action_close_and_comment
+关闭并评论（已完成）	Close and comment (completed)	action_close_comment_completed
+关闭并评论（不计划实施）	Close and comment (not planned)	action_close_comment_not_planned
+只提交评论，不关闭	Comment only, do not close	action_comment_only
+保存修改	Save changes	action_save_changes
+评论	Comment	action_comment
+发布详情	Release details	label_release_details
+${release.author} 发布 · 	%1$s released · 	label_released_by
+附件 · ${release.assets.size}	Assets · %1$s	label_assets_count
+该附件没有下载地址	This asset has no download URL	error_asset_no_url
+已加入下载：${asset.name}	Added to downloads: %1$s	toast_added_to_downloads
+没有能打开该文件的应用	No app can open this file	error_no_app_to_open
+分享失败	Share failed	error_share_failed
+删除发布 ${release.tag}？	Delete release %1$s?	confirm_delete_release_title
+只删除这次发布，tag 与提交不受影响。此操作不可撤销。	Only this release is deleted; the tag and commits are unaffected. This cannot be undone.	confirm_delete_release_body
+草稿已自动保存	Draft saved automatically	toast_draft_autosaved
+导入失败：读不到所选文件	Import failed: the selected file could not be read	error_import_unreadable
+已导入 ${fresh.size} 个文件 · 暂存在 release-uploads/	Imported %1$s files · staged in release-uploads/	toast_imported_files
+请填写 tag（如 v1.0.13）	Enter a tag (e.g. v1.0.13)	hint_tag_required
+保存失败（检查 tag 是否已存在、是否有写权限）	Save failed (check whether the tag already exists and whether you have write access)	error_save_failed_tag
+发布已保存，但没拿到发布 id，附件没能上传	The release was saved but no release id came back, so the assets were not uploaded	error_no_release_id
+上传失败（可重试）	Upload failed (you can retry)	error_upload_failed
+$failed 个附件没传上去：修好后点「重试」继续，别直接退出	%1$s assets were not uploaded: fix the problem and tap “Retry” to continue — do not leave this screen	error_assets_not_uploaded
+先填写 tag，生成说明要按 tag 找提交	Enter a tag first; generating notes looks up commits by tag	error_tag_before_generate
+生成失败（确认 tag 存在、且该 tag 之前有合并记录）	Generation failed (make sure the tag exists and has merge records before it)	error_generate_failed
+已插入 ${inserted.size} 行生成说明 · 手写内容保留	Inserted %1$s generated lines · your own text is kept	toast_notes_inserted
+存为草稿	Save as draft	action_save_as_draft
+编辑发布	Edit release	action_edit_release
+附件	Assets	label_assets
+${attachments.size} 个 · ${DownloadPaths.formatBytes(attachments.sumOf { it.size })}	%1$s · %2$s	label_assets_summary
+导入	Import	action_import
+点右上「$actionLabel」会先保存这条发布，再逐个上传附件	Tapping “%1$s” in the top-right saves this release first, then uploads the assets one by one	note_upload_sequence
+${lineStartOffsets(body).size} 行 · ${body.count { !it.isWhitespace() }} 字	%1$s lines · %2$s characters	label_lines_chars
+生成中…	Generating…	state_generating
+生成说明	Generate notes	action_generate_notes
+${generatedLines.size} 行来自生成说明	%1$s lines came from generated notes	label_generated_lines
+全部保留	Keep all	action_keep_all
+丢弃生成行	Discard generated lines	action_discard_generated
+导入后立刻复制到 App 私有目录，不依赖系统选择器给的那张临时凭据：	Imported files are copied into the app's private directory immediately, without relying on the temporary grant from the system picker:	note_import_copied_immediately
+· 退出编辑、切后台、重启 App 都不会丢（不用 cacheDir：系统低存储时会清它）；\n· 发布成功后自动清理；未发布的草稿保留 7 天；点「移除」立即删除；\n· 引用 downloads/ 里已下载的文件时不复制，只记路径。	· Survives leaving the editor, backgrounding and restarting the app (not cacheDir: the system clears it under low storage);\n· Cleaned up automatically after a successful release; unpublished drafts are kept for 7 days; tapping “Remove” deletes them immediately;\n· Files already downloaded under downloads/ are referenced by path instead of being copied.	note_import_storage_bullets
+正在渲染…	Rendering…	state_rendering
+ · ${asset.downloadCount} 次下载	 · %1$s downloads	suffix_download_count
+打开	Open	action_open
+刷新远端失败：$fetchErr	Failed to refresh the remote: %1$s	error_refresh_remote_failed
+$label 成功	%1$s succeeded	toast_operation_succeeded
+$label 失败：$err	%1$s failed: %2$s	toast_operation_failed
+拉取 $branch	Pull %1$s	label_pull_branch
+切换到 $name 失败：$co	Failed to switch to %1$s: %2$s	error_switch_to_failed
+已切换到 $name 并拉取	Switched to %1$s and pulled	toast_switched_and_pulled
+拉取 $name 失败：$err	Failed to pull %1$s: %2$s	error_pull_failed
+缺少远端地址，无法设置上游	No remote URL, so upstream cannot be set	error_no_remote_url
+设置上游并推送 $name	Set upstream and push %1$s	label_set_upstream_and_push
+创建本地分支失败：$create	Failed to create the local branch: %1$s	error_create_local_branch_failed
+已创建本地分支 $name 并跟踪 origin/$name	Created local branch %1$s tracking origin/%2$s	toast_created_tracking
+已创建 $name，但设置上游失败：$up	Created %1$s but setting upstream failed: %2$s	error_created_upstream_failed
+放弃本地、对齐远端 $name	Discard local and align with remote %1$s	label_discard_align_remote
+reset --hard 失败	reset --hard failed	error_reset_hard_failed
+推送 $name 失败($err)	Failed to push %1$s (%2$s)	error_push_branch_failed
+拉取 $name	Pull %1$s	label_pull
+拉取 $name 失败($err)	Failed to pull %1$s (%2$s)	error_pull_branch_failed
+刷新远端	Refresh remote	action_refresh_remote
+当前分支 ${status?.branch ?: "—"}	Current branch %1$s	label_current_branch
+${locals.size} 个本地分支 · ${remotes.size} 个远端分支	%1$s local branches · %2$s remote branches	label_branch_counts
+ · 工作区 ${st.dirty.size} 个改动	 · %1$s working tree changes	suffix_worktree_changes
+本地分支	Local branches	label_local_branches
+一键同步	Sync all	action_sync_all
+远端有、本地没有	On the remote but not locally	label_remote_only
+创建并跟踪	Create and track	action_create_and_track
+切换到 $target 并拉取？	Switch to %1$s and pull?	confirm_switch_and_pull_title
+libgit2 的 pull 只作用于当前分支，因此同步「$target」需要先切换过去。\n工作区有未提交改动时切换可能被拒绝（不会隐式 stash）。	libgit2's pull only applies to the current branch, so syncing “%1$s” requires switching to it first.\nSwitching may be refused when the working tree has uncommitted changes (nothing is stashed implicitly).	confirm_switch_and_pull_body
+放弃本地提交？	Discard local commits?	confirm_discard_local_commits_title
+会把 $target 强制对齐到 origin/$target，本地独有的提交将不再被分支引用（仍可通过 reflog 找回，但界面上看不到）。	This force-aligns %1$s to origin/%2$s; commits unique to the local branch are no longer referenced (they can still be found through the reflog, but are not visible in the UI).	confirm_discard_local_commits_body
+放弃并对齐	Discard and align	action_discard_and_align
+拉取	Pull	action_pull
+设为上游并推送	Set upstream and push	action_set_upstream_and_push
+头像已刷新	Avatar refreshed	toast_avatar_refreshed
+刷新失败（检查网络）	Refresh failed (check your network)	error_refresh_failed_network
+${followers} 关注者	%1$s followers	label_followers
+${following} 正在关注	%1$s following	label_following
+${publicRepos} 仓库	%1$s repositories	label_repo_count_public
+热门仓库	Popular repositories	label_popular_repos
+自定义置顶	Custom pins	label_custom_pins
+暂无置顶仓库	No pinned repositories yet	state_no_pinned_repos
+🔍 查找仓库…	🔍 Find a repository…	hint_find_repo
+未获取到登录名，请重新登录	Could not get the login name; sign in again	error_login_name_missing
+无法加载动态（网络或权限受限）	Cannot load the activity feed (network or permission restricted)	error_activity_unavailable
+近 90 天公开活动	Public activity in the last 90 days	label_activity_90_days
+动态概览	Activity overview	label_activity_overview
+按贡献日历	By contribution calendar	label_by_contribution_calendar
+近 7 天	Last 7 days	label_last_7_days
+近 30 天	Last 30 days	label_last_30_days
+近一年	Last year	label_last_year
+贡献数据不可用（可能是令牌缺少 read:user 权限）	Contribution data unavailable (the token may be missing the read:user scope)	error_contributions_unavailable
+活动类型分布	Activity by type	label_activity_by_type
+活动热力	Activity heatmap	label_activity_heatmap
+过去 90 天	Past 90 days	label_past_90_days
+动态加载失败	Failed to load the activity feed	error_activity_load_failed
+暂无公开动态	No public activity yet	state_no_public_activity
+推送、星标、开 PR 等活动会显示在这里	Pushes, stars, opened PRs and more show up here	note_activity_hint
+${day.count} 次贡献	%1$s contributions	label_contribution_count
+无贡献	No contributions	state_no_contributions
+这一天没有公开贡献记录	No public contributions on this day	note_no_contributions_day
+$count 次	%1$s	label_times_count
+共 ${dayCounts.sum()} 次活动 · 最深 $max 次/天	%1$s activities in total · busiest day %2$s	label_activity_totals
+少	Less	label_less
+多	More	label_more
+（未知仓库）	(unknown repository)	label_unknown_repo
+收起更多菜单	Collapse the more menu	action_collapse_more_menu
+已删除记录 #${current.id}	Deleted record #%1$s	toast_deleted_record_current
+${tasks.size} 条记录	%1$s records	label_record_count
+暂无任务记录	No task records yet	state_no_task_records
+拉取仓库、提交文件、创建 PR 等操作会在这里留下记录	Cloning repositories, committing files, creating PRs and similar actions leave a record here	note_task_records_hint
+已删除记录 #${t.id}	Deleted record #%1$s	toast_deleted_record
+清理已完成	Clear completed	action_clear_completed
+全部清除	Clear all	action_clear_all
+清除全部任务记录	Clear all task records	action_clear_all_task_records
+清理已完成/失败记录	Clear completed/failed records	action_clear_finished_records
+将清除全部 $finished 条已结束记录与 $running 个运行中记录（运行中任务会被中断记录）。	This clears all %1$s finished records and %2$s running records (running tasks are interrupted and recorded).	confirm_clear_all_body
+将清理 $finished 条已结束记录，保留 $running 个运行中任务。	This clears %1$s finished records and keeps %2$s running tasks.	confirm_clear_finished_body
+任务记录仅存本地，删除后不可恢复。	Task records are stored locally only and cannot be recovered once deleted.	note_records_local_only
+我确认清理这些记录	I confirm clearing these records	confirm_clear_records_checkbox
+已清理 $n 条记录	Cleared %1$s records	toast_cleared_records
+清理	Clear	action_clear_records
+开始 ${formatTime(task.createdAt)}	Started %1$s	label_started_at
+已运行 ${formatDuration(System.currentTimeMillis() - task.createdAt)}	Running for %1$s	label_running_for
+耗时 ${formatDuration((task.finishedAt ?: task.updatedAt) - task.createdAt)}	Took %1$s	label_took
+任务详情	Task details	label_task_details
+基本信息	Basic information	label_basic_info
+${task.kind.label} · ${if (task.durable) "长任务" else "短任务"}	%1$s · %2$s	label_task_kind
+状态	Status	label_status
+开始	Started	label_started
+结束	Finished	label_finished
+耗时	Duration	label_duration
+详情	Details	label_details
+存储	Storage	label_storage
+Room · tasks.db（仅本地）	Room · tasks.db (local only)	label_storage_local
+删除记录	Delete record	action_delete_record
+推荐 · 网页点一下授权即可；账号开了双重验证时需要输入数字口令	Recommended · one tap to authorise in the browser; accounts with two-factor enabled need a numeric code	login_oauth_hint
+网页端生成密钥并勾选权限；登录时无需数字口令验证	Generate a key on the website and tick the scopes; no numeric code is needed to sign in	login_key_hint
+主题：${mode.label}（点击切换）	Theme: %1$s (tap to switch)	login_theme_switch
+通过 GitHub 官方 OAuth 授权，最省事的一条路；首次在新设备登录时需要过一次口令 / 设备验证。	Authorise through GitHub's official OAuth — the easiest path; the first sign-in on a new device requires a code or device verification.	login_oauth_desc
+适合：已经在 GitHub 网页端登录、且记得住/拿得到数字口令的账号。	Best for: accounts already signed in on the GitHub website that can retrieve the numeric code.	login_oauth_fit
+开始授权登录	Start OAuth sign-in	action_start_oauth
+改用密钥登录（免口令）	Use an access key instead (no code)	action_switch_to_key
+在 GitHub 网页端生成一枚访问密钥，填进 App 即可；登录时不需要数字口令验证。	Generate an access key on the GitHub website and paste it into the app; no numeric code is required to sign in.	login_key_desc
+适合：不想每次都输数字口令，或主要用手机做提交/发 PR 的账号。	Best for: accounts that would rather not enter a code every time, or that mostly commit and open PRs from the phone.	login_key_fit
+填写密钥	Enter the key	action_enter_key
+改用授权登录（一键授权）	Use OAuth instead (one tap)	action_switch_to_oauth
+要点	Key points	label_key_points
+口令验证长这样	This is what code verification looks like	label_code_prompt_example
+• 开了双重验证：输入 6 位口令，或在 GitHub Mobile 上确认\n• 没开双重验证：首次在新设备登录会走「设备验证」，验证码发到邮箱；装了 GitHub Mobile 则会收到一个口令（两位数），在手机上确认即可\n• 两种都只在新设备首次登录时出现；启用双重验证后设备验证不再触发	• Two-factor enabled: enter the 6-digit code, or approve on GitHub Mobile\n• Two-factor not enabled: the first sign-in on a new device goes through “device verification”, with the code sent to your email; with GitHub Mobile installed you get a code (two digits) to confirm on the phone\n• Both only appear the first time you sign in on a new device; once two-factor is enabled, device verification no longer triggers	login_twofactor_bullets
+GitHub 文档：登录时验证新设备	GitHub docs: verifying a new device at sign-in	label_github_docs_device_verification
+勾选这些权限即可	Tick these scopes	label_tick_scopes
+粘贴在 GitHub 网页端生成的访问密钥。密钥只保存在本机，不会上传到任何服务器。	Paste the access key generated on the GitHub website. The key is stored on this device only and is never uploaded to any server.	note_paste_key
+访问密钥	Access key	label_access_key
+ghp_… 或 github_pat_…	ghp_… or github_pat_…	hint_key_placeholder
+去网页端生成密钥（已预填所需权限）	Generate a key on the website (scopes prefilled)	action_generate_key_web
+• 经典密钥：勾选 repo / read:user / read:org / notifications 四项\n• 细粒度密钥：至少给 Contents、Issues、Pull requests、Notifications 读权限（含 Metadata）\n• 登录时不要求数字口令验证；密钥可随时在网页端撤销	• Classic keys: tick all four of repo / read:user / read:org / notifications\n• Fine-grained keys: at least read access to Contents, Issues, Pull requests and Notifications (including Metadata)\n• No numeric code is required to sign in; the key can be revoked on the website at any time	login_key_scopes_bullets
+双重验证	Two-factor authentication	label_two_factor
+输入 GitHub 生成的 6 位验证码	Enter the 6-digit code from GitHub	hint_enter_code
+请选择源分支与目标分支	Choose a source and a target branch	error_choose_source_target
+源分支与目标分支不能相同	The source and target branches must differ	error_source_equals_target
+无法读取 $src 的提交	Cannot read commits from %1$s	error_cannot_read_source_commits
+已同步：$src → $dst	Synced: %1$s → %2$s	state_synced_from_to
+目标分支已是最新，无需同步	The target branch is already up to date; nothing to sync	state_target_up_to_date
+存在冲突，需要人工解决：$result	There are conflicts that need to be resolved manually: %1$s	error_merge_conflicts
+同步失败：$result	Sync failed: %1$s	error_sync_failed
+源分支（内容来自这里）	Source branch (content comes from here)	label_source_branch
+目标分支（同步到这里）	Target branch (synced to here)	label_target_branch
+$source 领先 $target ${c.aheadBy} 个提交	%1$s is %3$s commits ahead of %2$s	label_ahead_by
+，落后 ${c.behindBy} 个	, %1$s behind	suffix_behind_by
+可快进（目标没有独有提交）	Can fast-forward (the target has no unique commits)	state_can_fast_forward
+目标有 ${c.behindBy} 个独有提交，只能合并或覆盖	The target has %1$s unique commits; only merge or force is possible	state_target_has_unique
+同步方式	Sync method	label_sync_method
+合并	Merge	label_merge
+保留历史，生成合并提交；有冲突时会被拒绝	Keeps the history and creates a merge commit; refused when there are conflicts	note_merge_desc
+仅快进	Fast-forward only	label_fast_forward_only
+目标没有独有提交时直接移动；否则拒绝	Moves the branch when the target has no unique commits; refused otherwise	note_fast_forward_only_desc
+强制指向源分支，会丢弃目标分支独有提交	Force-points to the source branch and discards the target's unique commits	note_force_desc
+已同步	Synced	state_synced
+同步中…	Syncing…	state_syncing
+快进 $source → $target	Fast-forward %1$s → %2$s	action_fast_forward
+覆盖 $target（丢弃 $loseCount 个提交）	Force %1$s (discarding %2$s commits)	action_force_with_count
+覆盖 $target	Force %1$s	action_force
+合并 $source → $target	Merge %1$s → %2$s	action_merge_branches
+确认覆盖 $target？	Force %1$s?	confirm_force_title
+覆盖会把 $target 强制指向 $source 的最新提交，$target 上独有的提交将不再被分支引用（仍可通过 reflog 找回，但界面上看不到）。	Forcing points %1$s at the latest commit of %2$s; commits unique to %3$s are no longer referenced (they can still be found through the reflog, but are not visible in the UI).	confirm_force_body
+快捷设置	Quick settings	label_quick_settings
+本页翻译	Translate this page	label_translate_this_page
+已关闭本页翻译，悬浮球已收起；重新开启：设置 → 沉浸式翻译 → 自动翻译正文	Translation for this page is off and the floating button is hidden. To turn it back on: Settings → Immersive translation → Auto-translate article text	note_page_translation_off
+原文+译文	Original + translation	label_original_plus_translation
+仅译文	Translation only	label_translation_only
+中文	Chinese	label_chinese
+操作	Actions	label_actions
+翻译当前视口	Translate the current viewport	action_translate_viewport
+翻译全文	Translate all	action_translate_all
+清空本页译文	Clear this page's translations	action_clear_page_translations
+重置悬浮球	Reset the floating button	action_reset_bubble
+更多设置：App「设置 → 沉浸式翻译」	More settings: app Settings → Immersive translation	note_more_settings_path
+翻译中…	Translating…	state_translating
+Key 无效	Invalid key	state_key_invalid
+额度用尽	Quota exhausted	state_quota_exhausted
+已暂停	Paused	state_paused
+翻译失败	Translation failed	state_translation_failed
+空闲	Idle	state_idle
+本页进度	This page's progress	label_page_progress
+已译 ${snapshot.translated} / 候选 $total 段	Translated %1$s / %2$s candidate segments	label_translated_of_total
+${snapshot.chars} 字符 · ${(fraction * 100).roundToInt()}%	%1$s characters · %2$s%%	label_chars_percent
+服务：${if (settings.providerKind == TranslateProvider.DEEPSEEK) "DeepSeek" else "MyMemory"}	Service: %1$s	label_service
+目标：${if (settings.target == TranslateConfig.EN) "English" else "中文"} · ${styleLabel(settings.style)}	Target: %1$s · %2$s	label_target_language_style
+用户	User	label_user
+待处理	To do	label_todo
+进行中	In progress	label_in_progress
+常用仓库	Frequent repositories	label_frequent_repos
+暂无星标仓库	No starred repositories yet	state_no_starred_repos
+暂无最近活动	No recent activity yet	state_no_recent_activity
+搜索 GitHub	Search GitHub	hint_search_github
+夜深了	Working late	greet_late_night
+早上好	Good morning	greet_morning
+下午好	Good afternoon	greet_afternoon
+晚上好	Good evening	greet_evening
+$greet，$login	%1$s, %2$s	greet_with_login
+没有待办	Nothing to do	state_no_todo
+需要你处理的 PR / issue / 通知会出现在这里	PRs, issues and notifications that need your attention show up here	note_todo_hint
+未读通知	Unread notifications	label_unread_notifications
+$unread 条	%1$s	label_unread_count
+待我审查	Awaiting my review	label_awaiting_review
+$reviews 个 PR	%1$s PRs	label_review_pr_count
+分配给我	Assigned to me	label_assigned_to_me
+$assigned 个 issue	%1$s issues	label_assigned_issue_count
+运行中	Running	label_running
+文件不存在或无法读取	The file does not exist or cannot be read	error_file_unreadable
+提交前扫描不可用（本地引擎未就绪），为安全起见已拦下本次提交；可改用网页端提交，或重装带完整引擎的版本后重试。	Pre-commit scan unavailable (the local engine is not ready), so this commit was blocked for safety; commit from the web instead, or reinstall a build with the full engine and try again.	error_scan_unavailable_blocked
+请至少勾选一个文件	Tick at least one file	error_tick_at_least_one
+没有可提交的内容	Nothing to commit	error_nothing_to_commit_content
+提交 ${files.size} 个文件到 $owner/$repo	Commit %1$s files to %2$s/%3$s	label_commit_files_to
+已提交 ${files.size} 个文件 · ${result.take(7)}	Committed %1$s files · %2$s	state_committed_files_sha
+已提交 ${files.size} 个文件	Committed %1$s files	state_committed_files_only
+提交 $path	Commit %1$s	label_commit_path
+PUT /contents 成功	PUT /contents succeeded	state_put_contents_ok
+已提交	Committed	state_committed
+本地提交 $path	Commit locally %1$s	label_commit_local_path
+已提交（本地 git · $sha）	Committed (local git · %1$s)	state_committed_local_sha
+本地仓库不存在：请先在「设置 → 本地仓库」拉取	The local repository does not exist; clone it first from Settings → Local repository	error_local_repo_missing_clone
+写入工作树失败	Failed to write to the working tree	error_write_worktree_failed
+提交信息（必填）	Commit message (required)	label_commit_message_required
+提交中…	Committing…	state_committing
+提交模式：${effectiveMode?.label ?: "未设置"}	Commit mode: %1$s	label_commit_mode_value
+已载入远端版本，本地草稿已删除	Loaded the remote version; the local draft was deleted	state_loaded_remote_draft_cleared
+远端版本已另存为 ${side.name}	The remote version was saved as %1$s	state_remote_saved_as
+提交模式已改为「${mode.label}」（本次编辑立即生效）	Commit mode changed to “%1$s” (takes effect for this edit immediately)	state_commit_mode_changed
+输入关键词搜索	Type a keyword to search	hint_type_keyword
+未找到匹配的代码	No matching code	state_no_code_results
+代码结果	code results	label_code_results
+未找到匹配的拉取请求	No matching pull requests	state_no_pull_results
+拉取请求结果	pull request results	label_pull_results
+未找到匹配的提交	No matching commits	state_no_commit_results
+提交结果	commit results	label_commit_results
+未找到匹配的主题	No matching topics	state_no_topic_results
+主题结果	topic results	label_topic_results
+未找到匹配结果	No matching results	state_no_results
+结果	results	label_results
+搜索或跳转	Search or jump to	hint_search_or_jump
+我的	Mine	label_mine
+仅显示包含此内容的部分文件路径。优化搜索以查看更多。	Only partial file paths containing this content are shown. Refine the search to see more.	note_paths_truncated
+匹配 $count 处	%1$s matches	label_match_count
+筛选	Filter	label_filter
+语言	Language	label_language
+高级	Advanced	label_advanced
+$name：$value	%1$s: %2$s	label_name_value
+$name（$syntax）	%1$s (%2$s)	label_name_syntax
+应用	Apply	action_apply
+已到底	End of results	state_end_of_results
+用访问令牌打开	Open with an access token	action_open_with_token_short
+建一个带 repo 的令牌	Create a token with the repo scope	action_create_repo_token
+空目录	Empty directory	state_empty_directory
+议题	Issues	label_issues
+暂无 Issue	No issues yet	state_no_issues
+拉取请求	Pull requests	label_pull_requests
+暂无拉取请求	No pull requests yet	state_no_pull_requests
+暂无提交	No commits yet	state_no_commits
+工作流	Workflows	label_workflows
+暂无工作流	No workflows yet	state_no_workflows
+发布 · ${items.size}	Releases · %1$s	label_releases_count
+暂无发布	No releases yet	state_no_releases
+ · ${item.assets.size} 个附件	 · %1$s assets	suffix_asset_count
+星标者	Stargazers	label_stargazers
+关注者	Followers	label_followers_list
+没有拿到数据，请稍后重试。	Could not fetch the data; try again later.	state_no_data_retry
+暂无复刻	No forks yet	state_no_forks
+暂无内容	No content yet	state_no_content
+仓库设置（默认分支 / 分支管理 / 危险区）	Repository settings (default branch / branches / danger zone)	label_repo_settings_menu
+开 PR 一条龙（新建分支 + 开 PR）· 无待提交草稿	Open PR one-stop (new branch + PR) · no drafts to commit	label_pr_onestop_no_drafts
+开 PR 一条龙（新建分支 + 开 PR）· 待提交 ${changedFiles.size} 个文件	Open PR one-stop (new branch + PR) · %1$s files to commit	label_pr_onestop_with_drafts
+请先登录	Sign in first	error_sign_in_first
+该仓库已关闭复刻	Forking is disabled for this repository	state_fork_disabled
+记住这个仓库的凭据（设置 → 仓库凭据 可删除）	Remember credentials for this repository (removable in Settings → Repository credentials)	label_remember_repo_credentials
+已登录网页会话：$login	Signed in to the web session: %1$s	state_web_session_login
+复刻已提交（GitHub 异步创建，稍后可用）	Fork submitted (GitHub creates it asynchronously; available shortly)	state_fork_submitted
+已复刻到 $full	Forked to %1$s	state_forked_to
+提交模式：${modeLabel ?: "未设置"}	Commit mode: %1$s	label_commit_mode_value_alt
+推送本地分支	Push the local branch	action_push_local_branch
+拉取远端分支	Pull the remote branch	action_pull_remote_branch
+切换分支	Switch branch	action_switch_branch
+共 ${branches.size} 个分支	%1$s branches in total	label_branch_total
+ · 列表来自本地缓存	 · list from the local cache	suffix_from_local_cache
+搜索分支	Search branches	hint_search_branches
+分支列表尚未加载完成：稍等片刻，或关闭弹窗后在顶部栏点刷新。	The branch list has not finished loading yet: wait a moment, or close this sheet and tap refresh in the top bar.	note_branch_list_loading
+没有匹配「$keyword」的分支	No branches match “%1$s”	state_no_branch_match
+当前分支	Current branch	label_current_branch_marker
+此仓库使用独立凭据	This repository uses separate credentials	label_repo_uses_own_credentials
+（@$it）	 (@%1$s)	suffix_at_login
+：读与写都用它，操作身份与当前账号不同。	: used for both reads and writes; the acting identity differs from the current account.	suffix_own_credentials_note
+改用账号	Use the account instead	action_use_account_instead
+请选择两个不同的分支	Choose two different branches	error_choose_two_branches
+对比失败：无法读取 $base...$head	Comparison failed: cannot read %1$s...%2$s	error_compare_failed
+分支对比	Compare branches	label_branch_compare
+比较基准	Compare against	label_compare_base
+互换	Swap	action_swap
+比较 $base ← $head	Compare %1$s ← %2$s	label_compare_arrow
+两个分支内容一致，没有差异	The two branches are identical; no differences	state_no_differences_branches
+分叉：领先 ${result.aheadBy} 个提交，落后 ${result.behindBy} 个	Diverged: %1$s commits ahead, %2$s behind	state_compare_diverged
+领先 ${result.aheadBy} 个提交	%1$s commits ahead	state_compare_ahead
+落后 ${result.behindBy} 个提交	%1$s commits behind	state_compare_behind
+${result.files.size} 个文件变更	%1$s files changed	label_files_changed
+提交（${result.commits.size}）	Commits (%1$s)	label_commits_count
+展开	Expand	action_expand
+(无提交信息)	(no commit message)	state_no_commit_message
+没有文件差异	No file differences	state_no_file_differences
+该对比没有返回文件差异（可能超过 300 个文件上限）	This comparison returned no file differences (it may exceed the 300-file limit)	note_compare_file_limit
+该文件差异过大，GitHub 未返回代码片段；可打开文件查看当前内容	This file's diff is too large and GitHub returned no patch; open the file to see its current content	note_diff_too_large
+展开剩余 ${lines.size - shown.size} 行	Expand the remaining %1$s lines	action_expand_remaining_lines
+打开文件	Open file	action_open_file
+暂无分支或加载失败	No branches, or loading failed	state_no_branches_or_failed
+请输入分支名	Enter a branch name	error_branch_name_required
+分支已存在：$name	The branch already exists: %1$s	error_branch_exists
+无法读取来源分支 ${base.ifBlank { default }} 的提交	Cannot read commits from the source branch %1$s	error_cannot_read_source_branch
+已创建分支 $name	Created branch %1$s	state_branch_created
+创建失败：$err	Creation failed: %1$s	error_creation_failed
+已删除分支 $name	Deleted branch %1$s	state_branch_deleted
+默认分支已改为 $name	Default branch changed to %1$s	state_default_branch_changed
+修改失败：$err	Update failed: %1$s	error_update_failed_err
+查看两个分支的提交与代码片段差异	Compare commits and patches between two branches	note_compare_branches_hint
+至少需要两个分支	At least two branches are needed	state_need_two_branches
+来源分支	Source branch	label_source_branch_name
+创建	Create	action_create
+会删除远端分支，无法通过界面恢复。若该分支有未合并的提交，删除后这些提交将不再被分支引用。	Deletes the remote branch and it cannot be restored from the UI. If the branch has unmerged commits, they are no longer referenced after deletion.	confirm_delete_remote_branch_body
+默认	Default	label_default
+对比	Compare	action_compare
+设为默认	Set as default	action_set_default
+分享日志包	Share the log bundle	action_share_log_bundle
+没有可用的分享应用（日志包已保存到 ${ok.displayDir}）	No app available to share (the log bundle was saved to %1$s)	error_no_share_app
+没有存储权限，无法写入 Download/${LogExporter.DIR_NAME}/	No storage permission, so nothing can be written to Download/%1$s/	error_no_storage_permission
+导出中…	Exporting…	state_exporting
+导出	Export	action_export
+共	Total	label_total
+时间流	Timeline	label_timeline
+原始日志	Raw log	label_raw_log
+（无匹配日志）	(no matching logs)	state_no_matching_logs
+（无日志）	(no logs)	state_no_logs
+导出失败	Export failed	error_export_failed
+到「系统设置 → 应用 → Branchbase → 权限」里允许存储，再回来点一次导出。	Allow storage in System settings → Apps → Branchbase → Permissions, then come back and tap Export again.	note_allow_storage
+去授权	Grant permission	action_grant_permission
+知道了	Got it	action_got_it
+稍后	Later	action_later
+日志类别	Log category	label_log_category
+模块 tag	Module tag	label_module_tag
+全部 tag	All tags	label_all_tags
+关闭筛选面板	Close the filter panel	action_close_filter_panel
+关闭面板	Close panel	action_close_panel
+分类	Category	label_category
+视图模式	View mode	label_view_mode
+时间范围	Time range	label_time_range
+排序	Sort	label_sort
+过往 Issue	Past issues	label_past_issues
+还没有处理过的会话。点开或「完成」一条 issue/PR 消息后会自动留档，方便回头找。	No conversations have been handled yet. Opening or completing an issue/PR message archives it automatically so you can find it again later.	note_past_issues_hint
+重置	Reset	action_reset
+搜索标题 / 仓库 / 编号	Search title / repository / number	hint_search_notifications
+恢复未读	Restore unread	action_restore_unread
+处理中…	Processing…	state_processing
+已选 $selectedCount / 共 $visibleCount	%1$s of %2$s selected	label_selected_of_visible
+退出	Exit	action_exit
+已选 $selectedCount	%1$s selected	label_selected
+/ 共 $visibleCount	/ %1$s total	suffix_of_total
+取消全选	Deselect all	action_deselect_all
+全选	Select all	action_select_all
+没有需要保存的修改	No changes to save	state_no_changes_to_save
+个人网站需以 http:// 或 https:// 开头	The website must start with http:// or https://	error_website_scheme
+更新 GitHub 资料	Update GitHub profile	action_update_github_profile
+已更新 ${body.length()} 个字段	Updated %1$s fields	state_updated_fields
+已保存	Saved	state_saved
+头像请在 GitHub 网页端更换	Change your avatar on the GitHub website	note_avatar_on_web
+名称	Name	label_name
+你的显示名称	Your display name	hint_display_name
+简介	Bio	label_bio
+一句话介绍自己（最多 160 字）	Introduce yourself in one line (up to 160 characters)	hint_bio
+公司	Company	label_company
+@公司名	@company	hint_company
+城市 / 地区	City / region	label_city_region
+个人网站	Website	label_website
+社交账号	Social accounts	label_social_accounts
+X / Twitter 用户名（不含 @）	X / Twitter username (without @)	hint_twitter_username
+保存后立即对所有人可见。仅提交有变化的字段，未改动的资料不会被覆盖。	Visible to everyone immediately after saving. Only changed fields are submitted; untouched profile fields are not overwritten.	note_profile_visibility
+全部检查	Check all	action_check_all
+还没有账号	No accounts yet	state_no_accounts
+登录后即可管理本地仓库与任务	Sign in to manage local repositories and tasks	note_sign_in_to_manage
+已切换到 @${a.login}	Switched to @%1$s	state_switched_account
+添加账号	Add account	action_add_account
+每个账号的本地仓库与任务互相隔离（repos/{login}/…）。删除账号不会删除它们，重新登录同一账号即可再次看到。	Each account's local repositories and tasks are isolated (repos/{login}/…). Deleting an account does not delete them; sign in to the same account again to see them.	note_account_isolation
+删除「${target.login} · ${target.auth.label}」？	Delete “%1$s · %2$s”?	confirm_delete_account_title
+同一账号还有 ${sameLoginOthers} 条其它登录方式的记录（账号列表里单独一行），这次只删这一条。	The same account has %1$s other sign-in records (each its own row in the list); only this one is deleted.	note_delete_account_only_this
+该账号名下的本地仓库（${LocalRepos.count(context, target.login)} 个）与任务记录会保留，重新登录同一账号后即可再次看到；其他账号看不到这些数据。	Local repositories (%1$s) and task records under this account are kept and reappear when you sign in to the same account again; other accounts cannot see this data.	note_delete_account_keeps_data
+已删除 $login · ${target.auth.label}	Deleted %1$s · %2$s	state_account_deleted
+检查状态	Check status	action_check_status
+切换到此账号	Switch to this account	action_switch_to_account
+删除账号	Delete account	action_delete_account
+$repoCount 个本地仓库	%1$s local repositories	label_local_repo_count
+作业 #$jobId	Job #%1$s	label_job_number
+复制当前步骤日志	Copy the current step's log	action_copy_step_log
+复制全部日志	Copy the full log	action_copy_full_log
+该作业没有日志输出	This job produced no log output	state_job_no_output
+该作业正在运行	This job is still running	state_job_running
+GitHub 在作业结束前不提供日志（结束后才生成日志文件，也没有流式接口），所以现在没有可读的内容。它一结束就会自动出现 —— 不需要手动刷新。	GitHub does not provide logs before a job finishes (the log file is only generated at the end, and there is no streaming API), so there is nothing to read yet. It appears automatically the moment the job finishes — no manual refresh needed.	note_job_log_pending
+在日志里搜索…	Search the log…	hint_search_log
+关闭搜索	Close search	action_close_search
+仅错误	Errors only	filter_errors_only
+含警告	Include warnings	filter_include_warnings
+$count 行	%1$s lines	label_line_count
+命中 ${hitCursor + 1}/$hits	Match %1$s/%2$s	label_match_position
+$lines 行	%1$s lines	label_lines_count_alt
+定位	Locate	action_locate
+↓ 最新	↓ Latest	action_jump_latest
+仓库不存在或无权访问	The repository does not exist or you have no access	error_repo_not_found_or_forbidden
+自述文件 README	README	label_readme
+正在加载自述文件…	Loading the README…	state_loading_readme
+暂无自述文件	No README yet	state_no_readme
+许可证 License	License	label_license
+贡献者 Contributors	Contributors	label_contributors
+正在加载贡献者…	Loading contributors…	state_loading_contributors
+暂无贡献者	No contributors yet	state_no_contributors
+项目语言 Languages	Languages	label_languages
+正在加载语言构成…	Loading language breakdown…	state_loading_languages
+已忽略	Ignored	state_ignored
+关注	Watch	action_watch
+无	None	label_none_value
+${c.commits} 次提交	%1$s commits	label_commit_count
+暂无语言数据	No language data yet	state_no_language_data
+请先选择分支	Choose a branch first	error_choose_branch_first
+请填写：${missing.joinToString(", ")}	Fill in: %1$s	error_fill_required_fields
+触发失败：$err	Trigger failed: %1$s	error_trigger_failed
+\n该工作流可能未声明 workflow_dispatch，或参数类型不符	\nThe workflow may not declare workflow_dispatch, or the parameter types do not match	error_workflow_dispatch_hint
+执行 · ${workflow.name.ifBlank { "未命名工作流" }}	Run · %1$s	label_run_workflow
+无法读取工作流文件，暂时不能手动触发	The workflow file cannot be read, so it cannot be triggered manually right now	error_workflow_file_unreadable
+该工作流未声明 workflow_dispatch，无法手动触发	This workflow does not declare workflow_dispatch and cannot be triggered manually	error_no_workflow_dispatch
+在仓库「代码」页打开 ${workflow.path.ifBlank { "工作流文件" }}，在 on: 下加上 workflow_dispatch: 后即可在本页手动执行。	Open %1$s on the repository's Code page and add workflow_dispatch: under on: to run it from this page.	note_add_workflow_dispatch
+分支 / 标签（ref）	Branch / tag (ref)	label_branch_tag_ref
+请选择分支	Choose a branch	hint_choose_branch
+分支列表加载失败，可直接使用当前默认分支	Failed to load the branch list; you can use the current default branch directly	error_branch_list_failed
+参数	Parameters	label_parameters
+已触发，运行记录稍后出现在列表中	Triggered; the run appears in the list shortly	state_triggered
+已触发	Triggered	state_triggered_short
+必填	Required	label_required
+ · $it 人正在关注	 · %1$s watching	suffix_watchers
+应用自定义	Apply custom	action_apply_custom
+自定义通知只有网页端点支持，登录网页会话后可直接在这里设置。	Custom notifications are only available on the website; sign in to the web session to set them up right here.	note_custom_notifications_web
+正在读取可订阅事件…	Loading subscribable events…	state_loading_events
+暂时读不到事件清单（需要网络）。	The event list cannot be loaded right now (network required).	error_event_list_unavailable
+该仓库未启用	Not enabled for this repository	state_not_enabled_for_repo
+从 $sourceOwner/$repoName 复刻一份到你自己的账户或组织。	Fork %1$s/%2$s into your own account or organisation.	note_fork_into_account
+选择账户	Choose an account	label_choose_account
+名称不能为空	The name cannot be empty	error_name_required
+正在检查 $owner 下是否已有同名仓库…	Checking whether %1$s already has a repository with this name…	state_checking_name
+$owner 下已存在同名仓库，换个名字，或直接打开那一个。	%1$s already has a repository with this name; pick another name or open that one.	error_name_taken_owner
+$owner 下没有同名仓库，可以创建。	%1$s has no repository with this name; you can create it.	state_name_available
+改名后 GitHub 不会自动成为原仓库的复刻网络成员。	After renaming, GitHub will not automatically make it part of the original repository's fork network.	note_rename_fork_network
+源仓库共 $branchCount 个分支。勾选后只复制默认分支 $defaultBranch，其余分支不会出现在你的复刻里。	The source repository has %1$s branches. When ticked, only the default branch %2$s is copied; the other branches will not appear in your fork.	note_copy_default_branch_only
+勾选后只复制默认分支 $defaultBranch；不勾则复制全部分支。	When ticked, only the default branch %1$s is copied; otherwise all branches are copied.	note_copy_default_branch_toggle
+账号优先：当前账号能打开这个仓库时一律用账号，这里的凭据只是回退。\n打不开时才回退：只有账号被拒（404 / 403）时，仓库页才改用这条令牌。\n回退后读与写都用它：这个仓库里的提交 / 开 PR / 合并都用令牌身份，而不是你当前登录的	Account first: whenever the current account can open this repository, the account is used and this credential is only a fallback.\nFallback only when it cannot: the repository page switches to this token only when the account is refused (404 / 403).\nAfter falling back, both reads and writes use it: commits, PRs and merges in this repository act as the token's identity, not your currently signed-in account.	note_credential_priority
+。	.	label_period
+还没有仓库凭据	No repository credentials yet	state_no_repo_credentials
+账号打不开私有仓库时，可在失败页里添加；添加后这个仓库的读写都回退到该令牌。	When the account cannot open a private repository, add one from the failure page; afterwards all reads and writes for that repository fall back to the token.	note_add_credential_from_failure
+凭据列表	Credential list	label_credential_list
+删除仓库凭据 ${target.slug}	Delete repository credential %1$s	confirm_delete_credential_title
+将删除本机保存的这一条令牌凭据（令牌身份 @${target.login}）；GitHub 上的令牌本身不会被撤销。\n删除后这个仓库会回退到当前账号；若账号无权访问，它将再次打不开。其他仓库的凭据不受影响。\n此操作不可撤销 —— 需要重新添加这条令牌才能恢复。	This deletes the token credential stored on this device (token identity @%1$s); the token itself on GitHub is not revoked.\nAfterwards this repository falls back to the current account; if the account has no access it will be unopenable again. Credentials for other repositories are unaffected.\nThis cannot be undone — you must add the token again to restore it.	confirm_delete_credential_body
+更多操作	More actions	label_more_actions
+重新运行	Re-run	action_rerun
+复制运行链接	Copy run link	action_copy_run_link
+任务 · ${jobs.size}	Jobs · %1$s	label_jobs_count
+全部 ${jobs.size}	All %1$s	filter_all_jobs
+失败 ${progress.failed}	Failed %1$s	filter_failed_jobs
+没有失败的任务	No failed jobs	state_no_failed_jobs
+暂无任务	No jobs yet	state_no_jobs
+产物 · ${artifacts.size}	Artifacts · %1$s	label_artifacts_count
+其他注解 · ${loose.size}	Other annotations · %1$s	label_other_annotations
+（未命名产物）	(unnamed artifact)	label_unnamed_artifact
+已过期	Expired	state_expired
+找不到已下载的文件	The downloaded file cannot be found	error_downloaded_file_missing
+设为最新	Set as latest	action_set_as_latest
+标签	Tag	label_tag
+标题（留空则用 tag）	Title (leave blank to use the tag)	label_title_optional_tag
+目标分支	Target branch	label_target_branch_name
+上传中…	Uploading…	state_uploading
+上传失败	Upload failed	error_upload_failed_short
+引用中 · 待上传	Referenced · pending upload	state_referenced_pending
+待上传	Pending upload	state_pending_upload
+移除	Remove	action_remove
+导入安装包或任意文件	Import an APK or any file	action_import_any_file
+选择文件	Choose file	action_choose_file
+贡献墙	Contribution wall	label_contribution_wall
+过去一年	Past year	label_past_year
+暂无贡献数据	No contribution data yet	state_no_contribution_data
+共 ${cal?.total ?: 0} 次贡献	%1$s contributions in total	label_total_contributions
+ · 活跃 ${cal.activeDays} 天	 · active on %1$s days	suffix_active_days
+ · 最深 ${cal.maxCount} 次/天	 · busiest %1$s per day	suffix_max_per_day
+选择编写代码提交时的默认行为	Choose the default behaviour when committing code	note_choose_commit_default
+之后可在「设置」里随时更改；选择「跳过」将在提交时再次询问。	You can change this in Settings at any time; choosing “Skip” asks again when you commit.	note_commit_mode_later
+跳过	Skip	action_skip
+✓ 已登录 GitHub	✓ Signed in to GitHub	state_signed_in_github
+正在打开 GitHub 授权页，请稍候…	Opening the GitHub authorisation page…	state_opening_auth_page
+若网页要求输入验证码 / 口令，请在网页上完成（首次在新设备登录时会出现）	If the page asks for a verification code, complete it in the browser (this only happens the first time you sign in on a new device)	note_complete_code_in_browser
+正在校验授权…口令验证已在网页端完成	Verifying authorisation… code verification was completed in the browser	state_verifying_auth
+模式未配置	Mode not configured	state_mode_not_configured
+推荐	Recommended	label_recommended
+危险	Dangerous	label_dangerous
+收起更多	Collapse more	action_collapse_more
+检测到安全风险	Security risk detected	state_security_risk
+严重级别	Severity	label_severity
+受影响范围	Affected scope	label_affected_scope
+发现时间	Detected at	label_detected_at
+描述	Description	label_description_plain
+查看仓库	View repository	action_view_repository
+通知未开启	Notifications are off	state_notifications_off
+开启后下载进度与完成提醒才会出现在通知栏（不影响下载本身）。	Once enabled, download progress and completion alerts appear in the notification shade (this does not affect downloading itself).	note_enable_notifications
+开启	Enable	action_enable
+去设置	Open settings	action_open_settings
+不再提示	Do not ask again	action_dont_ask_again
+决定你改完代码后，改动以什么方式落到 GitHub。切换后立即生效，已存在的本地仓库不受影响。	Decides how your changes reach GitHub after you edit code. Switching takes effect immediately; existing local repositories are unaffected.	note_commit_mode_explain
+当前：${mode?.label ?: "未配置（首次提交时会询问）"}	Current: %1$s	label_current_mode
+选择提交模式	Choose commit mode	label_choose_commit_mode
+收起 Git 面板	Collapse the Git panel	action_collapse_git_panel
+展开 Git 面板	Expand the Git panel	action_expand_git_panel
+登录 GitHub 网页会话	Sign in to the GitHub web session	action_sign_in_web_session
+App 内的星标、关注、复刻都走官方 API，不需要这一步。\n只有「自定义通知（Custom）」需要网页会话 —— 登录后 Cookie 只保存在本机，用于 github.com 的网页端点。	Stars, watches and forks inside the app all use the official API and do not need this step.\nOnly “Custom” notifications require a web session — after signing in, the cookie is stored on this device only and is used for github.com web endpoints.	note_web_session_purpose
+已登录：$login	Signed in: %1$s	state_signed_in_as
+请在下方网页中登录 GitHub	Sign in to GitHub in the page below	note_sign_in_below
+（未命名任务）	(unnamed job)	label_unnamed_job
+该任务没有步骤	This job has no steps	state_job_no_steps
+runner: ${job.runnerName.ifBlank { "待分配" }}	runner: %1$s	label_runner
+（未命名步骤）	(unnamed step)	label_unnamed_step
+⚠ ${annotations.size} 条注解	⚠ %1$s annotations	label_annotation_count
+（无内容）	(no content)	state_no_content_paren
+复制	Copy	action_copy
+## 变更\n- …	## Changes\n- …	note_template_changes
+文件变更 (${files.size})	Files changed (%1$s)	label_files_changed_count
+已合并 PR #${d.number}	Merged PR #%1$s	state_merged_pr_number
+合并此 PR	Merge this PR	action_merge_this_pr
+${d.author} 想将 ${d.headRef} 合并到 ${d.baseRef}	%1$s wants to merge %2$s into %3$s	label_merge_intent
+工作流操作	Workflow actions	label_workflow_actions
+暂无运行记录	No runs yet	state_no_runs
+（第 ${run.runAttempt} 次尝试）	(attempt %1$s)	label_attempt
+· 第 ${run.runAttempt} 次尝试	 · attempt %1$s	suffix_attempt
+未命名运行	Unnamed run	label_unnamed_run
+由 ${run.actor.ifBlank { "—" }} 推送	Pushed by %1$s	label_pushed_by
+${progress.total} 个任务 · 	%1$s jobs · 	label_jobs_count_dot
+${progress.ok} 成功	%1$s succeeded	label_jobs_ok
+${progress.failed} 失败	%1$s failed	label_jobs_failed
+${progress.running} 运行中	%1$s running	label_jobs_running
+${progress.waiting} 排队	%1$s queued	label_jobs_queued
+${eventLabel(run.event)} · 创建于 ${isoShort(run.createdAt)}	%1$s · created %2$s	label_run_event_created
+正在读取工作流文件…	Reading the workflow file…	state_reading_workflow_file
+该工作流未声明 workflow_dispatch（无法手动触发）	This workflow does not declare workflow_dispatch (cannot be triggered manually)	state_no_workflow_dispatch
+直接执行，无需参数	Runs directly; no parameters needed	note_no_parameters
+需要填写 ${loaded.inputs.size} 个参数	%1$s parameters need filling in	note_parameters_required
+未命名工作流	Unnamed workflow	label_unnamed_workflow
+查看工作流文件	View the workflow file	action_view_workflow_file
+该工作流没有网页地址	This workflow has no web URL	state_no_workflow_url
+工作流文件	Workflow file	label_workflow_file
+libgit2 的 HTTP 代理	HTTP proxy for libgit2	label_git_proxy_sub
+http://127.0.0.1:7890 或 socks5://127.0.0.1:1080	http://127.0.0.1:7890 or socks5://127.0.0.1:1080	hint_proxy_example
+当前生效	Currently active	state_currently_active
+仅作用于「本地仓库」的 clone / pull / push（libgit2），普通网页请求不走这里。\n地址里的用户名与密码不会显示出来 —— 列表里只保留 host:port。	Only affects clone / pull / push for local repositories (libgit2); ordinary web requests do not go through it.\nThe username and password in the address are never displayed — only host:port is kept in the list.	note_proxy_scope_detail
+未登录	Not signed in	state_not_signed_in
+登录后才能同步仓库与通知	Sign in to sync repositories and notifications	note_sign_in_to_sync
+长任务	Long task	label_long_task
+短任务	Short task	label_short_task
+双指缩放 · 双击放大 · 下拉关闭	Pinch to zoom · double-tap to enlarge · pull down to close	hint_image_viewer
+用浏览器打开	Open in browser	action_open_in_browser_alt
+图片加载失败	Failed to load the image	error_image_load_failed
+点按重试	Tap to retry	action_tap_to_retry
+未配置（首次提交时会询问）	Not configured (you will be asked on the first commit)	state_not_configured_will_ask
+待分配	Unassigned	state_unassigned
+已复制 ${list.size} 条链接	Copied %1$s links	toast_links_copied
+没有可用的浏览器	No browser available	error_no_browser
+分享消息	Share message	title_share_message
+一	Mon	weekday_mon_short
+三	Wed	weekday_wed_short
+五	Fri	weekday_fri_short
+译	Tr	bubble_translate_char

@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.branchbase.R
 import com.branchbase.core.GithubWebSession
 import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.theme.Primer
@@ -92,12 +94,10 @@ fun GithubWebLoginScreen(
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
-        DetailTopBar(title = "登录 GitHub 网页会话", onBack = onBack)
+        DetailTopBar(title = stringResource(R.string.action_sign_in_web_session), onBack = onBack)
 
         Text(
-            text = "App 内的星标、关注、复刻都走官方 API，不需要这一步。\n" +
-                "只有「自定义通知（Custom）」需要网页会话 —— " +
-                "登录后 Cookie 只保存在本机，用于 github.com 的网页端点。",
+            text = stringResource(R.string.note_web_session_purpose),
             fontSize = 12.sp,
             color = Primer.TextTertiary,
             lineHeight = 18.sp,
@@ -146,13 +146,13 @@ fun GithubWebLoginScreen(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                text = if (login.isNotEmpty()) "已登录：$login" else "请在下方网页中登录 GitHub",
+                text = if (login.isNotEmpty()) stringResource(R.string.state_signed_in_as, login) else stringResource(R.string.note_sign_in_below),
                 fontSize = 12.sp,
                 color = if (login.isNotEmpty()) Primer.Green500 else Primer.TextTertiary,
                 modifier = Modifier.weight(1f),
             )
             Text(
-                text = "完成",
+                text = stringResource(R.string.state_done),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = if (login.isNotEmpty()) Primer.OnEmphasis else Primer.TextTertiary,

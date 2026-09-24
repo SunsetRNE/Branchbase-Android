@@ -22,12 +22,14 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.ui.theme.Primer
 import com.branchbase.ui.theme.iconTap
 
@@ -55,7 +57,7 @@ fun DetailTopBar(
         ) {
             Icon(
                 Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "返回",
+                contentDescription = stringResource(R.string.action_back),
                 tint = Primer.IconPrimary,
                 modifier = Modifier.size(24.dp).iconTap { onBack() },
             )
@@ -103,10 +105,10 @@ fun DetailLoading() {
 fun DetailErrorRetry(onRetry: () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("加载失败", fontSize = 13.sp, color = Primer.TextSecondary)
+            Text(stringResource(R.string.error_load_failed), fontSize = 13.sp, color = Primer.TextSecondary)
             Spacer(Modifier.height(10.dp))
             Text(
-                "重试",
+                stringResource(R.string.action_retry),
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Primer.Blue500,

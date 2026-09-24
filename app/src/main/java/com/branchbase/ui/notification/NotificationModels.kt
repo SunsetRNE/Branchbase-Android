@@ -1,6 +1,7 @@
 package com.branchbase.ui.notification
 
 import android.content.Context
+import androidx.annotation.StringRes
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.filled.Adjust
@@ -10,6 +11,8 @@ import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.branchbase.R
+import com.branchbase.ui.LocalizedText
 import com.branchbase.ui.settings.SettingsKeys
 import com.branchbase.ui.theme.TintRole
 import org.json.JSONArray
@@ -76,7 +79,8 @@ data class Notification(
     val kind: NotifKind,
     val icon: ImageVector,
     val tint: TintRole,
-    val reasonLabel: String,
+    /** 原因标签的**资源 ID**（不是文案）：模型层不认识 Context，交由 UI 侧 stringResource 解析。 */
+    @StringRes val reasonLabelRes: Int,
     val reasonColor: TintRole,
     // 「这条通知是否在等我动手」：列表里只给高信号的挂原因标签，低信号的（CI 结果 / 你订阅的 /
     // 评论了…）不挂 —— 同一屏里 8 个「CI 运行结果」只是重复占位，结论已经在标题里了。
@@ -156,7 +160,7 @@ private val FALLBACK_TYPE = TypeMeta(NotifKind.MESSAGE, Icons.Filled.Adjust, Tin
  * [highSignal] 是**构造参数**而不是类体属性：调用点用命名参数写 `highSignal = true`，
  * 写成类体属性则命名参数不成立（编译期直接报「No parameter with name」）。
  */
-private data class ReasonMeta(val label: String, val color: TintRole, val highSignal: Boolean = false)
+private data class ReasonMeta(@StringRes val labelRes: Int, val color: TintRole, val highSignal: Boolean = false)
 
 /**
  * 需要你**动手**的 reason 才在列表行里挂标签；其余（CI 结果 / 你订阅的 / 评论了 / 状态更新…）
@@ -166,20 +170,20 @@ private data class ReasonMeta(val label: String, val color: TintRole, val highSi
  * 「你订阅的」与「CI 结果」只要求知道，不要求动作。
  */
 private val REASON_META: Map<String, ReasonMeta> = mapOf(
-    "mention" to ReasonMeta("提到了你", TintRole.ACCENT, highSignal = true),
-    "team_mention" to ReasonMeta("提到了你的团队", TintRole.ACCENT, highSignal = true),
-    "review_requested" to ReasonMeta("请求你审查", TintRole.DONE, highSignal = true),
-    "assign" to ReasonMeta("分配给了你", TintRole.WARNING, highSignal = true),
-    "security_alert" to ReasonMeta("安全警报", TintRole.DANGER, highSignal = true),
-    "ci_activity" to ReasonMeta("CI 运行结果", TintRole.WARNING),
-    "state_change" to ReasonMeta("状态更新", TintRole.SUCCESS),
-    "comment" to ReasonMeta("评论了", TintRole.NEUTRAL_SUBTLE),
-    "subscribed" to ReasonMeta("你订阅的", TintRole.NEUTRAL_SUBTLE),
-    "manual" to ReasonMeta("你订阅的", TintRole.NEUTRAL_SUBTLE),
-    "author" to ReasonMeta("你创建的", TintRole.NEUTRAL_SUBTLE),
+    "mention" to ReasonMeta(R.string.notif_reason_mention, TintRole.ACCENT, highSignal = true),
+    "team_mention" to ReasonMeta(R.string.notif_reason_team_mention, TintRole.ACCENT, highSignal = true),
+    "review_requested" to ReasonMeta(R.string.notif_reason_review_requested, TintRole.DONE, highSignal = true),
+    "assign" to ReasonMeta(R.string.notif_reason_assign, TintRole.WARNING, highSignal = true),
+    "security_alert" to ReasonMeta(R.string.notif_reason_security_alert, TintRole.DANGER, highSignal = true),
+    "ci_activity" to ReasonMeta(R.string.notif_reason_ci_activity, TintRole.WARNING),
+    "state_change" to ReasonMeta(R.string.notif_reason_state_change, TintRole.SUCCESS),
+    "comment" to ReasonMeta(R.string.notif_reason_comment, TintRole.NEUTRAL_SUBTLE),
+    "subscribed" to ReasonMeta(R.string.notif_reason_subscribed, TintRole.NEUTRAL_SUBTLE),
+    "manual" to ReasonMeta(R.string.notif_reason_subscribed, TintRole.NEUTRAL_SUBTLE),
+    "author" to ReasonMeta(R.string.notif_reason_author, TintRole.NEUTRAL_SUBTLE),
 )
 
-private val FALLBACK_REASON = ReasonMeta("你订阅的", TintRole.NEUTRAL_SUBTLE)
+private val FALLBACK_REASON = ReasonMeta(R.string.notif_reason_subscribed, TintRole.NEUTRAL_SUBTLE)
 
 /**
  * 从 subject.url 抽取编号/sha（如 `.../issues/42` → "42"，`.../commits/abc` → "abc"）。
@@ -204,22 +208,27 @@ fun parseIsoMs(iso: String): Long =
  *
  * 放在渲染期而不是解析期的原因见 [Notification.updatedAtMs] 的注释；
  * 预加载快照会存几十分钟，解析期算好的相对时间必然失真。
+ *
+ * 返回 [LocalizedText] 而不是 `String`：这里六档里**混着 string 与 plurals**
+ * （「刚刚」是 string，「N 分钟前」是 plurals —— 英文要分 `1 minute ago` / `2 minutes ago`），
+ * 所以需要一个能同时装下两者的载体。分档判断留在纯函数里，因此可单测。
  */
-fun relativeTimeOf(ms: Long, nowMs: Long = System.currentTimeMillis()): String {
-    if (ms <= 0L) return ""
+fun relativeTimeOf(ms: Long, nowMs: Long = System.currentTimeMillis()): LocalizedText {
+    // 时间戳缺失：解析为空串，界面上不占位（不显示「1970 年」这类噪声）
+    if (ms <= 0L) return LocalizedText()
     val diff = (nowMs - ms).coerceAtLeast(0L)
     val m = diff / 60000
     val h = diff / 3600000
     val d = diff / 86400000
     return when {
-        m < 1 -> "刚刚"
-        m < 60 -> "$m 分钟前"
-        h < 24 -> "$h 小时前"
-        d == 1L -> "昨天"
-        d < 30 -> "$d 天前"
+        m < 1 -> LocalizedText(R.string.relative_just_now)
+        m < 60 -> LocalizedText.plural(R.plurals.relative_minutes, m.toInt(), listOf(m))
+        h < 24 -> LocalizedText.plural(R.plurals.relative_hours, h.toInt(), listOf(h))
+        d == 1L -> LocalizedText(R.string.relative_yesterday)
+        d < 30 -> LocalizedText.plural(R.plurals.relative_days, d.toInt(), listOf(d))
         else -> {
             val dt = java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault())
-            "${dt.monthValue} 月 ${dt.dayOfMonth} 日"
+            LocalizedText(R.string.relative_date_md, listOf(dt.monthValue, dt.dayOfMonth))
         }
     }
 }
@@ -367,7 +376,7 @@ fun notificationOf(
         kind = tm.kind,
         icon = tm.icon,
         tint = tm.tint,
-        reasonLabel = rm.label,
+        reasonLabelRes = rm.labelRes,
         reasonColor = rm.color,
         reasonHighSignal = rm.highSignal,
         owner = repoFullName.substringBefore('/'),
@@ -423,37 +432,50 @@ fun notifListPath(participating: Boolean = false, before: String? = null): Strin
  * - [DONE]：本地归档（GitHub 没有 done 列表，官方 App 也是本地维护），
  *   让「处理完的消息」有一个可回看的去处，而不是从列表里凭空消失。
  */
-enum class NotifCategory(val label: String) {
-    UNREAD("未读"),
-    ALL("全部"),
-    PARTICIPATING("参与"),
-    DONE("已完成"),
+enum class NotifCategory(@StringRes val labelRes: Int) {
+    UNREAD(R.string.notif_category_unread),
+    ALL(R.string.notif_category_all),
+    PARTICIPATING(R.string.notif_category_participating),
+    DONE(R.string.notif_category_done),
 }
 
 /** 时间范围（客户端过滤，基于 `updated_at`）。 */
-enum class NotifRange(val label: String, val maxAgeMs: Long?) {
-    TODAY("今天", 24 * 60 * 60 * 1000L),
-    THREE_DAYS("近 3 天", 3 * 24 * 60 * 60 * 1000L),
-    WEEK("近 7 天", 7 * 24 * 60 * 60 * 1000L),
-    ALL("全部", null),
+enum class NotifRange(@StringRes val labelRes: Int, val maxAgeMs: Long?) {
+    TODAY(R.string.notif_range_today, 24 * 60 * 60 * 1000L),
+    THREE_DAYS(R.string.notif_range_three_days, 3 * 24 * 60 * 60 * 1000L),
+    WEEK(R.string.notif_range_week, 7 * 24 * 60 * 60 * 1000L),
+    ALL(R.string.notif_range_all, null),
 }
 
 /** 排序。 */
-enum class NotifSort(val label: String) {
-    NEWEST("最新在前"),
-    OLDEST("最早在前"),
-    UNREAD_FIRST("未读优先"),
+enum class NotifSort(@StringRes val labelRes: Int) {
+    NEWEST(R.string.notif_sort_newest),
+    OLDEST(R.string.notif_sort_oldest),
+    UNREAD_FIRST(R.string.notif_sort_unread_first),
 }
 
 /** 类型筛选用到的**短名**（面板芯片与列表胶囊共用，避免同类型两种文案）。 */
-fun typeShortName(subjectType: String): String = when (subjectType) {
-    "PullRequest" -> "PR"
-    "Discussion" -> "讨论"
-    "Release" -> "版本"
-    "Commit" -> "提交"
-    "CheckSuite", "CheckRun", "WorkflowRun" -> "工作流"
-    "RepositoryVulnerabilityAlert", "RepositoryAdvisory" -> "安全"
-    else -> subjectType
+/**
+ * 类型短名的资源 ID；**没有对应资源时返回 null**。
+ *
+ * 这个 null 就是「未知类型原样透出、不吞掉后端新增类型」这条约定的载体 ——
+ * 它可单测（`NotificationModelsTest` 里那条钉子），UI 侧按 null 回落到 `subjectType`。
+ * 之所以不让模型层直接给文案：这里没有 Context。
+ */
+internal fun typeShortNameResOrNull(subjectType: String): Int? =
+    typeShortNameRes(subjectType).takeIf { it != 0 }
+
+@StringRes
+fun typeShortNameRes(subjectType: String): Int = when (subjectType) {
+    "PullRequest" -> R.string.notif_type_short_pr
+    "Discussion" -> R.string.notif_type_short_discussion
+    "Release" -> R.string.notif_type_short_release
+    "Commit" -> R.string.notif_type_short_commit
+    "CheckSuite", "CheckRun", "WorkflowRun" -> R.string.notif_type_short_workflow
+    "RepositoryVulnerabilityAlert", "RepositoryAdvisory" -> R.string.notif_type_short_security
+    // 未知类型原样透出：模型层给不出资源 ID，用 0 表示「没有对应资源」，
+    // 调用方按 0 判断后回落到原始 subjectType
+    else -> 0
 }
 
 /**
@@ -626,11 +648,11 @@ fun parseSecurityDetail(json: String): SecurityDetail = runCatching {
 // ───────────────────────── 通知显示模式（用户可选，默认平铺） ─────────────────────────
 
 /** 通知列表显示模式：平铺 / 按仓库分组 / 按 thread 合并 / 两级折叠 */
-enum class NotifLayout(val label: String, val desc: String) {
-    FLAT("平铺", "每条通知独立展示"),
-    GROUP_BY_REPO("按仓库分组", "同一仓库的通知折叠为一组"),
-    MERGE_BY_THREAD("按主题合并", "同一 issue/PR 的多条更新折叠"),
-    TWO_LEVEL("两级折叠", "仓库分组 + 主题合并"),
+enum class NotifLayout(@StringRes val labelRes: Int, @StringRes val descRes: Int) {
+    FLAT(R.string.notif_layout_flat, R.string.notif_layout_flat_desc),
+    GROUP_BY_REPO(R.string.notif_layout_group_by_repo, R.string.notif_layout_group_by_repo_desc),
+    MERGE_BY_THREAD(R.string.notif_layout_merge_by_thread, R.string.notif_layout_merge_by_thread_desc),
+    TWO_LEVEL(R.string.notif_layout_two_level, R.string.notif_layout_two_level_desc),
 }
 
 /** 读取通知显示模式（未设置默认 FLAT） */

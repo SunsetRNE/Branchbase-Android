@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -27,6 +28,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.ui.theme.Primer
 import com.branchbase.ui.theme.iconTap
 
@@ -76,7 +78,7 @@ fun JobCard(
             Box(Modifier.size(9.dp).clip(CircleShape).background(tone.dot))
             Spacer(Modifier.width(9.dp))
             Text(
-                job.name.ifBlank { "（未命名任务）" },
+                job.name.ifBlank { stringResource(R.string.label_unnamed_job) },
                 fontSize = 13.5.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Primer.TextPrimary,
@@ -103,7 +105,7 @@ fun JobCard(
             Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Gray150))
 
             if (job.steps.isEmpty()) {
-                DetailEmptyText("该任务没有步骤")
+                DetailEmptyText(stringResource(R.string.state_job_no_steps))
             } else {
                 val maxMs = job.steps.mapNotNull { durationMillis(it.startedAt, it.completedAt) }
                     .maxOrNull()?.coerceAtLeast(1L) ?: 1L
@@ -122,14 +124,14 @@ fun JobCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "runner: ${job.runnerName.ifBlank { "待分配" }}",
+                    stringResource(R.string.label_runner, job.runnerName.ifBlank { stringResource(R.string.state_unassigned) }),
                     fontSize = 11.5.sp,
                     color = Primer.TextTertiary,
                     maxLines = 1,
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    "日志",
+                    stringResource(R.string.nav_logs),
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Primer.Link,
@@ -138,7 +140,7 @@ fun JobCard(
                 // 逐 job 日志接口给的是一段**纯文本**（不是文件），所以这里是「复制」而不是「下载」——
                 // 叫「下载日志」会骗人（点了没有文件落地）。
                 Text(
-                    "复制日志",
+                    stringResource(R.string.action_copy_logs),
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Primer.Link,
@@ -163,7 +165,7 @@ private fun StepTimelineRow(step: JobStep, maxMs: Long, onClick: () -> Unit) {
         Text(
             buildString {
                 append("${step.number}. ")
-                append(step.name.ifBlank { "（未命名步骤）" })
+                append(step.name.ifBlank { stringResource(R.string.label_unnamed_step) })
             },
             fontSize = 12.5.sp,
             color = Primer.TextPrimary,
@@ -203,7 +205,7 @@ private fun JobAnnotations(annotations: List<WorkflowAnnotation>) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "⚠ ${annotations.size} 条注解",
+                stringResource(R.string.label_annotation_count, annotations.size),
                 fontSize = 11.5.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Primer.WarningTextStrong,
@@ -238,6 +240,6 @@ fun AnnotationRow(annotation: WorkflowAnnotation) {
             Text(annotation.title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
         }
         Spacer(Modifier.height(3.dp))
-        Text(annotation.message.ifBlank { "（无内容）" }, fontSize = 12.sp, color = Primer.TextPrimary, lineHeight = 17.sp)
+        Text(annotation.message.ifBlank { stringResource(R.string.state_no_content_paren) }, fontSize = 12.sp, color = Primer.TextPrimary, lineHeight = 17.sp)
     }
 }

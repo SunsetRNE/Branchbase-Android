@@ -36,6 +36,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -57,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
+import com.branchbase.R
 import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
@@ -168,41 +171,41 @@ fun JobLogScreen(
     ) {
         DetailTopBar(
             title = buildString {
-                append("作业 #$jobId")
+                append(stringResource(R.string.label_job_number, jobId))
                 if (currentStep != null) append(" · ${currentStep.name}")
             },
             onBack = onBack,
             actions = {
                 Icon(
                     Icons.Filled.Search,
-                    contentDescription = "搜索日志",
+                    contentDescription = stringResource(R.string.action_search_logs),
                     tint = Primer.IconPrimary,
                     modifier = Modifier.size(20.dp).iconTap { findOpen = !findOpen },
                 )
                 Box {
                     Icon(
                         Icons.Filled.MoreVert,
-                        contentDescription = "更多",
+                        contentDescription = stringResource(R.string.action_more),
                         tint = Primer.IconPrimary,
                         modifier = Modifier.size(20.dp).iconTap { menuOpen = true },
                     )
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         DropdownMenuItem(
-                            text = { Text("复制当前步骤日志") },
+                            text = { Text(stringResource(R.string.action_copy_step_log)) },
                             onClick = {
                                 menuOpen = false
                                 clipboard.setText(AnnotatedString(visibleLogText(segments, currentStep)))
                             },
                         )
                         DropdownMenuItem(
-                            text = { Text("复制全部日志") },
+                            text = { Text(stringResource(R.string.action_copy_full_log)) },
                             onClick = {
                                 menuOpen = false
                                 clipboard.setText(AnnotatedString(segments.joinToString("\n") { it.lines.joinToString("\n") }))
                             },
                         )
                         DropdownMenuItem(
-                            text = { Text("在浏览器打开") },
+                            text = { Text(stringResource(R.string.action_open_in_browser)) },
                             onClick = { menuOpen = false },
                         )
                     }
@@ -217,7 +220,7 @@ fun JobLogScreen(
 
             failed -> DetailErrorRetry { forceTick++ }
 
-            segments.isEmpty() -> DetailEmptyText("该作业没有日志输出")
+            segments.isEmpty() -> DetailEmptyText(stringResource(R.string.state_job_no_output))
 
             else -> {
                 StepChips(steps = steps, selected = selectedStep, onSelect = { selectedStep = it })
@@ -341,12 +344,11 @@ private fun PendingLogNotice() {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(8.dp).clip(CircleShape).background(Primer.Orange500))
             Spacer(Modifier.width(8.dp))
-            Text("该作业正在运行", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+            Text(stringResource(R.string.state_job_running), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
         }
         Spacer(Modifier.height(8.dp))
         Text(
-            "GitHub 在作业结束前不提供日志（结束后才生成日志文件，也没有流式接口），" +
-                "所以现在没有可读的内容。它一结束就会自动出现 —— 不需要手动刷新。",
+            stringResource(R.string.note_job_log_pending),
             fontSize = 12.sp,
             color = Primer.TextTertiary,
             lineHeight = 18.sp,
@@ -398,7 +400,7 @@ private fun FindBar(query: String, onQueryChange: (String) -> Unit, onClose: () 
             value = query,
             onValueChange = onQueryChange,
             singleLine = true,
-            placeholder = { Text("在日志里搜索…", fontSize = 12.5.sp) },
+            placeholder = { Text(stringResource(R.string.hint_search_log), fontSize = 12.5.sp) },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(),
             colors = TextFieldDefaults.colors(
@@ -412,7 +414,7 @@ private fun FindBar(query: String, onQueryChange: (String) -> Unit, onClose: () 
         Spacer(Modifier.width(8.dp))
         Icon(
             Icons.Filled.Close,
-            contentDescription = "关闭搜索",
+            contentDescription = stringResource(R.string.action_close_search),
             tint = Primer.IconSecondary,
             modifier = Modifier.size(18.dp).iconTap { onClose() },
         )
@@ -432,8 +434,8 @@ private fun FilterBar(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        FilterChip("仅错误", errOnly, onErrToggle)
-        FilterChip("含警告", warnToo, onWarnToggle)
+        FilterChip(stringResource(R.string.filter_errors_only), errOnly, onErrToggle)
+        FilterChip(stringResource(R.string.filter_include_warnings), warnToo, onWarnToggle)
     }
 }
 
@@ -473,7 +475,7 @@ private fun SegmentHeaderRow(title: String, count: Int, collapsed: Boolean, onTo
             maxLines = 1,
             modifier = Modifier.weight(1f),
         )
-        Text("$count 行", fontSize = 10.5.sp, color = Primer.TextTertiary)
+        Text(pluralStringResource(R.plurals.label_line_count, count, count), fontSize = 10.5.sp, color = Primer.TextTertiary)
     }
 }
 
@@ -523,7 +525,7 @@ private fun LogFootBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            if (hits > 0) "命中 ${hitCursor + 1}/$hits" else "$lines 行",
+            if (hits > 0) stringResource(R.string.label_match_position, hitCursor + 1, hits) else stringResource(R.string.label_lines_count_alt, lines),
             fontSize = 11.5.sp,
             color = Primer.TextTertiary,
             modifier = Modifier.weight(1f),
@@ -531,10 +533,10 @@ private fun LogFootBar(
         if (hits > 0) {
             Text("↑", fontSize = 13.sp, color = Primer.Link, modifier = Modifier.iconTap { onPrev() }.padding(horizontal = 8.dp))
             Text("↓", fontSize = 13.sp, color = Primer.Link, modifier = Modifier.iconTap { onNext() }.padding(horizontal = 8.dp))
-            Text("定位", fontSize = 11.5.sp, color = Primer.Link, modifier = Modifier.iconTap { onJump() }.padding(horizontal = 4.dp))
+            Text(stringResource(R.string.action_locate), fontSize = 11.5.sp, color = Primer.Link, modifier = Modifier.iconTap { onJump() }.padding(horizontal = 4.dp))
         }
         if (lines > 40) {
-            Text("↓ 最新", fontSize = 11.5.sp, color = Primer.Link, modifier = Modifier.iconTap { onJump() })
+            Text(stringResource(R.string.action_jump_latest), fontSize = 11.5.sp, color = Primer.Link, modifier = Modifier.iconTap { onJump() })
         }
     }
 }

@@ -3,6 +3,7 @@ package com.branchbase.ui.search
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import com.branchbase.R
 import com.branchbase.ui.repository.RepoDeepLink
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.material3.CircularProgressIndicator
@@ -64,6 +65,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -175,17 +177,17 @@ fun SearchScreen(
         // ② 统一解析并写入对应类型状态（按快照里的类型）
         fun parseAndSet(json: String) {
             when (type0) {
-                "代码" -> { val p = parseCodeResults(json); codeResults = p.first; total = p.second }
-                "拉取请求" -> { val p = parsePullResults(json); pullResults = p.first; total = p.second }
-                "提交" -> { val p = parseCommitResults(json); commitResults = p.first; total = p.second }
-                "主题" -> { val p = parseTopicResults(json); topicResults = p.first; total = p.second }
+                SearchType.CODE -> { val p = parseCodeResults(json); codeResults = p.first; total = p.second }
+                SearchType.PULLS -> { val p = parsePullResults(json); pullResults = p.first; total = p.second }
+                SearchType.COMMITS -> { val p = parseCommitResults(json); commitResults = p.first; total = p.second }
+                SearchType.TOPICS -> { val p = parseTopicResults(json); topicResults = p.first; total = p.second }
                 else -> { val p = parseResults(json, type0, me = login); results = p.first; total = p.second }
             }
         }
 
         // ③ 仓库搜索：预加载前几个结果的详情（点进去直接命中缓存；计费网络自动跳过）
         fun warmRepos(found: List<SearchItem>) {
-            if (type0 != "仓库") return
+            if (type0 != SearchType.REPOS) return
             com.branchbase.cache.RepoPrefetcher.warmList(
                 context = context,
                 host = host,
@@ -204,7 +206,7 @@ fun SearchScreen(
         searchError = null
         scope.launch {
             // 命中缓存：读本地数据库
-            val cached = cacheManager.get(cacheKey, type0)
+            val cached = cacheManager.get(cacheKey, type0.cacheKey)
             if (cached != null) {
                 if (!vm.isCurrent(token0)) return@launch
                 parseAndSet(cached)
@@ -216,23 +218,22 @@ fun SearchScreen(
 
             // 未命中：拉远端并写缓存
             val json = when (type0) {
-                "代码" -> RustBridge.searchCode(host, token, q)
-                "仓库" -> RustBridge.searchRepositories(host, token, q, sortKey)
-                "用户" -> RustBridge.searchUsers(host, token, q)
-                "议题", "拉取请求" -> RustBridge.searchIssues(host, token, q)
-                "提交" -> RustBridge.searchCommits(host, token, q)
-                "主题" -> RustBridge.searchTopics(host, token, q)
-                else -> null
+                SearchType.CODE -> RustBridge.searchCode(host, token, q)
+                SearchType.REPOS -> RustBridge.searchRepositories(host, token, q, sortKey)
+                SearchType.USERS -> RustBridge.searchUsers(host, token, q)
+                SearchType.ISSUES, SearchType.PULLS -> RustBridge.searchIssues(host, token, q)
+                SearchType.COMMITS -> RustBridge.searchCommits(host, token, q)
+                SearchType.TOPICS -> RustBridge.searchTopics(host, token, q)
             }
             // 回来时若不是最新一次搜索：整份结果丢弃（连 loading 都不要动，那是新请求的）
             if (!vm.isCurrent(token0)) return@launch
 
-            Logger.net("搜索 $type0: $q → ${if (json != null && !json.startsWith("ERROR:")) "200" else "失败"}", "search")
+            Logger.net("搜索 ${type0.cacheKey}: $q → ${if (json != null && !json.startsWith("ERROR:")) "200" else "失败"}", "search")
             if (json != null && !json.startsWith("ERROR:")) {
                 // 先立即用拉取结果填充展示，再异步写入缓存（更新缓存与展示同源、同步发生）
                 parseAndSet(json)
                 page = 1
-                cacheManager.put(cacheKey, type0, json)
+                cacheManager.put(cacheKey, type0.cacheKey, json)
                 searched = true
                 warmRepos(results)
             } else {
@@ -251,10 +252,10 @@ fun SearchScreen(
 
     /** 当前类型的已展示条数（分页推进与「已到底」判断共用）。 */
     fun shownCount(): Int = when (type) {
-        "代码" -> codeResults.size
-        "拉取请求" -> pullResults.size
-        "提交" -> commitResults.size
-        "主题" -> topicResults.size
+        SearchType.CODE -> codeResults.size
+        SearchType.PULLS -> pullResults.size
+        SearchType.COMMITS -> commitResults.size
+        SearchType.TOPICS -> topicResults.size
         else -> results.size
     }
 
@@ -263,29 +264,29 @@ fun SearchScreen(
      *
      * 去重是必须的：GitHub 分页在数据变动时会出现同一项跨页重复（按 stars/updated 排序时尤其常见）。
      */
-    fun appendPage(json: String, type0: String): Int = when (type0) {
-        "代码" -> {
+    fun appendPage(json: String, type0: SearchType): Int = when (type0) {
+        SearchType.CODE -> {
             val p = parseCodeResults(json)
             val before = codeResults.size
             codeResults = mergePage(codeResults, p.first) { "${it.owner}/${it.repository}/${it.path}" }
             total = maxOf(total, p.second)
             codeResults.size - before
         }
-        "拉取请求" -> {
+        SearchType.PULLS -> {
             val p = parsePullResults(json)
             val before = pullResults.size
             pullResults = mergePage(pullResults, p.first) { "${it.repository}#${it.number}" }
             total = maxOf(total, p.second)
             pullResults.size - before
         }
-        "提交" -> {
+        SearchType.COMMITS -> {
             val p = parseCommitResults(json)
             val before = commitResults.size
             commitResults = mergePage(commitResults, p.first) { it.sha }
             total = maxOf(total, p.second)
             commitResults.size - before
         }
-        "主题" -> {
+        SearchType.TOPICS -> {
             val p = parseTopicResults(json)
             val before = topicResults.size
             topicResults = mergePage(topicResults, p.first) { it.name }
@@ -329,12 +330,12 @@ fun SearchScreen(
         loadingMore = true
         scope.launch {
             val json = when (type0) {
-                "代码" -> RustBridge.searchCode(host, token, q, next)
-                "仓库" -> RustBridge.searchRepositories(host, token, q, sortKey0, next)
-                "用户" -> RustBridge.searchUsers(host, token, q, next)
-                "议题", "拉取请求" -> RustBridge.searchIssues(host, token, q, next)
-                "提交" -> RustBridge.searchCommits(host, token, q, next)
-                "主题" -> RustBridge.searchTopics(host, token, q, next)
+                SearchType.CODE -> RustBridge.searchCode(host, token, q, next)
+                SearchType.REPOS -> RustBridge.searchRepositories(host, token, q, sortKey0, next)
+                SearchType.USERS -> RustBridge.searchUsers(host, token, q, next)
+                SearchType.ISSUES, SearchType.PULLS -> RustBridge.searchIssues(host, token, q, next)
+                SearchType.COMMITS -> RustBridge.searchCommits(host, token, q, next)
+                SearchType.TOPICS -> RustBridge.searchTopics(host, token, q, next)
                 else -> null
             }
             loadingMore = false
@@ -351,7 +352,7 @@ fun SearchScreen(
             page = next
             // 服务端返回的 total 比总量小 / 本页为空 → 视为到底（避免按钮一直转）
             if (received <= 0) total = shownCount().toLong()
-            Logger.net("搜索 $type0 第 $next 页：+$received 条", "search")
+            Logger.net("搜索 ${type0.cacheKey} 第 $next 页：+$received 条", "search")
         }
     }
 
@@ -416,7 +417,7 @@ fun SearchScreen(
                         .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(type, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, modifier = Modifier.weight(1f))
+                    Text(stringResource(type.labelRes), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, modifier = Modifier.weight(1f))
                     AnimatedMorphIcon(
                         pair = MorphIcons.ChevronDownUp,
                         target = typeMenu,
@@ -432,16 +433,16 @@ fun SearchScreen(
                     containerColor = Primer.BackgroundPrimary,
                     border = BorderStroke(1.dp, Primer.Border.copy(alpha = 0.5f)),
                 ) {
-                    types.forEach { t ->
+                    SearchType.entries.forEach { t ->
                         DropdownMenuItem(
-                            text = { Text(t, fontSize = 13.sp, color = Primer.TextPrimary) },
+                            text = { Text(stringResource(t.labelRes), fontSize = 13.sp, color = Primer.TextPrimary) },
                             onClick = { type = t; typeMenu = false },
                         )
                     }
                 }
             }
             // 排序下拉（仅仓库搜索支持排序，其余类型隐藏）
-            if (type == "仓库") {
+            if (type == SearchType.REPOS) {
                 Box {
                     val sortPress = rememberPressFeedback()
                     Row(
@@ -506,7 +507,7 @@ fun SearchScreen(
                     pair = MorphIcons.FilterOpen,
                     target = showFilter,
                     tint = Primer.IconPrimary,
-                    contentDescription = "过滤",
+                    contentDescription = stringResource(R.string.action_filter),
                     modifier = Modifier.size(20.dp),
                 )
             }
@@ -521,58 +522,58 @@ fun SearchScreen(
             }
         } else if (!searched) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("输入关键词搜索", color = Primer.TextTertiary)
+                Text(stringResource(R.string.hint_type_keyword), color = Primer.TextTertiary)
             }
-        } else if (type == "代码") {
+        } else if (type == SearchType.CODE) {
             if (codeResults.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("未找到匹配的代码", color = Primer.TextTertiary)
+                    Text(stringResource(R.string.state_no_code_results), color = Primer.TextTertiary)
                 }
             } else {
                 Column {
-                    Text(resultCountText(total, codeResults.size, "代码结果"), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    Text(resultCountText(total, codeResults.size, stringResource(R.string.label_code_results)), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                     LazyColumn {
                         items(codeResults) { code -> CodeResultCard(code) { openTarget(code.target) } }
                         pagingFooter(codeResults.size)
                     }
                 }
             }
-        } else if (type == "拉取请求") {
+        } else if (type == SearchType.PULLS) {
             if (pullResults.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("未找到匹配的拉取请求", color = Primer.TextTertiary)
+                    Text(stringResource(R.string.state_no_pull_results), color = Primer.TextTertiary)
                 }
             } else {
                 Column {
-                    Text(resultCountText(total, pullResults.size, "拉取请求结果"), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    Text(resultCountText(total, pullResults.size, stringResource(R.string.label_pull_results)), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                     LazyColumn {
                         items(pullResults) { pull -> PullCard(pull) { openTarget(pull.target) } }
                         pagingFooter(pullResults.size)
                     }
                 }
             }
-        } else if (type == "提交") {
+        } else if (type == SearchType.COMMITS) {
             if (commitResults.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("未找到匹配的提交", color = Primer.TextTertiary)
+                    Text(stringResource(R.string.state_no_commit_results), color = Primer.TextTertiary)
                 }
             } else {
                 Column {
-                    Text(resultCountText(total, commitResults.size, "提交结果"), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    Text(resultCountText(total, commitResults.size, stringResource(R.string.label_commit_results)), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                     LazyColumn {
                         items(commitResults) { commit -> CommitCard(commit) { openTarget(commit.target) } }
                         pagingFooter(commitResults.size)
                     }
                 }
             }
-        } else if (type == "主题") {
+        } else if (type == SearchType.TOPICS) {
             if (topicResults.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("未找到匹配的主题", color = Primer.TextTertiary)
+                    Text(stringResource(R.string.state_no_topic_results), color = Primer.TextTertiary)
                 }
             } else {
                 Column {
-                    Text(resultCountText(total, topicResults.size, "主题结果"), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    Text(resultCountText(total, topicResults.size, stringResource(R.string.label_topic_results)), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                     LazyColumn {
                         item { TopicCard(topicResults) { openTarget(it.target) } }
                         pagingFooter(topicResults.size)
@@ -581,11 +582,11 @@ fun SearchScreen(
             }
         } else if (results.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("未找到匹配结果", color = Primer.TextTertiary)
+                Text(stringResource(R.string.state_no_results), color = Primer.TextTertiary)
             }
         } else {
             Column {
-                Text(resultCountText(total, results.size, "结果"), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                Text(resultCountText(total, results.size, stringResource(R.string.label_results)), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                 LazyColumn {
                     items(results) { item -> SearchItemCard(item) { openTarget(item.target) } }
                     pagingFooter(results.size)
@@ -626,7 +627,7 @@ private fun SearchTopBar(
         modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
+        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back), tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
         Spacer(Modifier.width(4.dp))
         Box(
             modifier = Modifier.weight(1f).height(40.dp).clip(RoundedCornerShape(8.dp)).background(Primer.BackgroundSecondary).padding(horizontal = 12.dp),
@@ -640,14 +641,14 @@ private fun SearchTopBar(
                 modifier = Modifier.fillMaxWidth(),
                 decorationBox = { inner ->
                     if (query.isEmpty()) {
-                        Text("搜索或跳转", fontSize = 14.sp, color = Primer.TextTertiary)
+                        Text(stringResource(R.string.hint_search_or_jump), fontSize = 14.sp, color = Primer.TextTertiary)
                     }
                     inner()
                 },
             )
         }
         Spacer(Modifier.width(8.dp))
-        Icon(Icons.Filled.Search, contentDescription = "搜索", tint = Primer.Blue500, modifier = Modifier.size(22.dp).iconTap { onSearch() })
+        Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.action_search), tint = Primer.Blue500, modifier = Modifier.size(22.dp).iconTap { onSearch() })
     }
 }
 
@@ -714,7 +715,7 @@ private fun SearchItemCard(item: SearchItem, onClick: () -> Unit) {
             if (item.relation == RepoRelation.OWN) {
                 Spacer(Modifier.width(6.dp))
                 Text(
-                    "我的",
+                    stringResource(R.string.label_mine),
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     color = Primer.SuccessText,
@@ -808,7 +809,7 @@ private fun CodeResultCard(code: CodeResult, onClick: () -> Unit) {
             ) {
                 Text("⚠", fontSize = 11.sp, color = Primer.TextTertiary)
                 Spacer(Modifier.width(6.dp))
-                Text("仅显示包含此内容的部分文件路径。优化搜索以查看更多。", fontSize = 11.sp, color = CodeSyntax.Comment)
+                Text(stringResource(R.string.note_paths_truncated), fontSize = 11.sp, color = CodeSyntax.Comment)
             }
         }
     }
@@ -871,7 +872,7 @@ private fun MatchCountPill(count: Int) {
     ) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(Primer.Border))
         Spacer(Modifier.width(5.dp))
-        Text("匹配 $count 处", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
+        Text(stringResource(R.string.label_match_count, count), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
     }
 }
 
@@ -1107,9 +1108,9 @@ private fun FilterSheet(
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 24.dp),
         ) {
-            Text("筛选", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
+            Text(stringResource(R.string.label_filter), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
             Spacer(Modifier.height(12.dp))
-            Text("语言", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+            Text(stringResource(R.string.label_language), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
             Spacer(Modifier.height(6.dp))
             languages.forEach { (lang, color) ->
                 val selected = selectedLanguage == lang
@@ -1132,7 +1133,7 @@ private fun FilterSheet(
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Text("高级", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+            Text(stringResource(R.string.label_advanced), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
             advancedFilters.forEach { (name, syntax) ->
                 val expanded = expandedFilter == name
                 val value = advancedValues[name]
@@ -1161,7 +1162,7 @@ private fun FilterSheet(
                         }
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            if (value != null) "$name：$value" else "$name（$syntax）",
+                            if (value != null) stringResource(R.string.label_name_value, name, value) else stringResource(R.string.label_name_syntax, name, syntax),
                             fontSize = 13.sp,
                             color = if (value != null) Primer.Blue500 else Primer.TextSecondary,
                         )
@@ -1193,7 +1194,7 @@ private fun FilterSheet(
                             }
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                "应用",
+                                stringResource(R.string.action_apply),
                                 fontSize = 13.sp,
                                 color = Primer.Blue500,
                                 fontWeight = FontWeight.SemiBold,
@@ -1207,7 +1208,7 @@ private fun FilterSheet(
     }
 }
 
-private fun parseResults(json: String, type: String, me: String): Pair<List<SearchItem>, Long> {
+private fun parseResults(json: String, type: SearchType, me: String): Pair<List<SearchItem>, Long> {
     return runCatching {
         val obj = JSONObject(json)
         val total = obj.optLong("total_count")
@@ -1215,7 +1216,7 @@ private fun parseResults(json: String, type: String, me: String): Pair<List<Sear
         val items = (0 until (arr?.length() ?: 0)).map { i ->
             val it = arr!!.getJSONObject(i)
             when (type) {
-                "仓库" -> {
+                SearchType.REPOS -> {
                     // full_name = owner/repo：既是展示标题，也是站内跳转目标
                     val fullName = it.optString("full_name")
                     val pair = ownerRepoOf(fullName)
@@ -1231,13 +1232,13 @@ private fun parseResults(json: String, type: String, me: String): Pair<List<Sear
                         },
                     )
                 }
-                "用户" -> SearchItem(
+                SearchType.USERS -> SearchItem(
                     title = it.optString("login"),
                     subtitle = it.optString("html_url").orEmpty(),
                     // 站内没有他人主页，交给浏览器
                     target = SearchTarget.Web(it.optString("html_url")),
                 )
-                "议题" -> {
+                SearchType.ISSUES -> {
                     // repository_url（API 地址）+ number 才是跳转所需信息；html_url 只用于展示
                     val pair = ownerRepoOf(it.optString("repository_url"))
                     val number = it.optLong("number")
@@ -1457,8 +1458,6 @@ private data class TopicResult(
     val target: SearchTarget get() = SearchTarget.Web(topicWebUrl(name))
 }
 
-private val types = listOf("代码", "仓库", "议题", "拉取请求", "用户", "提交", "主题")
-
 private val sortOptions = listOf(
     "" to "最佳匹配",
     "stars" to "最多星标",
@@ -1519,7 +1518,7 @@ private fun SearchPagingFooter(
                     strokeWidth = 2.dp,
                 )
                 Spacer(Modifier.width(8.dp))
-                Text("加载中…", fontSize = 12.5.sp, color = Primer.TextTertiary)
+                Text(stringResource(R.string.state_loading_ellipsis), fontSize = 12.5.sp, color = Primer.TextTertiary)
             }
 
             PagingState(page = 1, total = total, shown = shown).hasMore -> {
@@ -1542,7 +1541,7 @@ private fun SearchPagingFooter(
                 )
             }
 
-            else -> Text("已到底", fontSize = 12.sp, color = Primer.TextTertiary)
+            else -> Text(stringResource(R.string.state_end_of_results), fontSize = 12.sp, color = Primer.TextTertiary)
         }
     }
 }

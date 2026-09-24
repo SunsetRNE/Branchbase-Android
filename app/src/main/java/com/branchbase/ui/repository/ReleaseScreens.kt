@@ -37,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -54,6 +55,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.core.AttachmentStatus
 import com.branchbase.core.DraftAttachment
 import com.branchbase.core.ReleaseAttachmentStore
@@ -66,7 +68,9 @@ import com.branchbase.downloader.DownloadRequest
 import com.branchbase.downloader.DownloadStatus
 import com.branchbase.downloader.DownloadTask
 import com.branchbase.downloader.DownloaderRuntime
+import com.branchbase.downloader.resolve
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.resolve
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -155,17 +159,17 @@ fun ReleaseDetailScreen(
             Modifier.fillMaxSize().background(Primer.BackgroundPrimary)
                 .statusBarsPadding().navigationBarsPadding(),
         ) {
-            DetailTopBar(title = "发布详情", onBack = onBack) {
+            DetailTopBar(title = stringResource(R.string.label_release_details), onBack = onBack) {
                 if (canEdit) {
                     Text(
-                        "编辑", fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                        stringResource(R.string.action_edit), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                         color = Primer.Blue500,
                         modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable { onEdit() }
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                     )
                     Spacer(Modifier.width(2.dp))
                     Text(
-                        "删除", fontSize = 13.sp,
+                        stringResource(R.string.action_delete), fontSize = 13.sp,
                         color = if (busy) Primer.TextTertiary else Primer.DangerText,
                         modifier = Modifier.clip(RoundedCornerShape(6.dp))
                             .clickable(enabled = !busy) { confirmDelete = true }
@@ -181,15 +185,15 @@ fun ReleaseDetailScreen(
                         ReleaseTagChip(release.tag)
                         if (isLatest) {
                             Spacer(Modifier.width(7.dp))
-                            ReleaseChip("最新发布", Primer.SuccessTextStrong, Primer.SuccessSurface)
+                            ReleaseChip(stringResource(R.string.label_latest_release), Primer.SuccessTextStrong, Primer.SuccessSurface)
                         }
                         if (release.prerelease) {
                             Spacer(Modifier.width(7.dp))
-                            ReleaseChip("预发布", Primer.AccentText, Primer.InfoSurfaceSoft)
+                            ReleaseChip(stringResource(R.string.label_prerelease), Primer.AccentText, Primer.InfoSurfaceSoft)
                         }
                         if (release.draft) {
                             Spacer(Modifier.width(7.dp))
-                            ReleaseChip("草稿", Primer.WarningTextStrong, Primer.WarningSurface)
+                            ReleaseChip(stringResource(R.string.label_draft), Primer.WarningTextStrong, Primer.WarningSurface)
                         }
                     }
                     Spacer(Modifier.height(9.dp))
@@ -203,8 +207,8 @@ fun ReleaseDetailScreen(
                     Spacer(Modifier.height(5.dp))
                     Text(
                         buildString {
-                            if (release.author.isNotBlank()) append("${release.author} 发布 · ")
-                            append(shortTime(release.createdAt))
+                            if (release.author.isNotBlank()) append(stringResource(R.string.label_released_by, release.author))
+                            append(shortTime(release.createdAt).resolve())
                         },
                         fontSize = 11.5.sp,
                         color = Primer.TextTertiary,
@@ -214,7 +218,7 @@ fun ReleaseDetailScreen(
 
                 // ── 附件 ──
                 if (release.assets.isNotEmpty()) {
-                    DetailSectionTitle("附件 · ${release.assets.size}")
+                    DetailSectionTitle(stringResource(R.string.label_assets_count, release.assets.size))
                     release.assets.forEachIndexed { index, asset ->
                         if (index > 0) {
                             Box(
@@ -231,10 +235,10 @@ fun ReleaseDetailScreen(
                             task = task,
                             onDownload = {
                                 feedback = if (asset.downloadUrl.isBlank()) {
-                                    "该附件没有下载地址"
+                                    context.getString(R.string.error_asset_no_url)
                                 } else {
                                     enqueueAssetDownload(context, release, asset)
-                                    "已加入下载：${asset.name}"
+                                    context.getString(R.string.toast_added_to_downloads, asset.name)
                                 }
                             },
                             onCancel = { DownloaderRuntime.cancel(taskId) },
@@ -242,11 +246,11 @@ fun ReleaseDetailScreen(
                             onInstall = { task?.file?.let { feedback = installDownloadedApk(context, it) } },
                             onOpen = {
                                 val file = task?.file
-                                if (file != null && !DownloadActions.openFile(context, file)) feedback = "没有能打开该文件的应用"
+                                if (file != null && !DownloadActions.openFile(context, file)) feedback = context.getString(R.string.error_no_app_to_open)
                             },
                             onShare = {
                                 val file = task?.file
-                                if (file != null && !DownloadActions.shareFile(context, file)) feedback = "分享失败"
+                                if (file != null && !DownloadActions.shareFile(context, file)) feedback = context.getString(R.string.error_share_failed)
                             },
                         )
                     }
@@ -254,7 +258,7 @@ fun ReleaseDetailScreen(
 
                 // ── changelog ──
                 if (html != null) {
-                    DetailSectionTitle("更新内容")
+                    DetailSectionTitle(stringResource(R.string.label_update_content))
                     ReadmeWebView(
                         html = html!!,
                         host = host,
@@ -275,10 +279,10 @@ fun ReleaseDetailScreen(
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            title = { Text("删除发布 ${release.tag}？", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary) },
+            title = { Text(stringResource(R.string.confirm_delete_release_title, release.tag), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary) },
             text = {
                 Text(
-                    "只删除这次发布，tag 与提交不受影响。此操作不可撤销。",
+                    stringResource(R.string.confirm_delete_release_body),
                     fontSize = 12.sp, color = Primer.TextTertiary, lineHeight = 18.sp,
                 )
             },
@@ -292,11 +296,11 @@ fun ReleaseDetailScreen(
                         }
                         Logger.net("DELETE release ${release.tag} → ${err ?: "成功"}", "GitHubAPI")
                         busy = false
-                        if (err == null) onDeleted() else feedback = "删除失败：$err"
+                        if (err == null) onDeleted() else feedback = context.getString(R.string.error_delete_failed, err)
                     }
-                }) { Text("删除", color = Primer.DangerText) }
+                }) { Text(stringResource(R.string.action_delete), color = Primer.DangerText) }
             },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
 }
@@ -473,7 +477,7 @@ fun ReleaseEditScreen(
                 ),
             )
         }
-        if (ok) savedHint = "草稿已自动保存"
+        if (ok) savedHint = context.getString(R.string.toast_draft_autosaved)
     }
 
     // 预览：正文 → HTML 走 Rust 的渲染器（与详情页同一条路径），放在底部弹层里看，不挤占编辑区
@@ -494,7 +498,7 @@ fun ReleaseEditScreen(
                 uris.mapNotNull { ReleaseAttachmentStore.stage(context, owner, repo, tag, it).getOrNull() }
             }
             if (staged.isEmpty()) {
-                error = "导入失败：读不到所选文件"
+                error = context.getString(R.string.error_import_unreadable)
                 return@launch
             }
             val known = attachments.map { it.path }.toSet()
@@ -508,7 +512,7 @@ fun ReleaseEditScreen(
             }
             attachments = attachments + fresh
             error = null
-            snackbar.showSnackbar("已导入 ${fresh.size} 个文件 · 暂存在 release-uploads/")
+            snackbar.showSnackbar(context.getString(R.string.toast_imported_files, fresh.size))
         }
     }
 
@@ -524,7 +528,7 @@ fun ReleaseEditScreen(
 
     fun save() {
         if (tag.isBlank()) {
-            error = "请填写 tag（如 v1.0.13）"
+            error = context.getString(R.string.hint_tag_required)
             return
         }
         scope.launch {
@@ -551,7 +555,7 @@ fun ReleaseEditScreen(
             Logger.net("${if (knownId == null) "POST" else "PATCH"} release $tag → ${if (releaseJson != null) "成功" else "失败"}", "GitHubAPI")
             if (releaseJson == null) {
                 busy = false
-                error = "保存失败（检查 tag 是否已存在、是否有写权限）"
+                error = context.getString(R.string.error_save_failed_tag)
                 return@launch
             }
             val id = createdId
@@ -559,7 +563,7 @@ fun ReleaseEditScreen(
             createdId = id
             if (pending.isNotEmpty() && id == null) {
                 busy = false
-                error = "发布已保存，但没拿到发布 id，附件没能上传"
+                error = context.getString(R.string.error_no_release_id)
                 return@launch
             }
 
@@ -580,7 +584,7 @@ fun ReleaseEditScreen(
                             status = AttachmentStatus.DONE,
                             uploadedId = runCatching { JSONObject(assetJson).optLong("id") }.getOrDefault(0L),
                         )
-                        else -> current.copy(status = AttachmentStatus.FAILED, error = "上传失败（可重试）")
+                        else -> current.copy(status = AttachmentStatus.FAILED, error = context.getString(R.string.error_upload_failed))
                     }
                 }
             }
@@ -595,14 +599,14 @@ fun ReleaseEditScreen(
                 }
                 onSaved()
             } else {
-                error = "$failed 个附件没传上去：修好后点「重试」继续，别直接退出"
+                error = context.getString(R.string.error_assets_not_uploaded, failed)
             }
         }
     }
 
     fun generate() {
         if (tag.isBlank()) {
-            error = "先填写 tag，生成说明要按 tag 找提交"
+            error = context.getString(R.string.error_tag_before_generate)
             return
         }
         scope.launch {
@@ -614,7 +618,7 @@ fun ReleaseEditScreen(
             generating = false
             val parsed = json?.let { runCatching { JSONObject(it) }.getOrNull() }
             if (parsed == null) {
-                error = "生成失败（确认 tag 存在、且该 tag 之前有合并记录）"
+                error = context.getString(R.string.error_generate_failed)
                 return@launch
             }
             val generatedName = parsed.optString("name")
@@ -625,16 +629,16 @@ fun ReleaseEditScreen(
                 val (merged, inserted) = insertGeneratedNotes(body, generatedBody)
                 body = merged
                 generatedTexts = inserted
-                snackbar.showSnackbar("已插入 ${inserted.size} 行生成说明 · 手写内容保留")
+                snackbar.showSnackbar(context.getString(R.string.toast_notes_inserted, inserted.size))
             }
         }
     }
 
     val actionLabel = when {
-        busy -> "保存中…"
-        existing != null -> "保存"
-        isDraft -> "存为草稿"
-        else -> "发布"
+        busy -> stringResource(R.string.state_saving)
+        existing != null -> stringResource(R.string.action_save)
+        isDraft -> stringResource(R.string.action_save_as_draft)
+        else -> stringResource(R.string.nav_releases)
     }
 
     val pendingCount = attachments.count { it.status != AttachmentStatus.DONE }
@@ -645,7 +649,7 @@ fun ReleaseEditScreen(
                 .statusBarsPadding().navigationBarsPadding(),
         ) {
             DetailTopBar(
-                title = if (existing == null) "新建发布" else "编辑发布",
+                title = if (existing == null) stringResource(R.string.action_new_release) else stringResource(R.string.action_edit_release),
                 onBack = onBack,
             ) {
                 ReleasePrimaryAction(label = actionLabel, enabled = !busy && !generating) { save() }
@@ -689,16 +693,16 @@ fun ReleaseEditScreen(
                 ReleaseHairline()
                 Spacer(Modifier.height(10.dp))
                 ReleaseGroupHeader(
-                    title = "附件",
+                    title = stringResource(R.string.label_assets),
                     counter = if (attachments.isEmpty()) {
                         null
                     } else {
-                        "${attachments.size} 个 · ${DownloadPaths.formatBytes(attachments.sumOf { it.size })}"
+                        stringResource(R.string.label_assets_summary, attachments.size, DownloadPaths.formatBytes(attachments.sumOf { it.size }))
                     },
                 ) {
                     ReleaseStoreInfoAction { showStoreInfo = true }
                     Spacer(Modifier.width(4.dp))
-                    ReleaseHeaderAction("导入", Icons.Filled.Add) { picker.launch("*/*") }
+                    ReleaseHeaderAction(stringResource(R.string.action_import), Icons.Filled.Add) { picker.launch("*/*") }
                 }
                 if (attachments.isEmpty()) {
                     ReleaseAttachmentEmpty { picker.launch("*/*") }
@@ -714,7 +718,7 @@ fun ReleaseEditScreen(
                     if (pendingCount > 0) {
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "点右上「$actionLabel」会先保存这条发布，再逐个上传附件",
+                            stringResource(R.string.note_upload_sequence, actionLabel),
                             fontSize = 10.5.sp,
                             color = Primer.TextTertiary,
                             lineHeight = 15.sp,
@@ -727,12 +731,12 @@ fun ReleaseEditScreen(
                 ReleaseHairline()
                 Spacer(Modifier.height(10.dp))
                 ReleaseGroupHeader(
-                    title = "更新内容",
-                    counter = "${lineStartOffsets(body).size} 行 · ${body.count { !it.isWhitespace() }} 字",
+                    title = stringResource(R.string.label_update_content),
+                    counter = stringResource(R.string.label_lines_chars, lineStartOffsets(body).size, body.count { !it.isWhitespace() }),
                 ) {
-                    ReleaseHeaderAction("预览", Icons.Filled.Visibility) { previewOpen = true }
+                    ReleaseHeaderAction(stringResource(R.string.label_preview), Icons.Filled.Visibility) { previewOpen = true }
                     ReleaseHeaderAction(
-                        label = if (generating) "生成中…" else "生成说明",
+                        label = if (generating) stringResource(R.string.state_generating) else stringResource(R.string.action_generate_notes),
                         icon = Icons.Filled.AutoAwesome,
                         enabled = !generating && !busy,
                     ) { generate() }
@@ -756,13 +760,13 @@ fun ReleaseEditScreen(
                         )
                         Spacer(Modifier.width(5.dp))
                         Text(
-                            "${generatedLines.size} 行来自生成说明",
+                            stringResource(R.string.label_generated_lines, generatedLines.size),
                             fontSize = 10.5.sp,
                             color = Primer.SuccessTextStrong,
                         )
                         Spacer(Modifier.weight(1f))
-                        ReleaseHeaderAction("全部保留") { generatedTexts = emptySet() }
-                        ReleaseHeaderAction("丢弃生成行", danger = true) {
+                        ReleaseHeaderAction(stringResource(R.string.action_keep_all)) { generatedTexts = emptySet() }
+                        ReleaseHeaderAction(stringResource(R.string.action_discard_generated), danger = true) {
                             body = dropGeneratedNotes(body, generatedLines)
                             generatedTexts = emptySet()
                         }
@@ -783,10 +787,10 @@ fun ReleaseEditScreen(
             sheetState = rememberModalBottomSheetState(),
         ) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 28.dp)) {
-                Text("导入的文件存在哪？", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
+                Text(stringResource(R.string.faq_imported_files_location), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    "导入后立刻复制到 App 私有目录，不依赖系统选择器给的那张临时凭据：",
+                    stringResource(R.string.note_import_copied_immediately),
                     fontSize = 12.sp,
                     color = Primer.TextSecondary,
                     lineHeight = 18.sp,
@@ -800,9 +804,7 @@ fun ReleaseEditScreen(
                 )
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    "· 退出编辑、切后台、重启 App 都不会丢（不用 cacheDir：系统低存储时会清它）；\n" +
-                        "· 发布成功后自动清理；未发布的草稿保留 7 天；点「移除」立即删除；\n" +
-                        "· 引用 downloads/ 里已下载的文件时不复制，只记路径。",
+                    stringResource(R.string.note_import_storage_bullets),
                     fontSize = 11.5.sp,
                     color = Primer.TextTertiary,
                     lineHeight = 18.sp,
@@ -823,7 +825,7 @@ fun ReleaseEditScreen(
                 val html = previewHtml
                 if (html.isNullOrBlank()) {
                     Text(
-                        "正在渲染…",
+                        stringResource(R.string.state_rendering),
                         fontSize = 12.5.sp,
                         color = Primer.TextTertiary,
                         modifier = Modifier.padding(12.dp),
@@ -858,6 +860,7 @@ private fun AssetRow(
     onOpen: () -> Unit,
     onShare: () -> Unit,
 ) {
+    val context = LocalContext.current
     val activeTask = task?.takeIf { it.isActive }
     val active = activeTask != null
     val done = task?.status == DownloadStatus.COMPLETED
@@ -875,7 +878,7 @@ private fun AssetRow(
                 Text(
                     buildString {
                         append(DownloadPaths.formatBytes(asset.size))
-                        if (asset.downloadCount > 0) append(" · ${asset.downloadCount} 次下载")
+                        if (asset.downloadCount > 0) append(stringResource(R.string.suffix_download_count, asset.downloadCount))
                     },
                     fontSize = 10.5.sp,
                     color = Primer.TextTertiary,
@@ -885,14 +888,14 @@ private fun AssetRow(
             Spacer(Modifier.width(10.dp))
             // 动作区：任何时刻只给「一个主动作 + 至多一个次要动作」，避免按钮堆叠
             when {
-                active -> AssetAction("取消", Primer.TextSecondary, onCancel)
+                active -> AssetAction(stringResource(R.string.action_cancel), Primer.TextSecondary, onCancel)
                 done -> {
-                    AssetAction("分享", Primer.TextSecondary, onShare)
+                    AssetAction(stringResource(R.string.action_share), Primer.TextSecondary, onShare)
                     Spacer(Modifier.width(14.dp))
-                    if (isApk(asset.name)) AssetAction("安装", Primer.Blue500, onInstall) else AssetAction("打开", Primer.Blue500, onOpen)
+                    if (isApk(asset.name)) AssetAction(stringResource(R.string.action_install), Primer.Blue500, onInstall) else AssetAction(stringResource(R.string.action_open), Primer.Blue500, onOpen)
                 }
-                task?.status == DownloadStatus.FAILED -> AssetAction("重试", Primer.Blue500, onRetry)
-                else -> AssetAction("下载", Primer.Blue500, onDownload)
+                task?.status == DownloadStatus.FAILED -> AssetAction(stringResource(R.string.action_retry), Primer.Blue500, onRetry)
+                else -> AssetAction(stringResource(R.string.nav_downloads), Primer.Blue500, onDownload)
             }
         }
         if (activeTask != null) {
@@ -926,7 +929,8 @@ private fun AssetRow(
                 modifier = Modifier.padding(top = 4.dp),
             )
         }
-        val error = task?.error
+        // 失败分类在**渲染时**才解析成文案：模型只带 DownloadErrorCode，跟随界面语言
+        val error = task?.failure?.resolve(context)
         if (task?.status == DownloadStatus.FAILED && !error.isNullOrBlank()) {
             Text(error, fontSize = 10.5.sp, color = Primer.DangerText, modifier = Modifier.padding(top = 6.dp))
         }

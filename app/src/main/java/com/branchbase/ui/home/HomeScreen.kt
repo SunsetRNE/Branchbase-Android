@@ -34,6 +34,8 @@ import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,8 +52,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
+import com.branchbase.R
 import com.branchbase.core.AccountStore
 import com.branchbase.core.RustBridge
+import com.branchbase.ui.LocalizedText
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Avatar
 import com.branchbase.cache.PageCache
@@ -86,7 +90,7 @@ fun HomeScreen(
     // login 兜底：session.user → 当前账号（多账号表）→ 占位
     val login = user?.optString("login")?.takeIf { it.isNotBlank() && it != "null" }
         ?: AccountStore.currentLogin(context).takeIf { it.isNotBlank() }
-        ?: "用户"
+        ?: stringResource(R.string.label_user)
     val avatarUrl = user?.optString("avatar_url")?.takeIf { it.isNotBlank() }
 
     // 解析 token 与 host，用于拉取数据
@@ -232,7 +236,7 @@ fun HomeScreen(
             item { GreetingRow(login) }
 
             // ① 待处理：需要你动手的
-            item { SectionHeader("待处理", Icons.Filled.Notifications) }
+            item { SectionHeader(stringResource(R.string.label_todo), Icons.Filled.Notifications) }
             item {
                 TodoCard(
                     unread = unreadNotifs,
@@ -245,30 +249,30 @@ fun HomeScreen(
 
             // ② 进行中：本地任务（零网络）
             if (runningTasks.isNotEmpty()) {
-                item { SectionHeader("进行中", Icons.Filled.Timeline) }
+                item { SectionHeader(stringResource(R.string.label_in_progress), Icons.Filled.Timeline) }
                 item { RunningTasksCard(runningTasks) }
             }
 
             // ③ 常用仓库（星标，最多 5 个）
             item {
-                SectionHeader("常用仓库", Icons.Filled.Star) {
+                SectionHeader(stringResource(R.string.label_frequent_repos), Icons.Filled.Star) {
                     scope.launch { loadStarred(true) }
                 }
             }
             if (repos.isEmpty()) {
-                item { EmptyState("暂无星标仓库") }
+                item { EmptyState(stringResource(R.string.state_no_starred_repos)) }
             } else {
                 items(repos.take(5)) { repo -> RepoCard(repo, onClick = { onRepoClick(repo.fullName) }) }
             }
 
             // ④ 最近活动（只留 3 条，完整列表在个人主页的动态页）
             item {
-                SectionHeader("最近活动", Icons.Filled.History) {
+                SectionHeader(stringResource(R.string.label_recent_activity), Icons.Filled.History) {
                     scope.launch { loadEvents(true) }
                 }
             }
             if (events.isEmpty()) {
-                item { EmptyState("暂无最近活动") }
+                item { EmptyState(stringResource(R.string.state_no_recent_activity)) }
             } else {
                 items(events.take(3)) { act -> ActivityItem(act) }
             }
@@ -308,39 +312,47 @@ private fun parseActivities(json: String): List<Activity> {
             val actor = obj.optJSONObject("actor")?.optString("login") ?: return@mapNotNull null
             val repoName = obj.optJSONObject("repo")?.optString("name") ?: ""
             val createdAt = obj.optString("created_at")
-            val (icon, verb) = when (type) {
-                "WatchEvent" -> Icons.Filled.Star to "star 了"
-                "ForkEvent" -> Icons.Filled.CallSplit to "fork 了"
-                "IssuesEvent" -> Icons.Filled.ErrorOutline to "在 issue 上操作"
-                "PullRequestEvent" -> Icons.Filled.CallSplit to "提交了 PR 到"
-                "PushEvent" -> Icons.Filled.Code to "推送代码到"
-                "CreateEvent" -> Icons.Filled.Add to "创建了"
+            // 整句资源：原来拼 "$actor $verb $repoName"，只有中文语序拼得对
+            val (icon, text) = when (type) {
+                "WatchEvent" -> Icons.Filled.Star to LocalizedText(R.string.home_activity_starred, listOf(actor, repoName))
+                "ForkEvent" -> Icons.Filled.CallSplit to LocalizedText(R.string.home_activity_forked, listOf(actor, repoName))
+                "IssuesEvent" -> Icons.Filled.ErrorOutline to LocalizedText(R.string.home_activity_issue, listOf(actor, repoName))
+                "PullRequestEvent" -> Icons.Filled.CallSplit to LocalizedText(R.string.home_activity_pr, listOf(actor, repoName))
+                "PushEvent" -> Icons.Filled.Code to LocalizedText(R.string.home_activity_push, listOf(actor, repoName))
+                "CreateEvent" -> Icons.Filled.Add to LocalizedText(R.string.home_activity_created, listOf(actor, repoName))
                 else -> return@mapNotNull null
             }
             Activity(
                 icon = icon,
-                text = "$actor $verb $repoName",
-                time = relativeTime(createdAt),
+                text = text,
+                createdAt = createdAt,
             )
         }
     }.getOrDefault(emptyList())
 }
 
-/** ISO 时间转相对时间 */
+/**
+ * ISO 时间转相对时间（「刚刚」/「5 分钟前」…）。
+ *
+ * `@Composable` 因为量词要按语言选形：中文只有一种写法，英文得区分
+ * `1 minute ago` / `2 minutes ago`，而倍数词只有 `pluralStringResource` 拿得到。
+ * 解析失败原样返回 `iso` —— 宁可显示原始时间，也不要吞掉整个时间列。
+ */
+@Composable
 private fun relativeTime(iso: String): String {
-    return runCatching {
+    val minutes = runCatching {
         val fmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
             timeZone = java.util.TimeZone.getTimeZone("UTC")
         }
-        val epoch = fmt.parse(iso)?.time ?: return@runCatching iso
-        val minutes = (System.currentTimeMillis() - epoch) / 60000
-        when {
-            minutes < 1 -> "刚刚"
-            minutes < 60 -> "$minutes 分钟前"
-            minutes < 1440 -> "${minutes / 60} 小时前"
-            else -> "${minutes / 1440} 天前"
-        }
-    }.getOrDefault(iso)
+        val epoch = fmt.parse(iso)?.time ?: return@runCatching null
+        (System.currentTimeMillis() - epoch) / 60000
+    }.getOrNull() ?: return iso
+    return when {
+        minutes < 1 -> stringResource(R.string.relative_just_now)
+        minutes < 60 -> pluralStringResource(R.plurals.relative_minutes, minutes.toInt(), minutes)
+        minutes < 1440 -> pluralStringResource(R.plurals.relative_hours, (minutes / 60).toInt(), minutes / 60)
+        else -> pluralStringResource(R.plurals.relative_days, (minutes / 1440).toInt(), minutes / 1440)
+    }
 }
 
 /** 搜索栏 + 头像（头像点击进个人页） */
@@ -363,9 +375,9 @@ private fun SearchBarRow(login: String, avatarUrl: String?, onProfileClick: () -
                 .padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Filled.Search, contentDescription = "搜索", tint = Primer.IconSecondary, modifier = Modifier.size(20.dp))
+            Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.action_search), tint = Primer.IconSecondary, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
-            Text("搜索 GitHub", fontSize = 14.sp, color = Primer.TextTertiary)
+            Text(stringResource(R.string.hint_search_github), fontSize = 14.sp, color = Primer.TextTertiary)
         }
         Spacer(Modifier.width(10.dp))
         // 头像（40dp 圆）—— 统一组件：本地缓存优先 + 按尺寸取图 + 首字母占位
@@ -385,13 +397,13 @@ private fun SearchBarRow(login: String, avatarUrl: String?, onProfileClick: () -
 private fun GreetingRow(login: String) {
     val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
     val greet = when {
-        hour < 6 -> "夜深了"
-        hour < 12 -> "早上好"
-        hour < 18 -> "下午好"
-        else -> "晚上好"
+        hour < 6 -> stringResource(R.string.greet_late_night)
+        hour < 12 -> stringResource(R.string.greet_morning)
+        hour < 18 -> stringResource(R.string.greet_afternoon)
+        else -> stringResource(R.string.greet_evening)
     }
     Text(
-        "$greet，$login",
+        stringResource(R.string.greet_with_login, greet, login),
         fontSize = 15.sp,
         fontWeight = FontWeight.SemiBold,
         color = Primer.TextPrimary,
@@ -420,17 +432,17 @@ private fun TodoCard(
         if (unread + reviews + assigned == 0) {
             Box(Modifier.fillMaxWidth().padding(vertical = 22.dp), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("没有待办", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
+                    Text(stringResource(R.string.state_no_todo), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
                     Spacer(Modifier.height(4.dp))
-                    Text("需要你处理的 PR / issue / 通知会出现在这里", fontSize = 11.5.sp, color = Primer.TextTertiary)
+                    Text(stringResource(R.string.note_todo_hint), fontSize = 11.5.sp, color = Primer.TextTertiary)
                 }
             }
             return@Column
         }
-        TodoRow("未读通知", "$unread 条", Primer.InfoSurfaceSoft, Primer.Blue500, unread > 0, onOpenNotifications)
-        TodoRow("待我审查", "$reviews 个 PR", Primer.SuccessSurface, Primer.Green500, reviews > 0, onOpenSearch)
+        TodoRow(stringResource(R.string.label_unread_notifications), stringResource(R.string.label_unread_count, unread), Primer.InfoSurfaceSoft, Primer.Blue500, unread > 0, onOpenNotifications)
+        TodoRow(stringResource(R.string.label_awaiting_review), stringResource(R.string.label_review_pr_count, reviews), Primer.SuccessSurface, Primer.Green500, reviews > 0, onOpenSearch)
         TodoRow(
-            "分配给我", "$assigned 个 issue", Primer.WarningSurface, Primer.WarningTextStrong,
+            stringResource(R.string.label_assigned_to_me), stringResource(R.string.label_assigned_issue_count, assigned), Primer.WarningSurface, Primer.WarningTextStrong,
             assigned > 0, onOpenSearch, last = true,
         )
     }
@@ -493,7 +505,7 @@ private fun RunningTasksCard(tasks: List<com.branchbase.ui.task.TaskRecord>) {
                         modifier = Modifier.weight(1f),
                     )
                     Text(
-                        if (t.progress in 0..100) "${t.progress}%" else "运行中",
+                        if (t.progress in 0..100) "${t.progress}%" else stringResource(R.string.label_running),
                         fontSize = 11.sp,
                         color = Primer.Blue500,
                     )
@@ -542,7 +554,7 @@ private fun SectionHeader(title: String, icon: ImageVector, onRefresh: (() -> Un
         if (onRefresh != null) {
             Icon(
                 Icons.Filled.Refresh,
-                contentDescription = "刷新",
+                contentDescription = stringResource(R.string.action_refresh),
                 tint = Primer.IconSecondary,
                 modifier = Modifier.size(18.dp).iconTap { onRefresh() },
             )
@@ -577,13 +589,13 @@ private fun RepoCard(repo: StarredRepo, onClick: () -> Unit = {}) {
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Star, contentDescription = "星标", tint = Primer.IconSecondary, modifier = Modifier.size(14.dp))
+                Icon(Icons.Filled.Star, contentDescription = stringResource(R.string.label_stars), tint = Primer.IconSecondary, modifier = Modifier.size(14.dp))
                 Spacer(Modifier.width(2.dp))
                 Text(repo.stars, fontSize = 12.sp, color = Primer.TextSecondary)
             }
             if (repo.forks != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.CallSplit, contentDescription = "复刻", tint = Primer.IconSecondary, modifier = Modifier.size(14.dp))
+                    Icon(Icons.Filled.CallSplit, contentDescription = stringResource(R.string.action_fork), tint = Primer.IconSecondary, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(2.dp))
                     Text(repo.forks, fontSize = 12.sp, color = Primer.TextSecondary)
                 }
@@ -595,6 +607,7 @@ private fun RepoCard(repo: StarredRepo, onClick: () -> Unit = {}) {
 /** 活动项 */
 @Composable
 private fun ActivityItem(act: Activity) {
+    val context = LocalContext.current
     Row(
         modifier = Modifier
             .padding(start = 16.dp, end = 16.dp, bottom = 10.dp)
@@ -615,9 +628,9 @@ private fun ActivityItem(act: Activity) {
         }
         Spacer(Modifier.width(10.dp))
         Column {
-            Text(act.text, fontSize = 13.sp, color = Primer.TextSecondary)
+            Text(act.text.resolve(context), fontSize = 13.sp, color = Primer.TextSecondary)
             Spacer(Modifier.height(3.dp))
-            Text(act.time, fontSize = 11.sp, color = Primer.TextTertiary)
+            Text(relativeTime(act.createdAt), fontSize = 11.sp, color = Primer.TextTertiary)
         }
     }
 }
@@ -647,8 +660,10 @@ private data class StarredRepo(
 /** 活动（来自 received_events） */
 private data class Activity(
     val icon: ImageVector,
-    val text: String,
-    val time: String,
+    /** 模型只带「资源 ID + 参数」，渲染时才按当前语言解析（见 [LocalizedText]）。 */
+    val text: LocalizedText,
+    /** 事件的 ISO 时间。相对时间在**渲染时**算，否则语言切换后旧文案会停在内存里。 */
+    val createdAt: String,
 )
 
 /** GitHub 语言色映射 */

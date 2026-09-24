@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,6 +39,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.translate.EngineResult
 import com.branchbase.translate.FailKind
 import com.branchbase.translate.TranslateConfig
@@ -129,16 +131,14 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
-        SubPageHeader("沉浸式翻译", onBack)
+        SubPageHeader(stringResource(R.string.translate_title), onBack)
 
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
 
             // ── 自动翻译开关（也是页面上唯一的开启入口：关掉后页面不留控件） ──
             SwitchRow(
-                name = "自动翻译正文",
-                sub = "沉浸式翻译的总开关：开启后进入自述文件等正文页会自动开始翻译，" +
-                    "页面上出现可移动悬浮球（点开是翻译工具菜单）；关闭后不进正文页翻译，" +
-                    "页面上的悬浮球也会收起。",
+                name = stringResource(R.string.translate_auto_toggle),
+                sub = stringResource(R.string.translate_auto_toggle_desc),
                 checked = config.enabled,
                 onCheckedChange = {
                     config = config.copy(enabled = it)
@@ -146,7 +146,7 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                 },
             )
 
-            SettingsSectionTitle("翻译服务")
+            SettingsSectionTitle(stringResource(R.string.translate_service_section))
             TranslateProvider.entries.forEach { provider ->
                 ModeOptionRow(
                     label = provider.label,
@@ -168,19 +168,19 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                     InputField(
                         label = "API Key",
                         value = keyDraft,
-                        placeholder = "sk-…（platform.deepseek.com 申请）",
+                        placeholder = stringResource(R.string.translate_key_placeholder),
                         mono = true,
                         visualTransformation = if (keyVisible) {
                             VisualTransformation.None
                         } else {
                             PasswordVisualTransformation()
                         },
-                        trailing = if (keyVisible) "隐藏" else "显示",
+                        trailing = if (keyVisible) stringResource(R.string.action_hide) else stringResource(R.string.action_show),
                         onTrailingClick = { keyVisible = !keyVisible },
                         onValueChange = { keyDraft = it },
                     )
                     InputField(
-                        label = "模型（可留空用默认）",
+                        label = stringResource(R.string.translate_model_label),
                         value = modelDraft,
                         placeholder = TranslateProvider.DEEPSEEK_MODEL,
                         mono = true,
@@ -196,7 +196,7 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                         }
                     }
                     InputField(
-                        label = "接入地址（可留空用官方）",
+                        label = stringResource(R.string.translate_base_url_label),
                         value = baseUrlDraft,
                         placeholder = TranslateProvider.DEEPSEEK_BASE_URL,
                         mono = true,
@@ -207,7 +207,7 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         ActionPill(
-                            text = if (testing) "测试中…" else "保存并测试连接",
+                            text = if (testing) stringResource(R.string.translate_testing) else stringResource(R.string.translate_save_and_test),
                             enabled = !testing,
                         ) {
                             saveCredentials()
@@ -224,8 +224,7 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                         TestResultText(testResult)
                     }
                     Text(
-                        "Key 只保存在 App 私有目录，不会注入网页、不写日志；建议使用设置了额度上限的 Key。\n" +
-                            "接口为 OpenAI 兼容格式，接入地址可填中转或自建网关（例如 https://你的域名/v1）。",
+                        stringResource(R.string.translate_key_note),
                         fontSize = 11.5.sp,
                         color = Primer.TextTertiary,
                         lineHeight = 17.sp,
@@ -234,7 +233,7 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                 }
             }
 
-            SettingsSectionTitle("目标语言")
+            SettingsSectionTitle(stringResource(R.string.translate_target_language))
             TranslateLang.entries.forEach { lang ->
                 ModeOptionRow(
                     label = lang.label,
@@ -246,55 +245,54 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                 }
             }
 
-            SettingsSectionTitle("显示方式")
+            SettingsSectionTitle(stringResource(R.string.translate_display_mode))
             ModeOptionRow(
-                label = "原文 + 译文对照",
-                desc = "译文插在每段原文下方，原文保持不动（推荐）",
+                label = stringResource(R.string.translate_mode_dual),
+                desc = stringResource(R.string.translate_mode_dual_desc),
                 selected = config.dual,
             ) {
                 config = config.copy(dual = true)
                 TranslateSettings.setDual(context, true)
             }
             ModeOptionRow(
-                label = "仅显示译文",
-                desc = "隐藏原文，只留译文（小屏快速浏览用，可随时切回对照）",
+                label = stringResource(R.string.translate_mode_only),
+                desc = stringResource(R.string.translate_mode_only_desc),
                 selected = !config.dual,
             ) {
                 config = config.copy(dual = false)
                 TranslateSettings.setDual(context, false)
             }
 
-            SettingsSectionTitle("译文样式")
+            SettingsSectionTitle(stringResource(R.string.translate_style_section))
             ModeOptionRow(
-                label = "卡片",
-                desc = "蓝色左边框 + 浅灰底，边界最清楚（默认）",
+                label = stringResource(R.string.translate_style_card),
+                desc = stringResource(R.string.translate_style_card_desc),
                 selected = config.style == TranslateConfig.STYLE_CARD,
             ) {
                 config = config.copy(style = TranslateConfig.STYLE_CARD)
                 TranslateSettings.setStyle(context, TranslateConfig.STYLE_CARD)
             }
             ModeOptionRow(
-                label = "下划线",
-                desc = "无底色，只用虚线下划线标出译文",
+                label = stringResource(R.string.translate_style_underline),
+                desc = stringResource(R.string.translate_style_underline_desc),
                 selected = config.style == TranslateConfig.STYLE_UNDERLINE,
             ) {
                 config = config.copy(style = TranslateConfig.STYLE_UNDERLINE)
                 TranslateSettings.setStyle(context, TranslateConfig.STYLE_UNDERLINE)
             }
             ModeOptionRow(
-                label = "淡灰",
-                desc = "无边框无底色，最不打扰阅读",
+                label = stringResource(R.string.translate_style_plain),
+                desc = stringResource(R.string.translate_style_plain_desc),
                 selected = config.style == TranslateConfig.STYLE_PLAIN,
             ) {
                 config = config.copy(style = TranslateConfig.STYLE_PLAIN)
                 TranslateSettings.setStyle(context, TranslateConfig.STYLE_PLAIN)
             }
 
-            SettingsSectionTitle("翻译质量")
+            SettingsSectionTitle(stringResource(R.string.translate_quality_section))
             SwitchRow(
-                name = "保护代码与链接",
-                sub = "翻译前把 URL、@提及、#编号、提交 SHA 等标记临时占位，译完原样还原；" +
-                    "避免它们被机器翻译改写（默认开启）。",
+                name = stringResource(R.string.translate_guard_toggle),
+                sub = stringResource(R.string.translate_guard_toggle_desc),
                 checked = config.protect,
                 onCheckedChange = {
                     config = config.copy(protect = it)
@@ -302,10 +300,10 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                 },
             )
 
-            SettingsSectionTitle("译文缓存")
+            SettingsSectionTitle(stringResource(R.string.translate_cache_section))
             SwitchRow(
-                name = "本地缓存",
-                sub = "把译文落盘，重开 App 后同一段不再重复翻译（关闭只是不再读写磁盘，不清除已存内容）。",
+                name = stringResource(R.string.translate_cache_disk_toggle),
+                sub = stringResource(R.string.translate_cache_disk_toggle_desc),
                 checked = config.persist,
                 onCheckedChange = {
                     config = config.copy(persist = it)
@@ -316,33 +314,23 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
             // 归位成 ActionRow：行为不变（仍然立即清空）；是否该按 §7 补二次确认见规范 §11 待办。
             ActionRow(
                 icon = Icons.Filled.Delete,
-                name = "清空译文缓存",
-                sub = "内存 ${stats.memoryCount} 段 / 本地 ${stats.diskCount} 段" + statusSuffix(stats),
-                hint = "清空",
+                name = stringResource(R.string.translate_cache_clear),
+                sub = stringResource(R.string.translate_cache_stats, stats.memoryCount, stats.diskCount) + statusSuffix(stats),
+                hint = stringResource(R.string.action_clear),
                 onClick = {
                     scope.launch {
                         translator.clearCache()
                         stats = translator.stats()
-                        Toast.makeText(context, "已清空译文缓存", Toast.LENGTH_SHORT).show()
+                        // scope.launch 的 lambda 不是组合上下文，这里只能走 context.getString；
+                        // Toast 属于「非 Compose 表面」，本来就该由 Context 决定语言
+                        Toast.makeText(context, context.getString(R.string.translate_cache_cleared), Toast.LENGTH_SHORT).show()
                     }
                 },
             )
 
-            SettingsSectionTitle("说明")
+            SettingsSectionTitle(stringResource(R.string.translate_notes_section))
             Text(
-                "• 生效范围：自述文件（README）、Issue / PR 主帖、发布说明等**正文页**" +
-                    "（评论区为 Compose 原生渲染，暂不在范围内）。\n" +
-                    "• **开启入口只有本页的「自动翻译正文」**：开着时正文页会出现可移动悬浮球（可拖动），" +
-                    "单击展开「翻译工具菜单」——显示进度（已译 / 候选段数、字符数）、常用开关与" +
-                    "「翻译全文 / 清空本页译文」等操作，点面板外任意位置或右上角「×」收起为悬浮球。" +
-                    "面板里的「本页翻译」开关一关，悬浮球立刻收起（不翻译时页面不留控件）；" +
-                    "要再打开，回到本页开总开关。菜单里的开关与本页读写同一份设置，改哪边都是新的" +
-                    "（Key / 模型 / 接入地址只能在**本页**改）。\n" +
-                    "• 整页候选文本少于 5000 字符时一次翻完，更长时按视口滚动逐段翻译（省额度）。\n" +
-                    "• 翻译服务：MyMemory 免费匿名（额度约 5000 词/天）；DeepSeek 需要你自己的 API Key，按 token 计费。" +
-                    "服务不可用时（额度用尽 / Key 无效 / 连续失败）会自动暂停，并在悬浮球与工具菜单上给出提示。\n" +
-                    "• 隐私：只把**正文段落文本**发往你选择的服务；DeepSeek 的 Key 存于应用私有目录、" +
-                    "不注入网页、不写日志。正文里出现的 URL / @提及 / #编号 / 提交 SHA 会先占位保护、译后还原。",
+                stringResource(R.string.translate_notes_body),
                 fontSize = 12.sp,
                 color = Primer.TextTertiary,
                 lineHeight = 19.sp,
@@ -459,7 +447,7 @@ private fun ActionPill(text: String, enabled: Boolean, onClick: () -> Unit) {
 @Composable
 private fun TestResultText(result: String?) {
     if (result == null) return
-    val ok = result.startsWith("连接正常")
+    val ok = result.startsWith(stringResource(R.string.translate_test_ok))
     Text(
         result,
         fontSize = 11.5.sp,

@@ -29,6 +29,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -47,6 +48,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
+import com.branchbase.R
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Primer
@@ -132,14 +134,14 @@ fun WorkflowDispatchScreen(
     /** 提交：先校验必填与 ref，再触发；成功延时关闭，失败按 422 给额外提示。 */
     fun submit(specForSubmit: WorkflowDispatchSpec) {
         if (ref.isBlank()) {
-            formError = "请先选择分支"
+            formError = context.getString(R.string.error_choose_branch_first)
             return
         }
         formError = null
         error = null
         val missing = missingRequiredInputs(specForSubmit, values)
         if (missing.isNotEmpty()) {
-            formError = "请填写：${missing.joinToString(", ")}"
+            formError = context.getString(R.string.error_fill_required_fields, missing.joinToString(", "))
             return
         }
         val inputsJson = buildInputsJson(specForSubmit, values)
@@ -155,9 +157,9 @@ fun WorkflowDispatchScreen(
                 delay(1200)
                 onDispatched()
             } else {
-                error = "触发失败：$err" +
+                error = context.getString(R.string.error_trigger_failed, err) +
                     if (err.contains("422") || err.contains("Unprocessable")) {
-                        "\n该工作流可能未声明 workflow_dispatch，或参数类型不符"
+                        context.getString(R.string.error_workflow_dispatch_hint)
                     } else {
                         ""
                     }
@@ -175,13 +177,13 @@ fun WorkflowDispatchScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Primer.IconPrimary,
+                Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back), tint = Primer.IconPrimary,
                 modifier = Modifier.size(24.dp).iconTap(enabled = !submitting) { onBack() },
             )
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    "执行 · ${workflow.name.ifBlank { "未命名工作流" }}",
+                    stringResource(R.string.label_run_workflow, workflow.name.ifBlank { stringResource(R.string.label_unnamed_workflow) }),
                     fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, maxLines = 1,
                 )
                 Text("$owner/$repo", fontSize = 11.sp, color = Primer.TextTertiary, maxLines = 1)
@@ -196,7 +198,7 @@ fun WorkflowDispatchScreen(
 
             loadedSpec == null -> Box(Modifier.fillMaxSize().padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
                 Text(
-                    "无法读取工作流文件，暂时不能手动触发",
+                    stringResource(R.string.error_workflow_file_unreadable),
                     fontSize = 13.sp, color = Primer.TextTertiary,
                 )
             }
@@ -209,13 +211,12 @@ fun WorkflowDispatchScreen(
                         .padding(16.dp),
                 ) {
                     Text(
-                        "该工作流未声明 workflow_dispatch，无法手动触发",
+                        stringResource(R.string.error_no_workflow_dispatch),
                         fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary,
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "在仓库「代码」页打开 ${workflow.path.ifBlank { "工作流文件" }}，在 on: 下加上 workflow_dispatch: " +
-                            "后即可在本页手动执行。",
+                        stringResource(R.string.note_add_workflow_dispatch, workflow.path.ifBlank { stringResource(R.string.label_workflow_file) }),
                         fontSize = 11.5.sp, color = Primer.TextTertiary, lineHeight = 18.sp,
                     )
                 }
@@ -230,7 +231,7 @@ fun WorkflowDispatchScreen(
                         Spacer(Modifier.height(6.dp))
 
                         // ref 选择器（分支或标签，等宽显示）
-                        Text("分支 / 标签（ref）", fontSize = 11.sp, color = Primer.TextTertiary)
+                        Text(stringResource(R.string.label_branch_tag_ref), fontSize = 11.sp, color = Primer.TextTertiary)
                         Spacer(Modifier.height(5.dp))
                         Box {
                             Row(
@@ -242,7 +243,7 @@ fun WorkflowDispatchScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
-                                    ref.ifBlank { "请选择分支" },
+                                    ref.ifBlank { stringResource(R.string.hint_choose_branch) },
                                     fontSize = 13.sp, fontFamily = FontFamily.Monospace,
                                     color = if (ref.isBlank()) Primer.TextTertiary else Primer.TextPrimary,
                                     maxLines = 1, modifier = Modifier.weight(1f),
@@ -265,12 +266,12 @@ fun WorkflowDispatchScreen(
                         }
                         if (branches.isEmpty()) {
                             Spacer(Modifier.height(4.dp))
-                            Text("分支列表加载失败，可直接使用当前默认分支", fontSize = 10.5.sp, color = Primer.TextTertiary)
+                            Text(stringResource(R.string.error_branch_list_failed), fontSize = 10.5.sp, color = Primer.TextTertiary)
                         }
 
                         if (loadedSpec.inputs.isNotEmpty()) {
                             Spacer(Modifier.height(16.dp))
-                            Text("参数", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+                            Text(stringResource(R.string.label_parameters), fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
                         }
 
                         loadedSpec.inputs.forEach { input ->
@@ -295,7 +296,7 @@ fun WorkflowDispatchScreen(
                         }
                         if (dispatched) {
                             Spacer(Modifier.height(10.dp))
-                            Text("已触发，运行记录稍后出现在列表中", fontSize = 12.sp, color = Primer.Green500)
+                            Text(stringResource(R.string.state_triggered), fontSize = 12.sp, color = Primer.Green500)
                         }
 
                         Spacer(Modifier.height(20.dp))
@@ -313,9 +314,9 @@ fun WorkflowDispatchScreen(
                     ) {
                         Text(
                             when {
-                                dispatched -> "已触发"
-                                submitting -> "执行中…"
-                                else -> "执行工作流"
+                                dispatched -> stringResource(R.string.state_triggered_short)
+                                submitting -> stringResource(R.string.state_running)
+                                else -> stringResource(R.string.action_run_workflow)
                             },
                             fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
                         )
@@ -420,7 +421,7 @@ private fun WorkflowInputTitle(input: WorkflowInputSpec, modifier: Modifier = Mo
         Text(input.type.ifBlank { "string" }, fontSize = 10.sp, color = Primer.TextTertiary)
         if (input.required) {
             Spacer(Modifier.width(6.dp))
-            Text("必填", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Primer.Red500)
+            Text(stringResource(R.string.label_required), fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Primer.Red500)
         }
     }
 }

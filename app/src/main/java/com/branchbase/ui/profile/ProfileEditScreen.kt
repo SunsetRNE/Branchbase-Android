@@ -26,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,8 +42,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.repository.Feedback
 import com.branchbase.ui.task.TaskKind
 import com.branchbase.ui.task.TaskStore
 import com.branchbase.ui.theme.iconTap
@@ -87,7 +90,7 @@ fun ProfileEditScreen(
     var twitter by remember { mutableStateOf(field("twitter_username")) }
 
     var saving by remember { mutableStateOf(false) }
-    var feedback by remember { mutableStateOf<String?>(null) }
+    var feedback by remember { mutableStateOf<Feedback?>(null) }
 
     LaunchedEffect(Unit) { Logger.ui("进入编辑资料页", "Compose") }
 
@@ -101,26 +104,26 @@ fun ProfileEditScreen(
         if (blog != field("blog")) body.put("blog", blog)
         if (twitter != field("twitter_username")) body.put("twitter_username", twitter)
 
-        if (body.length() == 0) { feedback = "没有需要保存的修改"; return }
+        if (body.length() == 0) { feedback = Feedback(context.getString(R.string.state_no_changes_to_save), ok = false); return }
         if (blog.isNotBlank() && !blog.startsWith("http://") && !blog.startsWith("https://")) {
-            feedback = "个人网站需以 http:// 或 https:// 开头"
+            feedback = Feedback(context.getString(R.string.error_website_scheme), ok = false)
             return
         }
 
         scope.launch {
             saving = true
             feedback = null
-            val taskId = TaskStore.start(context, TaskKind.SYNC, "更新 GitHub 资料")
+            val taskId = TaskStore.start(context, TaskKind.SYNC, context.getString(R.string.action_update_github_profile))
             val err = withContext(Dispatchers.IO) { RustBridge.updateProfile(host, token, body.toString()) }
             saving = false
             if (err == null) {
-                TaskStore.success(context, taskId, "已更新 ${body.length()} 个字段")
+                TaskStore.success(context, taskId, context.getString(R.string.state_updated_fields, body.length()))
                 Logger.net("PATCH /user → 200（${body.length()} 个字段）", "GitHubAPI")
-                feedback = "已保存"
+                feedback = Feedback(context.getString(R.string.state_saved), ok = true)
                 onSaved()
             } else {
                 TaskStore.fail(context, taskId, err)
-                feedback = "保存失败：$err"
+                feedback = Feedback(context.getString(R.string.error_save_failed, err), ok = false)
             }
         }
     }
@@ -138,15 +141,15 @@ fun ProfileEditScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                Icons.AutoMirrored.Filled.ArrowBack, "返回",
+                Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back),
                 tint = Primer.IconPrimary,
                 modifier = Modifier.size(24.dp).iconTap { onBack() },
             )
             Spacer(Modifier.width(8.dp))
-            Text("编辑资料", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+            Text(stringResource(R.string.action_edit_profile), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
             Spacer(Modifier.weight(1f))
             Text(
-                if (saving) "保存中…" else "保存",
+                if (saving) stringResource(R.string.state_saving) else stringResource(R.string.action_save),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = if (saving) Primer.TextTertiary else Primer.Blue500,
@@ -169,33 +172,35 @@ fun ProfileEditScreen(
                 Spacer(Modifier.width(12.dp))
                 Column {
                     Text("@${field("login")}", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
-                    Text("头像请在 GitHub 网页端更换", fontSize = 11.5.sp, color = Primer.TextTertiary)
+                    Text(stringResource(R.string.note_avatar_on_web), fontSize = 11.5.sp, color = Primer.TextTertiary)
                 }
             }
 
             Spacer(Modifier.height(16.dp))
 
-            EditField("名称", name, "你的显示名称", { name = it })
-            EditField("简介", bio, "一句话介绍自己（最多 160 字）", { if (it.length <= 160) bio = it }, singleLine = false)
-            EditField("公司", company, "@公司名", { company = it })
-            EditField("位置", location, "城市 / 地区", { location = it })
-            EditField("个人网站", blog, "https://example.com", { blog = it }, mono = true)
-            EditField("社交账号", twitter, "X / Twitter 用户名（不含 @）", { twitter = it }, mono = true)
+            EditField(stringResource(R.string.label_name), name, stringResource(R.string.hint_display_name), { name = it })
+            EditField(stringResource(R.string.label_bio), bio, stringResource(R.string.hint_bio), { if (it.length <= 160) bio = it }, singleLine = false)
+            EditField(stringResource(R.string.label_company), company, stringResource(R.string.hint_company), { company = it })
+            EditField(stringResource(R.string.label_location), location, stringResource(R.string.label_city_region), { location = it })
+            EditField(stringResource(R.string.label_website), blog, "https://example.com", { blog = it }, mono = true)
+            EditField(stringResource(R.string.label_social_accounts), twitter, stringResource(R.string.hint_twitter_username), { twitter = it }, mono = true)
 
             Spacer(Modifier.height(6.dp))
             Text(
-                "保存后立即对所有人可见。仅提交有变化的字段，未改动的资料不会被覆盖。",
+                stringResource(R.string.note_profile_visibility),
                 fontSize = 11.5.sp,
                 color = Primer.TextTertiary,
                 lineHeight = 17.sp,
             )
 
-            feedback?.let {
+            feedback?.let { fb ->
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    it,
+                    fb.text,
                     fontSize = 12.5.sp,
-                    color = if (it.startsWith("已")) Primer.Green500 else Primer.Red500,
+                    // 语气由产生方给出（见 Feedback），不从文案里猜：
+                    // 文案抽成资源后 `startsWith("已")` 在英文界面下永不成立
+                    color = if (fb.ok) Primer.Green500 else Primer.Red500,
                 )
             }
             Spacer(Modifier.height(28.dp))
@@ -211,13 +216,13 @@ fun ProfileEditScreen(
                     .background(Primer.Gray150).border(1.dp, Primer.Border, RoundedCornerShape(8.dp))
                     .clickable { onBack() },
                 contentAlignment = Alignment.Center,
-            ) { Text("取消", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary) }
+            ) { Text(stringResource(R.string.action_cancel), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary) }
             Box(
                 Modifier.weight(1f).height(42.dp).clip(RoundedCornerShape(8.dp))
                     .background(if (saving) Primer.Gray300 else Primer.Green500)
                     .clickable { if (!saving) save() },
                 contentAlignment = Alignment.Center,
-            ) { Text(if (saving) "保存中…" else "保存", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White) }
+            ) { Text(if (saving) stringResource(R.string.state_saving) else stringResource(R.string.action_save), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White) }
         }
     }
 }

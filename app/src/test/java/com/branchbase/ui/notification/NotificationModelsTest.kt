@@ -1,8 +1,10 @@
 package com.branchbase.ui.notification
 
+import com.branchbase.R
 import com.branchbase.cache.PrefetchPlan
 import com.branchbase.cache.PrefetchReason
 import com.branchbase.cache.planPrefetch
+import com.branchbase.ui.LocalizedText
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -20,37 +22,42 @@ import org.junit.Test
 class NotificationModelsTest {
 
     // ───────────────── 类型短名（改造前既有） ─────────────────
+    //
+    // ⚠️ 断言的是**资源 ID**，不是文案：模型层已经不再持有中文字符串
+    // （`typeShortNameRes` 返回 `@StringRes Int`），文案在 `values*/strings.xml` 里。
+    // 断言 ID 与断言文案等价 —— 都钉住了「这个类型 → 这个名字」的映射，
+    // 而且不会因为改了译文就红。
 
     @Test
     fun `长名映射为短名`() {
-        assertEquals("PR", typeShortName("PullRequest"))
-        assertEquals("讨论", typeShortName("Discussion"))
-        assertEquals("版本", typeShortName("Release"))
-        assertEquals("提交", typeShortName("Commit"))
+        assertEquals(R.string.notif_type_short_pr, typeShortNameRes("PullRequest"))
+        assertEquals(R.string.notif_type_short_discussion, typeShortNameRes("Discussion"))
+        assertEquals(R.string.notif_type_short_release, typeShortNameRes("Release"))
+        assertEquals(R.string.notif_type_short_commit, typeShortNameRes("Commit"))
     }
 
     @Test
     fun `三种 CI 类型统一显示为工作流`() {
-        assertEquals("工作流", typeShortName("CheckSuite"))
-        assertEquals("工作流", typeShortName("CheckRun"))
-        assertEquals("工作流", typeShortName("WorkflowRun"))
+        assertEquals(R.string.notif_type_short_workflow, typeShortNameRes("CheckSuite"))
+        assertEquals(R.string.notif_type_short_workflow, typeShortNameRes("CheckRun"))
+        assertEquals(R.string.notif_type_short_workflow, typeShortNameRes("WorkflowRun"))
     }
 
     @Test
     fun `两种安全警报统一显示为安全`() {
-        assertEquals("安全", typeShortName("RepositoryVulnerabilityAlert"))
-        assertEquals("安全", typeShortName("RepositoryAdvisory"))
+        assertEquals(R.string.notif_type_short_security, typeShortNameRes("RepositoryVulnerabilityAlert"))
+        assertEquals(R.string.notif_type_short_security, typeShortNameRes("RepositoryAdvisory"))
     }
 
     @Test
     fun `Issue 本身够短_保持原样`() {
-        assertEquals("Issue", typeShortName("Issue"))
+        assertNull("Issue 没有专属短名资源，应由调用方原样透出", typeShortNameResOrNull("Issue"))
     }
 
     @Test
     fun `未知类型原样返回_不吞掉新类型`() {
-        assertEquals("SomethingNew", typeShortName("SomethingNew"))
-        assertEquals("", typeShortName(""))
+        assertNull("未知类型必须回落到原值而不是被吞掉", typeShortNameResOrNull("SomethingNew"))
+        assertNull("空串同样没有专属资源", typeShortNameResOrNull(""))
     }
 
     // ───────────────── 查询串（预取器与页面共用） ─────────────────
@@ -90,16 +97,33 @@ class NotificationModelsTest {
         assertTrue(n.updatedAtMs > 0)
     }
 
+    /**
+     * 钉住一档相对时间用的是**哪条资源、什么数量、按什么顺序传参**，而不是文案本身。
+     *
+     * 这里原来是 `assertEquals("刚刚", relativeTimeOf(...))` 这种**钉字面量**的写法 ——
+     * 文案一抽成资源就整片假红（`i18n-migration` 的坑表里记着这一条）。
+     * 现在断言资源 ID 与 quantity：「哪一档走哪条资源」这个语义照样钉住，
+     * 而改措辞、再抽取都不会动它。排版与两种语言的占位符一致性由
+     * `tools/i18n/check-i18n.py` 负责。
+     */
+    private fun assertTime(res: Int, quantity: Int?, args: List<Any>, actual: LocalizedText) {
+        assertEquals("用错了资源", res, actual.res)
+        assertEquals("复数量词不对", quantity, actual.quantity)
+        assertEquals("参数顺序/个数不对", args, actual.args)
+    }
+
     @Test
     fun `相对时间由时间戳在渲染期计算`() {
         val now = 1_700_000_000_000L
-        assertEquals("刚刚", relativeTimeOf(now - 30_000, now))
-        assertEquals("5 分钟前", relativeTimeOf(now - 5 * 60_000, now))
-        assertEquals("3 小时前", relativeTimeOf(now - 3 * 3_600_000, now))
-        assertEquals("昨天", relativeTimeOf(now - 26 * 3_600_000, now))
-        assertEquals("2 天前", relativeTimeOf(now - 50 * 3_600_000, now))
-        // 时间戳缺失时不显示「1970 年」这类噪声
-        assertEquals("", relativeTimeOf(0, now))
+        assertTime(R.string.relative_just_now, null, emptyList(), relativeTimeOf(now - 30_000, now))
+        // 「N 分钟前」是 plurals：quantity 决定英文取 one 还是 other，参数决定填进去的数字
+        assertTime(R.plurals.relative_minutes, 5, listOf(5L), relativeTimeOf(now - 5 * 60_000, now))
+        assertTime(R.plurals.relative_hours, 3, listOf(3L), relativeTimeOf(now - 3 * 3_600_000, now))
+        assertTime(R.string.relative_yesterday, null, emptyList(), relativeTimeOf(now - 26 * 3_600_000, now))
+        assertTime(R.plurals.relative_days, 2, listOf(2L), relativeTimeOf(now - 50 * 3_600_000, now))
+        // 时间戳缺失时不显示「1970 年」这类噪声：res=0 + raw="" ⇒ 解析为空串
+        assertEquals(0, relativeTimeOf(0, now).res)
+        assertEquals("", relativeTimeOf(0, now).raw)
     }
 
     @Test
@@ -110,7 +134,7 @@ class NotificationModelsTest {
             latestCommentUrl = null, repoFullName = "a/b", updatedAtMs = 1L,
         )
         assertEquals(9L, n.targetNumber)
-        assertEquals("请求你审查", n.reasonLabel)
+        assertEquals(R.string.notif_reason_review_requested, n.reasonLabelRes)
         assertTrue(n.issueLike)
         assertTrue(n.copy(unread = false).unread.not())
     }
@@ -157,7 +181,7 @@ class NotificationModelsTest {
         assertFalse("归档行必须是已读", n.unread)
         assertTrue(n.issueLike)
         // 派生字段与网络解析一致（同一套派生规则）
-        assertEquals("请求你审查", n.reasonLabel)
+        assertEquals(R.string.notif_reason_review_requested, n.reasonLabelRes)
     }
 
     @Test

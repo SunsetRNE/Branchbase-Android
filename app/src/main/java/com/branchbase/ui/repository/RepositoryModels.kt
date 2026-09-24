@@ -2,6 +2,10 @@ package com.branchbase.ui.repository
 
 import org.json.JSONArray
 import org.json.JSONObject
+import android.content.Context
+import androidx.annotation.StringRes
+import com.branchbase.R
+import com.branchbase.ui.LocalizedText
 
 /**
  * 仓库详情页数据模型与 JSON 解析（对齐 `core/src/html` 解析器的输出 + GitHub REST）。
@@ -512,14 +516,19 @@ data class CommentItem(
     /** 编辑过的评论网页版会标「已编辑」；GitHub 用 updated_at != created_at 表达。 */
     val isEdited: Boolean = false,
 ) {
-    /** 徽章文案（没有徽章时返回 null）：作者优先于协作者身份。 */
-    val badge: String?
+    /**
+     * 徽章的**资源 ID**（没有徽章时返回 null）：作者优先于协作者身份。
+     *
+     * 模型层不认识 Context，所以只给 ID。顺带修掉一个 i18n 缺口：
+     * `Owner` / `Member` 原来是英文**字面量**，中文界面下也照样显示英文。
+     */
+    val badgeRes: Int?
         get() = when {
-            isIssueAuthor -> "作者"
-            authorAssociation.equals("OWNER", true) -> "Owner"
-            authorAssociation.equals("MEMBER", true) -> "Member"
-            authorAssociation.equals("COLLABORATOR", true) -> "Collaborator"
-            authorAssociation.equals("CONTRIBUTOR", true) -> "Contributor"
+            isIssueAuthor -> R.string.badge_author
+            authorAssociation.equals("OWNER", true) -> R.string.badge_owner
+            authorAssociation.equals("MEMBER", true) -> R.string.badge_member
+            authorAssociation.equals("COLLABORATOR", true) -> R.string.badge_collaborator
+            authorAssociation.equals("CONTRIBUTOR", true) -> R.string.badge_contributor
             else -> null
         }
 }
@@ -541,7 +550,7 @@ sealed interface TimelineEntry {
     data class Event(
         val kind: String,
         val actor: String,
-        val text: String,
+        val text: LocalizedText,
         override val createdAt: String,
     ) : TimelineEntry
 }
@@ -607,10 +616,10 @@ fun pullMergeEntry(
  * - `mergeable == null` → 「还在算」的提醒（可点，但可能被拒）；
  * - 其余（可合并）→ `null`，不加文案。
  */
-fun pullMergeHint(mergeable: Boolean?, headRef: String, baseRef: String): String? = when {
-    mergeable == false -> "GitHub 判定当前不可自动合并（存在冲突或分支保护规则）"
-    headRef.isBlank() || baseRef.isBlank() -> "缺少分支信息，暂时无法合并"
-    mergeable == null -> "GitHub 仍在计算可合并性，此时合并可能被拒绝"
+fun pullMergeHintRes(mergeable: Boolean?, headRef: String, baseRef: String): Int? = when {
+    mergeable == false -> R.string.merge_hint_conflict
+    headRef.isBlank() || baseRef.isBlank() -> R.string.merge_hint_missing_branch
+    mergeable == null -> R.string.merge_hint_calculating
     else -> null
 }
 
@@ -704,39 +713,55 @@ fun parseIssueTimeline(json: String, issueAuthor: String = ""): List<TimelineEnt
             return@mapNotNull parseCommentObject(o, issueAuthor)?.let { TimelineEntry.Comment(it) }
         }
 
-        val text: String? = when (event) {
+        // 事件文案是**带参数的整句**，所以不能只给一个资源 ID —— 用 LocalizedText 把
+        // 「ID + 参数」一起带出去，渲染时再按界面语言解析。
+        // 顺带消灭了原来的拼接：`"$actor 关闭了此 issue$suffix"` 里的后缀
+        // （（已完成）/（不计划实施））已经并进整句，英文语序下才拼得对。
+        val text: LocalizedText? = when (event) {
             "labeled" -> o.optJSONObject("label")?.optString("name")
-                ?.let { "$actor 添加了标签「$it」" }
+                ?.let { LocalizedText(R.string.timeline_label_added, listOf(actor, it)) }
             "unlabeled" -> o.optJSONObject("label")?.optString("name")
-                ?.let { "$actor 移除了标签「$it」" }
+                ?.let { LocalizedText(R.string.timeline_label_removed, listOf(actor, it)) }
             "assigned" -> o.optJSONObject("assignee")?.optString("login")
-                ?.let { "$actor 指派给 @$it" }
+                ?.let { LocalizedText(R.string.timeline_assigned, listOf(actor, it)) }
             "unassigned" -> o.optJSONObject("assignee")?.optString("login")
-                ?.let { "$actor 取消了 @$it 的指派" }
+                ?.let { LocalizedText(R.string.timeline_unassigned, listOf(actor, it)) }
             "closed" -> {
-                val reason = o.optString("state_reason")
-                val suffix = if (reason == "not_planned") "（不计划实施）" else "（已完成）"
-                "$actor 关闭了此 issue$suffix"
+                val res = if (o.optString("state_reason") == "not_planned") {
+                    R.string.timeline_closed_not_planned
+                } else {
+                    R.string.timeline_closed_completed
+                }
+                LocalizedText(res, listOf(actor))
             }
-            "reopened" -> "$actor 重新打开了此 issue"
+            "reopened" -> LocalizedText(R.string.timeline_reopened, listOf(actor))
             "milestoned" -> o.optJSONObject("milestone")?.optString("title")
-                ?.let { "$actor 加入里程碑「$it」" }
+                ?.let { LocalizedText(R.string.timeline_milestoned, listOf(actor, it)) }
             "demilestoned" -> o.optJSONObject("milestone")?.optString("title")
-                ?.let { "$actor 移除了里程碑「$it」" }
+                ?.let { LocalizedText(R.string.timeline_demilestoned, listOf(actor, it)) }
             "renamed" -> o.optJSONObject("rename")?.let { r ->
-                val from = r.optString("from")
-                val to = r.optString("to")
-                "$actor 把标题从「$from」改为「$to」"
+                LocalizedText(
+                    R.string.timeline_renamed,
+                    listOf(actor, r.optString("from"), r.optString("to")),
+                )
             }
             "referenced" -> {
                 val sha = o.optString("commit_id").take(7)
-                if (sha.isBlank()) "$actor 引用了此 issue" else "$actor 在提交 $sha 中引用了此 issue"
+                if (sha.isBlank()) {
+                    LocalizedText(R.string.timeline_referenced_issue, listOf(actor))
+                } else {
+                    LocalizedText(R.string.timeline_referenced_commit, listOf(actor, sha))
+                }
             }
             "cross-referenced" -> {
                 val src = o.optJSONObject("source")?.optJSONObject("issue")
                 val num = src?.optLong("number") ?: 0L
                 val title = src?.optString("title").orEmpty()
-                if (num > 0) "$actor 在 #$num $title 中引用了此 issue" else "$actor 引用了此 issue"
+                if (num > 0) {
+                    LocalizedText(R.string.timeline_cross_referenced, listOf(actor, num, title))
+                } else {
+                    LocalizedText(R.string.timeline_referenced_issue, listOf(actor))
+                }
             }
             else -> null
         }
@@ -968,11 +993,11 @@ fun parseJobSteps(json: String): List<JobStep> = runCatching {
  *
  * 用途：决定「能做什么」（提交/推送入口）、列表分组与徽章文案。
  */
-enum class RepoRelation(val label: String) {
-    OWN("账号仓库"),
-    COLLABORATOR("协作仓库"),
-    FOREIGN("非账号仓库"),
-    NOT_COLLABORATOR("非协作仓库"),
+enum class RepoRelation(val labelRes: Int) {
+    OWN(R.string.relation_own),
+    COLLABORATOR(R.string.relation_collaborator),
+    FOREIGN(R.string.relation_foreign),
+    NOT_COLLABORATOR(R.string.relation_not_collaborator),
     ;
 
     /** 是否有写权限（能提交 / 推送）。 */

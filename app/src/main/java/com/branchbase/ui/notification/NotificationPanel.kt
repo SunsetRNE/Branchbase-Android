@@ -48,6 +48,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,6 +63,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.R
+import com.branchbase.ui.resolve
 import com.branchbase.ui.theme.ElementMotion
 import com.branchbase.ui.theme.selectionColor
 import com.branchbase.ui.theme.AnimatedStateIcon
@@ -104,7 +107,7 @@ fun NotifFilterFab(
             // 图标形态切换（筛选 ↔ 关闭）用交叉淡入 + 缩放，位置不跳
             AnimatedStateIcon(
                 icon = if (open) Icons.Filled.Close else Icons.Filled.Tune,
-                contentDescription = if (open) "关闭筛选面板" else "筛选与视图",
+                contentDescription = if (open) stringResource(R.string.action_close_filter_panel) else stringResource(R.string.label_filters_and_views),
                 tint = Color.White,
                 modifier = Modifier.size(22.dp),
             )
@@ -178,7 +181,7 @@ fun NotifPanel(
                     Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 12.dp, bottom = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("筛选与视图", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
+                    Text(stringResource(R.string.label_filters_and_views), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
                     Spacer(Modifier.width(8.dp))
                     Text(
                         summaryOf(category, selectedTypes, layout, range),
@@ -192,7 +195,7 @@ fun NotifPanel(
                         Modifier.size(32.dp).clip(RoundedCornerShape(8.dp)).clickable { onDone() },
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(Icons.Filled.Close, "关闭面板", tint = Primer.IconSecondary, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Filled.Close, stringResource(R.string.action_close_panel), tint = Primer.IconSecondary, modifier = Modifier.size(16.dp))
                     }
                 }
                 Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Gray150))
@@ -205,19 +208,19 @@ fun NotifPanel(
                         .padding(horizontal = 14.dp, vertical = 4.dp),
                 ) {
                     // ① 分类
-                    PanelSection("分类") {
+                    PanelSection(stringResource(R.string.label_category)) {
                         CategorySegment(category, categoryCounts, onCategory)
                     }
 
                     // ② 类型（多选）
                     PanelSection(
-                        title = "类型",
-                        action = if (selectedTypes.isNotEmpty()) "清除" to onClearTypes else null,
+                        title = stringResource(R.string.label_type),
+                        action = if (selectedTypes.isNotEmpty()) stringResource(R.string.action_clear_selection) to onClearTypes else null,
                     ) {
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             types.forEach { t ->
                                 PanelChip(
-                                    text = typeShortName(t),
+                                    text = typeShortLabel(t),
                                     count = typeCounts[t],
                                     selected = t in selectedTypes,
                                 ) { onToggleType(t) }
@@ -226,12 +229,12 @@ fun NotifPanel(
                     }
 
                     // ③ 视图模式
-                    PanelSection("视图模式") {
+                    PanelSection(stringResource(R.string.label_view_mode)) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             NotifLayout.entries.forEach { l ->
                                 LayoutOption(
-                                    title = l.label,
-                                    desc = l.desc,
+                                    title = stringResource(l.labelRes),
+                                    desc = stringResource(l.descRes),
                                     selected = layout == l,
                                 ) { onLayout(l) }
                             }
@@ -239,27 +242,27 @@ fun NotifPanel(
                     }
 
                     // ④ 时间范围 + 排序
-                    PanelSection("时间范围") {
+                    PanelSection(stringResource(R.string.label_time_range)) {
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             NotifRange.entries.forEach { r ->
-                                PanelChip(text = r.label, count = null, selected = range == r) { onRange(r) }
+                                PanelChip(text = stringResource(r.labelRes), count = null, selected = range == r) { onRange(r) }
                             }
                         }
                     }
-                    PanelSection("排序") {
+                    PanelSection(stringResource(R.string.label_sort)) {
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             NotifSort.entries.forEach { s ->
-                                PanelChip(text = s.label, count = null, selected = sort == s) { onSort(s) }
+                                PanelChip(text = stringResource(s.labelRes), count = null, selected = sort == s) { onSort(s) }
                             }
                         }
                     }
 
                     // ⑤ 过往 Issue（本地归档）
-                    PanelSection(title = "过往 Issue", action = null, icon = true) {
+                    PanelSection(title = stringResource(R.string.label_past_issues), action = null, icon = true) {
                         HistorySearch(historyQuery, onHistoryQuery)
                         if (history.isEmpty()) {
                             Text(
-                                "还没有处理过的会话。点开或「完成」一条 issue/PR 消息后会自动留档，方便回头找。",
+                                stringResource(R.string.note_past_issues_hint),
                                 fontSize = 11.5.sp,
                                 color = Primer.TextTertiary,
                                 lineHeight = 17.sp,
@@ -276,8 +279,8 @@ fun NotifPanel(
 
                 Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Gray150))
                 Row(Modifier.fillMaxWidth().padding(10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PanelButton("重置", primary = false, onClick = onReset, modifier = Modifier.weight(1f))
-                    PanelButton("完成", primary = true, onClick = onDone, modifier = Modifier.weight(1f))
+                    PanelButton(stringResource(R.string.action_reset), primary = false, onClick = onReset, modifier = Modifier.weight(1f))
+                    PanelButton(stringResource(R.string.state_done), primary = true, onClick = onDone, modifier = Modifier.weight(1f))
                 }
             }
         }
@@ -297,17 +300,29 @@ fun NotifPanel(
     }
 }
 
+/**
+ * 类型短名的展示文案。
+ *
+ * 模型层给的是**资源 ID**（[typeShortNameRes]），未知类型返回 0 ——
+ * 那种情况原样透出 `subjectType`，不吞掉后端新增的类型。
+ */
+@Composable
+private fun typeShortLabel(subjectType: String): String =
+    // `let` 是 inline 函数，所以这里可以调 stringResource（普通 lambda 里不行）
+    typeShortNameResOrNull(subjectType)?.let { stringResource(it) } ?: subjectType
+
 /** 面板顶部的口径摘要（「未读 · 2 个类型 · 按仓库」）。 */
+@Composable
 private fun summaryOf(
     category: NotifCategory,
     types: Set<String>,
     layout: NotifLayout,
     range: NotifRange,
 ): String {
-    val parts = mutableListOf(category.label)
-    if (types.isNotEmpty()) parts += "${types.size} 个类型"
-    if (layout != NotifLayout.FLAT) parts += layout.label
-    if (range != NotifRange.ALL) parts += range.label
+    val parts = mutableListOf(stringResource(category.labelRes))
+    if (types.isNotEmpty()) parts += stringResource(R.string.notif_summary_type_count, types.size)
+    if (layout != NotifLayout.FLAT) parts += stringResource(layout.labelRes)
+    if (range != NotifRange.ALL) parts += stringResource(range.labelRes)
     return parts.joinToString(" · ")
 }
 
@@ -376,7 +391,7 @@ private fun CategorySegment(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    c.label,
+                    stringResource(c.labelRes),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = if (selected) Primer.TextPrimary else Primer.TextSecondary,
@@ -550,7 +565,7 @@ private fun HistorySearch(query: String, onChange: (String) -> Unit) {
         Spacer(Modifier.width(7.dp))
         Box(Modifier.weight(1f)) {
             if (query.isEmpty()) {
-                Text("搜索标题 / 仓库 / 编号", fontSize = 12.5.sp, color = Primer.TextTertiary)
+                Text(stringResource(R.string.hint_search_notifications), fontSize = 12.5.sp, color = Primer.TextTertiary)
             }
             BasicTextField(
                 value = query,
@@ -571,7 +586,9 @@ private fun HistoryRow(
     onClick: () -> Unit,
     onRestore: () -> Unit,
 ) {
-    val meta = runCatching { typeShortName(item.subjectType) }.getOrDefault("Issue")
+    // 不再需要 runCatching：typeShortLabel 自己就带「未知类型原样透出」的兜底，
+    // 而 @Composable 调用本来也不允许出现在 runCatching 的 lambda 里
+    val meta = typeShortLabel(item.subjectType)
     Row(
         Modifier
             .fillMaxWidth()
@@ -609,11 +626,11 @@ private fun HistoryRow(
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 Spacer(Modifier.width(6.dp))
-                Text(relativeTimeOf(item.updatedAtMs), fontSize = 11.sp, color = Primer.TextTertiary)
+                Text(relativeTimeOf(item.updatedAtMs).resolve(), fontSize = 11.sp, color = Primer.TextTertiary)
                 if (item.isDone) {
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        "已完成",
+                        stringResource(R.string.state_completed),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         color = Primer.Green500,
@@ -627,7 +644,7 @@ private fun HistoryRow(
         }
         Spacer(Modifier.width(6.dp))
         Text(
-            "恢复未读",
+            stringResource(R.string.action_restore_unread),
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
             color = Primer.Blue500,
@@ -678,22 +695,22 @@ fun NotifSelectionBar(
                     strokeWidth = 2.dp,
                 )
                 Spacer(Modifier.width(8.dp))
-                Text("处理中…", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
+                Text(stringResource(R.string.state_processing), fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
                 Spacer(Modifier.weight(1f))
             } else {
                 Text(
-                    "已选 $selectedCount / 共 $visibleCount",
+                    stringResource(R.string.label_selected_of_visible, selectedCount, visibleCount),
                     fontSize = 12.5.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Primer.TextPrimary,
                     modifier = Modifier.weight(1f).padding(start = 4.dp),
                 )
             }
-            SelectionAction(Icons.Filled.MarkEmailRead, "已读", !running && selectedCount > 0, onRead)
-            SelectionAction(Icons.Filled.Done, "完成", !running && selectedCount > 0, onDone)
-            SelectionAction(Icons.Filled.VolumeOff, "静音", !running && selectedCount > 0, onMute)
-            SelectionAction(Icons.Filled.MoreHoriz, "更多", !running && selectedCount > 0, onMore)
-            SelectionAction(Icons.Filled.Close, "退出", true, onExit)
+            SelectionAction(Icons.Filled.MarkEmailRead, stringResource(R.string.state_read), !running && selectedCount > 0, onRead)
+            SelectionAction(Icons.Filled.Done, stringResource(R.string.state_done), !running && selectedCount > 0, onDone)
+            SelectionAction(Icons.Filled.VolumeOff, stringResource(R.string.action_mute), !running && selectedCount > 0, onMute)
+            SelectionAction(Icons.Filled.MoreHoriz, stringResource(R.string.action_more), !running && selectedCount > 0, onMore)
+            SelectionAction(Icons.Filled.Close, stringResource(R.string.action_exit), true, onExit)
         }
     }
 }
@@ -794,12 +811,12 @@ fun NotifSelectionTopBar(
             Modifier.size(34.dp).clip(RoundedCornerShape(8.dp)).clickable { onExit() },
             contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.Filled.Close, "退出多选", tint = Primer.TextSecondary, modifier = Modifier.size(18.dp))
+            Icon(Icons.Filled.Close, stringResource(R.string.action_exit_multiselect), tint = Primer.TextSecondary, modifier = Modifier.size(18.dp))
         }
         Spacer(Modifier.width(4.dp))
-        Text("已选 $selectedCount", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
+        Text(stringResource(R.string.label_selected, selectedCount), fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
         Spacer(Modifier.width(4.dp))
-        Text("/ 共 $visibleCount", fontSize = 12.sp, color = Primer.TextSecondary)
+        Text(stringResource(R.string.suffix_of_total, visibleCount), fontSize = 12.sp, color = Primer.TextSecondary)
         Spacer(Modifier.weight(1f))
         Row(
             Modifier.clip(RoundedCornerShape(8.dp)).clickable { onToggleAll() }.padding(horizontal = 8.dp, vertical = 6.dp),
@@ -815,7 +832,7 @@ fun NotifSelectionTopBar(
             )
             Spacer(Modifier.width(4.dp))
             Text(
-                if (allSelected) "取消全选" else "全选",
+                if (allSelected) stringResource(R.string.action_deselect_all) else stringResource(R.string.action_select_all),
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Primer.Blue500,

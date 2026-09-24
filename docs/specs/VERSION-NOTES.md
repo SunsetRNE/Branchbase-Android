@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只留格式契约 + 写法样板（3 个经典示例）；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.75**）
-与 §三 `versionCode` 流水（129 → **177**）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.85**）
+与 §三 `versionCode` 流水（129 → **187**）。
 
 ---
 
@@ -25,7 +25,91 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.84 → 1.0.22）
+## 二、`versionName` 流水（1.0.85 → 1.0.22）
+
+### 1.0.85
+
+**界面语言体系落地：中英双语 + 语言切换页；硬编码中文全量资源化**（功能 + 工程治理）。
+
+改造前 `res/values/strings.xml` 里只有 `app_name` 一条，界面文案全部以**中文字面量**写在
+Composable 里。代价有两层：加一种语言等于把界面重写一遍；更要命的是**文案改不动**——
+一句提示里的错别字要翻遍源码，而「提示语在某个分支下不对」这类问题无法用「换语言试试」定位。
+现在支持 **2 种语言**（简体中文为默认、`zh-Hans`；英文 `values-en/`），覆盖率 **100%**。
+
+① **语言清单不在 App 里，在资源目录里**。`app/build.gradle.kts` 开
+`androidResources.generateLocaleConfig`，AGP 按 `res/values-*/` 生成 `locales_config.xml` 并挂到
+`android:localeConfig`；默认那份是哪种语言由 `res/resources.properties` 的
+`unqualifiedResLocale=zh-Hans` 声明（缺了它 `:app:extractDebugSupportedLocales` 直接失败 ——
+它只能从目录名看出「有哪些语言」，看不出默认那份）。
+于是**加一种语言 ＝ 加一个 `values-xx/` 目录**，语言页自动多一个选项，没有第二处要改的清单。
+
+② **语言存系统里，App 不存**（`ui/settings/AppLanguage.kt`）。没有 prefs 键、没有 DataStore、
+没有内存状态，每次现读 `LocaleManager`（API 33+）。收益不是省几行代码，而是**消灭一整类闪烁**：
+不存在「异步读出来才知道该用哪种语言」，也就没有「首帧先渲染中文再跳英文」的窗口。
+低于 33 没有这个能力，于是语言行**整行不出现**而不是置灰 —— 规范 §3.2.1 对「仓库凭据」用的是同一条
+道理：禁用行必须给「怎么才能开」的出路，而这里的出路是换台新手机，不属于设置页能代办的事。
+语言行的**名称用母语自称**（`English` 而不是「英语」）：用户在看不懂当前界面语言时也必须能认出
+自己那一行；**说明用当前界面语言的他称**，两者相同时不给说明（否则就是用说明复述名称）。
+第 2 条同时是**翻译完成度的门控**：`values-en/` 不存在时清单里只有默认语言，入口自动隐藏。
+
+③ **切换不重建 Activity**。`AndroidManifest` 给 `MainActivity` 声明
+`configChanges="locale|layoutDirection"`：框架把新 Configuration 应用到 Activity 的 Resources，
+Compose 侧 `LocalConfiguration` 跟着更新、`stringResource` 自动取到新文案 ——
+导航记忆、各页取数状态、WebView 滚动位置都不丢。
+
+④ **资源化的三件基础设施**：
+
+- `LocalizedText`（`ui/LocalizedText.kt`）—— 模型层与渲染层之间的「资源 ID + 参数」载体，
+  支持**参数嵌套**（`LocalizedText(R.string.last_used_at, listOf(shortTime(iso)))`：把一个 helper 的
+  结果拼进句子，语序仍由资源的 `%1$s` 决定）、**`raw` 原样透出**（后端新增的事件类型不被吞掉）、
+  以及**复数**（`LocalizedText.plural(R.plurals.x, n, …)`）。中文只有 `other`，英文要分
+  `one`/`other`（`1 minute ago` / `2 minutes ago`）—— 复数只能靠 `<plurals>` 表达。
+  本体**不依赖 Compose**（`resolve(context)` 只认 `Context`），`@Composable` 的便利扩展单独放在
+  `LocalizedTextCompose.kt`，这样模型类型才能留在纯 JVM 单测里被断言。
+  ⚠️ 复数**只能经工厂入口构造**：`res` 是 `Int`，编译器和 lint 分不出它装的是 `<string>` 还是
+  `<plurals>`，直接传 `quantity` 会到运行时才炸（`getQuantityString` 抛
+  `Resources$NotFoundException`）。
+- `Feedback(text, ok)`（`ui/repository/Feedback.kt`）—— 修掉一类**静默错色**：原先有两处用
+  `it.startsWith("已")` 判断操作结果的语气，判据是**文案本身**。文案一旦抽成资源、界面切英文，
+  这个判断永不成立，**成功提示会全部渲染成红色**。改用产生方给出的 `ok` 后还顺带修了一个
+  **中文下就已经错**的：`state_default_branch_changed` 的文案是「默认分支**已**改为 %1$s」，
+  首字是「默」不是「已」，这条成功提示一直被渲染成红色。
+- **库模块资源带模块前缀**（`downloader_` / `imageviewer_`）。不是洁癖：库模块资源会与 `:app`
+  **合并**，而 `action_close`、`label_image` 这类通用名在 `:app` 里已被占用 ——
+  同名会被 `:app` 覆盖，值一旦不同就是「改了库模块却不见效」。
+  `:imageviewer` 此前**没有 `res/` 目录**，这次从零建立。
+
+⑤ **术语约定：中文侧 `issue` → 「讨论」**（英文侧保持 `issue`）。共 21 条资源**值**，
+不动资源名（改名会连带改所有引用点）。**刻意保留两处**：
+`login_key_scopes_bullets` 里的 `Issues` 是 GitHub 细粒度 token 界面上真实存在的**权限名**
+（换成中文用户就找不到该勾哪一项）；`type:issue` 是 **GitHub 搜索语法**，不是给人看的文案。
+另有一类永远不动：`when (state)` 匹配的是 **API 返回值**（`open`/`closed`/`merged`/`draft`），
+与界面语言无关。
+
+⑥ **校验进 CI**。`tools/i18n/check-i18n.py` 跑在两个工作流的**环境准备之前**（只解析 XML，几毫秒），
+查结构与覆盖率、占位符一致性与格式串完整性（`%1%1$s` 这种只比集合查不出来）、`translatable` 一致性、
+**跨模块语言子集**（库模块的 `values-xx/` 必须是 `:app` 的子集 —— `localeConfig` 按 `:app` 的 res 生成，
+只在库模块加语言会「通知是德文、界面是中文、语言列表里还没有德语」）、以及**复数不变量**。
+
+**现状与后续**（体系、范式、纪律、踩过的坑、剩余工作）全部收在
+[`i18n-migration.md`](i18n-migration.md) —— 这份版本记录不重复它。
+
+数字：`:app` 资源 **1384** 条（`values-en` 1383/1383 · **100%**，差 1 条是 `app_name` 标了
+`translatable="false"`）；`:downloader` 27/27；`:imageviewer` 6/6。
+生产代码剩余硬编码中文 **923** 条，其中 **206** 条是日志与设备信息，**按约定保持中文**
+（翻译它会让 `tools/perf/frame-baseline.py` 的正则失配），不计入待翻译量；
+其余 **717** 条需要接口改造（不在 `@Composable` 内、也拿不到 `Context`）——
+**补翻译表推不动它们**，路线见 `i18n-migration.md` §5.1 A′ / §5.4 C′。
+
+钉子：`StateLabelTest` 3 例（「未知状态返回 `null` 原样透出」这条语义，断言的是**资源 ID** 而非文案）；
+`AppLanguageTest` 6 例（只钉**关系** —— 名称用母语自称、说明用他称、两者相同时不给说明，
+不比对具体译文，避免跟 JDK 的 CLDR 版本一起假红）；
+`NotificationModelsTest` 的相对时间断言从钉字面量（`assertEquals("5 分钟前", …)`）改成
+钉 `res` + `quantity` + `args` —— 文案搬家不再假红。
+app + downloader **835 例全绿**；`assembleDebug` 通过；`check-i18n.py --min-coverage 100` 通过。
+versionCode 186 → 187（一次提交 +1）。
+
+---
 
 ### 1.0.84
 
@@ -1783,11 +1867,20 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（177 → 129）
+## 三、`versionCode` 流水（187 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **187**：界面语言体系落地 —— 中英双语（默认 `zh-Hans` + `values-en/`，覆盖率 **100%**）
++ 语言切换页（`LocaleManager`，API 33+；切换靠 `configChanges` 不重建 Activity，导航与取数状态不丢）
++ 硬编码中文全量资源化（`:app` 1384 / `:downloader` 27 / `:imageviewer` 6 条，后者从零建 `res/`）。
+`LocalizedText` 统一承载「资源 ID + 参数 + 嵌套 + 复数（`@PluralsRes` 工厂入口）」；
+`Feedback` 修掉「用文案猜语气」的静默错色（顺带修好一条**中文下就已错色**的
+`state_default_branch_changed`）；中文侧 `issue` → 「讨论」21 条，保留 GitHub 权限名与搜索语法。
+`StateLabelTest` 3 例、`AppLanguageTest` 6 例，`NotificationModelsTest` 的相对时间断言改钉
+`res` + `quantity` + `args`（一次提交，故 +1）
 
 - **186**：修「添加账号」返回落点 —— 整屏接管会销毁 `MainScreen` 子树、导航状态全丢，
 新增 `MainNavMemory` 寄存并**消费一次**恢复（所在 Tab / 是否在个人页 / 子页名）。

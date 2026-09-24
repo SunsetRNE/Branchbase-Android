@@ -26,6 +26,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.branchbase.R
 import com.branchbase.ui.log.LogCategory
 import com.branchbase.ui.log.Logger
 import com.branchbase.cache.PageCache
@@ -49,6 +51,7 @@ import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.decision.PrMergeScreen
 import com.branchbase.ui.navigation.PageBackHandler
+import com.branchbase.ui.resolve
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.async
@@ -82,6 +85,8 @@ fun PullDetailScreen(
     var mergeOpen by remember { mutableStateOf(false) }
     // 合并结果反馈：合并页通过 `onMerged` 交回来的原话（成功信息，可能带「分支删除失败」后缀）
     var mergeFeedback by remember { mutableStateOf<String?>(null) }
+    // 半成功标记与文案同源：都来自合并页交回来的那次结果
+    var mergePartial by remember { mutableStateOf(false) }
     // 主动刷新计数：合并成功后 +1。键进下面那个 LaunchedEffect ⇒ 详情重新回源
     // （force = true，跳过直出并忽略缓存新鲜度，否则刚合并完还会把旧的 open 详情再渲染一遍）
     var refreshTick by remember { mutableStateOf(0) }
@@ -162,11 +167,11 @@ fun PullDetailScreen(
         ) {
             DetailHeader("#$number", onBack)
             // 合并结果反馈压在页头下（LazyColumn 之外）：滚到文件变更末尾也还看得见
-            mergeFeedback?.let { MergeResultBanner(it) }
+            mergeFeedback?.let { MergeResultBanner(it, mergePartial) }
             val d = detail
             when {
                 loading -> CenterLoading()
-                d == null -> CenterText("加载失败")
+                d == null -> CenterText(stringResource(R.string.error_load_failed))
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     item { PullHead(d) }
                     // 合并入口：仅 open 且未合并的 PR 露出；不可自动合并时置灰 + 给一句原因
@@ -175,7 +180,8 @@ fun PullDetailScreen(
                         item {
                             MergeEntry(
                                 enabled = entry == PullMergeEntry.Enabled,
-                                hint = pullMergeHint(d.mergeable, d.headRef, d.baseRef),
+                                hint = pullMergeHintRes(d.mergeable, d.headRef, d.baseRef)
+                                    ?.let { stringResource(it) },
                                 onMerge = {
                                     // 锚点：`PR合并` —— 记下入口当时看到的状态，便于解释「为什么这次置灰/能点」
                                     Logger.local(
@@ -191,7 +197,7 @@ fun PullDetailScreen(
                     // 分支传空串 = 用 HEAD 兜底（这里拿不到默认分支；写死 "main" 在 master 仓库上会 404）
                     if (bodyHtml != null) item { ReadmeWebView(bodyHtml!!, host, owner, repo, "", login, token, onLinkClick = {}) }
                     else if (d.body.isNotBlank()) item { CommentBody(d.body, d.author, d.createdAt) }
-                    item { Text("文件变更 (${files.size})", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, modifier = Modifier.padding(16.dp, 14.dp, 16.dp, 6.dp)) }
+                    item { Text(stringResource(R.string.label_files_changed_count, files.size), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, modifier = Modifier.padding(16.dp, 14.dp, 16.dp, 6.dp)) }
                     items(files) { f -> PullFileRow(f) }
                 }
             }
@@ -217,11 +223,12 @@ fun PullDetailScreen(
                     headBranch = d.headRef,
                     baseBranch = d.baseRef,
                     onBack = { mergeOpen = false },
-                    onMerged = { message ->
+                    onMerged = { message, partial ->
                         // 合并页负责合并本身（策略 + 按记忆删分支）；这里只做「关子页 + 把详情拉回最新」
                         Logger.local("合并页返回：#${d.number} · ${message ?: "（无附加说明）"} → 强制回源刷新", "PR合并")
                         mergeOpen = false
-                        mergeFeedback = message ?: "已合并 PR #${d.number}"
+                        mergeFeedback = message ?: context.getString(R.string.state_merged_pr_number, d.number)
+                        mergePartial = partial
                         refreshTick++
                     },
                 )
@@ -251,7 +258,7 @@ private fun MergeEntry(enabled: Boolean, hint: String?, onMerge: () -> Unit) {
                 disabledContentColor = Primer.TextTertiary,
             ),
         ) {
-            Text("合并此 PR", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.action_merge_this_pr), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         }
         if (hint != null) {
             Spacer(Modifier.height(6.dp))
@@ -260,12 +267,14 @@ private fun MergeEntry(enabled: Boolean, hint: String?, onMerge: () -> Unit) {
     }
 }
 
-/** 合并结果反馈：合并页 `onMerged` 交回来的原话，一个字不改地显示（不吞消息）。 */
+/**
+ * 合并结果反馈：合并页 `onMerged` 交回来的原话，一个字不改地显示（不吞消息）。
+ *
+ * [partial]（合并成功但删分支失败）**由合并页给出**，不在这里解析文案 ——
+ * 文案抽成资源后 `contains("失败")` 在英文界面下永不成立，半成功会被渲染成纯成功。
+ */
 @Composable
-private fun MergeResultBanner(message: String) {
-    // 「已合并」是成功；带「失败」后缀（例如合并成功但删分支失败）用警告色，
-    // 别把半成功渲染成纯成功 —— 那个后缀是用户唯一能看到的线索。
-    val partial = message.contains("失败")
+private fun MergeResultBanner(message: String, partial: Boolean) {
     Text(
         message,
         fontSize = 12.sp,
@@ -286,7 +295,7 @@ private fun DetailHeader(title: String, onBack: () -> Unit) {
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
+        Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back), tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
         Spacer(Modifier.width(8.dp))
         Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
     }
@@ -303,7 +312,7 @@ private fun PullHead(d: PullDetail) {
             Text(d.state, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = stateColor(d.state))
         }
         Spacer(Modifier.height(6.dp))
-        Text("${d.author} 想将 ${d.headRef} 合并到 ${d.baseRef}", fontSize = 12.sp, color = Primer.TextTertiary)
+        Text(stringResource(R.string.label_merge_intent, d.author, d.headRef, d.baseRef), fontSize = 12.sp, color = Primer.TextTertiary)
     }
 }
 
@@ -314,7 +323,7 @@ private fun CommentBody(body: String, author: String, createdAt: String) {
     ) {
         Text(body, fontSize = 13.sp, color = Primer.TextPrimary, lineHeight = 20.sp)
         Spacer(Modifier.height(6.dp))
-        Text("$author · ${shortTime(createdAt)}", fontSize = 11.5.sp, color = Primer.TextTertiary)
+        Text("$author · ${shortTime(createdAt).resolve()}", fontSize = 11.5.sp, color = Primer.TextTertiary)
     }
 }
 
@@ -333,7 +342,7 @@ private fun CommentCard(c: CommentItem) {
             Spacer(Modifier.height(3.dp))
             Text(c.body, fontSize = 13.sp, color = Primer.TextPrimary, lineHeight = 19.sp)
             Spacer(Modifier.height(4.dp))
-            Text(shortTime(c.createdAt), fontSize = 11.sp, color = Primer.TextTertiary)
+            Text(shortTime(c.createdAt).resolve(), fontSize = 11.sp, color = Primer.TextTertiary)
         }
     }
 }
@@ -405,7 +414,7 @@ fun CommitDetailScreen(
         DetailHeader(sha, onBack)
         when {
             loading -> CenterLoading()
-            detail == null -> CenterText("加载失败")
+            detail == null -> CenterText(stringResource(R.string.error_load_failed))
             else -> LazyColumn(Modifier.fillMaxSize()) {
                 item { CommitHead(detail!!) }
                 items(detail!!.files) { f -> CommitFileBlock(f) }
@@ -419,7 +428,7 @@ private fun CommitHead(d: CommitDetail) {
     Column(Modifier.fillMaxWidth().padding(16.dp)) {
         Text(d.message, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary, lineHeight = 22.sp)
         Spacer(Modifier.height(6.dp))
-        Text("${d.author} · ${d.sha} · ${shortTime(d.date)}", fontSize = 12.sp, color = Primer.TextTertiary)
+        Text("${d.author} · ${d.sha} · ${shortTime(d.date).resolve()}", fontSize = 12.sp, color = Primer.TextTertiary)
     }
 }
 
