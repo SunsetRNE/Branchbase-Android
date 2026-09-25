@@ -59,6 +59,10 @@ private val PANEL_WIDTH = 268.dp
  *   （见 `GitWorkbenchWiringTest`）
  * @param onOpenDiff 看某个改动文件的**本地 diff**（工作区档的行）。null = 行不可点
  * @param onOpenCommitDiff 看某条提交的**本地 diff**（提交图 / 文件历史档的行）。null = 行不可点
+ * @param onMerge 去**合并决策页**（工作区档的「合并分支…」胶囊）。null = 不画那枚胶囊
+ * @param onResumeMerge 去**冲突详情页**（合并中状态条的「继续」）。null = 不画那枚胶囊
+ * @param onAbortMerge 放弃合并（合并中状态条的「放弃」）。**跑动作的是宿主** ——
+ *   面板这一族源码里不许出现任何 git 写方法（`GitWorkbenchWiringTest` 扫全表）
  * @param filePath 「文件历史」档要看哪个文件：文件页传正在看的那个路径，代码页传 null
  *   （那时这一档如实说明去哪看，而不是显示一个空列表）
  */
@@ -78,6 +82,9 @@ fun GitPanelViewHost(
     onDeepen: (() -> Unit)? = null,
     onOpenDiff: ((String) -> Unit)? = null,
     onOpenCommitDiff: ((String) -> Unit)? = null,
+    onMerge: (() -> Unit)? = null,
+    onResumeMerge: (() -> Unit)? = null,
+    onAbortMerge: (() -> Unit)? = null,
     filePath: String? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -100,6 +107,9 @@ fun GitPanelViewHost(
                 onOpenSync = onOpenSync,
                 onOpenBranches = onOpenBranches,
                 onOpenDiff = onOpenDiff,
+                onMerge = onMerge,
+                onResumeMerge = onResumeMerge,
+                onAbortMerge = onAbortMerge,
             )
             GitPanelKind.Graph -> CommitGraphPanel(
                 host = host,
@@ -208,6 +218,9 @@ private fun GitPanelTabs(current: GitPanelKind, onSelect: (GitPanelKind) -> Unit
  * 执法者是 `GitWorkbenchWiringTest`（面板源码里不许出现 git 写操作）。
  *
  * @param onOpenDiff 打开某个改动文件的**本地 diff**（null = 这个宿主没有这个出口 → 行不可点）
+ * @param onMerge 去合并决策页（null = 这个宿主没有这个出口 → **不画那枚胶囊**）
+ * @param onResumeMerge 去冲突详情页（合并中才有意义；null = 不画）
+ * @param onAbortMerge 放弃合并 —— **面板只给出口，跑它的是宿主**（见 `GitWorkbenchWiringTest`）
  */
 @Composable
 fun GitWorkspaceBody(
@@ -216,6 +229,9 @@ fun GitWorkspaceBody(
     onOpenSync: () -> Unit,
     onOpenBranches: (() -> Unit)? = null,
     onOpenDiff: ((String) -> Unit)? = null,
+    onMerge: (() -> Unit)? = null,
+    onResumeMerge: (() -> Unit)? = null,
+    onAbortMerge: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxWidth()) {
@@ -253,6 +269,31 @@ fun GitWorkspaceBody(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 2.dp),
         )
+
+        // ── 合并中：这一档最先要说的是「现在停在哪儿」，不是「工作区干不干净」──
+        // 停在合并中时工作区**必然**是脏的（冲突文件带标记），先列改动清单只会让人更糊涂。
+        // 两条出路都只在这里给出口：真正的写操作在宿主（面板里零写操作，§6.1）
+        if (git.merging) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                stringResource(R.string.state_merging_in_panel, git.mergeConflicts),
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Medium,
+                color = Primer.WarningText,
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(top = 6.dp),
+            ) {
+                onResumeMerge?.let {
+                    PanelChip(stringResource(R.string.action_resolve_conflicts), enabled = true, onClick = it)
+                }
+                onAbortMerge?.let {
+                    PanelChip(stringResource(R.string.action_abort_merge), enabled = true, onClick = it)
+                }
+            }
+        }
 
         Spacer(Modifier.height(8.dp))
 
@@ -328,6 +369,14 @@ fun GitWorkspaceBody(
             PanelChip(stringResource(R.string.nav_local_branch_sync), enabled = git.exists, onClick = onOpenSync)
             onOpenBranches?.let {
                 PanelChip(stringResource(R.string.nav_branch_manage), enabled = git.exists, onClick = it)
+            }
+            // 合并中时不给这枚入口：同时开着「合并」与「解决冲突」两条路，用户会以为要先合完这一次
+            onMerge?.let {
+                PanelChip(
+                    stringResource(R.string.action_merge_branch),
+                    enabled = git.exists && !git.merging,
+                    onClick = it,
+                )
             }
         }
         Text(

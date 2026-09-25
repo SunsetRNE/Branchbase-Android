@@ -30,6 +30,15 @@ data class LocalRepoGitState(
     val dirty: List<DirtyFile> = emptyList(),
     val hasUpstream: Boolean = false,
     val remoteUrl: String = "",
+    /**
+     * 仓库是不是**停在合并中**（`.git/MERGE_HEAD` 在）。
+     *
+     * 这是「合并到一半被杀」之后唯一的线索（`git-mode-design.md` §6.4 风险 ①）：
+     * 面板据此把「合并分支」换成「继续 / 放弃」，而不是让用户对着一堆冲突标记猜发生了什么。
+     */
+    val merging: Boolean = false,
+    /** 合并中**还剩几个**冲突文件（`merging = false` 时恒为 0）。 */
+    val mergeConflicts: Int = 0,
 ) {
     /** 需要推送 / 需要拉取 / 分叉 —— 面板徽标与动作开关都用它。 */
     /** 改动文件数（徽标 / 摘要用它，免得两处各取一次长度）。 */
@@ -55,6 +64,22 @@ fun localRepoDir(context: Context, repo: String): String =
     LocalRepos.dirOf(context, AccountStore.currentLogin(context), repo)
 
 /**
+ * 本地 git 提交的**身份**（作者名 / 邮箱）。
+ *
+ * 存储键与「设置 → 本地仓库」那一页是同一份（`branchbase` 这个 SharedPreferences 里的
+ * `commit.author.*`）—— 抽出来是为了**只有一处**知道键名：合并提交与普通提交用的是同一个身份，
+ * 两处各写一份的话，改了设置里的称呼、合并提交却还用旧名字（而这事只有翻 git log 才看得出来）。
+ */
+fun gitAuthorName(context: Context): String =
+    context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
+        .getString("commit.author.name", "")?.takeIf { it.isNotBlank() } ?: "Branchbase"
+
+fun gitAuthorEmail(context: Context): String =
+    context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
+        .getString("commit.author.email", "")?.takeIf { it.isNotBlank() }
+        ?: "branchbase@users.noreply.github.com"
+
+/**
  * 本地仓库是不是**浅克隆**（`.git/shallow` 存在）。
  *
  * 这个判定现在有真实用途：提交图的择源（[graphSourceOf]）。clone 用的是 `depth(1)`，
@@ -77,6 +102,14 @@ suspend fun loadLocalRepoGitState(context: Context, repo: String): LocalRepoGitS
         val dir = File(localRepoDir(context, repo))
         if (!File(dir, ".git").exists()) return@withContext LocalRepoGitState(exists = false)
         val status: GitStatus? = RustBridge.gitStatus(dir.absolutePath)?.let { parseGitStatus(it) }
+        // 合并中才去读第二个接口：正常状态下这一条不产生任何额外调用，
+        // 而合并中不读的话，面板就只能说「合并中」、说不出「还剩几个」
+        val merging = status?.merging ?: false
+        val mergeConflicts = if (merging) {
+            unresolvedCount(parseMergeState(RustBridge.gitMergeState(dir.absolutePath)))
+        } else {
+            0
+        }
         LocalRepoGitState(
             exists = true,
             branch = status?.branch.orEmpty(),
@@ -85,6 +118,8 @@ suspend fun loadLocalRepoGitState(context: Context, repo: String): LocalRepoGitS
             dirty = status?.dirty.orEmpty(),
             hasUpstream = status?.hasUpstream ?: false,
             remoteUrl = status?.remoteUrl.orEmpty(),
+            merging = merging,
+            mergeConflicts = mergeConflicts,
         )
     }
 

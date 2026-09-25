@@ -233,6 +233,12 @@ fun RepositoryScreen(
     // 直接复用路由类型当状态：路由是由它推出来的，两处各写一份字段迟早会漂
     var diffTarget by remember { mutableStateOf<RepoRoute.LocalDiff?>(null) }
     var showLocalSync by remember { mutableStateOf(false) }
+
+    // 合并（阶段 5 的 UI 那半）：决策页 / 冲突详情页两屏，加上「正在进行的那次合并」的状态。
+    // 路由由这两个 boolean 推出来（与 LocalDiff 同一条规矩：状态与路由不许各写一份）
+    var showMerge by remember { mutableStateOf(false) }
+    var showMergeConflict by remember { mutableStateOf(false) }
+    val mergeFlow = rememberMergeFlowState()
     // 提交模式（代码页气泡面板直接切换，不必再进「设置」）
     var showCommitMode by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -466,6 +472,8 @@ fun RepositoryScreen(
         showBranchManage -> RepoRoute.BranchManage
         comparePair != null -> RepoRoute.BranchCompare(comparePair!!)
         diffTarget != null -> diffTarget!!
+        showMergeConflict -> RepoRoute.MergeConflict
+        showMerge -> RepoRoute.Merge
         showLocalSync -> RepoRoute.LocalSync
         peoplePage != null -> RepoRoute.People(peoplePage!!)
         filePage != null -> RepoRoute.File(filePage!!)
@@ -570,6 +578,10 @@ fun RepositoryScreen(
             fun leavePage() {
                 when (route) {
                     RepoRoute.Tab -> Unit
+                    // 合并两屏（阶段 5）：退场也要把状态清掉 —— 漏一个分支的表现是
+                    // 「返回时跳掉一层」（这个 when 的注释里就记着网页登录页漏过一版）
+                    RepoRoute.Merge -> showMerge = false
+                    RepoRoute.MergeConflict -> showMergeConflict = false
                     RepoRoute.BranchSync -> showBranchSync = false
                     RepoRoute.BranchManage -> showBranchManage = false
                     RepoRoute.LocalSync -> showLocalSync = false
@@ -692,6 +704,36 @@ fun RepositoryScreen(
                             path = r.path,
                             commitSha = r.sha,
                             onBack = { diffTarget = null },
+                        )
+                    }
+
+                    // 合并决策页（全屏）：选一个分支合到当前分支。
+                    // 本地仓库状态在**这一屏自己读**（`repo_status` 一次）：外层读的话，
+                    // 只要人在代码页上就会平白多一次引擎调用
+                    RepoRoute.Merge -> {
+                        val git = rememberLocalRepoGitState(repo, refreshTick)
+                        MergeDecisionScreen(
+                            repoDir = localRepoDir(context, repo),
+                            repoName = repo,
+                            git = git,
+                            token = sessionToken,
+                            flow = mergeFlow,
+                            onBack = { showMerge = false },
+                            onFeedback = { text, _ -> toast(text) },
+                            onChanged = { refreshTick++ },
+                        )
+                    }
+
+                    // 冲突详情对比页（全屏）：逐文件解决 → 提交合并 / 放弃合并
+                    RepoRoute.MergeConflict -> {
+                        MergeConflictScreen(
+                            repoDir = localRepoDir(context, repo),
+                            repoName = repo,
+                            startedWith = mergeFlow.startedWith,
+                            flow = mergeFlow,
+                            onBack = { showMergeConflict = false },
+                            onFeedback = { text, _ -> toast(text) },
+                            onChanged = { refreshTick++ },
                         )
                     }
 
@@ -987,6 +1029,22 @@ fun RepositoryScreen(
                                         onOpenBranches = { showBranchManage = true },
                                         onOpenDiff = { path -> diffTarget = RepoRoute.LocalDiff(path = path) },
                                         onOpenCommitDiff = { sha -> diffTarget = RepoRoute.LocalDiff(sha = sha) },
+                                        // 合并（阶段 5）：面板只给三枚出口，动作全在宿主 ——
+                                        // 「合并分支…」去决策页；合并中时「继续 / 放弃」两条出路
+                                        onMerge = { showMerge = true },
+                                        onResumeMerge = { showMergeConflict = true },
+                                        onAbortMerge = {
+                                            scope.launch {
+                                                runMergeAbort(
+                                                    context = context,
+                                                    flow = mergeFlow,
+                                                    repoDir = localRepoDir(context, repo),
+                                                    repoName = repo,
+                                                    onFeedback = { text, _ -> toast(text) },
+                                                    onChanged = { refreshTick++ },
+                                                )
+                                            }
+                                        },
                                     )
                                 }
                             }
@@ -1018,6 +1076,21 @@ fun RepositoryScreen(
                 showWebLogin = true
             },
             onDismiss = { showWatchPanel = false },
+        )
+    }
+
+    // 合并冲突弹窗（D-h：合并一返回冲突就出现）。
+    // 渲染在**外层**而不是面板里：合并是从全屏的决策页发起的，那一屏在的时候面板并没有被组合 ——
+    // 放在面板里的话，弹窗会在最需要它的那一刻不出现。
+    mergeFlow.conflict?.let { notice ->
+        MergeConflictDialog(
+            notice = notice,
+            onOpenDetail = {
+                mergeFlow.conflict = null
+                showMerge = false
+                showMergeConflict = true
+            },
+            onLater = { mergeFlow.conflict = null },
         )
     }
 
@@ -1150,6 +1223,25 @@ private sealed interface RepoRoute : PageLevel {
         override val depth: Int get() = 1
     }
 
+    /**
+     * 合并决策页（本地合并：选分支 → 看事实 → 合并）。
+     *
+     * 与提交 / 撤销 / 分支切换同一条口径：**有后果的动作走决策页**，面板只给出口。
+     */
+    data object Merge : RepoRoute {
+        override val depth: Int get() = 1
+    }
+
+    /**
+     * 冲突详情对比页（逐文件解决 → 提交合并 / 放弃合并）。
+     *
+     * 第 2 层而不是第 1 层：它要么从合并决策页深入（刚合出冲突），要么从面板的
+     * 「继续」进来 —— 两种都是「在合并这件事里面」，返回时该回到进来之前那一屏。
+     */
+    data object MergeConflict : RepoRoute {
+        override val depth: Int get() = 2
+    }
+
     data class ReleaseDetail(val release: ReleaseItem) : RepoRoute {
         override val depth: Int get() = 1
     }
@@ -1224,6 +1316,9 @@ private fun CodePageGitPanel(
     onOpenBranches: (() -> Unit)? = null,
     onOpenDiff: ((String) -> Unit)? = null,
     onOpenCommitDiff: ((String) -> Unit)? = null,
+    onMerge: (() -> Unit)? = null,
+    onResumeMerge: (() -> Unit)? = null,
+    onAbortMerge: (() -> Unit)? = null,
 ) {
     var stage by remember { mutableStateOf(initialStage) }
     val localGit = rememberLocalRepoGitState(repo, refreshTick)
@@ -1328,6 +1423,9 @@ private fun CodePageGitPanel(
                 onDeepen = deepen::start,
                 onOpenDiff = onOpenDiff,
                 onOpenCommitDiff = onOpenCommitDiff,
+                onMerge = onMerge,
+                onResumeMerge = onResumeMerge,
+                onAbortMerge = onAbortMerge,
             )
         },
         title = localGit.summary(),

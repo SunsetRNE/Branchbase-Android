@@ -1505,13 +1505,18 @@ pub fn merge_state(dir: &str) -> Result<String> {
 /// 所以它是纯本地读：不动索引、不动工作区、不写任何文件（`analyze_conflicts_只读且不动工作区` 钉着）。
 ///
 /// 输出：`{ files: [{ path, kind, binary, ours_sha, theirs_sha, base_sha, ours_size,
-/// theirs_size, base_size, patch, truncated }], truncated }`
+/// theirs_size, base_size, patch, truncated, ours, theirs, worktree, content_truncated }], truncated }`
 ///
 /// - **冲突块就是 patch 里的 hunk**：不再单独算一套「冲突块」—— `ours ↔ theirs` 之间变了的
 ///   那几段正是要人做决定的地方，两处各算一份只会出现两套互相矛盾的范围；
 /// - `binary = true` 时 `patch` 为空（libgit2 不给二进制内容），三方 size 照给 ——
 ///   上层据此说「二进制文件，请选一边」，而不是画一个空 diff；
 /// - 某一侧 `*_sha` 为空 = **那一侧删了这个文件**（`kind` 已经说明是哪一侧）；
+/// - `ours` / `theirs` / `worktree`：三方内容（**工作区那份带冲突标记**），供详情页
+///   「用我方 / 用对方」预览与手工编辑的初值。单份上限 [`CONFLICT_CONTENT_LIMIT`]，
+///   截断时置 `content_truncated`（与 patch 的 `truncated` 分开记 —— 两件事，别混成一个标志）；
+/// - **base 只给 sha 与大小、不给内容**：界面要做的决定是「用我方还是用对方」，
+///   base 不参与这个决定；真要看得走 patch（它就在里面）；
 /// - 没有进行中的合并时**报错**而不是给空数组：空数组会被读成「没有冲突」，
 ///   而真相是「现在没有合并这回事」——两者要做的事完全不同。
 pub fn analyze_conflicts(dir: &str) -> Result<String> {
@@ -1550,6 +1555,20 @@ pub fn analyze_conflicts(dir: &str) -> Result<String> {
             patch_to_text(&mut rendered)?
         };
         any_truncated |= patch.1;
+        let ours = old.as_ref().map(|b| cap_content(b.content()));
+        let theirs = new.as_ref().map(|b| cap_content(b.content()));
+        // 工作区那份（带 `<<<<<<<` 标记）—— 手工编辑的初值就该是它：git 留给人的就是这个形状，
+        // 从空文本开始编辑等于让用户自己把两边的内容再抄一遍
+        let worktree = std::fs::read(
+            repo.workdir()
+                .map(|w| w.join(&e.path))
+                .unwrap_or_else(|| std::path::PathBuf::from(&e.path)),
+        )
+        .ok()
+        .map(|bytes| cap_content(&bytes));
+        let content_truncated = [&ours, &theirs, &worktree]
+            .iter()
+            .any(|c| c.as_ref().map(|(_, cut)| *cut).unwrap_or(false));
         files.push(json!({
             "path": e.path,
             "kind": e.kind,
@@ -1562,6 +1581,10 @@ pub fn analyze_conflicts(dir: &str) -> Result<String> {
             "base_size": e.base.and_then(|oid| repo.find_blob(oid).ok()).map(|b| b.size()).unwrap_or(0),
             "patch": patch.0,
             "truncated": patch.1,
+            "ours": ours.as_ref().map(|(t, _)| t.clone()).unwrap_or_default(),
+            "theirs": theirs.as_ref().map(|(t, _)| t.clone()).unwrap_or_default(),
+            "worktree": worktree.as_ref().map(|(t, _)| t.clone()).unwrap_or_default(),
+            "content_truncated": content_truncated,
         }));
     }
     Ok(json!({ "files": files, "truncated": any_truncated }).to_string())
@@ -2271,6 +2294,27 @@ pub fn diff_commit(dir: &str, sha: &str) -> Result<String> {
         .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut opts))
         .map_err(|e| CoreError::Other(format!("比较提交树失败: {e}")))?;
     render_diff(&diff)
+}
+
+/// 冲突三方内容（`ours` / `theirs` / `worktree`）**每一份**的上限（字节）。
+///
+/// 与 patch 的上限分开：patch 是给眼睛看的差异，内容是给编辑器当初值的 ——
+/// 一个 5 MB 的冲突文件整份走 JNI 回来会挤占主线程内存，而这种文件人也不会在手机上手工合。
+/// 截断时置 `content_truncated`，界面据此说「内容太大，只带回了开头」。
+const CONFLICT_CONTENT_LIMIT: usize = 64 * 1024;
+
+/// 把一段字节变成**可传给上层**的文本：UTF-8 宽松解码 + 超限按字符边界截断。
+/// 返回 `(文本, 是否截断)`。
+fn cap_content(bytes: &[u8]) -> (String, bool) {
+    let text = String::from_utf8_lossy(bytes).to_string();
+    if text.len() <= CONFLICT_CONTENT_LIMIT {
+        return (text, false);
+    }
+    let mut cut = CONFLICT_CONTENT_LIMIT;
+    while cut > 0 && !text.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    (text[..cut].to_string(), true)
 }
 
 /// patch 文本的上限（字节）。
@@ -3421,6 +3465,14 @@ mod tests {
         let patch = f["patch"].as_str().unwrap();
         assert!(patch.contains("-ours"), "patch 少了删除行：{patch}");
         assert!(patch.contains("+theirs"), "patch 少了新增行：{patch}");
+
+        // 三方内容：ours / theirs 是各自那一份，worktree 是**带冲突标记**的那一份
+        // （手工编辑的初值就该是它 —— 从空文本开始编辑等于让用户自己抄一遍两边）
+        assert_eq!(f["ours"], "ours\n");
+        assert_eq!(f["theirs"], "theirs\n");
+        let worktree = f["worktree"].as_str().unwrap();
+        assert!(worktree.contains("<<<<<<<"), "worktree 应是带标记的那一份：{worktree}");
+        assert_eq!(f["content_truncated"], false);
 
         // **只读**：工作区那份（带标记的）一个字都没动 —— 预解析在弹窗出现那一刻就跑，
         // 它要是会写盘，用户还没点任何按钮仓库就已经变了

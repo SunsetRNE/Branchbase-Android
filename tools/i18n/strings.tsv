@@ -1290,3 +1290,70 @@ $count 个只在远端	%1$s remote-only	label_refs_remote_only_count
 文件历史加载失败：$reason	Failed to load file history: %1$s	error_file_history_load_failed
 文件历史要在一个文件里看 —— 从代码页点开一个文件，那里的 Git 球能看到它的历史。	File history needs a file — open one from the code page and the Git bubble there shows its history.	note_file_history_needs_file
 本地是浅克隆，这里显示的是远端历史 · 加深后可离线查看，并点开每一条改动	The local clone is shallow, so this is the remote history — deepen it to browse offline and open each change	note_file_history_remote
+合并	Merge	action_merge
+合并分支…	Merge branch…	action_merge_branch
+放弃合并	Abort merge	action_abort_merge
+提交合并	Commit merge	action_commit_merge
+解决冲突	Resolve conflicts	action_resolve_conflicts
+用我方	Use ours	action_use_ours
+用对方	Use theirs	action_use_theirs
+手工编辑	Edit manually	action_edit_manually
+标记已解决	Mark resolved	action_mark_resolved
+重新预解析	Analyze again	action_retry_preparse
+合并分支	Merge a branch	title_merge
+解决合并冲突	Resolve merge conflicts	title_merge_conflicts
+事实	Facts	label_merge_facts
+要合并的分支	Branch to merge	label_merge_target
+它的状态	Its state	label_merge_target_state
+远端分支	Remote branch	label_merge_will_fetch
+选一个分支合到当前分支	Pick a branch to merge into the current one	label_merge_pick_branch
+这次合并	This merge	label_merge_progress
+还剩未解决	Still unresolved	label_merge_remaining
+本次共冲突	Conflicts at start	label_merge_total
+对方提交	Their commit	label_merge_commit_head
+合并提交信息	Merge commit message	label_merge_message
+我方 %1$s 字节 · 对方 %2$s 字节	Ours %1$s bytes · theirs %2$s bytes	label_merge_sizes
+合并 %1$s	Merge %1$s	label_merge_task_title
+还没拉取到本地，先拉取这个仓库再合并。	This repo is not cloned locally yet — clone it first, then merge.	state_merge_blocked_no_local
+这个仓库正停在上一次合并里：先把冲突解决完并「提交合并」，或者「放弃合并」。	This repo is still in a previous merge — resolve and commit it, or abort it first.	state_merge_blocked_already
+工作区有 %1$s 处未提交改动，合并会覆盖它们。先提交或撤销，再合并。	The working tree has %1$s uncommitted change(s); a merge would overwrite them. Commit or discard them first.	state_merge_blocked_dirty
+本地是浅克隆（没有共同祖先），合并不了。先「加深历史」把完整历史拉到本地。	The local clone is shallow (no common ancestor) — deepen the history first.	state_merge_blocked_shallow
+还没选分支	No branch picked	state_merge_no_target
+已同步	Up to date	state_merge_target_synced
+%1$s 处改动	%1$s change(s)	state_merge_dirty_count
+干净	Clean	state_merge_workspace_clean
+合并前会先拉一次	fetched before merging	state_merge_will_fetch
+只在远端 —— 合并前会先 fetch 一次	Remote only — fetched before merging	state_merge_remote_only
+与本分支分叉（各有独有提交）	Diverged from this branch	state_merge_diverged
+未设置上游	No upstream	state_merge_no_upstream
+没有可合并的分支（当前分支之外的本地分支与远端分支都没找到）。	No branch to merge (nothing besides the current branch, local or remote).	state_merge_no_branches
+合并中…	Merging…	state_merging
+正在合并 · 还剩 %1$s 个文件没解决	Merging · %1$s file(s) unresolved	state_merging_in_panel
+已包含对方	Already up to date	state_merge_up_to_date
+快进完成	Fast-forwarded	state_merge_fast_forward
+%1$s 个文件冲突，仓库停在合并中	%1$s conflicting file(s); repo left mid-merge	state_merge_conflict_task
+这个仓库现在没有进行中的合并。	This repo has no merge in progress.	state_not_merging
+冲突都解决完了 —— 可以「提交合并」了。	All conflicts resolved — you can commit the merge now.	state_all_conflicts_resolved
+正在预解析这个文件的差异…	Analyzing this file's diff…	state_preparse_running
+合并会新增一个合并提交（两条历史的汇合点）——已有的提交一个字节都不会改。有冲突时会停在这里，逐个解决后提交，或整体放弃回到合并前。	A merge adds a merge commit (where the two histories join); existing commits are untouched. If there are conflicts the repo pauses here: resolve them one by one and commit, or abort and go back.	note_merge_consequence
+二进制文件，没有可显示的差异 —— 请直接选一边。	Binary file — no text diff to show. Just pick one side.	note_conflict_binary
+文件太大，编辑器里只有开头一段 —— 请谨慎手工解决。	The file is large; only its beginning is loaded in the editor — resolve carefully.	note_conflict_content_truncated
+读不到分支清单（仓库不存在或引擎不可用）。	Could not read the branch list (repo missing or engine unavailable).	error_merge_branches_failed
+预解析失败（仓库可能刚被改动过）。	Analysis failed (the repo may have just changed).	error_preparse_failed
+合并提交信息里疑似有敏感信息：再点一次「提交合并」就照常提交。	The merge message may contain secrets — tap “Commit merge” again to submit anyway.	warning_sensitive_in_message
+疑似敏感信息：%1$s	Possible secret: %1$s	warning_sensitive_line
+有 %1$s 个文件冲突	%1$s conflicting file(s)	conflict_dialog_title
+合并 %1$s 停在了冲突上：这些文件两边都改过，仓库现在停在合并中（不是失败）。	Merging %1$s stopped on conflicts: both sides changed these files, and the repo is paused mid-merge (not a failure).	conflict_dialog_body
+还有 %1$s 个…	%1$s more…	conflict_dialog_more
+两边都改了	Changed on both sides	label_conflict_both_modified
+两边都新增了同名文件	Added on both sides	label_conflict_both_added
+我方删了、对方改了	Deleted by us, changed by them	label_conflict_deleted_by_us
+对方删了、我方改了	Deleted by them, changed by us	label_conflict_deleted_by_them
+冲突	Conflict	label_conflict_unknown
+已经包含 %1$s，没有需要合并的内容	Already contains %1$s — nothing to merge	toast_merge_up_to_date
+已快进到 %1$s	Fast-forwarded to %1$s	toast_merge_fast_forward
+已创建合并提交 %1$s	Merge commit %1$s created	toast_merged
+已放弃合并，回到合并前	Merge aborted — back to the pre-merge state	toast_merge_aborted
+合并没有执行成功，引擎回了一个看不懂的结果。	The merge did not succeed — the engine returned an unreadable result.	error_merge_bad_result
+已合并	Merged	state_merged
+放弃这次合并：工作区与索引会回到合并前那一刻，冲突标记与已做的解决都会被丢掉。你自己的改动不会丢 —— 合并的前提就是工作区干净。	Abort this merge: the working tree and index go back to the pre-merge state, so conflict markers and any resolutions are discarded. Your own changes are not affected — a merge only starts from a clean tree.	confirm_abort_merge_body

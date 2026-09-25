@@ -28,6 +28,14 @@ data class GitStatus(
      * 必然失败（从没 fetch 过的仓库就是这种）—— 同样要在 UI 里提前说明。
      */
     val hasRemoteRef: Boolean = false,
+    /**
+     * 仓库是不是**停在合并中**（`.git/MERGE_HEAD` 在）。
+     *
+     * 用途只有一个：让界面知道现在该给的是「继续 / 放弃合并」，而不是假装一切正常
+     * （`git-mode-design.md` §6.4 风险 ①：合并到一半被杀之后，仓库就在这个状态里）。
+     * 细节（还剩哪几个冲突文件、待提交的信息）走 `merge_state`，这个字段只是那个开关。
+     */
+    val merging: Boolean = false,
 )
 
 /** 工作区变更文件 */
@@ -69,6 +77,9 @@ fun parseGitStatus(json: String?): GitStatus? {
             hasParent = o.optBoolean("has_parent", true),
             headSha = o.optString("head_sha", ""),
             hasRemoteRef = o.optBoolean("has_remote_ref", false),
+            // 缺键 = 老 `.so`：false（按「没在合并」退化 —— 这一条的代价只是少一个提示，
+            // 而反过来把正常仓库画成「合并中」会让用户去找一个不存在的出路）
+            merging = o.optBoolean("merging", false),
         )
     }.getOrNull()
 }

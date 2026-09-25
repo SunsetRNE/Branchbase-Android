@@ -1519,7 +1519,6 @@
         未知状态不猜，原样透出（见 `stateLabelResOrNull` 返回 Int?）。
     -->
     <string name="state_open">开启</string>
-    <string name="state_merged">已合并</string>
     <string name="state_draft">草稿</string>
     <!--
         相对时间的「昨天」与「M 月 D 日」两档。其余档位复用已有的
@@ -1647,4 +1646,71 @@
     <!-- 关于页的开源协议与第三方声明入口（真源在仓库根 LICENSE / THIRD-PARTY-NOTICES.md）。 -->
     <string name="label_open_source_license">开源协议</string>
     <string name="label_third_party_notices">第三方声明</string>
+    <string name="action_merge">合并</string>
+    <string name="action_merge_branch">合并分支…</string>
+    <string name="action_abort_merge">放弃合并</string>
+    <string name="action_commit_merge">提交合并</string>
+    <string name="action_resolve_conflicts">解决冲突</string>
+    <string name="action_use_ours">用我方</string>
+    <string name="action_use_theirs">用对方</string>
+    <string name="action_edit_manually">手工编辑</string>
+    <string name="action_mark_resolved">标记已解决</string>
+    <string name="action_retry_preparse">重新预解析</string>
+    <string name="title_merge">合并分支</string>
+    <string name="title_merge_conflicts">解决合并冲突</string>
+    <string name="label_merge_facts">事实</string>
+    <string name="label_merge_target">要合并的分支</string>
+    <string name="label_merge_target_state">它的状态</string>
+    <string name="label_merge_will_fetch">远端分支</string>
+    <string name="label_merge_pick_branch">选一个分支合到当前分支</string>
+    <string name="label_merge_progress">这次合并</string>
+    <string name="label_merge_remaining">还剩未解决</string>
+    <string name="label_merge_total">本次共冲突</string>
+    <string name="label_merge_commit_head">对方提交</string>
+    <string name="label_merge_message">合并提交信息</string>
+    <string name="label_merge_sizes">我方 %1$s 字节 · 对方 %2$s 字节</string>
+    <string name="label_merge_task_title">合并 %1$s</string>
+    <string name="state_merge_blocked_no_local">还没拉取到本地，先拉取这个仓库再合并。</string>
+    <string name="state_merge_blocked_already">这个仓库正停在上一次合并里：先把冲突解决完并「提交合并」，或者「放弃合并」。</string>
+    <string name="state_merge_blocked_dirty">工作区有 %1$s 处未提交改动，合并会覆盖它们。先提交或撤销，再合并。</string>
+    <string name="state_merge_blocked_shallow">本地是浅克隆（没有共同祖先），合并不了。先「加深历史」把完整历史拉到本地。</string>
+    <string name="state_merge_no_target">还没选分支</string>
+    <string name="state_merge_target_synced">已同步</string>
+    <string name="state_merge_dirty_count">%1$s 处改动</string>
+    <string name="state_merge_workspace_clean">干净</string>
+    <string name="state_merge_will_fetch">合并前会先拉一次</string>
+    <string name="state_merge_remote_only">只在远端 —— 合并前会先 fetch 一次</string>
+    <string name="state_merge_diverged">与本分支分叉（各有独有提交）</string>
+    <string name="state_merge_no_upstream">未设置上游</string>
+    <string name="state_merge_no_branches">没有可合并的分支（当前分支之外的本地分支与远端分支都没找到）。</string>
+    <string name="state_merging">合并中…</string>
+    <string name="state_merging_in_panel">正在合并 · 还剩 %1$s 个文件没解决</string>
+    <string name="state_merge_up_to_date">已包含对方</string>
+    <string name="state_merge_fast_forward">快进完成</string>
+    <string name="state_merge_conflict_task">%1$s 个文件冲突，仓库停在合并中</string>
+    <string name="state_not_merging">这个仓库现在没有进行中的合并。</string>
+    <string name="state_all_conflicts_resolved">冲突都解决完了 —— 可以「提交合并」了。</string>
+    <string name="state_preparse_running">正在预解析这个文件的差异…</string>
+    <string name="note_merge_consequence">合并会新增一个合并提交（两条历史的汇合点）——已有的提交一个字节都不会改。有冲突时会停在这里，逐个解决后提交，或整体放弃回到合并前。</string>
+    <string name="note_conflict_binary">二进制文件，没有可显示的差异 —— 请直接选一边。</string>
+    <string name="note_conflict_content_truncated">文件太大，编辑器里只有开头一段 —— 请谨慎手工解决。</string>
+    <string name="error_merge_branches_failed">读不到分支清单（仓库不存在或引擎不可用）。</string>
+    <string name="error_preparse_failed">预解析失败（仓库可能刚被改动过）。</string>
+    <string name="warning_sensitive_in_message">合并提交信息里疑似有敏感信息：再点一次「提交合并」就照常提交。</string>
+    <string name="warning_sensitive_line">疑似敏感信息：%1$s</string>
+    <string name="conflict_dialog_title">有 %1$s 个文件冲突</string>
+    <string name="conflict_dialog_body">合并 %1$s 停在了冲突上：这些文件两边都改过，仓库现在停在合并中（不是失败）。</string>
+    <string name="conflict_dialog_more">还有 %1$s 个…</string>
+    <string name="label_conflict_both_modified">两边都改了</string>
+    <string name="label_conflict_both_added">两边都新增了同名文件</string>
+    <string name="label_conflict_deleted_by_us">我方删了、对方改了</string>
+    <string name="label_conflict_deleted_by_them">对方删了、我方改了</string>
+    <string name="label_conflict_unknown">冲突</string>
+    <string name="toast_merge_up_to_date">已经包含 %1$s，没有需要合并的内容</string>
+    <string name="toast_merge_fast_forward">已快进到 %1$s</string>
+    <string name="toast_merged">已创建合并提交 %1$s</string>
+    <string name="toast_merge_aborted">已放弃合并，回到合并前</string>
+    <string name="error_merge_bad_result">合并没有执行成功，引擎回了一个看不懂的结果。</string>
+    <string name="state_merged">已合并</string>
+    <string name="confirm_abort_merge_body">放弃这次合并：工作区与索引会回到合并前那一刻，冲突标记与已做的解决都会被丢掉。你自己的改动不会丢 —— 合并的前提就是工作区干净。</string>
 </resources>

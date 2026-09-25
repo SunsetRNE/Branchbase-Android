@@ -8,7 +8,8 @@
 > （本地仓库页）、`ui/decision/`（决策页）、`core/src/git/`（引擎）的人。
 >
 > **状态：进行中**（不再是「草稿 · 未落地」）：阶段 0–4 已落地（1.0.93 → 1.0.101），
-> 阶段 5 落了**引擎那半**（1.0.102），其余见 §8。本文里凡标「待落地」的，**都没写代码**。
+> 阶段 5 落了**引擎那半**（1.0.102）与**UI 主干**（1.0.103：合并决策页 / 冲突弹窗 / 冲突详情页 /
+> 面板的合并中状态），只剩两条入口（§8）。本文里凡标「待落地」的，**都没写代码**。
 >
 > **真源**：`core/src/git/mod.rs`（引擎）· [`local-git-engine-design.md`](local-git-engine-design.md)
 > §3/§4/§7 · [`decision-pages-design.md`](decision-pages-design.md) §1/§2/§3 ·
@@ -53,7 +54,8 @@
 | 设置列表「管理」页 / 列表重绘 | 待落地（阶段 6 / 后续问题） | — |
 | 面板内**执行**有后果的动作（提交 / 撤销 / 上游 / 回退）—— 要把决策页的宿主扩到仓库页 | 待落地（阶段 2 剩余） | — |
 | 危险动作收口（全部落决策页）+ 设置列表行内动作下线 | **部分**：面板内写操作已归零（1.0.96），行内动作仍在（§5 过渡期） | — |
-| 本地合并 + 冲突解决 | **引擎那半已落地 1.0.102**（`merge_branch` / `merge_state` / `analyze_conflicts` / `resolve_conflict` / `write_resolved` / `merge_continue` / `merge_abort` + JNI + 重建 `.so`）；**UI 那半待落地**（冲突弹窗 / 详情对比页 / 分叉页第三条出口） | `core/src/git/mod.rs` · `core/src/bridge/jni.rs` · `RustBridge.kt` |
+| 本地合并 + 冲突解决（**引擎那半**） | **已落地 1.0.102**（`merge_branch` / `merge_state` / `analyze_conflicts` / `resolve_conflict` / `write_resolved` / `merge_continue` / `merge_abort` + JNI + 重建 `.so`） | `core/src/git/mod.rs` · `core/src/bridge/jni.rs` · `RustBridge.kt` |
+| 本地合并 + 冲突解决（**UI 主干**） | **已落地 1.0.103**：合并决策页（分支清单 + 四条前置的如实说明）/ 冲突弹窗（出现即预解析）/ 冲突详情页（逐文件 ours↔theirs diff + 用我方 / 用对方 / `:editor` 手工 + 提交合并 / 放弃合并）/ 面板的「合并中」状态条与三枚出口 / 两个宿主各接一次 | `ui/repository/MergeDecisionScreen.kt` · `MergeConflictScreen.kt` · `MergeFlow.kt` · `MergeModels.kt` · `MergePreparse.kt` |
 | 引擎 `log_graph` / `list_tags` / `log_file` / `diff_worktree` / `diff_commit` | **已落地 1.0.97**（阶段 3 只读接口 + 重建 `.so`） | `core/src/git/mod.rs` · `core/src/bridge/jni.rs` · `RustBridge.kt` |
 | 提交图**双来源**（本地 `log_graph` 优先 / REST 兜底）+ 浅克隆择源 + 「加深历史」出口 | **已落地 1.0.98**（阶段 4 前半） | `CommitGraphModels.kt` · `CommitGraphPanel.kt` · `LocalRepoDeepen.kt` |
 | 引擎 `fetch_deepen`（unshallow，复用 clone 的进度/取消通道） | **已落地 1.0.98**（重建 `.so`，`cargo test` 89 例） | `core/src/git/mod.rs` · `core/src/bridge/jni.rs` · `RustBridge.kt` |
@@ -61,10 +63,10 @@
 | 这三条本地接口的消费者 | **全部接上**（tags 引用树 ✅ / 提交图 ✅ / 工作区 diff ✅ / 文件历史 ✅） | — |
 | 引擎的**合并与冲突**一组（七条） | **已落地 1.0.102**（阶段 5 引擎那半；`repo_status` 另加 `merging` 只增字段） | `core/src/git/mod.rs` · `core/src/bridge/jni.rs` · `RustBridge.kt` |
 
-**已落地的验证口径**：`:app:testDebugUnitTest`（909 例；其中 `GitPanelStageTest` 9 例、
-`GitRefsModelsTest` 5 例、`RepoDeepLinkTest` 4 例、`GitWorkbenchWiringTest` 10 例、
+**已落地的验证口径**：`:app:testDebugUnitTest`（923 例；其中 `GitPanelStageTest` 9 例、
+`GitRefsModelsTest` 5 例、`RepoDeepLinkTest` 4 例、`GitWorkbenchWiringTest` 13 例、
 `CommitGraphLayoutTest` 11 例、`CommitGraphSourceTest` 14 例、`LocalDiffModelsTest` 12 例、
-`FileHistoryModelsTest` 9 例、
+`FileHistoryModelsTest` 9 例、`MergeModelsTest` 6 例、`MergePreparseTest` 5 例、
 `PageTransitionsTest` 面板过渡与「三个切换器都下发 `LocalPageActive`」、
 `LogAnchorsTest` 盯锚点表 · `JniSignatureTest` 逐参数对账全部 104 对原生函数）·
 `cargo test` 105 例 · `assembleDebug` · `check-i18n --min-coverage 100`。
@@ -96,7 +98,7 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
 
 | 档 | 内容 | 数据源 | 状态 |
 |---|---|---|---|
-| **工作区** | 分支 / 领先落后 / 上游 / 改动文件清单 / 刷新 / 同步 | `LocalRepoGitState`（一次 `repo_status`，与徽标同源） | 已落地 |
+| **工作区** | 分支 / 领先落后 / 上游 / 改动文件清单 / 刷新 / 同步 / **合并分支…**；合并中时最先显示「正在合并 · 还剩 N 个文件」+ **继续 / 放弃** | `LocalRepoGitState`（一次 `repo_status`，与徽标同源；**只有合并中才多读一条** `merge_state`） | 已落地（合并入口 1.0.103） |
 | **提交图** | 泳道 DAG + **未提交虚节点** + 分页脚注 + 点一行看这条提交的本地 diff（1.0.99）+ **未推送段**（1.0.101：本地来源下逐条标「未推送」） | **本地 `log_graph`**（本地仓库存在且**不是浅克隆**时，离线、看得见未推送的提交，并逐条带 `unpushed`）；否则 REST `/commits?sha=&per_page=100`（**保留 `parents`**）兜底 | 已落地（1.0.94 REST 版 → **1.0.98 换成本地优先** → **1.0.101 标未推送段**） |
 | **引用树** | 本地 / 远端分支、上游、领先落后；tag（annotated 带说明与作者，轻量只有名字） | `local_branches` · `remote_branches` · `list_tags`（本地仓库，离线可读） | 已落地（阶段 2 + tags 阶段 3，**只读**） |
 | **文件历史** | 该文件的提交序列（**只列真的碰过这个路径的提交**）+ 点一行看这次提交的 diff | **本地优先**（`log_file`，非浅克隆时）/ REST `/commits?path=` 兜底 | 已落地（1.0.100，阶段 4） |
@@ -123,6 +125,11 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
 面板里的**写操作恒为零**：提交 / 撤销 / 上游 / 回退都要落决策页，而决策页今天的宿主是
 「设置 → 本地仓库」与文件页，把它们的宿主扩到仓库页是阶段 2 的剩余项
 （`GitWorkbenchWiringTest` 扫全部 14 个 git 写方法，保证面板这一族源码里一个都不出现）。
+
+**合并中时面板长什么样（1.0.103）**：那一条状态排在工作区档最上面 —— 停在合并中时工作区**必然**是脏的
+（冲突文件带标记），先列改动清单只会让人更糊涂；两条出路（继续 / 放弃）都只给出口，
+写操作在宿主。同一档底部的「合并分支…」在合并中会**置灰**：同时开着「再合一次」与「解决这次冲突」
+会让人以为先把这一次合完才行。
 
 **引用树为什么只读**：切换 / 新建 / 删除分支是**有后果的动作**（脏工作区切分支要撤销改动、
 删分支会丢提交），按 §6.1 的分档它们走决策页，落点在既有的「分支管理」「本地分支同步」；
@@ -300,18 +307,37 @@ merge_branch ─► outcome == "conflict"
   进面板要能「继续 / 放弃」；② 合并提交信息的敏感扫描口径要说清；③ 浅克隆没有共同祖先 →
   merge 必然晚于 `fetch_deepen`；④ 详情对比页是**新全屏页** → 登记见 §9。
 
-**1.0.102（引擎那半）落下去之后，这四条风险各自落到哪**：
+**1.0.102（引擎那半）+ 1.0.103（UI 主干）之后，流程图长这样（已实现的部分标 ✅）**：
+
+```
+面板「合并分支…」✅ ─► 合并决策页（分支清单 / 事实 / 四条前置）✅ ─►「合并」
+                                        │
+                     ┌──────────────────┴───────────────────┐
+                 up_to_date / fast_forward / merged ✅       conflict ✅
+                     │                                        │
+              一行反馈 + 刷新 ✅                    立刻弹窗（N 个文件 · 分支 · 后果）✅
+                                                             │ 同时启动预解析（只读 · 进程内缓存）✅
+                                                             ▼
+                                  「查看并解决」─► 冲突详情页 ✅
+                                       逐文件：用我方 / 用对方 / 手工（:editor）✅ → 标记已解决 ✅
+                                       全部解决 → 「提交合并」✅（先跑敏感扫描，扫不了就拦下）
+                                       任何时候 → 「放弃合并」✅（二次确认 → 回到合并前）
+                                                             │
+                                     合并到一半被杀？面板的「继续 / 放弃」✅（靠 repo_status.merging）
+```
+
+**这四条风险各自落到哪**：
 
 | 风险 | 对策（已在引擎里） | 还差什么（UI 那半） |
 |---|---|---|
-| ① 合并到一半被杀 | `repo_status` 多一个只增字段 `merging`（MERGE_HEAD 在）；`merge_state` 给出当前冲突清单 / 待提交信息 / `MERGE_HEAD`；`merge_continue` / `merge_abort` 两条出路都只依赖仓库自身状态，**不依赖内存里的列表** | 面板读到 `merging = true` 时的那个状态：说清「还剩几个文件」+ 给「继续 / 放弃」两枚出口 |
-| ② 敏感扫描 | `merge_continue` 的 `message` 为空时用 `.git/MERGE_MSG`，**引擎自己生成的信息不含任何用户输入** | 用户改过信息时，提交前对 `message` 跑 `scan_sensitive`（与普通提交同一条口径，不是第二套规则） |
-| ③ 浅克隆没有共同祖先 | `merge_branch` 在 `repo.is_shallow()` 时**提前拒绝**并指出去哪加深（真机上 libgit2 只会回一句英文） | 把「先加深历史」那枚出口接到冲突/合并的入口上（加深运行器已经有了，1.0.98） |
-| ④ 详情对比页是新全屏页 | — | `SystemBarInsetsTest.fullScreenPages` 登记 + 只走 `PageBackHandler` |
+| ① 合并到一半被杀 | `repo_status` 的只增字段 `merging` + `merge_state`（当前冲突清单 / 待提交信息 / `MERGE_HEAD`）；两条出路只依赖仓库自身状态，**不依赖内存里的列表** | ✅ 1.0.103：面板的状态条说清「还剩几个」并给「继续 / 放弃」；`startedWith`（本次共几个）来自合并那一刻的响应 —— 引擎不落盘「开始时有哪些冲突」，重启后只剩「还没解决的」 |
+| ② 敏感扫描 | `merge_continue` 的 `message` 为空时用 `.git/MERGE_MSG`，**引擎自己生成的信息不含任何用户输入** | ✅ 1.0.103：提交合并前对 `message` 跑 `scan_sensitive`；**扫不了就拦下**（与文件页提交同一条口径），命中先警告、再点一次才提交 |
+| ③ 浅克隆没有共同祖先 | `merge_branch` 在 `repo.is_shallow()` 时**提前拒绝**并指出去哪加深 | ✅ 1.0.103：合并决策页把「浅克隆」写成一条**灰掉按钮的理由**（不是点下去才报错），并指向加深（运行器 1.0.98 已有） |
+| ④ 详情对比页是新全屏页 | — | ✅ 1.0.103：`MergeDecisionScreen` / `MergeConflictScreen` 都登记进 `SystemBarInsetsTest.fullScreenPages`，用 `DecisionScreenShell`（自带状态栏 / 手势条内边距）+ 只走 `PageBackHandler` |
 
-另有一条**引擎侧的硬约束**（UI 那半必须照它设计）：`merge_branch` 要求**工作区干净**，
-`merge_abort` 才敢用 hard reset 回到合并前。所以入口上要先把「有未提交改动」如实说出来，
-而不是让用户点下去再看到一句拒绝。
+另有一条**引擎侧的硬约束**（界面照它设计）：`merge_branch` 要求**工作区干净**，
+`merge_abort` 才敢用 hard reset 回到合并前。所以合并决策页把「有 N 处未提交改动」直接写成
+灰掉按钮的那一行理由 —— 而不是让用户点下去再看到一句拒绝。
 
 ---
 
@@ -342,19 +368,20 @@ merge_branch ─► outcome == "conflict"
 |---|---|---|---|
 | 6 | `merge_branch(dir, branch, token, author_name, author_email)` | 三方合并（不改写历史）；四条出口 `up_to_date` / `fast_forward` / `merged` / `conflict`。目标分支本地没有时**引擎自己 fetch 一次**（PR 冲突「拉到本地解决」那条路）。浅克隆 / 已在合并中 / 工作区脏 → 提前拒绝并给出路 | **已落地**（UI 那半待接） |
 | 7 | `merge_state(dir)` | 当前合并状态：`merging` / 待提交信息 / `MERGE_HEAD` / **还没解决**的冲突清单 | **已落地**（「合并到一半被杀」之后唯一的入口） |
-| 8 | `analyze_conflicts(dir)` | 预解析（**只读、不落盘**）：逐文件 `kind` / 三方 sha 与大小 / **ours ↔ theirs 的 patch**（冲突块就是它的 hunk） | **已落地**（UI 那半待接） |
-| 9 | `resolve_conflict(dir, path, side)` · `write_resolved(dir, path, content)` | 逐文件解决：用某一侧 / 手工内容 → 写工作区 + 登记索引 | **已落地**（UI 那半待接） |
-| 10 | `merge_continue(dir, message, name, email)` · `merge_abort(dir)` | 收尾：落**两父**合并提交并清状态 / 回到合并前 | **已落地**（UI 那半待接） |
+| 8 | `analyze_conflicts(dir)` | 预解析（**只读、不落盘**）：逐文件 `kind` / 三方 sha 与大小 / **ours ↔ theirs 的 patch**（冲突块就是它的 hunk）/ **三方内容** `ours` · `theirs` · `worktree`（工作区那份带标记 = 手工编辑的初值，单份上限 64 KB → `content_truncated`） | **已落地**（冲突详情页在用；内容字段 1.0.103 补） |
+| 9 | `resolve_conflict(dir, path, side)` · `write_resolved(dir, path, content)` | 逐文件解决：用某一侧 / 手工内容 → 写工作区 + 登记索引 | **已落地**（冲突详情页的两个按钮在用） |
+| 10 | `merge_continue(dir, message, name, email)` · `merge_abort(dir)` | 收尾：落**两父**合并提交并清状态 / 回到合并前 | **已落地**（冲突详情页的「提交合并 / 放弃合并」在用） |
 
 **设计稿里被改掉的一处**：原表写的 `merge_branch(dir, branch, token)` 与 `conflict_files(dir)` 都变了 ——
 前者多两个作者参数（干净合并**当场落提交**，身份必须由 App 给，理由同 `commit_repo`）；
 后者**没有单独存在**：`merge_state` 已经把「当前状态 + 冲突清单」一次答完，
 再来一条只报清单的接口就是两个入口问同一件事。
 
-**下一阶段（阶段 5 的 UI 那半，待做）**：
-冲突弹窗（N 个文件 · 分支 · 后果，出现即预解析）→ 详情对比页（复用 `BranchDiff` 的渲染 / `:editor` 手工）
-→ 「提交合并」/「放弃合并」；面板在 `merging = true` 时的「继续 / 放弃」状态；
-分叉页文案由两条变三条（合并 / 保留 / 放弃）。
+**阶段 5 还差的两条入口**（引擎与主流程都已在，缺的是「从哪儿进」）：
+① **分叉页第三条**：pull 被判 `nff` 时，分叉决策页现在只给两条（保留 / 放弃），
+要加第三条「合并远端」——落点就是 `merge_branch` 合 `origin/{branch}`（引擎已支持远端分支名）；
+② **PR 冲突的「拉到本地解决」**：PR 详情页在 `mergeable = false` 时给一枚入口，
+目标分支（PR 的 head）本地没有也没关系 —— `merge_branch` 会自己 fetch 一次。
 
 ---
 
@@ -368,7 +395,7 @@ merge_branch ─► outcome == "conflict"
 | **3** | `log_graph` / `list_tags` / `log_file` / `diff_worktree` / `diff_commit`（重建 `.so`） | **引擎 + JNI + 门面已落地 1.0.97**（`cargo test` 86 例） |
 | **3'** | 这三个接口的**消费者**：引用树 tags ✅ / 提交图换本地来源 ✅ / 工作区档的本地 diff ✅（并顺带把 `diff_commit` 接上：提交图点一行看这次提交的 diff） | **全部落地**：tags 1.0.97 · 提交图本地来源 1.0.98 · 本地 diff 页 1.0.99 |
 | **4** | `fetch_deepen`（任务中心 + 进度）+ 「文件历史」档（本地优先 + REST 兜底）+ 离线图谱（LocalSource 优先、未推送段） | **全部落地**：`fetch_deepen` 与双来源 1.0.98 · 「文件历史」档 1.0.100 · 未推送段 1.0.101（本地来源下逐条标出来，与工作区档的 `ahead` 同口径） |
-| **5** | 本地合并（D-g）+ 冲突弹窗 / 预解析 / 详情对比页（D-h）+ PR 冲突的「拉到本地解决」 | **部分落地 1.0.102**：引擎七条接口（`merge_branch` / `merge_state` / `analyze_conflicts` / `resolve_conflict` / `write_resolved` / `merge_continue` / `merge_abort`）+ JNI + 重建 `.so` + `cargo test` 105 例；**UI 那半待做**（弹窗 / 详情对比页 / 面板「继续 · 放弃」/ 分叉页第三条出口） |
+| **5** | 本地合并（D-g）+ 冲突弹窗 / 预解析 / 详情对比页（D-h）+ PR 冲突的「拉到本地解决」 | **主流程已落地**：引擎七条接口 **1.0.102**（+ JNI + 重建 `.so`）；UI 主干 **1.0.103**（合并决策页 / 冲突弹窗 / 详情对比页 / 面板的合并中状态 / 两个宿主接线）。**还差两条入口**：分叉页第三条（合并远端）与 PR 冲突的「拉到本地解决」（见 §7 末） |
 | **6** | 设置 → 本地仓库「管理」页（按仓库看占用 / 清理）+ 列表重绘（§5 的登记项） | 待做 |
 
 ---

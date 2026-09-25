@@ -1513,7 +1513,6 @@
     <!-- Issue / PR state labels (`stateLabelOf`), pairing with the existing state_closed.
          Unknown states are passed through verbatim rather than guessed. -->
     <string name="state_open">Open</string>
-    <string name="state_merged">Merged</string>
     <string name="state_draft">Draft</string>
     <!-- The "yesterday" and "M/D" rungs of relative time. The other rungs reuse the existing
          relative_just_now (string) and relative_minutes / relative_hours / relative_days
@@ -1605,4 +1604,71 @@
     <!-- About page entries for the license and the third-party notices (sources live at the repo root). -->
     <string name="label_open_source_license">License</string>
     <string name="label_third_party_notices">Third-party notices</string>
+    <string name="action_merge">Merge</string>
+    <string name="action_merge_branch">Merge branch…</string>
+    <string name="action_abort_merge">Abort merge</string>
+    <string name="action_commit_merge">Commit merge</string>
+    <string name="action_resolve_conflicts">Resolve conflicts</string>
+    <string name="action_use_ours">Use ours</string>
+    <string name="action_use_theirs">Use theirs</string>
+    <string name="action_edit_manually">Edit manually</string>
+    <string name="action_mark_resolved">Mark resolved</string>
+    <string name="action_retry_preparse">Analyze again</string>
+    <string name="title_merge">Merge a branch</string>
+    <string name="title_merge_conflicts">Resolve merge conflicts</string>
+    <string name="label_merge_facts">Facts</string>
+    <string name="label_merge_target">Branch to merge</string>
+    <string name="label_merge_target_state">Its state</string>
+    <string name="label_merge_will_fetch">Remote branch</string>
+    <string name="label_merge_pick_branch">Pick a branch to merge into the current one</string>
+    <string name="label_merge_progress">This merge</string>
+    <string name="label_merge_remaining">Still unresolved</string>
+    <string name="label_merge_total">Conflicts at start</string>
+    <string name="label_merge_commit_head">Their commit</string>
+    <string name="label_merge_message">Merge commit message</string>
+    <string name="label_merge_sizes">Ours %1$s bytes · theirs %2$s bytes</string>
+    <string name="label_merge_task_title">Merge %1$s</string>
+    <string name="state_merge_blocked_no_local">This repo is not cloned locally yet — clone it first, then merge.</string>
+    <string name="state_merge_blocked_already">This repo is still in a previous merge — resolve and commit it, or abort it first.</string>
+    <string name="state_merge_blocked_dirty">The working tree has %1$s uncommitted change(s); a merge would overwrite them. Commit or discard them first.</string>
+    <string name="state_merge_blocked_shallow">The local clone is shallow (no common ancestor) — deepen the history first.</string>
+    <string name="state_merge_no_target">No branch picked</string>
+    <string name="state_merge_target_synced">Up to date</string>
+    <string name="state_merge_dirty_count">%1$s change(s)</string>
+    <string name="state_merge_workspace_clean">Clean</string>
+    <string name="state_merge_will_fetch">fetched before merging</string>
+    <string name="state_merge_remote_only">Remote only — fetched before merging</string>
+    <string name="state_merge_diverged">Diverged from this branch</string>
+    <string name="state_merge_no_upstream">No upstream</string>
+    <string name="state_merge_no_branches">No branch to merge (nothing besides the current branch, local or remote).</string>
+    <string name="state_merging">Merging…</string>
+    <string name="state_merging_in_panel">Merging · %1$s file(s) unresolved</string>
+    <string name="state_merge_up_to_date">Already up to date</string>
+    <string name="state_merge_fast_forward">Fast-forwarded</string>
+    <string name="state_merge_conflict_task">%1$s conflicting file(s); repo left mid-merge</string>
+    <string name="state_not_merging">This repo has no merge in progress.</string>
+    <string name="state_all_conflicts_resolved">All conflicts resolved — you can commit the merge now.</string>
+    <string name="state_preparse_running">Analyzing this file\'s diff…</string>
+    <string name="note_merge_consequence">A merge adds a merge commit (where the two histories join); existing commits are untouched. If there are conflicts the repo pauses here: resolve them one by one and commit, or abort and go back.</string>
+    <string name="note_conflict_binary">Binary file — no text diff to show. Just pick one side.</string>
+    <string name="note_conflict_content_truncated">The file is large; only its beginning is loaded in the editor — resolve carefully.</string>
+    <string name="error_merge_branches_failed">Could not read the branch list (repo missing or engine unavailable).</string>
+    <string name="error_preparse_failed">Analysis failed (the repo may have just changed).</string>
+    <string name="warning_sensitive_in_message">The merge message may contain secrets — tap “Commit merge” again to submit anyway.</string>
+    <string name="warning_sensitive_line">Possible secret: %1$s</string>
+    <string name="conflict_dialog_title">%1$s conflicting file(s)</string>
+    <string name="conflict_dialog_body">Merging %1$s stopped on conflicts: both sides changed these files, and the repo is paused mid-merge (not a failure).</string>
+    <string name="conflict_dialog_more">%1$s more…</string>
+    <string name="label_conflict_both_modified">Changed on both sides</string>
+    <string name="label_conflict_both_added">Added on both sides</string>
+    <string name="label_conflict_deleted_by_us">Deleted by us, changed by them</string>
+    <string name="label_conflict_deleted_by_them">Deleted by them, changed by us</string>
+    <string name="label_conflict_unknown">Conflict</string>
+    <string name="toast_merge_up_to_date">Already contains %1$s — nothing to merge</string>
+    <string name="toast_merge_fast_forward">Fast-forwarded to %1$s</string>
+    <string name="toast_merged">Merge commit %1$s created</string>
+    <string name="toast_merge_aborted">Merge aborted — back to the pre-merge state</string>
+    <string name="error_merge_bad_result">The merge did not succeed — the engine returned an unreadable result.</string>
+    <string name="state_merged">Merged</string>
+    <string name="confirm_abort_merge_body">Abort this merge: the working tree and index go back to the pre-merge state, so conflict markers and any resolutions are discarded. Your own changes are not affected — a merge only starts from a clean tree.</string>
 </resources>

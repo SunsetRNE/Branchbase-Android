@@ -202,6 +202,71 @@ class GitWorkbenchWiringTest {
     }
 
     @Test
+    fun `合并：面板只给出口，动作全在宿主的运行器里`() {
+        // 合并是阶段 5 的「有后果的动作」：面板里那三枚出口（合并分支… / 继续 / 放弃）
+        // 都不许自己调引擎 —— 真跑动作的是宿主（`MergeFlow.kt` 的 runMerge / runMergeAbort）。
+        // 这条钉的是「面板里零 git 写操作」这条既有口径在新功能上同样成立
+        val writes = listOf(
+            "RustBridge.gitMerge(", "RustBridge.gitMergeAbort(", "RustBridge.gitMergeContinue(",
+            "RustBridge.gitResolveConflict(", "RustBridge.gitWriteResolved(",
+        )
+        val offenders = panelSources.flatMap { path ->
+            val text = source(path)
+            writes.filter { text.contains(it) }.map { "$path → $it" }
+        }
+        assertEquals(
+            "合并的动作只能在宿主侧的 MergeFlow / 两个全屏页里跑：$offenders",
+            emptyList<String>(),
+            offenders,
+        )
+        // 反过来：运行器必须真的调引擎 —— 否则上面那条会因为「谁都不调」而永远绿
+        val runner = source("src/main/java/com/branchbase/ui/repository/MergeFlow.kt")
+        assertTrue("合并运行器要调 gitMerge", runner.contains("RustBridge.gitMerge("))
+        assertTrue("放弃合并要调 gitMergeAbort", runner.contains("RustBridge.gitMergeAbort("))
+    }
+
+    @Test
+    fun `合并：两个宿主都要接三个出口，且弹窗渲染在外层`() {
+        // 出口回调各宿主各传各的（与 onOpenBranches / onDeepen / onOpenDiff 同一条口径）：
+        // 只接一边的表现是「代码页的面板能合并、文件页的不能」
+        val hosts = listOf(
+            "src/main/java/com/branchbase/ui/repository/RepositoryScreen.kt" to "代码页",
+            "src/main/java/com/branchbase/ui/repository/RepositoryFileViewer.kt" to "文件页",
+        )
+        for (outlet in listOf("onMerge =", "onResumeMerge =", "onAbortMerge =")) {
+            val missing = hosts.filter { (path, _) -> !source(path).contains(outlet) }
+            assertEquals("这两个宿主都必须给面板接上 $outlet 出口：$missing", emptyList<Pair<String, String>>(), missing)
+        }
+        // 冲突弹窗必须在**外层**渲染：合并从全屏决策页发起，那一屏在的时候面板并没有被组合 ——
+        // 放进面板里的话，弹窗会在最需要它的那一刻不出现。判据取「宿主自己的 mergeFlow 驱动它」：
+        // 面板内部状态驱动不了它，因为那时面板根本不存在
+        for ((path, name) in hosts) {
+            val text = source(path)
+            assertTrue("$name 必须渲染冲突弹窗", text.contains("MergeConflictDialog("))
+            assertTrue("$name 的弹窗要由宿主持有的 mergeFlow 驱动", text.contains("mergeFlow.conflict?.let"))
+            // 跳到详情页：代码页是 `RepoRoute.MergeConflict ->`，文件页是 `FilePage.MergeConflict` ——
+            // 两边各用自己的路由类型，所以这里只钉「那个名字出现过」
+            assertTrue("$name 的弹窗要能跳到冲突详情页", text.contains("MergeConflict"))
+        }
+    }
+
+    @Test
+    fun `合并：预解析的触发点是弹窗出现那一刻`() {
+        // D-h 的契约：`MergePreparse.start` 必须在「合并返回冲突」的那一刻调（运行器里），
+        // 而不是在详情页打开时调。写反的表现是「点开详情页先看一段骨架」——
+        // 而那正是「页面打开后再从头算」这条被点名不许的做法
+        val runner = source("src/main/java/com/branchbase/ui/repository/MergeFlow.kt")
+        assertTrue("冲突那一刻要启动预解析", runner.contains("MergePreparse.start("))
+        val page = source("src/main/java/com/branchbase/ui/repository/MergeConflictScreen.kt")
+        assertTrue("详情页只读缓存", page.contains("MergePreparse.stateOf("))
+        // 页面里唯一允许的一次 start 是「失败可重试」那条（force = true）：
+        // 进入页面时从头算一遍正是 D-h 点名不许的两条之一
+        val starts = Regex("""MergePreparse\.start\(""").findAll(page).count()
+        assertEquals("详情页只留『重新预解析』那一次 start：$starts", 1, starts)
+        assertTrue("那一次必须是 force 重试（否则会撞上『已经有结果就不重复启动』）", page.contains("force = true"))
+    }
+
+    @Test
     fun `未推送段：面板必须真的画出来，不是只解析`() {
         // 这一族最典型的静默失效：引擎标了（cargo 有钉子）、解析器认了（单测有）、
         // 中间那一句渲染没了 —— 两头都绿，表现却是「工作区档写着待推送 3，图上一条标记都没有」。

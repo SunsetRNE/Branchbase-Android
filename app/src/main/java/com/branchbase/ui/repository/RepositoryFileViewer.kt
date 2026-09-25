@@ -124,6 +124,8 @@ fun FileViewerScreen(
 
     // ── 决策页状态机 ──
     var page by remember { mutableStateOf<FilePage>(FilePage.None) }
+    // 合并（阶段 5 的 UI 那半）：这一页与代码页各持一份流程状态（页面作用域）
+    val mergeFlow = rememberMergeFlowState()
 
     /**
      * 本地 git 状态的刷新计数器（与 [rememberPageResumeTick] 一起当 tick 用）。
@@ -741,6 +743,21 @@ fun FileViewerScreen(
                         // 只读的 diff 出口：改动清单一行 / 提交图一行 / 文件历史一行
                         onOpenDiff = { p -> page = FilePage.LocalDiff(path = p) },
                         onOpenCommitDiff = { sha -> page = FilePage.LocalDiff(sha = sha) },
+                        // 合并（阶段 5）：三个出口与代码页一一对应；动作在本页跑（面板零写操作）
+                        onMerge = { page = FilePage.Merge },
+                        onResumeMerge = { page = FilePage.MergeConflict },
+                        onAbortMerge = {
+                            scope.launch {
+                                runMergeAbort(
+                                    context = context,
+                                    flow = mergeFlow,
+                                    repoDir = localRepoDir(context, repo),
+                                    repoName = repo,
+                                    onFeedback = { text, ok -> feedback = Feedback(text, ok) },
+                                    onChanged = { gitTick++ },
+                                )
+                            }
+                        },
                         // 「文件历史」档要看的就是正在看的这个文件 ——
                         // 漏了它这一档会退化成「请去文件里看」，而这一页**就是**那个文件页
                         filePath = path,
@@ -763,6 +780,19 @@ fun FileViewerScreen(
     // 加深的进度弹窗：与 clone 同一只（同一套进度与终态），标题是「加深历史」
     LocalDeepenDialog(runner = deepen, repoFullName = "$owner/$repo")
 
+    // 合并冲突弹窗（D-h：合并一返回冲突就出现）—— 渲染在外层的原因同代码页：
+    // 发起合并在全屏决策页上，那时面板并没有被组合
+    mergeFlow.conflict?.let { notice ->
+        MergeConflictDialog(
+            notice = notice,
+            onOpenDetail = {
+                mergeFlow.conflict = null
+                page = FilePage.MergeConflict
+            },
+            onLater = { mergeFlow.conflict = null },
+        )
+    }
+
     // ── 决策页分发（覆盖主界面，处理完回主流程） ──
     when (val p = page) {
         // 本地 diff 页（只读）：与本页的编辑 / 草稿 / 提交完全无关，看完就回
@@ -772,6 +802,32 @@ fun FileViewerScreen(
                 path = p.path,
                 commitSha = p.sha,
                 onBack = { page = FilePage.None },
+            )
+            return
+        }
+        FilePage.Merge -> {
+            val git = rememberLocalRepoGitState(repo, gitTick + resumeTick)
+            MergeDecisionScreen(
+                repoDir = localRepoDir(context, repo),
+                repoName = repo,
+                git = git,
+                token = token,
+                flow = mergeFlow,
+                onBack = { page = FilePage.None },
+                onFeedback = { text, ok -> feedback = Feedback(text, ok) },
+                onChanged = { gitTick++ },
+            )
+            return
+        }
+        FilePage.MergeConflict -> {
+            MergeConflictScreen(
+                repoDir = localRepoDir(context, repo),
+                repoName = repo,
+                startedWith = mergeFlow.startedWith,
+                flow = mergeFlow,
+                onBack = { page = FilePage.None },
+                onFeedback = { text, ok -> feedback = Feedback(text, ok) },
+                onChanged = { gitTick++ },
             )
             return
         }
@@ -928,6 +984,17 @@ private sealed interface FilePage {
      * 不会出现「从代码页点开是这个、从文件页点开是那个」。
      */
     data class LocalDiff(val path: String? = null, val sha: String? = null) : FilePage
+
+    /**
+     * 合并决策页（本地合并：选分支 → 看事实 → 合并）。
+     *
+     * 与代码页同一屏、同一份渲染（`MergeDecisionScreen`）—— 两个宿主各自实现一遍的话，
+     * 迟早出现「从代码页进去是这个、从文件页进去是那个」。
+     */
+    data object Merge : FilePage
+
+    /** 冲突详情对比页（逐文件解决 → 提交合并 / 放弃合并）。 */
+    data object MergeConflict : FilePage
 }
 
 /** 解析行号锚点（如 "L12-L34"、"L12"）为闭区间 [start..end]，非法返回 null。 */

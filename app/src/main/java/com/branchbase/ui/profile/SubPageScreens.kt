@@ -72,6 +72,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.branchbase.ui.navigation.PageBackHandler
+import com.branchbase.ui.repository.gitAuthorEmail
+import com.branchbase.ui.repository.gitAuthorName
 import com.branchbase.ui.repository.GIT_WORKBENCH_LOG_TAG
 import com.branchbase.ui.repository.RepoRelation
 import com.branchbase.ui.repository.RepoDeepLink
@@ -1069,11 +1071,11 @@ fun LocalRepoScreen(
         snackbarHostState.showSnackbar(msg, duration = SnackbarDuration.Short)
     }
 
-    fun authorName() = context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
-        .getString("commit.author.name", "") ?: "Branchbase"
+    // 身份的两个 helper 搬去 `ui/repository/LocalRepoGitState.kt`：合并提交也要用同一个身份，
+    // 两处各写一份键名的话，改了这里的称呼、合并提交还用旧名字（只有翻 git log 才看得出来）
+    fun authorName() = gitAuthorName(context)
 
-    fun authorEmail() = context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
-        .getString("commit.author.email", "") ?: "branchbase@users.noreply.github.com"
+    fun authorEmail() = gitAuthorEmail(context)
 
     fun dirOf(name: String) = File(repoRoot, name).absolutePath
 
