@@ -14,6 +14,10 @@
 > （`RepositoryFileViewer.kt:636-690`）、本地仓库页的行内动作 + 决策页状态机
 > （`ui/profile/SubPageScreens.kt:1003` 起）。本文就是把它们**收成一个模式**。
 >
+> **形态已拍板（2026-09，产品）**：Git 模式**不做全屏页、不跳页面** —— 它就是把现在那枚
+> Git 气泡的**展开面板做成多档**（动作列表 ⇄ 提交图 / 引用树 / 文件历史 / 工作区），
+> 视图之间在**弹窗内部**换（真正的「框换框」），动效与内容过渡要认真做（§3.4 是规格）。
+>
 > **真源（设计依赖的事实出处）**：`core/src/git/mod.rs`（Git 引擎）·
 > [`local-git-engine-design.md`](local-git-engine-design.md) §3/§4/§7 ·
 > [`decision-pages-design.md`](decision-pages-design.md) §1/§2/§3 ·
@@ -44,10 +48,13 @@
 ```
 今天：  设置 → 本地仓库（列表 + 行内动作 + 决策页）      ← 干活的入口在这里
        仓库页 Git 球 / 文件页 Git 球（重复的同一批动作）
+       （三处都在做同一件事，谁也不是「家」）
 
-目标：  设置 → 本地仓库            = 统筹台（只看状态、拉取、删除、进入）
-        仓库页 → 「Git」模式       = 工作台（树 / 工作区 / 提交 / 分支 / 同步 / 合并）
-        决策页                     = 有后果动作的落点（不变，仍是终点）
+目标：  设置 → 本地仓库      = 统筹台（只看状态、更新、删除、进仓库）
+        仓库页 / 文件页的 Git 气泡 = **工作台**：展开即多档面板
+                                   动作列表 ⇄ 提交图 / 引用树 / 文件历史 / 工作区
+                                   （**在弹窗内部换框，不跳页面**）
+        决策页              = 有后果动作的落点（不变，仍是终点）
 ```
 
 **为什么必须是「仓库内」而不是「设置里」**（三条都是硬理由，不是审美）：
@@ -77,52 +84,103 @@
 
 ---
 
-## 3. 形态：一个全屏工作台，四档视图
+## 3. 形态：Git 气泡的**多档面板**（框换框，不跳页面）
 
-### 3.1 入口（三条，指向同一个页面）
+> **已拍板（2026-09，产品）**：不做全屏工作台、**不点击气泡跳页面** —— 现有那枚 Git 气泡的
+> 展开面板本身就是工作台，视图之间在**弹窗内部**切换（真正的「框换框」），
+> 动效与内容过渡要**认真做**（§3.4 是规格，不是「顺手淡入淡出」）。
 
-| 入口 | 位置 | 前置条件 |
-|---|---|---|
-| 仓库页顶部 | `RepositoryScreen` 的 `RepoPage` 旁加「Git」入口（或复用右上 More 菜单） | 该仓库**有本地副本**（`LocalRepos` 里有同名目录） |
-| 代码页 / 文件页 Git 悬浮球 | 新增一条 `GitBubbleAction("workspace", "Git 模式")`（`GitBubblePanel.kt`，`keepOpen = true`） | 仅 ③ 模式（`showGitBubble`，现状不变） |
-| 本地仓库页行 | 行内动作收敛成「进入」为主入口（§4） | 有本地副本 |
+### 3.1 面板的三档（同一枚气泡，不新增页面）
 
-**路由**：`RepoRoute.GitWorkspace`（`RepositoryScreen.kt:1046` 的 `RepoRoute` 家族）——
-必须**同时**改 `route` 与 `leavePage()`（`:535`），并在 `SystemBarInsetsTest.fullScreenPages` 登记。
-返回键只走 `PageBackHandler`（`NAVIGATION-NOTES.md` §二）。
+| 档 | 内容 | 尺寸 | 出入口 |
+|---|---|---|---|
+| **L0 手柄** | 52dp 圆球 + 徽标（改动数 / `!`） | 52dp | 现状，不变（`GitBubblePanel.kt` 的 `BubbleHandle`） |
+| **L1 动作列表** | 现有 `actions`（模式 / 分支 / 对比 / 同步 / 刷新）+ **新增一条「提交图 / 引用树 / 文件历史 / 工作区」入口** | 现状（40dp 圆图标 + 标签胶囊，自下而上） | 现状，不变 |
+| **L2 视图** | 四档视图之一（§3.3）：自带的头（当前分支 / 工作区 / ↑↓ / 上游）+ 内容 + 底部 2–3 个动作 | **比 L1 大**：宽 `fillMaxWidth - 32dp`，高 `min(内容, 屏高 60%)`，内部滚动 | 新增：从 L1 进、面板内返回回 L1 |
 
-### 3.2 骨架（头 / 切换 / 动作固定，中间滚动）
+三档是**同一枚气泡的三个状态**，不是三个页面：`expanded` 从 `Boolean` 变成
+`sealed interface BubbleStage { Collapsed; Actions; View(kind) }`（宿主仍只持有它，不需要路由）。
 
-```
-┌ 仓库头（固定）──────────────────────────────────────────┐
-│ owner/repo · 分支 [main ▾] · 工作区 3 处改动 · ↑2 ↓0 · 上游 origin/main │
-│ [刷新]  [切换 ③ 本地仓库模式]                                    │
-├ 视图切换（固定）─────────────────────────────────────────┤
-│ 提交图 │ 引用树 │ 文件历史 │ 工作区                            │
-├ 视图内容（滚动）─────────────────────────────────────────┤
-│ …（§3.3）                                                  │
-├ 动作区（固定）───────────────────────────────────────────┤
-│ [提交]  [同步（拉取 / 推送）]  [更多 ⋯]                        │
-└──────────────────────────────────────────────────────────┘
-```
+### 3.2 入口（两处，都不跳「新模式页」）
 
-- 仓库头的数据**全部**来自 `LocalRepoGitState`（一次 `repo_status`）；
-  「更多」直接复用 `GitBubblePanel`（它是现成的动作面板，不该在第二处再写一遍）；
-- 视图切换用**分段控件**（`settings-design.md` 的行型封闭集合里已有分段控件范式），不用 Tab 骨架
-  —— 这一页是**全屏页**，跑在仓库页 Tab 骨架之外（见 `SystemBarInsetsTest` 的说明）。
+| 入口 | 行为 |
+|---|---|
+| 仓库页 / 文件页的 Git 气泡 | 现状：点球 → L1；L1 里点「提交图」等 → **L2（框内切换）**。**仅 ③ 模式**（`showGitBubble(mode)`，不变） |
+| 设置 → 本地仓库 行 | 主入口 = 打开该仓库的代码页 + **自动展开到 L2**（把「我就是要在这儿干活」一步到位）。跨页意图走既有 `RepoDeepLink`（`RepositoryScreen.kt:124`）加一个 `openGitPanel: Boolean`，**不新增页面/路由** |
+
+> **阶段 0 落地记录（1.0.93）**：三档 = `GitPanelStage`（`ui/repository/GitPanelStage.kt`），
+> 切换动效 = `PanelSwitcher`（`ui/navigation/PageTransitions.kt`，与页面级共用 `PageMotion` 常量），
+> 视图档第一批 = `GitWorkspacePanel`（工作区：分支 / 领先落后 / 上游 / 改动清单 + 刷新 / 同步），
+> 两个宿主（代码页 `CodePageGitPanel`、文件页）都用 `panelBack` 逐档退。**提交图 / 引用树 / 文件历史**
+> 仍是 `available = false`（渲染成「还没落地」的占位，不是点了没反应的入口），按阶段接上。
+> 设置列表的 `RepoDeepLink.openGitPanel`（§3.2 第二条入口）**尚未接线**，留到阶段 2。
+>
+> 因为不新增全屏页，[`git-version-tree-design.md`](git-version-tree-design.md) §8 与
+> `git-mode-design` 早期版本里那套「`RepoRoute.GitWorkspace` + `leavePage()` +
+> `SystemBarInsetsTest.fullScreenPages`」的登记动作**全部作废** —— 这里只有面板，
+> 登记项收敛成「返回键层级 + 面板切换器」两条（§11）。
 
 ### 3.3 四档视图
 
 | 视图 | 回答什么 | 数据源 | 落地阶段 |
 |---|---|---|---|
-| **提交图**（DAG） | 版本怎么长出来的：分支、合并、引用标注 | 阶段 1 走 REST `/commits`（含 `parents`）；阶段 3 起本地 `log_graph` | 1 / 3 |
-| **引用树** | 现在有哪些版本入口：本地 / 远端分支、tag、上游 | `local_branches` · `remote_branches` · `list_tags`（新） | 1 / 3 |
-| **文件历史** | 这个文件改过什么 | 阶段 4 起：`fetch_deepen` + `log_file`；在此之前只从**文件页**看远端历史 | 4 |
-| **工作区** | 现在有什么没提交 | `repo_status.dirty` + 本地 diff（新） | 0 / 3 |
+| **提交图**（DAG，含**未提交的工作区虚节点**） | 版本怎么长出来的：分支、合并、引用标注，以及 HEAD 之上还没提交的那一层 | 阶段 1 走 REST `/commits`（含 `parents`）；阶段 3 起本地 `log_graph` + **图谱本地缓存**（**不设上限**，见 [`git-version-tree-design.md`](git-version-tree-design.md) §4.1） | 1 / 3 |
+| **引用树** | 现在有哪些版本入口：本地 / 远端分支、tag、上游 | `local_branches` · `remote_branches` · `list_tags`（新，**含 annotated 的 tagger / 时间**） | 1 / 3 |
+| **文件历史** | 这个文件改过什么 | **本地优先、REST 兜底**（已拍板：本地 `log_file` 要做）；未加深时给「加深克隆」入口 | 2 / 4 |
+| **工作区** | 现在有什么没提交（**虚节点点进来的就是这一档**） | `repo_status.dirty` + 本地 diff（新） | 0 / 3 |
 
 > 三棵树的画法、泳道算法、分页与配色**不在这里重复** —— 全部见
-> [`git-version-tree-design.md`](git-version-tree-design.md) §6/§7/§13。本文只加一条硬约束：
-> **同一份 `GraphCommit` 数据要能被工作台与仓库页 Commits tab 共用**（那篇 §8 的「一份 UI，两份壳」）。
+> [`git-version-tree-design.md`](git-version-tree-design.md) §6/§7/§13。
+> 虚节点已拍板**画**（方案 A），它的画法、可点/不可点边界见那篇 §14.1。
+
+### 3.4 框换框的动效与内容过渡（**这一节是硬规格**）
+
+现状：气泡的展开/收起已经有一套 —— `AnimatedVisibility(fadeIn + expandVertically)` +
+`bubbleEnter/bubbleExit`（`ui/theme/Motion.kt:303`，180ms 缩放+淡入）、
+`ElementMotion.BUBBLE_MS = 180` / `STAGGER_MS = 28`（条目逐条入场）。
+**面板之间的切换要沿用同一套语义**，不许自造一套参数 —— 全项目的动效真源是
+[`ui-design.md`](ui-design.md) §3 与 `ui/navigation/PageTransitions.kt` 的 `PageMotion`。
+
+| 切换 | 语义 | 规格（**复用现有常量**） |
+|---|---|---|
+| L1 ⇄ L2（动作列表 ↔ 视图） | **有层级**：进 L2 = 前进、回 L1 = 返回 | `PageMotion` 的两条：新内容**滑入面板宽度的 1/10 + 淡入**（220ms，`PageMotion.EnterEasing`，起播延迟 33ms），旧内容**原地淡出**（100ms，线性）—— **同一时刻只有一个运动体** |
+| L2 内切视图（提交图 ⇄ 引用树 ⇄ …） | **同级**：没有前后关系 | fade-through：旧内容淡净（`PageMotion.FADE_OUT_MS = 110`）→ 新内容延迟 110ms、`FADE_IN_MS = 180` 淡入（**两段不重叠**）—— 横向滑动会暗示不存在的层级，且重叠期是最贵的一笔 |
+| L1 → 危险动作 / 决策页 | 不是框换框：**走现有决策页**（那是页级切换，用 `PageSwitcher` 自己的动效） | 不在本节管辖 |
+| 面板尺寸变化（L1 紧凑 ⇄ L2 高） | 随内容变 | 容器 `animateContentSize(tween(ElementMotion.REVEAL_MS = 220, easing = PageMotion.EnterEasing))`；**尺寸动画发生在 fade-through 的空白段**（此时只有容器在动） |
+| L2 内容加载（缓存未命中 / 远端分页） | 骨架 → 内容 | `PlaceholderSwap`（`ui/theme/Motion.kt:247`：延迟现身 + 骨架先退 / 内容再进 + 尺寸动画）—— **不许 `Crossfade`**（全仓已有结论，见 `ContributionWall.kt:96`） |
+| 虚节点出现 / 消失（`dirty` 0 ⇄ N） | 元素级 | 淡入淡出 + 尺寸跟随（`ElementMotion.COLOR_MS = 180` 一档；它是「状态」不是「新页」，不许播换页动画） |
+
+**落地形态**：在 `ui/navigation/PageTransitions.kt`（动效唯一真源）里加一个
+**`PanelSwitcher`**，与 `PageSwitcher` / `TabSwitcher` 共用 `PageMotion` 常量与
+`pageIsCurrent` 的 `LocalPageActive` 下发，只是容器不是全屏、并自带「面板内返回」。
+
+**四条不许（都是这个仓库已经付过代价的）**：
+
+1. **不许重叠期两档同时画**（fade-through 的空白段是有意取舍，不是 bug）；
+2. **不许在位移期间叠加缩放**（`PageMotion` 的「试过又退回去的」：整页/整框缩放会重采样，文字发虚）；
+3. **不许用 `Crossfade`** 换骨架/内容（`PlaceholderSwap` 是唯一口径）；
+4. **不许给 `AnimatedContent` 里塞多个子元素**（内容在 Box 里会互叠 —— `CrossfadeLayoutTest` 钉过这个坑）。
+
+**验收**：真机 perfBeta 出包 → `tools/perf/frame-baseline.py compare`，面板切换场景
+**≥100ms 条数降、超 16ms 比例降、慢帧均值不回升**；台账回写
+[`frame-perf-design.md`](frame-perf-design.md) §5 与版本条目。
+
+### 3.5 返回键链路（面板把「框」当层用）
+
+现状已经是：**展开时消费返回**（`PageBackHandler(expanded) { expanded = false }`，
+`RepositoryScreen.kt:1159`、文件页同款）。加入 L2 之后变成三层，
+**注册顺序 = 优先级**（后注册优先，`PageSwitcher` 的既有约定）：
+
+```
+L2 注册：返回 = 回 L1（面板内返回，新增）
+  ↓ 未消费
+L1 注册：返回 = 收起面板（现状：PageBackHandler(expanded)）
+  ↓ 未消费
+页面自己的路由（仓库页 / 文件页）
+```
+
+要求：**L2 的注册只在「当前档就是 L2」时生效**，退场中的旧档一律放手
+（`LocalPageActive` 的同一套纪律，`PageTransitions.kt:210` 的 `pageIsCurrent`）。
 
 ---
 
@@ -132,11 +190,22 @@
 
 | 动作 | 语义 | 备注 |
 |---|---|---|
-| 进入 | 打开 Git 模式（§3） | **主入口**，整行可点 |
+| 进入 | 打开该仓库的代码页**并自动展开到 L2**（§3.2 的 `RepoDeepLink.openGitPanel`） | **主入口**，整行可点；不新增页面 |
 | 更新 | `pull`（fast-forward） | 保持现状；分叉仍进 P0-1 决策页 |
 | 删除 | 删除本地副本 | 保持现状（含未推送警告升级） |
 
 **迁走的行内动作**（提交 / 推送 / 撤销 / 上游 / 回退 Git 化 / 分支 / 同步）→ 工作台的动作区与视图。
+
+**页头新增「管理」**（2026-09 拍板）：列表页顶部加一个「管理」按钮 → 进**本地仓库内容管理页**
+（新页面），按仓库列出**占用**并支持**针对单个仓库清理** —— 理由：不是所有仓库都那么大，
+要能只清一个（清什么见 `git-version-tree-design.md` §4.1：缓存方案 A 之下，「占用」就是本地仓库本身，
+所以这里的「清理」= 管理本地副本的体积/删除，而不是清一份额外的缓存）。
+
+> **已登记（后续问题，现阶段不做）**：本地仓库**列表行本身的视觉与信息层级要重绘** ——
+> 现在没有按语义边界区分（名称 / 分支 / 状态 / 动作混在一行里，塞不下更多动作）。
+> 用户明确「不能硬加边界」，所以这不是顺手改一处 padding 的事，得按
+> [`ui-design.md`](ui-design.md) 的行型与分组规范重新细化设计。**先把这条记在这里**，
+> 等「管理」入口与 §3 的面板都落地、真实动作收敛完之后再动它（那时才知道要分几组）。
 
 **过渡期（必须写清楚，否则会出现两个真源）**：
 
@@ -207,17 +276,39 @@
 `rebase` 仍然不做。这条要在 [`local-git-engine-design.md`](local-git-engine-design.md) §5 的登记表里
 把 D11 的措辞从「不 merge / rebase」改成「不 rebase；merge 仅在显式决策页发起」。
 
-### 6.2 UI：冲突解决视图（工作台内的一个状态，不是新页面）
+### 6.2 UI：冲突弹窗 → 详情对比页（已拍板 2026-09）
 
-- 触发：`merge_branch` 返回 `conflict` → 工作台切到「**冲突解决**」态（视图切换条右侧亮红点）；
-- 内容：冲突文件清单（每行：路径 + 三个动作「用我方 / 用对方 / 手工」），顶部一句
-  「全部解决后才能提交合并，或放弃合并」；
-- 手工：进 `:editor`（现成的编辑器模块）显示冲突标记 `<<<<<<< / ======= / >>>>>>>`，
-  保存 = `write_resolved`；
-- 收尾：全部解决 → 「提交合并」（`merge_continue`，message 预填 `Merge <branch> into <branch>`）；
-  任何时候可「放弃合并」（`merge_abort`，**不丢数据** —— 只是回到合并前）；
-- 一切有后果的动作（`merge_abort` / `merge_continue` / 逐文件采用某一侧）都要**说明后果**：
-  采用一侧 = 另一侧的改动在这个文件上被丢弃。文案口径照 [`decision-pages-design.md`](decision-pages-design.md) §2。
+**产品口径**：`merge_branch` 一旦发现冲突，**立刻弹窗**告诉用户「有冲突」；弹窗上给一个按钮，
+点它进**详情对比页**（逐文件对比 + 解决）。**关键要求：弹窗出现的那一刻就开始解析**
+（ours / theirs / base 的 diff、冲突文件清单），等用户点进页面时**内容是现成的** ——
+不许让用户进了新页面才开始等。
+
+```
+merge_branch ──► outcome == "conflict"
+                    │
+                    ├─ 立即：冲突弹窗（事实：N 个文件冲突 · 分支 · 后果说明）
+                    │        └─ 同步启动「预解析」（后台、可取消、带进度）
+                    │              └─ 逐文件算 ours / theirs / base 的 diff + 冲突块
+                    │
+                    └─ 用户点「查看并解决」──► 详情对比页（复用 BranchCompareScreen 的 diff 渲染）
+                                                逐文件：用我方 / 用对方 / 手工（:editor）→ 标记已解决
+                                                全部解决 → 「提交合并」；任何时候 → 「放弃合并」
+```
+
+**预解析的契约**（这一条是本节的重点，别做成「页面自己再算一遍」）：
+
+| 项 | 约定 |
+|---|---|
+| 触发 | 冲突弹窗**出现时**（不是用户点按钮时） |
+| 位置 | 引擎侧一个新接口（`analyze_conflicts(dir)`）在后台线程跑；结果落**进程内缓存**（冲突是瞬态状态，不落盘） |
+| 进度 | 走既有长任务口径（`TaskStore` + 进度；冲突文件通常几个到几十个，多数情况下不到 1s） |
+| 可取消 | 用户关掉弹窗 / 离开页面 → 取消；**不进决策、不写盘**（只读分析） |
+| 页面侧 | 进页面时：有结果 → 直接渲染；还在算 → `PlaceholderSwap` 的骨架 + 已出的部分；失败 → 说明原因并能重试 |
+| 不许 | ① 页面打开后再从头算（用户已经等过一次）；② 把预解析做成「页面状态」，导致返回再进重算 |
+
+**详情对比页**是**页面**（不是面板内的一档）：冲突解决要大面积看 diff，塞进气泡面板会是灾难。
+它复用现有 diff 渲染（`BranchDiff.kt` + `BranchCompareScreen` 的组件），
+返回键与登记按 §11 走（新增全屏页要进 `SystemBarInsetsTest.fullScreenPages`）。
 
 ### 6.3 远端 PR 冲突的两条出路
 
@@ -264,6 +355,11 @@
 | 7 | 冲突解决 | 无 | §6.1 的 5 个接口 | 是 |
 | 8 | 显式 stash | 无（隐式不做） | **未决**（§10） | — |
 
+**不经引擎、但同样要新建的一件东西**：**图谱本地缓存**（产品决策「不设上限 + 接受体积增长」
+的落地形态）——按 `(owner, repo, ref)` 分片、`sha` 主键去重、增量 append、命中即先直出，
+并给清理入口。形态与约定见 [`git-version-tree-design.md`](git-version-tree-design.md) §4.1；
+存哪（Room / JSON 文件）仍是未决问题（§10）。
+
 **每一条的落地清单**（缺一步就白干，与 [`git-version-tree-design.md`](git-version-tree-design.md) §5 同一套）：
 `mod.rs` → `core/src/bridge/jni.rs` 导出 → `RustBridge.kt` 的 `external` + suspend wrapper
 （约定：`null` = 成功，失败 `ERROR:` 前缀，见 `GitErrorConventionTest`）→ `JniSignatureTest` 逐参数比对 →
@@ -275,12 +371,13 @@
 
 | 阶段 | 交付 | 依赖 | 验收 |
 |---|---|---|---|
-| **0** | 工作台骨架（仓库头 + 四档切换的空壳）+ 工作区视图（脏文件列表 + 提交入口，复用现有动作）+ 三条入口 + 设置列表「进入」为主入口 | 无（零 Rust） | 真机：从仓库页 / 悬浮球 / 列表都能进；返回键链路正确（`BackConsumptionTest`） |
-| **1** | 提交图（REST 数据 + `CommitGraphLayout`）+ 引用树（`fetch_remote` + tags 占位） | 阶段 0 | 多分支仓库的图不断线、不串道（`git-version-tree-design.md` §6 的用例） |
+| **0**（已落地）| **面板三档**（`GitPanelStage`：Collapsed / Actions / View）+ **`PanelSwitcher`**（§3.4 的动效规格）+ **工作区档**（脏文件清单 + 刷新 / 同步；数据与徽标同源 `LocalRepoGitState`） | 无（零 Rust） | 真机：框换框不闪、不抖、不叠；三层返回键链路正确（L2 → L1 → 页面） |
+| **1** | 提交图（REST 数据 + `CommitGraphLayout`，含 **A 方案的未提交虚节点**）+ 引用树（`fetch_remote` + tags 占位） | 阶段 0 | 多分支仓库的图不断线、不串道（`git-version-tree-design.md` §6 的用例）；虚节点的出现/消失不播换页动画 |
 | **2** | 危险动作收口：工作台只做入口，全部落现有决策页；设置列表开始下线行内动作（一次一个） | 阶段 1 | 每个危险动作都能从工作台走到对应决策页并回到工作台 |
-| **3** | `diff_worktree` / `diff_commit` + `log_graph` + `list_tags`（重建 `.so`）+ 工作区视图的本地 diff | Rust | `cargo test` + `JniSignatureTest`；浅克隆下「历史不够」有明确说明 |
-| **4** | `fetch_deepen`（任务中心 + 进度）+ 文件历史树 + 离线图谱（LocalSource 优先、未推送段） | 阶段 3 | 飞行模式下能看图；加深失败不破坏已有仓库 |
-| **5** | 本地合并 + 冲突解决视图 + PR 冲突的「拉到本地解决」 | 阶段 4 | 构造真实冲突仓库跑通：冲突清单 → 逐文件解决 → 提交合并 / 放弃合并 |
+| **3** | `diff_worktree` / `diff_commit` + `log_graph(limit, skip)` + `list_tags`（全字段）+ `log_file`（重建 `.so`）+ **图谱本地缓存**（Room + 清理入口） | Rust | `cargo test` + `JniSignatureTest`；缓存命中时二次打开不重新拉全量 |
+| **4** | `fetch_deepen`（任务中心 + 进度）+ 文件历史**本地兜底** + 离线图谱（LocalSource 优先、未推送段） | 阶段 3 | 飞行模式下能看图、能看文件历史；加深失败不破坏已有仓库 |
+| **5** | 本地合并（D11 已放开）+ **冲突弹窗 + 预解析 + 详情对比页**（§6.2）+ PR 冲突的「拉到本地解决」 | 阶段 4 | 构造真实冲突仓库跑通：弹窗 → 点进页面**内容已就绪**（预解析生效）→ 逐文件解决 → 提交合并 / 放弃合并 |
+| **6** | 设置 → 本地仓库 →「管理」页（按仓库看占用 / 清理）+ 本地仓库列表重绘（§4 的登记项） | 阶段 4（要有加深后的占用才有的管） | 占用数字与目录实际大小一致；删除仓库后不留派生数据 |
 
 ---
 
@@ -297,14 +394,96 @@
 8. **导出仓库**（zip / 分享给桌面端）要不要做 —— 1.0.92 只改了文案，把「复制路径到桌面端」
    这句话删掉了；**没有出路**与「有出路但要新建能力」是两件事，要明确选一个。
 
+### 10.1 已拍板 / 已澄清（2026-09，详见 [`git-version-tree-design.md`](git-version-tree-design.md) §3 / §14）
+
+| 问题 | 结论 |
+|---|---|
+| 文件历史要不要本地 `log -- path` 兜底 | **要**：已加深走本地（离线、无 API 限额），REST 兜底 |
+| 图谱 head 数 / 条数上限 / 「加载更早」次数 | **都不设上限**；用**图谱本地缓存**抵住请求量与体积（**体积增长接受**，但必须有清理出口） |
+| tag 字段 | **都要**：`name` + `sha` + annotated 的 `tagger` / 时间 / 说明；非 annotated 留空 |
+| Git 模式的形态 | **气泡面板、框换框、不跳页面**（§3 开头）；全屏工作台与 `RepoRoute.GitWorkspace` 的方案作废 |
+| 「虚节点」要不要画 | **画（方案 A）**：目标是工作台，「多一个浅色节点」值得。画法、只有哪些交互可用、
+  多个状态怎么并成一个节点：见 [`git-version-tree-design.md`](git-version-tree-design.md) §14.1 |
+
 ---
+
+### 10.2 决策说明一：D11 边界（允不允许 merge）—— 要拍的到底是什么
+
+**D11 原文**（[`local-git-engine-design.md`](local-git-engine-design.md) §5）：
+**不改写已推送历史** —— 已推送的提交只能 revert，现状写法是「不做 merge / rebase」
+（`SyncDecisionScreens.kt`、`core/src/git/mod.rs` 的 `revert_commit` 都按它写注释）。
+
+**先把两件事分开，它们被同一句话绑在一起太久了**：
+
+| 动作 | 会不会改写已有提交 | 与 D11 的关系 |
+|---|---|---|
+| `merge`（三方合并） | **不会**：在现有提交之上**新增**一个两父的合并提交，所有旧 sha 不变 | 与 D11 **不冲突** —— 禁止它从来没有技术理由，只是当年顺手写进了同一条 |
+| `rebase` / `amend 已推送` / 强推 | **会**：替换/丢弃已推送的提交，别人的仓库已经有那些 sha | D11 真正要禁的就是这一类 |
+
+**今天的处境**（`core/src/git/mod.rs` 的 `pull_repo`）：pull **只做 fast-forward**，
+两边都有新提交（分叉）时直接 `Err("nff: …")` → 上层弹 P0-1 决策页 → 页面只有两条路：
+「保留本地（暂不处理）」或「放弃本地（`reset --hard origin/x`）」。也就是说，
+**「远端有人提交 + 我本地也有未推送提交」这种最常见的分叉，用户只能丢一边** ——
+工作台想做的「提交合并 / 冲突解决」在能力上根本不存在（[`git-mode-design.md`](git-mode-design.md) §6）。
+
+**拍「允许 merge」意味着**：
+
+- 分叉可解：`merge_branch` 产生合并提交 → 直接 push（不改写任何历史）；
+- 冲突从「死路」变成可处理：冲突清单 → 逐文件「用我方 / 用对方 / 手工（`:editor`）」→
+  提交合并，或随时「放弃合并」（回到合并前，不丢数据）；
+- 引擎新增 6 个接口 + 冲突解决视图（§6.1/§6.2），排期落在**阶段 5**。
+
+**两条硬依赖与三个必须在设计里交代的风险**：
+
+1. **依赖加深克隆（阶段 4）**：合并需要**共同祖先**，而浅克隆只有 1 层历史 ——
+   没有共同祖先时 libgit2 给不出 merge base。所以「允许 merge」在排期上必然晚于 `fetch_deepen`；
+2. **依赖提交身份**（`commit.author.name/email`，已有）；
+3. 风险：① **合并到一半被杀**（仓库停在 merge 中）——必须设计「进入工作台时发现未完成的合并 →
+   继续 / 放弃」，否则用户会卡死；② 合并提交的信息与敏感扫描口径（信息是自动生成的，要不要扫、
+   扫失败怎么办，要一句话说清）；③ 合并后的 push 走既有路径（`push_repo`），但**分叉页的文案与选项要重写**
+   （不再是「保留 / 放弃」两条，而是「合并 / 保留 / 放弃」三条）。
+
+**已拍板（2026-09）：选 A —— 允许 merge，仍不做 rebase**。D11 措辞随之修正为
+「**不改写已推送历史**：不做 rebase / amend 已推送 / 强推；**merge 允许**（它只新增提交）」，
+实现落地时同步改 [`local-git-engine-design.md`](local-git-engine-design.md) §5 的登记行与代码注释。
+
+冲突的交互形态也一并拍板：**冲突弹窗（出现即开始预解析）→ 详情对比页**（见 §6.2），
+不是「面板里塞一个解决视图」。
+
+### 10.3 决策说明二：图谱缓存存哪、清理入口放哪
+
+**缓存是为了解决什么**：图谱要「打开就能画」。数据有两条来路 —— REST `/commits`
+（GitHub 限流、分页、每次都要重拉）与本地 libgit2（快、离线）。
+产品已拍「不设上限」，一个活跃仓库几万条提交是常态，**每次打开从头拉不可行**，所以要有本地副本。
+真正要选的不是「要不要缓存」，而是**这份副本由谁来当**：
+
+| 选项 | 是什么 | 优点 | 缺点 |
+|---|---|---|---|
+| **A. 让本地仓库自己当缓存**（首选，配合 `fetch_deepen`） | 加深克隆后，提交就在 `.git/objects` 里；libgit2 直接读 | 不重复存事实；git 自己压缩 / gc；离线、无 API、零维护 | 只对有本地副本的仓库有效；没克隆的要先加深（几 MB~几十 MB，长任务） |
+| **B. Room 表**（`graph_commits` + 水位行） | 结构化表：`sha` 主键去重、按 `(owner, repo, ref)` 索引分页、事务写入 | 分页 / 去重 / 统计占用都是白送的；**仓库里已有 3 个 Room 库（其中一个就是缓存库 `SearchCacheDatabase`）**，KSP 已配好 | 多一套 schema 与迁移；重复存了一份 git 已有的事实 |
+| **C. JSON / NDJSON 文件**（`noBackupFilesDir/graph-cache/…`） | 每 `(repo, ref)` 一个追加式文件 | 清理 = 删文件；无 schema 迁移 | 读一页要解析整个文件（大仓库几 MB）；去重要在内存做；并发写要自己保证（临时文件 + rename） |
+
+**已拍板（2026-09）：选 A —— 本地仓库自己当缓存**。理由（产品原话的意思）：
+**应用本身就是本地优先的实现，相关数据也应当落在本地** —— 不另造一份 Room / JSON 副本。
+由此推出三条口径：
+
+1. **不建独立的图谱缓存**：没有本地副本的仓库，图谱数据按需从 REST 取（沿用现有内存级缓存，
+   无上限分页）；想要「打开就秒出、离线可看」，就走**加深克隆**把历史落到本地仓库（阶段 4）；
+2. **「占用」= 本地仓库本身的体积**：所以清理不是「清一份缓存」，而是管理本地副本
+   （见 §4 的「管理」页：按仓库看占用、按仓库清理 / 删除）；
+3. **删除本地仓库时顺带删掉该仓库的一切派生数据**（现有的草稿、以及未来的图谱内存缓存键）——
+   这条无论选哪个方案都成立，继续有效。
+
+> 若将来真机数据表明「远端路径的重拉」不可接受（比如没克隆的仓库图谱打开太慢），
+> 再回来评估要不要加持久缓存 —— 那时也优先 Room（仓库里已有缓存库先例 `SearchCacheDatabase`），
+> 而不是 JSON 文件。这条写在这里，免得以后重新讨论一遍。
 
 ## 11. 登记清单（**漏了不会红**）
 
 | 要动的东西 | 登记处 |
 |---|---|
-| 新增全屏页 | `SystemBarInsetsTest.kt` 的 `fullScreenPages` |
-| 新增路由分支 | `RepositoryScreen.kt` 的 `route` + `leavePage()`（`BackConsumptionTest.kt` 钉穷尽 `when`） |
+| **面板多了一档（L2）** | 返回键层级要在注释与 `NAVIGATION-NOTES.md` 里写清（L2 → L1 → 页面）；**不新增页面、不动 `route` / `leavePage()` / `fullScreenPages`**（形态已定：气泡面板） |
+| 新增 `PanelSwitcher` | `ui/navigation/PageTransitions.kt`（动效唯一真源）+ `PageTransitionsTest` 的源码级钉子（与 `PageSwitcher`/`TabSwitcher` 共用 `pageIsCurrent` 下发） |
 | 任何新页面 | 只用 `PageBackHandler`（裸 `BackHandler` 被 `BackConsumptionTest.kt` 全目录扫描） |
 | 新 `ui/` 文件里的颜色 | 走 `Primer` 角色；泳道配色定义在 `ui/theme/`（`ThemeConvergenceTest.kt`） |
 | 新字符串 | `tools/i18n/strings.tsv` → `extract.py --apply`（CI 硬门禁 `--min-coverage 100`） |

@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.CompareArrows
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sell
@@ -1150,13 +1151,14 @@ private fun CodePageGitPanel(
     onOpenLocalSync: () -> Unit,
     onRefresh: () -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    var stage by remember { mutableStateOf<GitPanelStage>(GitPanelStage.Collapsed) }
     val localGit = rememberLocalRepoGitState(repo, refreshTick)
     val otherBranch = branches.firstOrNull { it != defaultBranch }
 
     // 展开态铺了一层全屏透明遮罩（点空白收起）：返回键要消费的是「收起面板」，
     // 而不是把整个仓库页关掉（遮罩挡着正文时，用户按返回的意图一定是不看了）。
-    PageBackHandler(expanded) { expanded = false }
+    // 面板三档的返回：视图 → 动作列表 → 收起（与文件页同一条规则，见 panelBack）
+    PageBackHandler(stage != GitPanelStage.Collapsed) { stage = panelBack(stage) }
 
     val actions = listOf(
         GitBubbleAction(
@@ -1198,6 +1200,17 @@ private fun CodePageGitPanel(
             onClick = onOpenLocalSync,
         ),
         GitBubbleAction(
+            key = "workspace",
+            label = stringResource(R.string.label_git_workspace),
+            icon = Icons.Filled.Checklist,
+            badge = localGit.dirtyCount.takeIf { it > 0 }?.toString(),
+            enabled = localGit.exists,
+            // 这一条进的是**视图档**（面板内换框，不收起面板）—— keepOpen 的第一个用户
+            keepOpen = true,
+        ) {
+            stage = GitPanelStage.View(GitPanelKind.Workspace)
+        },
+        GitBubbleAction(
             key = "refresh",
             label = stringResource(R.string.action_refresh),
             icon = Icons.Filled.Refresh,
@@ -1207,8 +1220,18 @@ private fun CodePageGitPanel(
 
     GitBubblePanel(
         actions = actions,
-        expanded = expanded,
-        onExpandedChange = { expanded = it },
+        stage = stage,
+        onStageChange = { stage = it },
+        view = { kind ->
+            when (kind) {
+                GitPanelKind.Workspace -> GitWorkspacePanel(
+                    git = localGit,
+                    onRefresh = onRefresh,
+                    onOpenSync = onOpenLocalSync,
+                )
+                else -> GitPanelViewPlaceholder(kind)
+            }
+        },
         title = localGit.summary(),
         handleBadge = when {
             localGit.diverged -> "!"

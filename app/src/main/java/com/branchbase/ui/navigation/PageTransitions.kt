@@ -288,6 +288,72 @@ fun <S : PageLevel> PageSwitcher(
 }
 
 /**
+ * 这一档过渡该走哪条路（纯函数，便于单测）。
+ *
+ * 与页面级的 [transitionKindFor] 同一套语义，但**没有「重页降级」这一档**：
+ * 面板只有一屏的一小块，不存在「整页首帧重」的问题；它的降级判据是「同层」（[TransitionKind.Light]）。
+ */
+internal fun panelTransitionKind(initialDepth: Int, targetDepth: Int): TransitionKind = when {
+    targetDepth > initialDepth -> TransitionKind.Forward
+    targetDepth < initialDepth -> TransitionKind.Back
+    else -> TransitionKind.Light
+}
+
+/**
+ * **浮层面板内**的切换器（Git 气泡的三档：动作列表 ⇄ 视图）。
+ *
+ * ## 它和 [PageSwitcher] 的关系
+ *
+ * 同一套动效语义、同一份常量（[PageMotion]），只有两点不同：
+ * 容器不是全屏、**自带层级**（[depthOf] 由调用方给）。所以它和 [PageSwitcher] / [TabSwitcher]
+ * 一样下发 [LocalPageActive] —— 退场中的旧档必须放手，否则它会吃掉紧接着的返回键
+ * （那条纪律与页面级完全一致，见 [pageIsCurrent]）。
+ *
+ * ## 位移为什么是「容器宽度的 1/10」
+ *
+ * 直接复用 [pageEnterTransition]：`slideInHorizontally` 的 lambda 拿到的是**容器**宽度，
+ * 而面板容器的宽度就是面板宽度 —— 于是它天然是「面板宽度的 1/10」，
+ * 与「整页 1/10 屏」是同一条规格（位移越短，端点速度不连续越不明显）。
+ *
+ * ## 尺寸变化
+ *
+ * 面板会随内容变高变矮（动作列表矮、视图高）。**尺寸动画交给 [Modifier.animateContentSize]**
+ * （由调用方挂在容器上，规格：`tween(ElementMotion.REVEAL_MS, easing = PageMotion.EnterEasing)`）——
+ * 而 [AnimatedContent] 本身不自定义 `sizeTransform`：它会在动画期间把两个尺寸同时插值，
+ * 与这里「两段不重叠」的 fade-through 叠在一起就是三件事同时在动。
+ *
+ * @param depthOf 这一档在第几层（+1 进档 / -1 退档 / 同级则 fade-through）
+ */
+@Composable
+fun <S : Any> PanelSwitcher(
+    state: S,
+    depthOf: (S) -> Int,
+    modifier: Modifier = Modifier,
+    label: String = "panel",
+    content: @Composable (S) -> Unit,
+) {
+    AnimatedContent(
+        targetState = state,
+        modifier = modifier,
+        transitionSpec = {
+            when (panelTransitionKind(depthOf(initialState), depthOf(targetState))) {
+                TransitionKind.Forward -> pageEnterTransition(1) togetherWith pageExitTransition(1)
+                TransitionKind.Back -> pageEnterTransition(-1) togetherWith pageExitTransition(-1)
+                TransitionKind.Light -> fadeIn(
+                    tween(PageMotion.FADE_IN_MS, delayMillis = PageMotion.FADE_OUT_MS, easing = PageMotion.EnterEasing),
+                ) togetherWith fadeOut(tween(PageMotion.FADE_OUT_MS, easing = PageMotion.ExitEasing))
+            }
+        },
+        contentKey = { it },
+        label = label,
+    ) { target ->
+        CompositionLocalProvider(LocalPageActive provides pageIsCurrent(target, state)) {
+            content(target)
+        }
+    }
+}
+
+/**
  * 切换方向：`+1` 前进 / `-1` 返回 / `0` 同级。
  *
  * 抽成纯函数是为了能单测 —— 方向写反（返回时往右进、前进时往左出）是动效里最隐蔽的 bug：

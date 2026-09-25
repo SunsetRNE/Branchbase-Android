@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
@@ -473,19 +474,22 @@ fun FileViewerScreen(
     // tick 的两个来源见 gitTick 的注释：本地提交（本页自增）+ 从子页回来（resumeTick）
     val resumeTick = rememberPageResumeTick()
     val localGit = rememberLocalRepoGitState(repo, gitTick + resumeTick)
-    var bubbleExpanded by remember { mutableStateOf(false) }
+    var gitPanelStage by remember { mutableStateOf<GitPanelStage>(GitPanelStage.Collapsed) }
 
     // 返回键先消费本页自己的三层覆盖（从内到外）：
     // 1. 决策页（敏感内容 / 暂存提交 / 身份 / 草稿恢复 / 离线冲突）—— 叠在正文之上的全屏层，
     //    它们的返回箭头都是「回编辑态」；
-    // 2. Git 悬浮球展开态 —— 铺了全屏透明遮罩，返回键应当是收起面板；
+    // 2. Git 悬浮球（工作台）—— 铺了全屏透明遮罩；面板本身还有两档（动作列表 ⇄ 视图），
+    //    返回键按 panelBack 逐档退：视图 → 动作列表 → 收起。
     // 3. 编辑态 —— 底部有「取消」，返回键同样应该是取消编辑。
     // 以前这一页没有 handler：决策页按系统返回会把**整个文件页**一起关掉，
     // 与页面内的返回箭头不是同一条路径（用户刚做的选择随页面一起消失）。
-    PageBackHandler(page != FilePage.None || bubbleExpanded || editing) {
+    PageBackHandler(
+        page != FilePage.None || gitPanelStage != GitPanelStage.Collapsed || editing,
+    ) {
         when {
             page != FilePage.None -> page = FilePage.None
-            bubbleExpanded -> bubbleExpanded = false
+            gitPanelStage != GitPanelStage.Collapsed -> gitPanelStage = panelBack(gitPanelStage)
             else -> editing = false
         }
     }
@@ -673,6 +677,17 @@ fun FileViewerScreen(
                             showModePicker = true
                         },
                     )
+                    add(
+                        GitBubbleAction(
+                            "workspace",
+                            stringResource(R.string.label_git_workspace),
+                            Icons.Filled.Checklist,
+                            badge = localGit.dirtyCount.takeIf { it > 0 }?.toString(),
+                            enabled = localGit.exists,
+                            // 进视图档：面板内换框，不收起面板（keepOpen 的第一个用户）
+                            keepOpen = true,
+                        ) { gitPanelStage = GitPanelStage.View(GitPanelKind.Workspace) },
+                    )
                     add(GitBubbleAction("branch", stringResource(R.string.nav_branch_manage), Icons.Filled.AccountTree) { onOpenBranchManage() })
                     add(
                         GitBubbleAction(
@@ -689,8 +704,18 @@ fun FileViewerScreen(
                         ) { onOpenLocalSync() },
                     )
                 },
-                expanded = bubbleExpanded,
-                onExpandedChange = { bubbleExpanded = it },
+                stage = gitPanelStage,
+                onStageChange = { gitPanelStage = it },
+                view = { kind ->
+                    when (kind) {
+                        GitPanelKind.Workspace -> GitWorkspacePanel(
+                            git = localGit,
+                            onRefresh = { gitTick++ },
+                            onOpenSync = onOpenLocalSync,
+                        )
+                        else -> GitPanelViewPlaceholder(kind)
+                    }
+                },
                 title = localGit.summary(),
                 // 顶部停靠：编辑态的底部是「提交信息 + 按钮」，面板停右上角避免遮挡
                 alignment = Alignment.TopEnd,

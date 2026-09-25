@@ -7,6 +7,7 @@ import androidx.compose.runtime.produceState
 import com.branchbase.core.AccountStore
 import com.branchbase.core.LocalRepos
 import com.branchbase.core.RustBridge
+import com.branchbase.ui.decision.DirtyFile
 import com.branchbase.ui.decision.GitStatus
 import com.branchbase.ui.decision.parseGitStatus
 import kotlinx.coroutines.Dispatchers
@@ -25,11 +26,15 @@ data class LocalRepoGitState(
     val upstream: String = "",
     val ahead: Int = 0,
     val behind: Int = 0,
-    val dirtyCount: Int = 0,
+    /** 工作区变更文件（工作台「工作区」档要列清单；徽标只用它的长度）。 */
+    val dirty: List<DirtyFile> = emptyList(),
     val hasUpstream: Boolean = false,
     val remoteUrl: String = "",
 ) {
     /** 需要推送 / 需要拉取 / 分叉 —— 面板徽标与动作开关都用它。 */
+    /** 改动文件数（徽标 / 摘要用它，免得两处各取一次长度）。 */
+    val dirtyCount: Int get() = dirty.size
+
     val needsPush: Boolean get() = exists && ahead > 0
     val needsPull: Boolean get() = exists && behind > 0 && ahead == 0
     val diverged: Boolean get() = exists && ahead > 0 && behind > 0
@@ -60,7 +65,7 @@ suspend fun loadLocalRepoGitState(context: Context, repo: String): LocalRepoGitS
             branch = status?.branch.orEmpty(),
             ahead = status?.ahead ?: 0,
             behind = status?.behind ?: 0,
-            dirtyCount = status?.dirty?.size ?: 0,
+            dirty = status?.dirty.orEmpty(),
             hasUpstream = status?.hasUpstream ?: false,
             remoteUrl = status?.remoteUrl.orEmpty(),
         )

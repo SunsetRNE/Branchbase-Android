@@ -410,6 +410,14 @@
     <string name="note_repo_credentials_scope">只在当前账号打不开的私有仓库上生效。</string>
     <string name="state_no_repos">暂无仓库</string>
     <string name="label_git_bundle">Git 配置包</string>
+    <string name="label_git_workspace">工作区</string>
+    <string name="label_git_graph">提交图</string>
+    <string name="label_git_refs">引用树</string>
+    <string name="label_git_file_history">文件历史</string>
+    <string name="state_workspace_clean">工作区干净 · 没有未提交改动</string>
+    <string name="state_no_upstream_short">未设置上游</string>
+    <string name="note_git_views_pending">提交 / 推送 / 合并入口按阶段接入。</string>
+    <string name="note_git_view_unavailable">这一档视图还没落地 —— 按设计稿的阶段计划接入（见 docs/specs/git-mode-design.md §9）。</string>
     <string name="note_proxy_scope">仅作用于本地仓库的 clone / pull / push。</string>
     <string name="note_delete_local_branch">只删除本地分支，不影响远端；未合并的提交会丢失。</string>
     <string name="note_dirty_blocks_switch">工作区有 %1$s 个改动；切换分支若会覆盖它们将被拒绝</string>

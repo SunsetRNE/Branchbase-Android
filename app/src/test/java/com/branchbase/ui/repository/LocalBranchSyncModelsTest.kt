@@ -1,5 +1,6 @@
 package com.branchbase.ui.repository
 
+import com.branchbase.ui.decision.DirtyFile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -166,7 +167,14 @@ class LocalBranchSyncModelsTest {
         assertFalse(missing.needsPush)
         assertFalse(missing.needsPull)
 
-        val dirty = LocalRepoGitState(exists = true, branch = "main", dirtyCount = 2)
+        // `dirtyCount` 现在是 `dirty` 的派生值（1.0.94）：徽标与「工作区」档的清单同源，
+        // 不许两处各算一次
+        val dirty = LocalRepoGitState(
+            exists = true,
+            branch = "main",
+            dirty = listOf(DirtyFile("a.txt", "M"), DirtyFile("b.txt", "??")),
+        )
+        assertEquals(2, dirty.dirtyCount)
         assertEquals("main · 改动 2", dirty.summary())
         assertFalse(dirty.needsPush)
 

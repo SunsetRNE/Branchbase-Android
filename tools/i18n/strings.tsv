@@ -1244,3 +1244,11 @@ http://127.0.0.1:7890 或 socks5://127.0.0.1:1080	http://127.0.0.1:7890 or socks
 拉取失败	Clone failed	clone_failed_title
 已接收 $size	Received %1$s	clone_bytes_received
 已取消拉取 $name	Cancelled cloning %1$s	toast_clone_cancelled
+工作区	Working tree	label_git_workspace
+提交图	Commit graph	label_git_graph
+引用树	Refs	label_git_refs
+文件历史	File history	label_git_file_history
+工作区干净 · 没有未提交改动	Working tree is clean — nothing uncommitted	state_workspace_clean
+未设置上游	No upstream	state_no_upstream_short
+提交 / 推送 / 合并入口按阶段接入。	Commit, push and merge entry points arrive in later phases.	note_git_views_pending
+这一档视图还没落地 —— 按设计稿的阶段计划接入（见 docs/specs/git-mode-design.md §9）。	This view is not available yet — it arrives in a later phase (see docs/specs/git-mode-design.md §9).	note_git_view_unavailable

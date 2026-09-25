@@ -1,6 +1,8 @@
 package com.branchbase.ui.repository
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -28,6 +30,9 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -42,7 +47,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.R
 import com.branchbase.ui.profile.CommitMode
+import com.branchbase.ui.navigation.PageMotion
+import com.branchbase.ui.navigation.PanelSwitcher
 import com.branchbase.ui.theme.AnimatedStateIcon
+import com.branchbase.ui.theme.ElementMotion
 import com.branchbase.ui.theme.rememberPressFeedback
 import com.branchbase.ui.theme.Primer
 
@@ -77,32 +85,55 @@ data class GitBubbleAction(
 )
 
 /**
- * Git 功能气泡按钮面板。
+ * Git 功能气泡按钮面板 —— **Git 模式的工作台**（三档，见 [GitPanelStage]）。
  *
- * 折叠态 = 右下角 52dp 圆手柄（可带徽标）；展开态 = 自下而上的 40dp 圆图标 + 白色标签胶囊
- * （圆角 16dp、间距 6dp、阴影 2dp），点击空白处收起。
+ * ```
+ * 折叠（52dp 圆手柄，可带徽标）
+ *   └─ 点球 ──► 动作列表（现有的 40dp 圆图标 + 标签胶囊，点空白收起）
+ *                  └─ 点「工作区」等 ──► 视图档（工作台内容，面板内换框）
+ * ```
  *
  * **用法**：作为覆盖层放在屏幕根 `Box` 的最后一个子项（本组件自带 `fillMaxSize` 的
  * 透明遮罩，展开时拦截点击以收起面板）。
  *
+ * ## 三档之间的切换动效
+ *
+ * 走 [PanelSwitcher]（与页面级共用 [PageMotion] 常量）：进档 = 新内容滑入面板宽度的 1/10 + 淡入、
+ * 旧内容原地淡出；同层 = fade-through（两段不重叠）。**收起**仍然走原来的
+ * `AnimatedVisibility(expand/shrink)` —— 那是「面板出现 / 消失」，不是「换框」。
+ *
+ * 尺寸变化（动作列表矮、视图高）交给 `animateContentSize`，规格与
+ * [`git-mode-design.md`](../../../../../../docs/specs/git-mode-design.md) §3.4 一致。
+ *
  * 设计意图（对齐「编辑之后不重复点开设置」）：把提交模式切换、推送/拉取、分支管理这些
- * 原本只在「设置 → 本地仓库」里才有的入口，直接挂到代码页/文件页，编辑完就地执行。
+ * 原本只在「设置 → 本地仓库」里才有的入口，直接挂到代码页/文件页，编辑完就地执行；
+ * 视图档再把这些动作的**上下文**（工作区 / 图 / 引用 / 文件历史）摊开。
+ *
+ * @param view 视图档的内容槽：按 [GitPanelKind] 渲染。默认给「本档还没落地」的占位 ——
+ *   调用方接错档时不会白屏，也不会假装能用。
  */
 @Composable
 fun GitBubblePanel(
     actions: List<GitBubbleAction>,
-    expanded: Boolean,
-    onExpandedChange: (Boolean) -> Unit,
+    stage: GitPanelStage,
+    onStageChange: (GitPanelStage) -> Unit,
     modifier: Modifier = Modifier,
     title: String? = null,
     handleIcon: ImageVector = Icons.Filled.MoreVert,
     handleBadge: String? = null,
     alignment: Alignment = Alignment.BottomEnd,
     edgePadding: PaddingValues = PaddingValues(end = 16.dp, bottom = 76.dp),
+    view: @Composable (GitPanelKind) -> Unit = { GitPanelViewPlaceholder(it) },
 ) {
     val interaction = remember { MutableInteractionSource() }
     // 顶部停靠时向下展开，底部停靠时向上展开
     val topDocked = alignment == Alignment.TopEnd
+    val expanded = stage != GitPanelStage.Collapsed
+
+    // 收起时 `AnimatedVisibility` 还要把内容播完退场 —— 用**最后一次展开的档**渲染它，
+    // 否则退场途中会先切回动作列表（看起来像「收起来了又弹一下」）。
+    var lastStage by remember { mutableStateOf<GitPanelStage>(GitPanelStage.Actions) }
+    if (stage != GitPanelStage.Collapsed) lastStage = stage
 
     Box(modifier.fillMaxSize()) {
         // 展开时铺一层透明遮罩：点空白收起，同时避免误触下层内容
@@ -113,7 +144,7 @@ fun GitBubblePanel(
                     .clickable(
                         interactionSource = interaction,
                         indication = null,
-                        onClick = { onExpandedChange(false) },
+                        onClick = { onStageChange(GitPanelStage.Collapsed) },
                     ),
             )
         }
@@ -123,7 +154,9 @@ fun GitBubblePanel(
             horizontalAlignment = Alignment.End,
         ) {
             if (topDocked) {
-                BubbleHandle(expanded, handleIcon, handleBadge) { onExpandedChange(!expanded) }
+                BubbleHandle(expanded, handleIcon, handleBadge) {
+                    onStageChange(if (expanded) GitPanelStage.Collapsed else GitPanelStage.Actions)
+                }
                 Spacer(Modifier.size(if (expanded) 10.dp else 0.dp))
             }
 
@@ -132,15 +165,27 @@ fun GitBubblePanel(
                 enter = fadeIn() + expandVertically(expandFrom = if (topDocked) Alignment.Top else Alignment.Bottom),
                 exit = fadeOut() + shrinkVertically(),
             ) {
-                Column(
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    title?.takeIf { it.isNotBlank() }?.let { BubbleTitle(it) }
-                    actions.forEach { action ->
-                        BubbleActionRow(action) {
-                            if (!action.keepOpen) onExpandedChange(false)
-                            action.onClick()
+                PanelSwitcher(
+                    state = lastStage,
+                    depthOf = ::panelDepth,
+                    modifier = Modifier.animateContentSize(
+                        animationSpec = tween(ElementMotion.REVEAL_MS, easing = PageMotion.EnterEasing),
+                    ),
+                    label = "git-panel",
+                ) { s ->
+                    when (s) {
+                        is GitPanelStage.View -> view(s.kind)
+                        else -> Column(
+                            horizontalAlignment = Alignment.End,
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            title?.takeIf { it.isNotBlank() }?.let { BubbleTitle(it) }
+                            actions.forEach { action ->
+                                BubbleActionRow(action) {
+                                    if (!action.keepOpen) onStageChange(GitPanelStage.Collapsed)
+                                    action.onClick()
+                                }
+                            }
                         }
                     }
                 }
@@ -148,7 +193,9 @@ fun GitBubblePanel(
 
             if (!topDocked) {
                 Spacer(Modifier.size(if (expanded) 10.dp else 0.dp))
-                BubbleHandle(expanded, handleIcon, handleBadge) { onExpandedChange(!expanded) }
+                BubbleHandle(expanded, handleIcon, handleBadge) {
+                    onStageChange(if (expanded) GitPanelStage.Collapsed else GitPanelStage.Actions)
+                }
             }
         }
     }

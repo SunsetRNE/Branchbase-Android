@@ -405,6 +405,14 @@
     <string name="note_repo_credentials_scope">Only applies to private repositories the current account cannot open.</string>
     <string name="state_no_repos">No repositories yet</string>
     <string name="label_git_bundle">Git bundle</string>
+    <string name="label_git_workspace">Working tree</string>
+    <string name="label_git_graph">Commit graph</string>
+    <string name="label_git_refs">Refs</string>
+    <string name="label_git_file_history">File history</string>
+    <string name="state_workspace_clean">Working tree is clean — nothing uncommitted</string>
+    <string name="state_no_upstream_short">No upstream</string>
+    <string name="note_git_views_pending">Commit, push and merge entry points arrive in later phases.</string>
+    <string name="note_git_view_unavailable">This view is not available yet — it arrives in a later phase (see docs/specs/git-mode-design.md §9).</string>
     <string name="note_proxy_scope">Only affects clone / pull / push for local repositories.</string>
     <string name="note_delete_local_branch">Deletes the local branch only; the remote is unaffected. Unmerged commits will be lost.</string>
     <string name="note_dirty_blocks_switch">The working tree has %1$s changes; switching branches is refused if it would overwrite them</string>

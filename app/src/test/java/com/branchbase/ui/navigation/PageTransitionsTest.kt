@@ -27,6 +27,16 @@ class PageTransitionsTest {
     }
 
     @Test
+    fun `面板过渡：进档是前进、退档是返回、同层是淡入淡出`() {
+        // Git 气泡三档（折叠 0 / 动作 1 / 视图 2）与未来的其它浮层共用这条判定。
+        // 它和页面级同一套语义，但没有「重页降级」那一档 —— 面板不存在整页首帧重的问题。
+        assertEquals(TransitionKind.Forward, panelTransitionKind(initialDepth = 1, targetDepth = 2))
+        assertEquals(TransitionKind.Back, panelTransitionKind(initialDepth = 2, targetDepth = 1))
+        assertEquals(TransitionKind.Light, panelTransitionKind(initialDepth = 2, targetDepth = 2))
+        assertEquals(TransitionKind.Light, panelTransitionKind(initialDepth = 1, targetDepth = 1))
+    }
+
+    @Test
     fun `同级不位移`() {
         // 仓库页里切 Tab、同级页面互跳都属于这一类：应当淡入淡出，而不是横滑
         assertEquals(0, pageDirection(initialDepth = 0, targetDepth = 0))
@@ -70,7 +80,7 @@ class PageTransitionsTest {
     }
 
     @Test
-    fun `两个切换器都必须下发 LocalPageActive`() {
+    fun `三个切换器都必须下发 LocalPageActive`() {
         // 回归钉子：PageSwitcher 曾经漏了下发（只有 TabSwitcher 有），于是文档 / 提交信息 /
         // shouldHandleBack 单测都写着「退场中的旧页放手」，但走 PageSwitcher 的页面
         // （主界面路由 / 仓库页十几个子页 / 个人页子页 / 登录流程步骤）拿到的恒为 true ——
@@ -78,18 +88,23 @@ class PageTransitionsTest {
         //
         // 1.0.57 起 TabSwitcher 改成**保活**：下发点从 AnimatedContent 的 lambda 挪进了
         // `KeepAliveTab`（多了一层），所以这里钉的不再是「那一行的字面写法」，而是两件事：
-        // ① 全文件有**两处** `LocalPageActive provides`（两个切换器各一处，一个都不能少）；
-        // ② 两处都必须由 `pageIsCurrent` 判定 —— 少了它，「退场 / 隐藏中的旧页」会拿到 true，
+        // ① 全文件有**三处** `LocalPageActive provides`（PageSwitcher / TabSwitcher / PanelSwitcher
+        //    各一处，一个都不能少 —— 1.0.94 加的面板切换器同样要下发，否则退场中的旧档会抢返回键）；
+        // ② 三处都必须由 `pageIsCurrent` 判定 —— 少了它，「退场 / 隐藏中的旧页」会拿到 true，
         //    然后继续抢返回键（就是上面那串 bug 的根因）。
         val file = File("src/main/java/com/branchbase/ui/navigation/PageTransitions.kt")
         assertTrue("找不到 PageTransitions.kt：${file.absolutePath}", file.exists())
         val source = file.readText()
         val dispatched = Regex("LocalPageActive provides").findAll(source).count()
-        assertEquals("PageSwitcher 与 TabSwitcher（保活层）都要下发「是不是当前页」", 2, dispatched)
+        assertEquals(
+            "PageSwitcher / TabSwitcher（保活层）/ PanelSwitcher 都要下发「是不是当前页」",
+            3,
+            dispatched,
+        )
 
         val judged = Regex("pageIsCurrent\\(").findAll(source).count()
         assertTrue(
-            "两处下发都必须由 pageIsCurrent 判定（当前只匹配到 $judged 处，含函数声明）",
+            "三处下发都必须由 pageIsCurrent 判定（当前只匹配到 $judged 处，含函数声明）",
             judged >= 3,
         )
     }

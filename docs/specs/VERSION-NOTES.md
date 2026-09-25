@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只留格式契约 + 写法样板（3 个经典示例）；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.92**）
-与 §三 `versionCode` 流水（129 → **194**）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.93**）
+与 §三 `versionCode` 流水（129 → **195**）。
 
 ---
 
@@ -25,7 +25,61 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.92 → 1.0.22）
+## 二、`versionName` 流水（1.0.93 → 1.0.22）
+
+### 1.0.93
+
+**Git 模式：设计三轮落账（数据面三条决策 / 虚节点「画」/ 气泡多档面板 + 框换框动效 / D11 与缓存拍板）
++ 阶段 0 落地（面板三档 + `PanelSwitcher` + 「工作区」档）**。
+
+产品对设计稿未决问题的三轮答复，逐条折进
+[`git-version-tree-design.md`](git-version-tree-design.md) / [`git-mode-design.md`](git-mode-design.md)：
+
+① **数据面三条**：文件历史**要**本地 `log -- path` 兜底（已加深走本地：离线、无 API 限额；REST 兜底；
+未加深给「加深克隆」入口）；图谱**不设上限**（head 全取、「加载更早」不限次数）；tag **取全字段**
+（`name` + `sha` + annotated 的 `tagger` / 时间 / 说明，非 annotated 留空）。两条口径写死：
+**不设上限 ≠ 一次拉完**（分页照旧，尾部必须显示「已加载 N 条 · 更早历史未加载」，不许把截断画成尽头）；
+体积可增长但**必须有清理出口**。
+
+② **虚节点拍板「画」（方案 A）**：目标是工作台，多一个浅色节点值得。规格定死 —— HEAD 之上、
+虚线 + 半透明、不画 sha；「工作区改动 + 索引已暂存」**合成一个**节点（stash 不进图）；
+`dirty` 0 ⇄ N 走元素级淡入淡出（不播换页动画）；点它进「工作区」档；
+因无 sha，**详情 / 复制 sha / 对比 / 回滚一律置灰并说明原因**。
+
+③ **Git 模式形态拍板：不做全屏页、不跳页面** —— 现有那枚 Git 气泡的展开面板就是工作台，分三档
+（折叠手柄 / 动作列表 / 视图），四档视图在**弹窗内部**换框。设置 → 本地仓库页头新增「管理」入口
+（→ 本地仓库内容管理页：**按仓库**看占用并清理）；**登记一条后续问题**：本地仓库列表本身
+「没按语义边界区分、太丑」，要重绘，但**不能硬加边界** —— 等动作收敛完再动。
+
+④ **D11 拆开 merge 与 rebase**：merge **只新增提交、不改写历史**，与 D11 不冲突 —— **允许**；
+仍禁 rebase / amend 已推送 / 强推。冲突的交互定为**冲突弹窗 → 详情对比页**，
+且**弹窗出现的那一刻就开始预解析**（ours / theirs / base 的 diff 与冲突清单），
+用户点进去内容是现成的（预解析契约写在 `git-mode-design.md` §6.2）。
+
+⑤ **缓存拍板选 A**：不另建 Room / JSON 缓存 —— 应用本身是本地优先的实现，**本地仓库对象库就是缓存**
+（配合 `fetch_deepen`：离线、无 API 限额、git 自己压缩与 gc）；「占用」= 本地仓库本身的体积，
+清理走 ③ 的「管理」页。三个选项的对比留在 `git-version-tree-design.md` §4.1，免得以后重新讨论一遍。
+
+⑥ **阶段 0 落地**（代码，零 Rust）：
+
+- `ui/repository/GitPanelStage.kt`：三档一个 sealed 状态（`Collapsed / Actions / View(kind)`），
+  不再是两个 Boolean（非法组合与「先设哪个」的时序问题；消息页显示模式两个入口各持一份 `remember`
+  的教训）+ 纯函数 `panelDepth` / `panelBack` / `panelDirection`；
+- `ui/navigation/PageTransitions.kt` 新增 **`PanelSwitcher`**：进档 / 退档复用
+  `pageEnterTransition(±1)`（滑入容器 1/10 + 淡入 220ms、旧内容原地淡出 100ms），
+  同层 fade-through（110 → 延迟 → 180，两段不重叠）；容器尺寸
+  `animateContentSize(tween(220, EnterEasing))`；与另两个切换器一样下发 `LocalPageActive`
+  （`PageTransitionsTest` 的钉子从「两个切换器」扩到「三个」）；
+- `ui/repository/GitWorkspacePanel.kt`：「工作区」档 = 分支 / 领先落后 / 上游 / **改动文件清单**
+  （`LocalRepoGitState` 现在带 `dirty`，徽标与清单同源）+「刷新」「同步」两个真能用的胶囊；
+  提交 / 推送 / 合并入口按阶段接入，**如实写在面板里**，不放点了会跳到别处的假按钮；
+  提交图 / 引用树 / 文件历史三档仍是 `available = false` → 渲染成「还没落地」的占位；
+- 两个宿主（代码页 `CodePageGitPanel`、文件页）都用 `panelBack` 逐档退（返回键三层：视图 → 动作列表 →
+  收起 → 页面），源码级钉子盯着别只改一边；
+- 新增 8 条中英资源（`strings.tsv` 同步）+ `GitPanelStageTest` 7 例 + `PageTransitionsTest` 面板过渡 1 例。
+
+`tools/i18n/check-i18n.py --min-coverage 100` · `:app:testDebugUnitTest` · `assembleDebug` 通过。
+versionCode 194 → 195（一次提交 +1）。
 
 ### 1.0.92
 
@@ -2218,6 +2272,10 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **195**：设计稿三轮落账（文件历史本地兜底 / 图谱不设上限 / tag 取全字段；虚节点拍板「画」；
+Git 模式定为「气泡多档面板、框换框、不跳页面」+ 面板切换动效规格；D11 允许 merge、缓存靠本地仓库）
++ Git 模式阶段 0 落地（`GitPanelStage` 三档 + `PanelSwitcher` + `GitWorkspacePanel`）（一次提交，故 +1）
 
 - **194**：分叉决策页文案修正（去掉「引导桌面」四处 + 两条重写；仓库在内部存储，承诺不可兑现）
 + 新增《仓库内 Git 模式》设计稿（IA 重定 / 四档视图 / 冲突解决 / 引擎缺口 8 项 / 六阶段；
