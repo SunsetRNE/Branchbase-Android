@@ -374,6 +374,7 @@
     <string name="label_standard_version">标准版本号</string>
     <string name="label_release_build">发布版本</string>
     <string name="note_notification_settings_desc">「允许发送通知」只控制系统通知栏的提醒（下载进度 / 下载完成）：关掉它，站内通知列表与未读徽标照常工作。\n通知列表的展示方式：「平铺」为默认：每条通知独立成卡；分组/合并/两级模式可将相关通知折叠，减少列表长度。</string>
+    <string name="note_local_repo_scope">这一页只做统筹：真正的版本管理在仓库内的 Git 面板 —— 点仓库名进入。</string>
     <string name="state_no_local_repos">暂无本地仓库</string>
     <string name="label_remote_check">远程校验</string>
     <string name="action_commit_local">本地提交 %1$s</string>

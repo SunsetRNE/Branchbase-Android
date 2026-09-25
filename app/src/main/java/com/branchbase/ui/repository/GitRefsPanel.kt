@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,6 +37,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.R
+import com.branchbase.ui.log.LogCategory
+import com.branchbase.ui.log.Logger
 import com.branchbase.ui.theme.PlaceholderSwap
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.Dispatchers
@@ -61,9 +64,15 @@ import kotlinx.coroutines.withContext
  * 那会立刻出现第二个数据源与第二套字段口径（D-f 要求 annotated 的 tagger / 时间 / 说明，
  * REST 那份给不了），阶段 3 落地时还得拆两遍。所以标签区如实写「按阶段接入」。
  *
+ * ## 只读，但**不是死胡同**
+ *
+ * 分支的切 / 建 / 删落既有页面（D-j），所以这一档必须把路指清楚：给了 [onOpenBranches] 的宿主
+ * 就会多一枚「分支管理」胶囊。没有出口的只读列表会让人以为「App 里根本改不了分支」。
+ *
  * @param repoDir 本地仓库目录（`localRepoDir(context, repo)`）
  * @param localRepoExists 本地仓库在不在。false 时**不去读**（引擎只会报错），直接如实说明
  * @param refreshTick 外部刷新计数（工作区档同一份来源：宿主自增，本档跟着重读）
+ * @param onOpenBranches 去分支管理；null = 这个宿主没有这个出口（不画那枚胶囊）
  */
 @Composable
 fun GitRefsPanel(
@@ -72,6 +81,7 @@ fun GitRefsPanel(
     refreshTick: Int,
     onRefresh: () -> Unit,
     onOpenSync: () -> Unit,
+    onOpenBranches: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var view by remember(repoDir) { mutableStateOf<GitRefsView?>(null) }
@@ -94,6 +104,17 @@ fun GitRefsPanel(
         // 「读失败」与「真的一个引用都没有」在界面上是两条不同的文案
         failed = loaded == null
         loading = false
+        // 一处动作一条：本档的「取数结果」就是它的动作。日志里只放仓库名（不带完整路径 ——
+        // 路径里含账号登录名，没必要进日志包）
+        val name = repoDir.substringAfterLast('/')
+        if (loaded == null) {
+            Logger.warn(LogCategory.LOCAL_TASK, GIT_WORKBENCH_LOG_TAG, "引用树 ▸ 读取失败：$name（仓库不存在或引擎不可用）")
+        } else {
+            Logger.local(
+                "引用树 ▸ $name：本地 ${loaded.locals.size} · 远端 ${loaded.remotes.size}（只在远端 ${loaded.remoteOnly}）",
+                GIT_WORKBENCH_LOG_TAG,
+            )
+        }
     }
 
     Column(modifier.fillMaxWidth()) {
@@ -104,7 +125,7 @@ fun GitRefsPanel(
                 color = Primer.TextTertiary,
                 modifier = Modifier.padding(vertical = 10.dp),
             )
-            RefFooter(onRefresh = onRefresh, onOpenSync = onOpenSync, syncEnabled = false)
+            RefFooter(onRefresh, onOpenSync, onOpenBranches, syncEnabled = false)
             return@Column
         }
 
@@ -134,7 +155,7 @@ fun GitRefsPanel(
                 color = Primer.TextTertiary,
                 modifier = Modifier.padding(vertical = 10.dp),
             )
-            RefFooter(onRefresh = onRefresh, onOpenSync = onOpenSync, syncEnabled = true)
+            RefFooter(onRefresh, onOpenSync, onOpenBranches, syncEnabled = true)
             return@Column
         }
 
@@ -188,7 +209,7 @@ fun GitRefsPanel(
             }
         }
 
-        RefFooter(onRefresh = onRefresh, onOpenSync = onOpenSync, syncEnabled = true)
+        RefFooter(onRefresh, onOpenSync, onOpenBranches, syncEnabled = true)
     }
 }
 
@@ -288,14 +309,30 @@ private fun RefChip(text: String, color: Color) {
     )
 }
 
-/** 面板底部的两个出口：刷新（重读引用）/ 同步（分支的切换与增删在那边，走决策页）。 */
+/**
+ * 面板底部的出口：刷新（重读引用）/ 同步 / 分支管理（后两个都是**去既有页面**）。
+ *
+ * 走 [FlowRow] 而不是 `Row`：英文标签长得多（"Local branch sync" / "Branch management"），
+ * 三枚挤一行会超出 268dp 的面板宽度**被裁掉**（`Row` 不换行也不报错）。
+ * [onOpenBranches] 为 null 时那一枚不画（见参数说明）。
+ */
 @Composable
-private fun RefFooter(onRefresh: () -> Unit, onOpenSync: () -> Unit, syncEnabled: Boolean) {
+private fun RefFooter(
+    onRefresh: () -> Unit,
+    onOpenSync: () -> Unit,
+    onOpenBranches: (() -> Unit)?,
+    syncEnabled: Boolean,
+) {
     Spacer(Modifier.height(6.dp))
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         PanelChip(stringResource(R.string.action_refresh), enabled = true, onClick = onRefresh)
-        Spacer(Modifier.width(6.dp))
         PanelChip(stringResource(R.string.nav_local_branch_sync), enabled = syncEnabled, onClick = onOpenSync)
+        onOpenBranches?.let {
+            PanelChip(stringResource(R.string.nav_branch_manage), enabled = syncEnabled, onClick = it)
+        }
     }
 }
 

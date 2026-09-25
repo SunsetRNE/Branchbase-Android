@@ -394,6 +394,7 @@ ${repos.size} 个	%1$s	label_repo_count
 点击「拉取仓库」将仓库克隆到本地	Tap “Clone repository” to clone one locally	note_clone_hint
 选择要拉取的仓库	Choose a repository to clone	label_choose_repo_to_clone
 暂无仓库	No repositories yet	state_no_repos
+这一页只做统筹：真正的版本管理在仓库内的 Git 面板 —— 点仓库名进入。	Overview only — version control lives in the Git panel inside each repo; tap a repo name to open it.	note_local_repo_scope
 确定删除「$name」吗？仅删除本地副本，不影响远端仓库。	Delete “%1$s”? Only the local copy is removed; the remote repository is unaffected.	confirm_delete_local_copy
 上游	Upstream	nav_upstream
 回退 Git 化	Revert gitify	nav_revert_gitify

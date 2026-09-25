@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -50,6 +51,8 @@ private val PANEL_WIDTH = 268.dp
  * 「面板说没有引用、其实仓库是好的」，只有真机上才看得出来。
  *
  * @param refreshTick 宿主自己的刷新计数（工作区档由它驱动重读；引用树档同样跟着它重读）
+ * @param onOpenBranches 去分支管理（切 / 建 / 删都落那边的决策流程）。**null = 这个宿主没有这个出口**
+ *   —— 面板里就不画那枚胶囊，而不是画一个点了没反应的（本仓库的既有口径）
  */
 @Composable
 fun GitPanelViewHost(
@@ -63,6 +66,7 @@ fun GitPanelViewHost(
     repo: String,
     onRefresh: () -> Unit,
     onOpenSync: () -> Unit,
+    onOpenBranches: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -78,7 +82,12 @@ fun GitPanelViewHost(
         GitPanelTabs(current = kind, onSelect = onSelect)
         Spacer(Modifier.height(8.dp))
         when (kind) {
-            GitPanelKind.Workspace -> GitWorkspaceBody(git = git, onRefresh = onRefresh, onOpenSync = onOpenSync)
+            GitPanelKind.Workspace -> GitWorkspaceBody(
+                git = git,
+                onRefresh = onRefresh,
+                onOpenSync = onOpenSync,
+                onOpenBranches = onOpenBranches,
+            )
             GitPanelKind.Graph -> CommitGraphPanel(
                 host = host,
                 token = token,
@@ -95,6 +104,7 @@ fun GitPanelViewHost(
                 refreshTick = refreshTick,
                 onRefresh = onRefresh,
                 onOpenSync = onOpenSync,
+                onOpenBranches = onOpenBranches,
             )
             else -> GitPanelViewPlaceholder(kind)
         }
@@ -148,12 +158,27 @@ private fun GitPanelTabs(current: GitPanelKind, onSelect: (GitPanelKind) -> Unit
  *
  * **不是**提交页：提交要走暂存勾选（P0-2 决策页）与身份检查（P0-3），那些入口按阶段接入，
  * 这里只如实说明，不放一个点了会跳到别处的假按钮。
+ *
+ * ## 改动清单为什么**不可点**（1.0.96 试过又退回）
+ *
+ * 一度接过「点一行 → 打开那个文件」，写完才发现**目的地是错的**：文件查看器读的是
+ * `GET /repos/{o}/{r}/contents/{path}`（**远端**，见 `RepositoryFileViewer.kt:190`），
+ * 而这一档列的是**本地改动** —— 点开看到的是没改过的那一份，比点不动更坏。
+ * 要让它成立，得先给查看器一个「本地工作树」来源（或等阶段 3 的 `diff_worktree` 落地后点开看 diff），
+ * 已登记进设计稿 §3.2。**不做「点开看到另一份内容」的入口**是这一档的硬约束。
+ *
+ * ## 有后果的动作都只是**出口**
+ *
+ * 分支管理（切 / 建 / 删）与同步都不在这一档里执行，只把用户送到既有页面 ——
+ * 「面板内直接执行（安全）/ 走决策页（有后果）」这条分档见 `git-mode-design.md` §6.1，
+ * 执法者是 `GitWorkbenchWiringTest`（面板源码里不许出现 git 写操作）。
  */
 @Composable
 fun GitWorkspaceBody(
     git: LocalRepoGitState,
     onRefresh: () -> Unit,
     onOpenSync: () -> Unit,
+    onOpenBranches: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxWidth()) {
@@ -246,10 +271,17 @@ fun GitWorkspaceBody(
         Spacer(Modifier.height(8.dp))
 
         // ── 底：两个现在就真的能用的动作 + 一句实话 ──
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // 用 FlowRow 而不是 Row：英文标签长得多（"Local branch sync" / "Branch management"），
+        // 三枚挤一行会超出 268dp 的面板宽度**被裁掉**（Row 不换行，也不报错）
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             PanelChip(stringResource(R.string.action_refresh), enabled = true, onClick = onRefresh)
-            Spacer(Modifier.width(6.dp))
             PanelChip(stringResource(R.string.nav_local_branch_sync), enabled = git.exists, onClick = onOpenSync)
+            onOpenBranches?.let {
+                PanelChip(stringResource(R.string.nav_branch_manage), enabled = git.exists, onClick = it)
+            }
         }
         Text(
             stringResource(R.string.note_git_views_pending),

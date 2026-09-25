@@ -72,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.branchbase.ui.navigation.PageBackHandler
+import com.branchbase.ui.repository.GIT_WORKBENCH_LOG_TAG
 import com.branchbase.ui.repository.RepoRelation
 import com.branchbase.ui.repository.RepoDeepLink
 import com.branchbase.ui.repository.CloneDialogState
@@ -1112,6 +1113,12 @@ fun LocalRepoScreen(
     fun enterRepo(name: String) {
         val (owner, repoName) = repoFacts[name]?.ownerRepo ?: (accountLogin to name)
         if (owner.isBlank() || repoName.isBlank()) return
+        // 记一行「从统筹台进工作台」：这条路与「从仓库列表点进来」在日志里长得一样，
+        // 不记的话出了「点了没反应」类的反馈就分不清是哪条入口（日志锚点「Git工作台」）
+        Logger.ui(
+            "Git 工作台 ▸ 设置列表进入：$name → $owner/$repoName（面板开到 View(Workspace)）",
+            GIT_WORKBENCH_LOG_TAG,
+        )
         onOpenInApp(RepoDeepLink(owner, repoName, openGitPanel = true))
     }
 
@@ -1499,6 +1506,11 @@ fun LocalRepoScreen(
                 Text(stringResource(R.string.action_clone_repository), fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color.White)
             }
         }
+
+        // 统筹台的定位说明（§5 过渡期要求「标注真源在 Git 面板」）。
+        // 放在**列表之外**、整页一句：行内动作还没迁完，但每一行都加一句注解会把行撑成两截，
+        // 而「不能硬加边界」是用户明确的要求（行本身的重绘留到阶段 6）
+        SettingsProse(stringResource(R.string.note_local_repo_scope), divider = false)
 
         if (repos.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {

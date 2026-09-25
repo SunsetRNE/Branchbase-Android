@@ -45,15 +45,20 @@
 | 「引用树」档（本地 / 远端分支 + 上游 + 领先落后；tags 占位） | **已落地 1.0.95** | `ui/repository/GitRefsPanel.kt` · `GitRefsModels.kt` |
 | 标签条的可用态（工作区 / 提交图 / 引用树 ✅ · 文件历史 ⏳） | **已落地 1.0.95** | `GitPanelStage.kt` 的 `available` + 源码级钉子（提交图那格是 1.0.94 的漏改，本轮修正） |
 | 设置列表「进入」→ 代码页 + 面板开到视图档 | **已落地 1.0.95** | `RepoDeepLink.openGitPanel`（`RepositoryScreen.kt`）· `ui/profile/SubPageScreens.kt` |
+| 面板的**出口收口**：分支管理接进两档（工作区 / 引用树）；面板里的**写操作恒为零** | **已落地 1.0.96** | `GitPanelViewHost` 的可选回调（null = 该宿主没这个出口 → 不画那枚胶囊）；胶囊行走 `FlowRow`（英文标签更长，`Row` 会裁掉） |
+| 日志插桩（锚点 `Git工作台`：动作 / 档位 / 返回退档 / 两条进入 / 各档取数） | **已落地 1.0.96** | `ui/log/Logging.kt` 的 `LOG_ANCHORS` + `GitPanelStage.kt` 的 tag 常量 |
+| 接线与插桩的**源码级钉子**（`GitWorkbenchWiringTest` 5 例） | **已落地 1.0.96** | `app/src/test/java/.../GitWorkbenchWiringTest.kt` |
 | 文件历史档 | 待落地（阶段 4） | — |
 | 设置列表「管理」页 / 列表重绘 | 待落地（阶段 6 / 后续问题） | — |
-| 危险动作收口（面板内动作全部落决策页）+ 行内动作下线 | 待落地（阶段 2 剩余） | — |
+| 面板内**执行**有后果的动作（提交 / 撤销 / 上游 / 回退）—— 要把决策页的宿主扩到仓库页 | 待落地（阶段 2 剩余） | — |
+| 危险动作收口（全部落决策页）+ 设置列表行内动作下线 | **部分**：面板内写操作已归零（1.0.96），行内动作仍在（§5 过渡期） | — |
 | 本地合并 + 冲突解决 | 待落地（阶段 5） | — |
 | 引擎 `log_graph` / `list_tags` / `log_file` / `diff_*` / `merge_*` | 待落地（阶段 3–5） | `core/src/git/mod.rs` |
 
-**已落地的验证口径**：`:app:testDebugUnitTest`（`GitPanelStageTest` 9 例、`GitRefsModelsTest` 5 例、
-`RepoDeepLinkTest` 4 例、`CommitGraphLayoutTest` 11 例、`PageTransitionsTest` 面板过渡与
-「三个切换器都下发 `LocalPageActive`」）· `assembleDebug` · `check-i18n --min-coverage 100`。
+**已落地的验证口径**：`:app:testDebugUnitTest`（866 例；其中 `GitPanelStageTest` 9 例、
+`GitRefsModelsTest` 5 例、`RepoDeepLinkTest` 4 例、`GitWorkbenchWiringTest` 5 例、
+`CommitGraphLayoutTest` 11 例、`PageTransitionsTest` 面板过渡与「三个切换器都下发 `LocalPageActive`」、
+`LogAnchorsTest` 盯锚点表）· `assembleDebug` · `check-i18n --min-coverage 100`。
 
 **1.0.95 收口时修掉的三处「文档说已落地、代码说没落地」**（都不是新功能，是账没对上）：
 ① 阶段 1 把「提交图」渲染接上了，`GitPanelKind.Graph.available` 却留在 `false` ——
@@ -91,6 +96,16 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
 也不假装能用（`available = false` 只影响样式与文案，不影响可达性）。
 **落地了必须同步把 `available` 翻成 `true`**：提交图那格漏翻过一次，标签条一直标「待接入」、
 点进去却是一张能用的图（`GitPanelStageTest` 现在有一条源码级钉子对着宿主源码查这件事）。
+
+**改动清单为什么不可点**（1.0.96 试过又退回）：一度接过「点一行 → 打开那个文件」，
+写完才发现**目的地是错的** —— 文件查看器读的是 `GET /repos/{o}/{r}/contents/{path}`（**远端**，
+`RepositoryFileViewer.kt:190`），而这一档列的是**本地改动**：点开看到的是没改过的那一份。
+要让它成立得先给查看器一个「本地工作树」来源，或等阶段 3 的 `diff_worktree` 落地后点开看 diff
+（§11.7）。**不做「点开看到另一份内容」的入口**是这一档的硬约束。
+
+面板里的**写操作恒为零**：提交 / 撤销 / 上游 / 回退都要落决策页，而决策页今天的宿主是
+「设置 → 本地仓库」与文件页，把它们的宿主扩到仓库页是阶段 2 的剩余项
+（`GitWorkbenchWiringTest` 扫全部 14 个 git 写方法，保证面板这一族源码里一个都不出现）。
 
 **引用树为什么只读**：切换 / 新建 / 删除分支是**有后果的动作**（脏工作区切分支要撤销改动、
 删分支会丢提交），按 §6.1 的分档它们走决策页，落点在既有的「分支管理」「本地分支同步」；
@@ -268,7 +283,7 @@ merge_branch ─► outcome == "conflict"
 |---|---|---|
 | **0** | 面板三档 + `PanelSwitcher` + 「工作区」档 | **已落地 1.0.93** |
 | **1** | 「提交图」档（REST + 泳道布局）+ 虚节点 + 分档标签条 | **已落地 1.0.94** |
-| **2** | 「引用树」档（`local_branches` / `remote_branches` / tags 占位）+ `RepoDeepLink.openGitPanel`（含设置列表「进入」） | **部分落地 1.0.95**；危险动作收口 + 设置列表动作下线**待做** |
+| **2** | 「引用树」档（`local_branches` / `remote_branches` / tags 占位）+ `RepoDeepLink.openGitPanel`（含设置列表「进入」）+ 出口收口与日志/回归插桩（1.0.96） | **部分落地 1.0.95 / 1.0.96**；面板内执行有后果的动作（要把决策页宿主扩到仓库页）+ 设置列表动作下线**待做** |
 | **3** | `log_graph` / `list_tags` / `log_file` / `diff_worktree` / `diff_commit`（重建 `.so`）+ 工作区档的本地 diff + 提交图的本地来源 | 待做 |
 | **4** | `fetch_deepen`（任务中心 + 进度）+ 「文件历史」档（本地优先 + REST 兜底）+ 离线图谱（LocalSource 优先、未推送段） | 待做 |
 | **5** | 本地合并（D-g）+ 冲突弹窗 / 预解析 / 详情对比页（D-h）+ PR 冲突的「拉到本地解决」 | 待做 |
@@ -286,6 +301,8 @@ merge_branch ─► outcome == "conflict"
 | **新全屏页**（阶段 5 的冲突详情对比页、阶段 6 的管理页） | `SystemBarInsetsTest.kt` 的 `fullScreenPages` + 只走 `PageBackHandler`（裸 `BackHandler` 被全目录扫描） |
 | 新 `ui/` 文件里的颜色 | 走 `Primer` 角色；泳道配色在 `ui/theme/Color.kt`（`ThemeConvergenceTest`） |
 | 新字符串 | `tools/i18n/strings.tsv` → `extract.py --apply`（CI 硬门禁 `--min-coverage 100`） |
+| 面板里多一个**出口**（去决策页 / 管理页的入口） | `GitPanelViewHost` 加**可选**回调（null = 这个宿主没这个出口 → **不画那枚胶囊**），两个宿主各接一次；`GitWorkbenchWiringTest` 盯着别只接一边 |
+| 新日志锚点 | `ui/log/Logging.kt` 的 `LOG_ANCHORS`（导出包的 `report.md` 会带上这张表）+ tag 常量与该表的字面量必须一致（`LogAnchorsTest`）+ 关键入口逐个钉（`GitWorkbenchWiringTest`） |
 | 新 JNI 函数 | `JniSignatureTest.kt` + 重建 `.so` |
 | 新版本 | [`VERSION-NOTES.md`](VERSION-NOTES.md) §二/§三 → 最后改 `version.properties` |
 | 引擎边界变化（merge） | [`local-git-engine-design.md`](local-git-engine-design.md) §1/§5/§7 |
@@ -315,7 +332,9 @@ merge_branch ─► outcome == "conflict"
 4. 显式 stash 要不要做（隐式 stash 已明确不做）：不做的话「脏工作区切分支被拒」的出路只有「放弃改动」；
 5. **导出仓库**（zip / 分享给桌面端）要不要做 —— 1.0.92 只把「复制路径到桌面端」的文案删掉了，
    **没有出路**与「有出路但要新建能力」是两件事；
-6. **从个人页子页进仓库页再返回，落点是个人页主页、不是原来那个子页**（1.0.95 的「进入」会走到它）：
+6. **改动清单点开看什么**（1.0.96 登记）：今天点不开（查看器只有远端来源，点开会看到没改过的那一份）；
+   要成立得二选一 —— 给查看器加「本地工作树」来源，或等阶段 3 的 `diff_worktree` 落地后点开看 diff；
+7. **从个人页子页进仓库页再返回，落点是个人页主页、不是原来那个子页**（1.0.95 的「进入」会走到它）：
    个人页的子页状态是普通 `remember`，`PageSwitcher` 切走时旧页被销毁；现有的 `pendingSubPage`
    寄存点只覆盖「冷启动 / 整屏接管后重建」。要么把它做成通用机制（任何子页都寄存），
    要么明确接受这个落点 —— 星标 / 仓库列表点进仓库页早就是同一行为，本轮没有顺手改。

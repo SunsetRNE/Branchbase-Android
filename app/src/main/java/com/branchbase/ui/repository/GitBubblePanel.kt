@@ -46,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.R
+import com.branchbase.ui.log.Logger
 import com.branchbase.ui.profile.CommitMode
 import com.branchbase.ui.navigation.PageMotion
 import com.branchbase.ui.navigation.PanelSwitcher
@@ -135,6 +136,26 @@ fun GitBubblePanel(
     var lastStage by remember { mutableStateOf<GitPanelStage>(GitPanelStage.Actions) }
     if (stage != GitPanelStage.Collapsed) lastStage = stage
 
+    /**
+     * 换档：**记一行日志再改状态**（日志锚点「Git工作台」）。
+     *
+     * 只在用户动作里调（点球 / 点空白 / 点动作），所以不会在重组里刷屏 —— 这是
+     * `LOG_ANCHORS` 的约定（「一处动作一条，不在重组里打」）。日志名走
+     * [gitPanelStageLogName]（枚举名），不拿标签条上那套会随语言变的中文名。
+     *
+     * [silent] 给「点动作之后自动收起」用：那一收是动作的**后果**，动作本身已经记过一条，
+     * 再记一条只会让同一个意图在日志里出现两次、把真正的顺序淹掉。
+     */
+    fun go(next: GitPanelStage, silent: Boolean = false) {
+        if (!silent) {
+            Logger.ui(
+                "Git 工作台 ▸ 档位 ${gitPanelStageLogName(stage)} → ${gitPanelStageLogName(next)}",
+                GIT_WORKBENCH_LOG_TAG,
+            )
+        }
+        onStageChange(next)
+    }
+
     Box(modifier.fillMaxSize()) {
         // 展开时铺一层透明遮罩：点空白收起，同时避免误触下层内容
         if (expanded) {
@@ -144,7 +165,7 @@ fun GitBubblePanel(
                     .clickable(
                         interactionSource = interaction,
                         indication = null,
-                        onClick = { onStageChange(GitPanelStage.Collapsed) },
+                        onClick = { go(GitPanelStage.Collapsed) },
                     ),
             )
         }
@@ -155,7 +176,7 @@ fun GitBubblePanel(
         ) {
             if (topDocked) {
                 BubbleHandle(expanded, handleIcon, handleBadge) {
-                    onStageChange(if (expanded) GitPanelStage.Collapsed else GitPanelStage.Actions)
+                    go(if (expanded) GitPanelStage.Collapsed else GitPanelStage.Actions)
                 }
                 Spacer(Modifier.size(if (expanded) 10.dp else 0.dp))
             }
@@ -182,7 +203,10 @@ fun GitBubblePanel(
                             title?.takeIf { it.isNotBlank() }?.let { BubbleTitle(it) }
                             actions.forEach { action ->
                                 BubbleActionRow(action) {
-                                    if (!action.keepOpen) onStageChange(GitPanelStage.Collapsed)
+                                    // 记 **key** 而不是 label：label 跟随界面语言（英文模式下是
+                                    // "Branch"/"Sync"…），key 是稳定契约，两种语言下都能 grep
+                                    Logger.ui("Git 工作台 ▸ 动作「${action.key}」", GIT_WORKBENCH_LOG_TAG)
+                                    if (!action.keepOpen) go(GitPanelStage.Collapsed, silent = true)
                                     action.onClick()
                                 }
                             }
@@ -194,7 +218,7 @@ fun GitBubblePanel(
             if (!topDocked) {
                 Spacer(Modifier.size(if (expanded) 10.dp else 0.dp))
                 BubbleHandle(expanded, handleIcon, handleBadge) {
-                    onStageChange(if (expanded) GitPanelStage.Collapsed else GitPanelStage.Actions)
+                    go(if (expanded) GitPanelStage.Collapsed else GitPanelStage.Actions)
                 }
             }
         }

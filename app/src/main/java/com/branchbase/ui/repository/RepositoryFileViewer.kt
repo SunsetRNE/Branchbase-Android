@@ -489,7 +489,14 @@ fun FileViewerScreen(
     ) {
         when {
             page != FilePage.None -> page = FilePage.None
-            gitPanelStage != GitPanelStage.Collapsed -> gitPanelStage = panelBack(gitPanelStage)
+            gitPanelStage != GitPanelStage.Collapsed -> {
+                val next = panelBack(gitPanelStage)
+                Logger.ui(
+                    "Git 工作台 ▸ 返回退档 ${gitPanelStageLogName(gitPanelStage)} → ${gitPanelStageLogName(next)}",
+                    GIT_WORKBENCH_LOG_TAG,
+                )
+                gitPanelStage = next
+            }
             else -> editing = false
         }
     }
@@ -718,6 +725,8 @@ fun FileViewerScreen(
                         repo = repo,
                         onRefresh = { gitTick++ },
                         onOpenSync = onOpenLocalSync,
+                        // 分支管理出口 —— 那正是「有后果的动作落既有页面」的出口
+                        onOpenBranches = onOpenBranchManage,
                     )
                 },
                 title = localGit.summary(),

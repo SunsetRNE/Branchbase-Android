@@ -1,6 +1,15 @@
 package com.branchbase.ui.repository
 
 /**
+ * Git 工作台（气泡面板）的**日志锚点 tag**。
+ *
+ * 与 `Logging.kt` 的 `LOG_ANCHORS` 表是一份契约的两端：这里写字面量、那边写解释，
+ * `LogAnchorsTest` 保证表里的每个 tag 都真的在源码里用过。抽成常量是为了**不写错** ——
+ * tag 写歪一个字母日志照样打，但照表 grep 的人一条都搜不到。
+ */
+internal const val GIT_WORKBENCH_LOG_TAG = "Git工作台"
+
+/**
  * Git 气泡面板的**三档状态**（对齐 [`git-mode-design.md`](../../../../../../docs/specs/git-mode-design.md) §3）。
  *
  * ```
@@ -87,6 +96,19 @@ internal fun panelDirection(from: GitPanelStage, to: GitPanelStage): Int {
         delta < 0 -> -1
         else -> 0
     }
+}
+
+/**
+ * 档位的**日志名**（稳定、与界面语言无关）。
+ *
+ * 标签条上那套中文名会跟着界面语言变（英文模式下是 Working tree / Commit graph…），
+ * 而日志的约定是「固定中文 + 可 grep」—— 拿 label 当日志名的话，同一件事在两种语言下
+ * 会变成两条不同的检索词。所以日志走枚举名：`Collapsed` / `Actions` / `View(Workspace)`。
+ */
+internal fun gitPanelStageLogName(stage: GitPanelStage): String = when (stage) {
+    GitPanelStage.Collapsed -> "Collapsed"
+    GitPanelStage.Actions -> "Actions"
+    is GitPanelStage.View -> "View(${stage.kind.name})"
 }
 
 /**

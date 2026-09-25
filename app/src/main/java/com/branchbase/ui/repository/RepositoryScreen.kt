@@ -172,6 +172,14 @@ fun RepositoryScreen(
         if (!loggedRepo.value) {
             loggedRepo.value = true
             Logger.ui("进入仓库详情页 $owner/$repo", "Compose")
+            // 深链接进来的那一条单记一行：出问题时能一眼分清「用户自己点进来的」
+            // 与「从设置 → 本地仓库的『进入』过来的」（后者才会带 openGitPanel）
+            if (initial?.openGitPanel == true) {
+                Logger.ui(
+                    "Git 工作台 ▸ 深链接进入：$owner/$repo → 代码页 + 面板开到 View(Workspace)",
+                    GIT_WORKBENCH_LOG_TAG,
+                )
+            }
         }
     }
     var page by remember { mutableStateOf(initialRepoPage(initial?.openGitPanel == true, initial?.page)) }
@@ -957,6 +965,10 @@ fun RepositoryScreen(
                                         onOpenCompare = { b, h -> comparePair = b to h },
                                         onOpenLocalSync = { showLocalSync = true },
                                         onRefresh = { refreshTick++ },
+                                        // 面板里的出口：分支管理（有后果的动作在那边走决策流程）。
+                                        // 「点开某个改动文件」**没接** —— 查看器只读远端内容，
+                                        // 点开会看到没改过的那一份（见 GitWorkspaceBody 的注释）
+                                        onOpenBranches = { showBranchManage = true },
                                     )
                                 }
                             }
@@ -1180,6 +1192,7 @@ private fun CodePageGitPanel(
     onOpenCompare: (String, String) -> Unit,
     onOpenLocalSync: () -> Unit,
     onRefresh: () -> Unit,
+    onOpenBranches: (() -> Unit)? = null,
 ) {
     var stage by remember { mutableStateOf(initialStage) }
     val localGit = rememberLocalRepoGitState(repo, refreshTick)
@@ -1188,7 +1201,14 @@ private fun CodePageGitPanel(
     // 展开态铺了一层全屏透明遮罩（点空白收起）：返回键要消费的是「收起面板」，
     // 而不是把整个仓库页关掉（遮罩挡着正文时，用户按返回的意图一定是不看了）。
     // 面板三档的返回：视图 → 动作列表 → 收起（与文件页同一条规则，见 panelBack）
-    PageBackHandler(stage != GitPanelStage.Collapsed) { stage = panelBack(stage) }
+    PageBackHandler(stage != GitPanelStage.Collapsed) {
+        val next = panelBack(stage)
+        Logger.ui(
+            "Git 工作台 ▸ 返回退档 ${gitPanelStageLogName(stage)} → ${gitPanelStageLogName(next)}",
+            GIT_WORKBENCH_LOG_TAG,
+        )
+        stage = next
+    }
 
     val actions = listOf(
         GitBubbleAction(
@@ -1264,6 +1284,7 @@ private fun CodePageGitPanel(
                 repo = repo,
                 onRefresh = onRefresh,
                 onOpenSync = onOpenLocalSync,
+                onOpenBranches = onOpenBranches,
             )
         },
         title = localGit.summary(),

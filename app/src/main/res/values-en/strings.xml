@@ -368,6 +368,7 @@
     <string name="label_standard_version">Standard version</string>
     <string name="label_release_build">Release build</string>
     <string name="note_notification_settings_desc">“Allow notifications” only controls alerts in the system notification shade (download progress / completion): turn it off and the in-app notification list and unread badge keep working.\nHow the notification list is displayed: “Flat” is the default — every notification is its own card; the grouped / merged / two-level modes fold related notifications together to shorten the list.</string>
+    <string name="note_local_repo_scope">Overview only — version control lives in the Git panel inside each repo; tap a repo name to open it.</string>
     <string name="state_no_local_repos">No local repositories yet</string>
     <string name="label_remote_check">Remote check</string>
     <string name="action_commit_local">Commit locally %1$s</string>

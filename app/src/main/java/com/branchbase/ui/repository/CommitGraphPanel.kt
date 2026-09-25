@@ -45,6 +45,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.R
 import com.branchbase.core.RustBridge
+import com.branchbase.ui.log.LogCategory
+import com.branchbase.ui.log.Logger
 import com.branchbase.ui.theme.PlaceholderSwap
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.Dispatchers
@@ -109,11 +111,21 @@ fun CommitGraphPanel(
         if (first == null) {
             error = context.getString(R.string.error_local_repo_missing_clone)
             loading = false
+            // 取数失败**必须留一条**：面板上只有一句「加载失败」，事后没人知道是网络、
+            // 限额还是仓库名错了（日志锚点「Git工作台」）
+            Logger.warn(
+                LogCategory.NETWORK, GIT_WORKBENCH_LOG_TAG,
+                "提交图 ▸ $owner/$repo@${branch.ifBlank { "HEAD" }} 取数失败",
+            )
             return@LaunchedEffect
         }
         commits = first
         truncated = first.size >= PAGE_SIZE
         loading = false
+        Logger.net(
+            "提交图 ▸ $owner/$repo@${branch.ifBlank { "HEAD" }}：${first.size} 条${if (truncated) "（还有更早）" else ""}",
+            GIT_WORKBENCH_LOG_TAG,
+        )
     }
 
     val rows = remember(commits, dirtyCount) {
@@ -197,6 +209,10 @@ fun CommitGraphPanel(
                                     val fresh = more.filter { it.fullSha !in seen }
                                     commits = commits + fresh
                                     truncated = more.size >= PAGE_SIZE
+                                    Logger.net(
+                                        "提交图 ▸ $owner/$repo 加载更早：+${fresh.size}（共 ${commits.size}）",
+                                        GIT_WORKBENCH_LOG_TAG,
+                                    )
                                 }
                                 loadingMore = false
                             }
