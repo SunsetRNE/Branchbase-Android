@@ -104,7 +104,7 @@ cd core && cargo build --release  # 生成 libbranchbase_core.so
 
 - **Bug / 功能建议**：[提 Issue](https://github.com/SunsetRNE/Branchbase-Android/issues)
   （附上机型、系统版本、复现步骤与截图；**设置 → 日志 → 导出**的 zip 最有用）。
-- **开发交流**：QQ 群「Branchbase开发交流」· 群号 **790735040**。
+- **开发交流**：QQ 群「Branchbase开发交流」· 群号 ［**790735040**］（https://qun.qq.com/universal-share/share?ac=1&authKey=yo4wme1K282KJ5pjKPoEOH%2BwvUnqXBXZmrmk0UM7EqCR5mNXx2wfobua8yRHfqt6&busi_data=eyJncm91cENvZGUiOiI3OTA3MzUwNDAiLCJ0b2tlbiI6Im5hclpJZTQ5TlhQNEtZUTEycmpRY2xKY0hYb1lES04vUXVGaEpQT3ovdk9teERSVXF4WEVEZys0UzhoVDBmQS8iLCJ1aW4iOiIxNTM5MDA3NDYwIn0%3D&data=jFk2wCMkvso0aQvYHaqQR7Pb8PeAQ1cHA6-i8NUi68a4xWwqeK7-kYtQlO1m8bgfKPsRptrjvWFmSkEW86ybBQ&svctype=4&tempid=h5_group_info）。
 - **平台范围**：只做 Android 手机 / 平板，其他端（桌面 / Web / iOS）不做。
 
 ## 📄 许可证
