@@ -312,4 +312,37 @@ class GitWorkbenchWiringTest {
         assertTrue("取消走同一条引擎取消", runner.contains("RustBridge.gitCloneCancel()"))
         assertTrue("失败要停在弹窗里给原因（不许只闪一条反馈）", runner.contains("CloneProgressDialog("))
     }
+
+    @Test
+    fun `阶段 5 的两条入口都要接上，且动作仍只在运行器里跑`() {
+        // 入口 ①：分叉页的第三条「合并远端」（设置 → 本地仓库那条路）。
+        // 它是**第三个宿主**：合并从这里发起时，冲突弹窗与冲突详情页也得在这条路上走得通 ——
+        // 只接「合并」不接冲突页的表现是「点了合并、弹出冲突，然后无处可去」
+        val settings = source("src/main/java/com/branchbase/ui/profile/SubPageScreens.kt")
+        assertTrue("分叉页要接上「合并远端」出口", settings.contains("onMergeRemote ="))
+        assertTrue("这条路的合并也要跑同一个运行器（不许自己调引擎）", settings.contains("runMerge("))
+        assertTrue("冲突弹窗要在这个宿主里渲染", settings.contains("MergeConflictDialog("))
+        // 弹窗必须在**子页状态机之外**：合并从分叉页发起，但用户可能在结果回来前就返回了列表 ——
+        // 放进分叉页那个分支里的话，那一刻它不会被组合，而仓库已经停在合并中
+        val dispatch = settings.indexOf("when (val p = page)")
+        val dialog = settings.indexOf("MergeConflictDialog(")
+        assertTrue("冲突弹窗要渲染在子页状态机之前（否则返回列表后它不出现）", dialog in 1..<dispatch)
+        assertTrue("冲突详情页要在子页状态机里有落点", settings.contains("MergeConflict("))
+        assertTrue("弹窗跳转要用发起合并时的仓库名（那一刻 page 可能已变）", settings.contains("mergeRepo"))
+        assertTrue("合并中/取数后要能刷新列表与分叉页事实", settings.contains("mergeReloadKey"))
+
+        // 入口 ②：PR 详情页的「拉到本地解决」→ 合并决策页 + **预选** PR 的 head。
+        // 少了预选的表现是「打开了合并页，却要用户自己在几十个分支里找那个 PR 的分支」
+        val detail = source("src/main/java/com/branchbase/ui/repository/RepositoryDetailScreens.kt")
+        assertTrue("PR 详情页要露出这条入口", detail.contains("LocalResolveEntry("))
+        assertTrue("入口只在不可自动合并时露出（判据是纯函数，单测钉着）", detail.contains("pullLocalResolveEntry("))
+        assertTrue("这一页只给出口、不自己跑合并", !detail.contains("RustBridge.gitMerge("))
+        val repo = source("src/main/java/com/branchbase/ui/repository/RepositoryScreen.kt")
+        assertTrue("仓库页要把 PR 的 head 交给合并页", repo.contains("mergePreselect = head"))
+        assertTrue("合并决策页要吃到预选", repo.contains("initialPick = mergePreselect"))
+        assertTrue("从面板进来的那条路要清掉预选（否则会选着上一个 PR 的分支）", repo.contains("mergePreselect = null"))
+        val page = source("src/main/java/com/branchbase/ui/repository/MergeDecisionScreen.kt")
+        assertTrue("合并页要支持预选参数", page.contains("initialPick: String?"))
+        assertTrue("预选的分支不在清单里时要补一条（引擎会自己 fetch）", page.contains("preferred"))
+    }
 }

@@ -413,7 +413,6 @@
     <string name="error_graph_both_failed">could not read locally or remotely</string>
     <string name="toast_history_deepened">Local history deepened</string>
     <string name="label_deepen_task_title">Deepen history of %1$s</string>
-    <string name="label_local_diff_worktree">Working tree changes</string>
     <string name="label_local_diff_file">Changes: %1$s</string>
     <string name="label_local_diff_commit">Commit %1$s</string>
     <string name="state_local_diff_empty">No changes in the working tree</string>
@@ -437,7 +436,6 @@
     <string name="error_graph_load_failed">Failed to load the commit graph: %1$s</string>
     <string name="label_git_refs">Refs</string>
     <string name="label_git_file_history">File history</string>
-    <string name="label_refs_local_branches">Local branches</string>
     <string name="label_refs_remote_branches">Remote branches</string>
     <string name="label_refs_remote_only_count">%1$s remote-only</string>
     <string name="state_refs_untracked">Untracked</string>
@@ -449,7 +447,7 @@
     <string name="state_refs_tag_lightweight">Lightweight</string>
     <string name="state_workspace_clean">Working tree is clean — nothing uncommitted</string>
     <string name="state_no_upstream_short">No upstream</string>
-    <string name="note_git_views_pending">Commit, push and merge entry points arrive in later phases.</string>
+    <string name="note_git_views_pending">Commit, revert, upstream and reset entry points arrive in later phases.</string>
     <string name="note_git_view_unavailable">This view is not available yet — it arrives in a later phase (see docs/specs/git-mode-design.md §8).</string>
     <string name="note_proxy_scope">Only affects clone / pull / push for local repositories.</string>
     <string name="note_delete_local_branch">Deletes the local branch only; the remote is unaffected. Unmerged commits will be lost.</string>
@@ -562,13 +560,12 @@
     <string name="state_pushing">Pushing…</string>
     <string name="label_upstream_branch_name">Upstream branch name</string>
     <string name="action_turn_off_gitify">Turn off gitify</string>
-    <string name="action_keep_local_only">Keep local</string>
     <string name="note_first_commit_no_undo">This is the repository\'s first commit, so there is no previous commit to undo (reset --soft would always fail, and reset --hard would wipe the local history, which this page does not offer). The message can still be edited.</string>
     <string name="note_amend_recreates">Amending recreates the commit (its SHA changes), but the author and commit time are carried over from the original — deliberate, timestamps are not rewritten.</string>
     <string name="label_new_commit_message">New commit message</string>
     <string name="note_remove_git_desc">Working tree files are untouched, but the history and %1$s unpushed commits are lost permanently (confirmation required).</string>
     <string name="label_local_branch">Local %1$s</string>
-    <string name="note_diverged_explain">Local and remote have each moved ahead, so this cannot fast-forward. The app does not merge or rebase (per D11); choose how to proceed.</string>
+    <string name="note_diverged_explain">Local and remote have each moved ahead, so this cannot fast-forward. You can merge the remote into the local branch (a merge only adds commits — existing history is never rewritten), or keep / discard the local commits.</string>
     <string name="state_both_undo_available">Both undo actions are available</string>
     <string name="hint_brief_description">Brief description…</string>
     <string name="confirm_discard_commits_checkbox">I confirm discarding these commits</string>
@@ -586,6 +583,8 @@
     <string name="note_gitify_off">“Gitify” is a sub-switch of ③ (D10). Once it is off, commits go through the app\'s REST path (①②); choose what to do with the local .git.</string>
     <string name="error_remote_url_required">Enter the remote URL</string>
     <string name="state_discard_available">Discard local available</string>
+    <string name="state_merge_blocked_log">Merge blocked: %1$s</string>
+    <string name="state_merge_available">Merge available</string>
     <string name="state_kept_local_for_now">Kept the local commit · remote untouched</string>
     <string name="state_discarded_local">Discarded the local commit</string>
     <string name="state_kept_git">Kept .git (prefers a plain folder)</string>
@@ -596,7 +595,7 @@
     <string name="label_revert_method">Revert method</string>
     <string name="error_push_failed_result">Push failed: %1$s</string>
     <string name="note_keep_git_desc">Only records a preference for a plain folder; the repository and its history stay intact and gitify can be turned back on at any time. Lossless.</string>
-    <string name="note_keep_local_workspace">The local commits and working tree stay exactly as they are, the remote is not touched, and the app deletes nothing. The app does not merge or rebase: resolving this divergence is up to you (changes can be viewed or copied file by file).</string>
+    <string name="note_keep_local_workspace">The local commits and working tree stay exactly as they are, the remote is not touched, and the app deletes nothing. The divergence stays local for now: changes can be viewed or copied file by file, and you can come back and merge later.</string>
     <string name="label_push_method">Push method</string>
     <string name="toast_pushed_set_upstream">Pushed and set origin/%1$s as upstream</string>
     <string name="state_undo_discarded">Undone and changes discarded</string>
@@ -905,7 +904,6 @@
     <string name="confirm_force_title">Force %1$s?</string>
     <string name="error_cannot_read_source_commits">Cannot read commits from %1$s</string>
     <string name="note_merge_desc">Keeps the history and creates a merge commit; refused when there are conflicts</string>
-    <string name="label_merge">Merge</string>
     <string name="label_ahead_by">%1$s is %3$s commits ahead of %2$s</string>
     <string name="label_status">Status</string>
     <string name="label_storage">Storage</string>
@@ -1398,6 +1396,9 @@
     <string name="merge_hint_conflict">GitHub reports this cannot be merged automatically (conflicts or branch protection rules)</string>
     <string name="merge_hint_missing_branch">Branch information is missing, so it cannot be merged yet</string>
     <string name="merge_hint_calculating">GitHub is still computing mergeability; merging now may be rejected</string>
+    <string name="merge_local_hint_no_local">No local copy of this repository yet — clone one in Settings → Local repositories first</string>
+    <string name="merge_local_hint_fork">This PR\'s branch lives in a fork that the local copy\'s origin does not have — push it to origin first, or use the desktop</string>
+    <string name="merge_local_hint_ready">Opens the merge page: merge %1$s into the current local branch and resolve conflicts file by file</string>
     <string name="relation_own">Own repository</string>
     <string name="relation_collaborator">Collaborator repository</string>
     <string name="relation_foreign">Someone else\'s repository</string>
@@ -1619,7 +1620,6 @@
     <string name="label_merge_facts">Facts</string>
     <string name="label_merge_target">Branch to merge</string>
     <string name="label_merge_target_state">Its state</string>
-    <string name="label_merge_will_fetch">Remote branch</string>
     <string name="label_merge_pick_branch">Pick a branch to merge into the current one</string>
     <string name="label_merge_progress">This merge</string>
     <string name="label_merge_remaining">Still unresolved</string>
@@ -1633,13 +1633,11 @@
     <string name="state_merge_blocked_dirty">The working tree has %1$s uncommitted change(s); a merge would overwrite them. Commit or discard them first.</string>
     <string name="state_merge_blocked_shallow">The local clone is shallow (no common ancestor) — deepen the history first.</string>
     <string name="state_merge_no_target">No branch picked</string>
-    <string name="state_merge_target_synced">Up to date</string>
     <string name="state_merge_dirty_count">%1$s change(s)</string>
     <string name="state_merge_workspace_clean">Clean</string>
     <string name="state_merge_will_fetch">fetched before merging</string>
     <string name="state_merge_remote_only">Remote only — fetched before merging</string>
     <string name="state_merge_diverged">Diverged from this branch</string>
-    <string name="state_merge_no_upstream">No upstream</string>
     <string name="state_merge_no_branches">No branch to merge (nothing besides the current branch, local or remote).</string>
     <string name="state_merging">Merging…</string>
     <string name="state_merging_in_panel">Merging · %1$s file(s) unresolved</string>
@@ -1671,4 +1669,10 @@
     <string name="error_merge_bad_result">The merge did not succeed — the engine returned an unreadable result.</string>
     <string name="state_merged">Merged</string>
     <string name="confirm_abort_merge_body">Abort this merge: the working tree and index go back to the pre-merge state, so conflict markers and any resolutions are discarded. Your own changes are not affected — a merge only starts from a clean tree.</string>
+    <string name="action_merge_remote">Merge remote (origin/%1$s)</string>
+    <string name="state_merge_running_block">A merge is already running — wait for it to finish; the result appears here.</string>
+    <string name="note_merge_remote">Merge origin/%1$s into the local branch: both sides\' commits are kept and a merge commit is created; if there are conflicts the repo stops mid-merge, where they can be resolved file by file or the whole merge abandoned.</string>
+    <string name="action_merge_remote_short">Merge remote</string>
+    <string name="action_resolve_locally">Resolve locally</string>
+    <string name="label_unpushed_rest">…%1$s more not listed</string>
 </resources>

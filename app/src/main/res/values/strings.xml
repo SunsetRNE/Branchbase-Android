@@ -418,7 +418,6 @@
     <string name="error_graph_both_failed">本地与远端都读不到</string>
     <string name="toast_history_deepened">本地历史已加深</string>
     <string name="label_deepen_task_title">加深 %1$s 的历史</string>
-    <string name="label_local_diff_worktree">工作区改动</string>
     <string name="label_local_diff_file">改动：%1$s</string>
     <string name="label_local_diff_commit">提交 %1$s</string>
     <string name="state_local_diff_empty">工作区没有改动</string>
@@ -442,7 +441,6 @@
     <string name="error_graph_load_failed">提交图加载失败：%1$s</string>
     <string name="label_git_refs">引用树</string>
     <string name="label_git_file_history">文件历史</string>
-    <string name="label_refs_local_branches">本地分支</string>
     <string name="label_refs_remote_branches">远端分支</string>
     <string name="label_refs_remote_only_count">%1$s 个只在远端</string>
     <string name="state_refs_untracked">未跟踪</string>
@@ -454,7 +452,7 @@
     <string name="state_refs_tag_lightweight">轻量</string>
     <string name="state_workspace_clean">工作区干净 · 没有未提交改动</string>
     <string name="state_no_upstream_short">未设置上游</string>
-    <string name="note_git_views_pending">提交 / 推送 / 合并入口按阶段接入。</string>
+    <string name="note_git_views_pending">提交 / 撤销 / 上游 / 回退入口按阶段接入。</string>
     <string name="note_git_view_unavailable">这一档视图还没落地 —— 按设计稿的阶段计划接入（见 docs/specs/git-mode-design.md §8）。</string>
     <string name="note_proxy_scope">仅作用于本地仓库的 clone / pull / push。</string>
     <string name="note_delete_local_branch">只删除本地分支，不影响远端；未合并的提交会丢失。</string>
@@ -567,13 +565,12 @@
     <string name="state_pushing">推送中…</string>
     <string name="label_upstream_branch_name">上游分支名</string>
     <string name="action_turn_off_gitify">关闭 Git 化</string>
-    <string name="action_keep_local_only">保留本地</string>
     <string name="note_first_commit_no_undo">这是仓库的第一个提交：没有可撤销的上一次提交（reset --soft 必然失败；reset --hard 会清空本地历史，本页也不提供）。仍可修改提交信息。</string>
     <string name="note_amend_recreates">amend 会重建这次提交（提交 sha 变化），但作者与提交时间沿用原提交 —— 刻意设计，不改时间戳。</string>
     <string name="label_new_commit_message">新的提交信息</string>
     <string name="note_remove_git_desc">工作树文件不变，但历史与 %1$s 个未推送提交永久丢失（需二次确认）。</string>
     <string name="label_local_branch">本地 %1$s</string>
-    <string name="note_diverged_explain">本地与远端各领先对方，无法快进合并（non-fast-forward）。App 不做 merge/rebase（对齐 D11），请选择如何处理。</string>
+    <string name="note_diverged_explain">本地与远端各领先对方，无法快进合并（non-fast-forward）。可以把远端合进本地（merge 只新增提交，已有历史一字不改），也可以保留或放弃本地提交。</string>
     <string name="state_both_undo_available">两个撤销动作可用</string>
     <string name="hint_brief_description">简要描述…</string>
     <string name="confirm_discard_commits_checkbox">我确认放弃这些提交</string>
@@ -591,6 +588,8 @@
     <string name="note_gitify_off">「Git 化」是 ③ 的子开关（D10）。关闭后提交将走 App REST（①②），本地 .git 的处理方式请选择。</string>
     <string name="error_remote_url_required">请填写远端 URL</string>
     <string name="state_discard_available">放弃本地可用</string>
+    <string name="state_merge_blocked_log">合并被拦：%1$s</string>
+    <string name="state_merge_available">合并可用</string>
     <string name="state_kept_local_for_now">已保留本地提交 · 远端未动</string>
     <string name="state_discarded_local">已放弃本地提交</string>
     <string name="state_kept_git">已保留 .git（偏好普通文件夹）</string>
@@ -601,7 +600,7 @@
     <string name="label_revert_method">回退方式</string>
     <string name="error_push_failed_result">推送失败：%1$s</string>
     <string name="note_keep_git_desc">仅记录「偏好普通文件夹」，仓库与历史完好，可随时重新开启 Git 化。无损。</string>
-    <string name="note_keep_local_workspace">本地提交与工作区原样保留，远端不动，App 也不删除任何数据。App 不做 merge / rebase：这条分叉需要你自己决定怎么合（改动可逐文件查看 / 复制）。</string>
+    <string name="note_keep_local_workspace">本地提交与工作区原样保留，远端不动，App 也不删除任何数据。这条分叉先留在本地：改动可逐文件查看 / 复制，随时可以回来合。</string>
     <string name="label_push_method">推送方式</string>
     <string name="toast_pushed_set_upstream">已推送并设为上游分支 origin/%1$s</string>
     <string name="state_undo_discarded">已撤销并丢弃改动</string>
@@ -909,7 +908,6 @@
     <string name="confirm_force_title">确认覆盖 %1$s？</string>
     <string name="error_cannot_read_source_commits">无法读取 %1$s 的提交</string>
     <string name="note_merge_desc">保留历史，生成合并提交；有冲突时会被拒绝</string>
-    <string name="label_merge">合并</string>
     <string name="label_ahead_by">%1$s 领先 %2$s %3$s 个提交</string>
     <string name="label_status">状态</string>
     <string name="label_storage">存储</string>
@@ -1400,6 +1398,9 @@
     <string name="merge_hint_conflict">GitHub 判定当前不可自动合并（存在冲突或分支保护规则）</string>
     <string name="merge_hint_missing_branch">缺少分支信息，暂时无法合并</string>
     <string name="merge_hint_calculating">GitHub 仍在计算可合并性，此时合并可能被拒绝</string>
+    <string name="merge_local_hint_no_local">本地还没有这个仓库的副本：先在「设置 → 本地仓库」里拉一份，才能在本地合并</string>
+    <string name="merge_local_hint_fork">这个 PR 的分支在复刻仓库里，本地副本的 origin 上没有它：先把这个 PR 的分支推到 origin，或改用桌面端</string>
+    <string name="merge_local_hint_ready">打开合并页：把 %1$s 合进本地当前分支，冲突在本地逐文件解决</string>
     <string name="relation_own">账号仓库</string>
     <string name="relation_collaborator">协作仓库</string>
     <string name="relation_foreign">非账号仓库</string>
@@ -1661,7 +1662,6 @@
     <string name="label_merge_facts">事实</string>
     <string name="label_merge_target">要合并的分支</string>
     <string name="label_merge_target_state">它的状态</string>
-    <string name="label_merge_will_fetch">远端分支</string>
     <string name="label_merge_pick_branch">选一个分支合到当前分支</string>
     <string name="label_merge_progress">这次合并</string>
     <string name="label_merge_remaining">还剩未解决</string>
@@ -1675,13 +1675,11 @@
     <string name="state_merge_blocked_dirty">工作区有 %1$s 处未提交改动，合并会覆盖它们。先提交或撤销，再合并。</string>
     <string name="state_merge_blocked_shallow">本地是浅克隆（没有共同祖先），合并不了。先「加深历史」把完整历史拉到本地。</string>
     <string name="state_merge_no_target">还没选分支</string>
-    <string name="state_merge_target_synced">已同步</string>
     <string name="state_merge_dirty_count">%1$s 处改动</string>
     <string name="state_merge_workspace_clean">干净</string>
     <string name="state_merge_will_fetch">合并前会先拉一次</string>
     <string name="state_merge_remote_only">只在远端 —— 合并前会先 fetch 一次</string>
     <string name="state_merge_diverged">与本分支分叉（各有独有提交）</string>
-    <string name="state_merge_no_upstream">未设置上游</string>
     <string name="state_merge_no_branches">没有可合并的分支（当前分支之外的本地分支与远端分支都没找到）。</string>
     <string name="state_merging">合并中…</string>
     <string name="state_merging_in_panel">正在合并 · 还剩 %1$s 个文件没解决</string>
@@ -1713,4 +1711,10 @@
     <string name="error_merge_bad_result">合并没有执行成功，引擎回了一个看不懂的结果。</string>
     <string name="state_merged">已合并</string>
     <string name="confirm_abort_merge_body">放弃这次合并：工作区与索引会回到合并前那一刻，冲突标记与已做的解决都会被丢掉。你自己的改动不会丢 —— 合并的前提就是工作区干净。</string>
+    <string name="action_merge_remote">合并远端（origin/%1$s）</string>
+    <string name="state_merge_running_block">合并正在执行：等它跑完，结果会在这里反馈</string>
+    <string name="note_merge_remote">把 origin/%1$s 合进本地：双方提交都保留，会多出一个合并提交；有冲突时停在合并中，可以逐个文件解决或整体放弃</string>
+    <string name="action_merge_remote_short">合并远端</string>
+    <string name="action_resolve_locally">拉到本地解决</string>
+    <string name="label_unpushed_rest">…还有 %1$s 条未列出</string>
 </resources>

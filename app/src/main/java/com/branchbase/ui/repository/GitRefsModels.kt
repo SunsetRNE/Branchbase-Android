@@ -6,10 +6,10 @@ import org.json.JSONArray
 /**
  * 「引用树」档（[GitPanelKind.Refs]）的视图模型。
  *
- * 数据全部来自**本地仓库**（`local_branches` / `remote_branches`，阶段 2 零 Rust 改动）——
- * 与「工作区」档同源、离线可读、不消耗 API 限额。tags 不在这一批里：本地 `list_tags`
- * 是阶段 3 的引擎新增项，这一档先如实标「按阶段接入」，**不用 REST 的 `/tags` 顶替** ——
- * 那会立刻出现第二个数据源（D-f 的字段口径也不一样），阶段 3 落地时反而要拆两遍。
+ * 数据全部来自**本地仓库**（`local_branches` / `remote_branches` / `list_tags`）——
+ * 与「工作区」档同源、离线可读、不消耗 API 限额。tags 在 1.0.97 接上（阶段 3 的引擎新增项），
+ * 走的是本地 `list_tags`，**没有**用 REST 的 `/tags` 顶替 —— 那会立刻出现第二个数据源
+ * （D-f 的字段口径也不一样，annotated 与轻量 tag 的表达完全不同）。
  */
 internal data class GitRefsView(
     val locals: List<GitRefRow>,

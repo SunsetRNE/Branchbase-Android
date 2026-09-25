@@ -91,6 +91,60 @@ class SyncDecisionPrecheckTest {
         assertFalse("不许归因引擎：$reason", reason.contains("引擎不可用"))
     }
 
+    // ─────────────── 分叉页「合并远端」（1.1.1） ───────────────
+
+    @Test
+    fun 合并远端_干净工作区且不在合并中且不是浅克隆时可用() {
+        assertNull(mergeRemoteBlockReason(dirtyCount = 0, merging = false, shallow = false, branch = "main"))
+    }
+
+    @Test
+    fun 合并远端_工作区脏时被拦下并说清几处改动() {
+        val reason = mergeRemoteBlockReason(dirtyCount = 3, merging = false, shallow = false, branch = "main")
+        assertNotNull(reason)
+        assertTrue("要说清几处：$reason", reason!!.contains("3"))
+        assertTrue("要给出路（先提交或放弃）：$reason", reason.contains("提交"))
+        assertFalse("不许归因引擎：$reason", reason.contains("引擎不可用"))
+    }
+
+    @Test
+    fun 合并远端_停在别的合并里时先说清怎么收尾() {
+        // 已经在合并中时工作区必然是脏的 —— 这一条必须排在「工作区脏」之前，
+        // 否则用户会去提交那些冲突文件（而那时该做的是「提交合并」或「放弃合并」）
+        val reason = mergeRemoteBlockReason(dirtyCount = 2, merging = true, shallow = false, branch = "main")
+        assertNotNull(reason)
+        assertTrue("要说清现在该做什么：$reason", reason!!.contains("提交合并") || reason.contains("放弃合并"))
+        assertFalse("不许把「在合并中」说成「工作区脏」：$reason", reason.contains("2 处"))
+    }
+
+    @Test
+    fun 合并远端_浅克隆时指出去加深() {
+        val reason = mergeRemoteBlockReason(dirtyCount = 0, merging = false, shallow = true, branch = "main")
+        assertNotNull(reason)
+        assertTrue("要说清为什么（没有共同祖先）：$reason", reason!!.contains("浅克隆"))
+        assertTrue("要给出路（加深历史）：$reason", reason.contains("加深"))
+    }
+
+    @Test
+    fun 合并远端_分支名为空时退回_main() {
+        val reason = mergeRemoteBlockReason(dirtyCount = 0, merging = false, shallow = true, branch = "")
+        assertTrue("空分支名要退回 main：$reason", reason!!.contains("origin/main"))
+        val blank = mergeRemoteBlockReason(dirtyCount = 0, merging = false, shallow = true, branch = "   ")
+        assertTrue("纯空白分支名同样退回 main：$blank", blank!!.contains("origin/main"))
+    }
+
+    // ─────────────── 未推送清单的截断（不许画成「一共就这些」） ───────────────
+
+    @Test
+    fun 未推送清单_截断的条数要算得出来且不为负() {
+        // 引擎的 unpushed 最多 50 条，ahead 是全量
+        assertEquals(0, unlistedUnpushedCount(ahead = 3, listed = 3))
+        assertEquals(0, unlistedUnpushedCount(ahead = 50, listed = 50))
+        assertEquals(150, unlistedUnpushedCount(ahead = 200, listed = 50))
+        // 防御：清单比 ahead 还长（引擎换了口径 / 字段缺省）时不许显示负数
+        assertEquals(0, unlistedUnpushedCount(ahead = 0, listed = 5))
+    }
+
     // ─────────────── 失败文案：不许编造归因 ───────────────
 
     @Test

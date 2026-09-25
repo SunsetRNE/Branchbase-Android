@@ -379,7 +379,7 @@ fun BranchSyncScreen(
             Spacer(Modifier.height(16.dp))
             Text(stringResource(R.string.label_sync_method), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
             Spacer(Modifier.height(8.dp))
-            ModeRow(0, stringResource(R.string.label_merge), stringResource(R.string.note_merge_desc), mode, enabled = modes.merge) { mode = it }
+            ModeRow(0, stringResource(R.string.action_merge), stringResource(R.string.note_merge_desc), mode, enabled = modes.merge) { mode = it }
             ModeRow(1, stringResource(R.string.label_fast_forward_only), stringResource(R.string.note_fast_forward_only_desc), mode, enabled = modes.fastForward) { mode = it }
             ModeRow(2, stringResource(R.string.action_overwrite), stringResource(R.string.note_force_desc), mode, enabled = modes.overwrite, danger = true) { mode = it }
 

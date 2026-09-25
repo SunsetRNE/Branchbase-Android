@@ -1864,23 +1864,43 @@ fn worktree_dirty(repo: &git2::Repository) -> Result<bool> {
     Ok(!statuses.is_empty())
 }
 
-/// 合并的目标提交：先本地分支 → 再 `origin` 的远端跟踪分支 → 都没有就用 token 拉一次再找。
+/// 合并的目标提交。四种写法，按这个顺序试：
 ///
-/// 第三条是「PR 冲突拉到本地解决」那条路：目标分支往往**只在远端**（别人的分支 / PR 的 head），
-/// 本地从来没有过。让上层先手动 fetch 再合并是把一件事拆成两步，而两步之间
-/// 用户会看到「找不到分支」这种中间态错误。
+/// 1. **显式远端形态**（`origin/main`）：按 `refs/remotes/{branch}` 原样查。
+///    这一步**必须排在本地分支之前** —— 「本地与上游分叉，把远端那条合进来」的场景里
+///    两边**同名**（都叫 `main`），先查 `refs/heads/main` 会把「合并远端」解析成
+///    本地那条分支（也就是 HEAD 自己）：`merge_analysis` 判成 `up_to_date`，
+///    界面上就是「点了合并，什么都没发生」，而且**不报错**；
+/// 2. **本地分支**：短名（`feature`）的老语义，一字未改；
+/// 3. **`origin/{branch}`**：目标只在远端时不用写前缀（PR 冲突「拉到本地解决」那条路，
+///    目标往往是别人的分支 / PR 的 head，本地从来没有过）；
+/// 4. 都没有就用 token `fetch` 一次，再把 1 与 3 两种名字各查一遍 ——
+///    让上层先手动 fetch 是把一件事拆两步，而两步之间用户会看到「找不到分支」这种中间态错误。
 fn resolve_merge_target<'r>(
     repo: &'r git2::Repository,
     branch: &str,
     token: Option<&str>,
 ) -> Result<git2::AnnotatedCommit<'r>> {
+    // 显式远端形态只在名字里带 `/` 时才算（`refs/remotes/main` 这种形状不存在，
+    // 但短名走这条只会白查一次；带 `/` 才是「远端名/分支名」的形状）
+    let explicit = if branch.contains('/') {
+        Some(format!("refs/remotes/{branch}"))
+    } else {
+        None
+    };
+    let remote_ref = format!("refs/remotes/origin/{branch}");
+
+    if let Some(reference) = explicit.as_deref().and_then(|name| repo.find_reference(name).ok()) {
+        return repo
+            .reference_to_annotated_commit(&reference)
+            .map_err(|e| CoreError::Other(format!("解析远端分支 {branch} 失败: {e}")));
+    }
     let local = format!("refs/heads/{branch}");
     if let Ok(reference) = repo.find_reference(&local) {
         return repo
             .reference_to_annotated_commit(&reference)
             .map_err(|e| CoreError::Other(format!("解析分支 {branch} 失败: {e}")));
     }
-    let remote_ref = format!("refs/remotes/origin/{branch}");
     if let Ok(reference) = repo.find_reference(&remote_ref) {
         return repo
             .reference_to_annotated_commit(&reference)
@@ -1888,15 +1908,26 @@ fn resolve_merge_target<'r>(
     }
     if repo.find_remote("origin").is_ok() {
         fetch_origin(repo, token, false)?;
-        if let Ok(reference) = repo.find_reference(&remote_ref) {
-            return repo
-                .reference_to_annotated_commit(&reference)
-                .map_err(|e| CoreError::Other(format!("解析远端分支 origin/{branch} 失败: {e}")));
+        for name in explicit.iter().chain(std::iter::once(&remote_ref)) {
+            if let Ok(reference) = repo.find_reference(name) {
+                return repo
+                    .reference_to_annotated_commit(&reference)
+                    .map_err(|e| CoreError::Other(format!("解析远端分支 {branch} 失败: {e}")));
+            }
         }
+        // 两种写法的失败原因不一样，别用一句话糊过去：显式远端写错时，用户要的是
+        // 「这个名字在远端没有」，而不是「本地也没有」——后者会让人去本地找一条本来就不该在的分支
+        return Err(CoreError::Other(if explicit.is_some() {
+            format!("找不到远端分支 {branch}（fetch 之后也没有）")
+        } else {
+            format!("找不到分支 {branch}（本地与 origin 上都没有）")
+        }));
     }
-    Err(CoreError::Other(format!(
-        "找不到分支 {branch}（本地与 origin 上都没有）"
-    )))
+    Err(CoreError::Other(if explicit.is_some() {
+        format!("找不到远端分支 {branch}（这个仓库没有 origin 远端）")
+    } else {
+        format!("找不到分支 {branch}（本地与 origin 上都没有）")
+    }))
 }
 
 /// 落一个**两父**合并提交并清掉合并状态（干净合并与 [`merge_continue`] 共用）。
@@ -3666,5 +3697,79 @@ mod tests {
                 .unwrap_err(),
         );
         assert!(err.contains("找不到分支"), "实际：{err}");
+    }
+
+    #[test]
+    fn merge_显式远端名合的是远端那条而不是同名的本地分支() {
+        // 分叉现场：本地 main 与 origin/main 都有对方没有的提交，**两边同名**。
+        // 这条测试盯着 `resolve_merge_target` 的顺序 —— 先查本地分支的话，
+        // `origin/main` 会被解析成本地那条（HEAD 自己），结果是「点了合并没有任何动静」
+        let (dir, repo) = temp_repo("merge-explicit-remote");
+        commit_file(&repo, "a.txt", "base\n", "基线", "Alice");
+        let main_branch = current_branch(&repo);
+
+        // 远端那一条：在临时分支上造出来，再挂到 refs/remotes/origin/{main}
+        branch_here(&repo, "remote-side");
+        let remote_tip = commit_file(&repo, "b.txt", "remote\n", "远端提交", "Bob");
+        switch_to(&repo, &main_branch);
+        commit_file(&repo, "c.txt", "local\n", "本地提交", "Alice");
+        set_upstream(&repo, &main_branch, remote_tip);
+        // 前置：远端跟踪引用与本地分支**同名** —— 这正是短名会撞车的现场
+        assert!(repo
+            .find_reference(&format!("refs/remotes/origin/{main_branch}"))
+            .is_ok());
+        assert!(repo
+            .find_reference(&format!("refs/heads/{main_branch}"))
+            .is_ok());
+
+        let out = merge(&dir, &format!("origin/{main_branch}"));
+        assert_eq!(out["outcome"], "merged", "两边各有提交 → 三方合并，实际：{out}");
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        assert_eq!(head.parent_count(), 2, "合并提交必须是两个父");
+        assert_eq!(read(&dir, "b.txt"), "remote\n", "远端那条的内容要真的合进来");
+        assert_eq!(read(&dir, "c.txt"), "local\n", "本地那条也不能丢");
+
+        // 反例（这条就是上面那一步存在的理由）：短名解析到的是**本地**那条分支 = HEAD 自己，
+        // 于是 merge_analysis 判 up_to_date —— 不报错、也不做任何事
+        let noop = merge(&dir, &main_branch);
+        assert_eq!(noop["outcome"], "up_to_date", "短名合自己必然是 up_to_date");
+    }
+
+    #[test]
+    fn merge_带斜杠的本地分支不会被当成远端引用() {
+        // `feature/x` 这种本地分支名要走「本地分支」那条路 —— 显式远端形态的查找
+        // 不能把带斜杠的短名抢过去（抢过去的表现就是「找不到远端分支 feature/x」）
+        let (dir, repo) = temp_repo("merge-slash-local");
+        commit_file(&repo, "a.txt", "one\n", "基线", "Alice");
+        let main_branch = current_branch(&repo);
+        branch_here(&repo, "feature/x");
+        let tip = commit_file(&repo, "b.txt", "two\n", "分支上的提交", "Bob");
+        switch_to(&repo, &main_branch);
+
+        let out = merge(&dir, "feature/x");
+        assert_eq!(out["outcome"], "fast_forward");
+        assert_eq!(out["head_sha"], tip.to_string());
+    }
+
+    #[test]
+    fn merge_显式远端名拉不到时说的是远端找不到() {
+        // 失败原因要指对地方：写错远端名时，用户该知道「远端没有这个名字」，
+        // 而不是被引去本地找一条本来就不该存在的分支。
+        // 这里**不造 origin**：造了就会真的去 fetch（测试不该发网络请求）
+        let (dir, repo) = temp_repo("merge-explicit-missing");
+        commit_file(&repo, "a.txt", "one\n", "基线", "Alice");
+
+        let err = other_message(
+            merge_branch(
+                dir.to_str().unwrap(),
+                "origin/根本不存在",
+                None,
+                "合并者",
+                "m@example.com",
+            )
+            .unwrap_err(),
+        );
+        assert!(err.contains("找不到远端分支 origin/根本不存在"), "实际：{err}");
+        assert!(err.contains("没有 origin 远端"), "实际：{err}");
     }
 }

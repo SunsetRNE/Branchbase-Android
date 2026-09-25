@@ -45,4 +45,35 @@ class LogAnchorsTest {
             assertTrue("「$tag」要有解释（否则读者不知道该搜什么）", what.length >= 6)
         }
     }
+
+    /**
+     * **反方向**：源码里声明的每个 `*LOG_TAG` 常量，都必须在表里。
+     *
+     * 上一条只保证「表里的 tag 有人用」，抓不到真正的漏登记 —— 1.0.103 新增的
+     * `MERGE_LOG_TAG = "合并"`（`ui/repository/MergeFlow.kt`）就是这样漏掉的：日志照打、
+     * 功能照跑，只是导出包的 `report.md` 里没有这个词，收到日志的人不知道该 grep 什么。
+     *
+     * 判据取「常量声明」而不是「任何中文字面量」：tag 常量是这个仓库里 tag 的唯一真源
+     * （`GitPanelStage.kt` / `MergeFlow.kt` 都是这么写的），散落的字面量会被误判。
+     */
+    @Test
+    fun `源码里的_log_tag_常量都必须登记进表`() {
+        val anchorsFile = File("src/main/java/com/branchbase/ui/log/Logging.kt").canonicalPath
+        val declared = sourceFiles()
+            .filterNot { it.canonicalPath == anchorsFile }
+            .flatMap { file ->
+                Regex("""const val [A-Z_]*LOG_TAG[^=]*=\s*"([^"]+)"""")
+                    .findAll(file.readText())
+                    .map { it.groupValues[1] to file.name }
+                    .toList()
+            }
+        assertTrue("一个 LOG_TAG 常量都没扫到，判据写歪了", declared.isNotEmpty())
+        val registered = LOG_ANCHORS.map { it.first }.toSet()
+        val missing = declared.filterNot { it.first in registered }
+        assertEquals(
+            "这些 tag 常量没登记进 LOG_ANCHORS（导出包的 report.md 里会没有它们）：$missing",
+            emptyList<Pair<String, String>>(),
+            missing,
+        )
+    }
 }

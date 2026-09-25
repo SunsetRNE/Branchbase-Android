@@ -126,7 +126,7 @@ fun LocalDiffScreen(
 private fun diffTitle(commitSha: String?, path: String?): String = when {
     !commitSha.isNullOrBlank() -> stringResource(R.string.label_local_diff_commit, commitSha.take(7))
     !path.isNullOrBlank() -> stringResource(R.string.label_local_diff_file, path)
-    else -> stringResource(R.string.label_local_diff_worktree)
+    else -> stringResource(R.string.label_worktree_changes)
 }
 
 @Composable

@@ -426,7 +426,7 @@ ${com.branchbase.editor.EditorModuleInfo.NAME} ${com.branchbase.editor.EditorMod
 已保留本地提交 · 远端未动	Kept the local commit · remote untouched	state_kept_local_for_now
 已放弃本地提交	Discarded the local commit	state_discarded_local
 同步失败 · 分叉	Sync failed · diverged	state_sync_failed_diverged
-本地与远端各领先对方，无法快进合并（non-fast-forward）。App 不做 merge/rebase（对齐 D11），请选择如何处理。	Local and remote have each moved ahead, so this cannot fast-forward. The app does not merge or rebase (per D11); choose how to proceed.	note_diverged_explain
+本地与远端各领先对方，无法快进合并（non-fast-forward）。可以把远端合进本地（merge 只新增提交，已有历史一字不改），也可以保留或放弃本地提交。	Local and remote have each moved ahead, so this cannot fast-forward. You can merge the remote into the local branch (a merge only adds commits — existing history is never rewritten), or keep / discard the local commits.	note_diverged_explain
 分叉示意	Divergence diagram	label_divergence_diagram
 本地 ${status?.branch ?: "main"}	Local %1$s	label_local_branch
 ahead ${status?.ahead ?: 0} · 未推送	ahead %1$s · unpushed	label_ahead_unpushed
@@ -436,13 +436,12 @@ ahead ${status?.behind ?: 0} · 他人新提交	ahead %1$s · new commits from o
 本地未推送提交（放弃将永久丢失）	Local unpushed commits (discarding them loses them permanently)	label_local_unpushed_commits
 （无数据）	(no data)	state_no_data
 保留本地提交（暂不处理）	Keep the local commit (for now)	action_keep_local_for_now
-本地提交与工作区原样保留，远端不动，App 也不删除任何数据。App 不做 merge / rebase：这条分叉需要你自己决定怎么合（改动可逐文件查看 / 复制）。	The local commits and working tree stay exactly as they are, the remote is not touched, and the app deletes nothing. The app does not merge or rebase: resolving this divergence is up to you (changes can be viewed or copied file by file).	note_keep_local_workspace
+本地提交与工作区原样保留，远端不动，App 也不删除任何数据。这条分叉先留在本地：改动可逐文件查看 / 复制，随时可以回来合。	The local commits and working tree stay exactly as they are, the remote is not touched, and the app deletes nothing. The divergence stays local for now: changes can be viewed or copied file by file, and you can come back and merge later.	note_keep_local_workspace
 回到工作区，保持 ahead 状态，稍后可再处理。	Return to the working tree with the ahead state intact; you can deal with it later.	note_back_to_worktree_ahead
 将丢弃本地 ${status?.ahead ?: 0} 个未推送提交，改动不可恢复。App 不提供导出，请确认这些改动已不再需要。	%1$s unpushed local commits will be discarded and their changes cannot be recovered. The app cannot export them — make sure you no longer need these changes.	confirm_discard_unpushed_body
 我确认放弃这些提交	I confirm discarding these commits	confirm_discard_commits_checkbox
 加载仓库状态…	Loading repository status…	state_loading_repo_status
 确认放弃本地提交	Confirm discarding the local commit	confirm_discard_local_commit_title
-保留本地	Keep local	action_keep_local_only
 已保留 .git（偏好普通文件夹）	Kept .git (prefers a plain folder)	state_kept_git
 已移除 .git，文件保留	Removed .git; files kept	state_removed_git
 移除失败	Removal failed	error_remove_failed
@@ -811,7 +810,6 @@ $source 领先 $target ${c.aheadBy} 个提交	%1$s is %3$s commits ahead of %2$s
 可快进（目标没有独有提交）	Can fast-forward (the target has no unique commits)	state_can_fast_forward
 目标有 ${c.behindBy} 个独有提交，只能合并或覆盖	The target has %1$s unique commits; only merge or force is possible	state_target_has_unique
 同步方式	Sync method	label_sync_method
-合并	Merge	label_merge
 保留历史，生成合并提交；有冲突时会被拒绝	Keeps the history and creates a merge commit; refused when there are conflicts	note_merge_desc
 仅快进	Fast-forward only	label_fast_forward_only
 目标没有独有提交时直接移动；否则拒绝	Moves the branch when the target has no unique commits; refused otherwise	note_fast_forward_only_desc
@@ -1249,7 +1247,6 @@ http://127.0.0.1:7890 或 socks5://127.0.0.1:1080	http://127.0.0.1:7890 or socks
 提交图	Commit graph	label_git_graph
 引用树	Refs	label_git_refs
 文件历史	File history	label_git_file_history
-本地分支	Local branches	label_refs_local_branches
 远端分支	Remote branches	label_refs_remote_branches
 $count 个只在远端	%1$s remote-only	label_refs_remote_only_count
 未跟踪	Untracked	state_refs_untracked
@@ -1261,7 +1258,7 @@ $count 个只在远端	%1$s remote-only	label_refs_remote_only_count
 轻量	Lightweight	state_refs_tag_lightweight
 工作区干净 · 没有未提交改动	Working tree is clean — nothing uncommitted	state_workspace_clean
 未设置上游	No upstream	state_no_upstream_short
-提交 / 推送 / 合并入口按阶段接入。	Commit, push and merge entry points arrive in later phases.	note_git_views_pending
+提交 / 撤销 / 上游 / 回退入口按阶段接入。	Commit, revert, upstream and reset entry points arrive in later phases.	note_git_views_pending
 这一档视图还没落地 —— 按设计稿的阶段计划接入（见 docs/specs/git-mode-design.md §8）。	This view is not available yet — it arrives in a later phase (see docs/specs/git-mode-design.md §8).	note_git_view_unavailable
 待接入	Soon	state_git_view_pending
 这个分支还没有提交	No commits on this branch yet	state_graph_empty
@@ -1278,7 +1275,6 @@ $count 个只在远端	%1$s remote-only	label_refs_remote_only_count
 本地历史已加深	Local history deepened	toast_history_deepened
 加深 $name 的历史	Deepen history of %1$s	label_deepen_task_title
 本地与远端都读不到	could not read locally or remotely	error_graph_both_failed
-工作区改动	Working tree changes	label_local_diff_worktree
 改动：$path	Changes: %1$s	label_local_diff_file
 提交 $sha	Commit %1$s	label_local_diff_commit
 工作区没有改动	No changes in the working tree	state_local_diff_empty
@@ -1305,7 +1301,6 @@ $count 个只在远端	%1$s remote-only	label_refs_remote_only_count
 事实	Facts	label_merge_facts
 要合并的分支	Branch to merge	label_merge_target
 它的状态	Its state	label_merge_target_state
-远端分支	Remote branch	label_merge_will_fetch
 选一个分支合到当前分支	Pick a branch to merge into the current one	label_merge_pick_branch
 这次合并	This merge	label_merge_progress
 还剩未解决	Still unresolved	label_merge_remaining
@@ -1319,13 +1314,11 @@ $count 个只在远端	%1$s remote-only	label_refs_remote_only_count
 工作区有 %1$s 处未提交改动，合并会覆盖它们。先提交或撤销，再合并。	The working tree has %1$s uncommitted change(s); a merge would overwrite them. Commit or discard them first.	state_merge_blocked_dirty
 本地是浅克隆（没有共同祖先），合并不了。先「加深历史」把完整历史拉到本地。	The local clone is shallow (no common ancestor) — deepen the history first.	state_merge_blocked_shallow
 还没选分支	No branch picked	state_merge_no_target
-已同步	Up to date	state_merge_target_synced
 %1$s 处改动	%1$s change(s)	state_merge_dirty_count
 干净	Clean	state_merge_workspace_clean
 合并前会先拉一次	fetched before merging	state_merge_will_fetch
 只在远端 —— 合并前会先 fetch 一次	Remote only — fetched before merging	state_merge_remote_only
 与本分支分叉（各有独有提交）	Diverged from this branch	state_merge_diverged
-未设置上游	No upstream	state_merge_no_upstream
 没有可合并的分支（当前分支之外的本地分支与远端分支都没找到）。	No branch to merge (nothing besides the current branch, local or remote).	state_merge_no_branches
 合并中…	Merging…	state_merging
 正在合并 · 还剩 %1$s 个文件没解决	Merging · %1$s file(s) unresolved	state_merging_in_panel
@@ -1357,3 +1350,11 @@ $count 个只在远端	%1$s remote-only	label_refs_remote_only_count
 合并没有执行成功，引擎回了一个看不懂的结果。	The merge did not succeed — the engine returned an unreadable result.	error_merge_bad_result
 已合并	Merged	state_merged
 放弃这次合并：工作区与索引会回到合并前那一刻，冲突标记与已做的解决都会被丢掉。你自己的改动不会丢 —— 合并的前提就是工作区干净。	Abort this merge: the working tree and index go back to the pre-merge state, so conflict markers and any resolutions are discarded. Your own changes are not affected — a merge only starts from a clean tree.	confirm_abort_merge_body
+合并远端（origin/$branch）	Merge remote (origin/%1$s)	action_merge_remote
+把 origin/$branch 合进本地：双方提交都保留，会多出一个合并提交；有冲突时停在合并中，可以逐个文件解决或整体放弃	Merge origin/%1$s into the local branch: both sides' commits are kept and a merge commit is created; if there are conflicts the repo stops mid-merge, where they can be resolved file by file or the whole merge abandoned.	note_merge_remote
+合并远端	Merge remote	action_merge_remote_short
+合并正在执行：等它跑完，结果会在这里反馈	A merge is already running — wait for it to finish; the result appears here.	state_merge_running_block
+合并被拦：$it	Merge blocked: %1$s	state_merge_blocked_log
+合并可用	Merge available	state_merge_available
+拉到本地解决	Resolve locally	action_resolve_locally
+…还有 $rest 条未列出	…%1$s more not listed	label_unpushed_rest

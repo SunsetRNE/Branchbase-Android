@@ -238,6 +238,9 @@ fun RepositoryScreen(
     // 路由由这两个 boolean 推出来（与 LocalDiff 同一条规矩：状态与路由不许各写一份）
     var showMerge by remember { mutableStateOf(false) }
     var showMergeConflict by remember { mutableStateOf(false) }
+    // 合并决策页要**预选**的分支（入口 ② 的 PR head；null = 从面板进来的，不预选）。
+    // 预选只在“这一次打开”有效：合并页返回时清掉，免得下一次从面板进来还选着上一个 PR 的分支
+    var mergePreselect by remember { mutableStateOf<String?>(null) }
     val mergeFlow = rememberMergeFlowState()
     // 提交模式（代码页气泡面板直接切换，不必再进「设置」）
     var showCommitMode by remember { mutableStateOf(false) }
@@ -718,7 +721,9 @@ fun RepositoryScreen(
                             git = git,
                             token = sessionToken,
                             flow = mergeFlow,
-                            onBack = { showMerge = false },
+                            // 入口 ②（PR 冲突）打开时预选 PR 的 head；从面板那条路进来时是 null
+                            initialPick = mergePreselect,
+                            onBack = { showMerge = false; mergePreselect = null },
                             onFeedback = { text, _ -> toast(text) },
                             onChanged = { refreshTick++ },
                         )
@@ -831,6 +836,12 @@ fun RepositoryScreen(
                             repo = repo,
                             number = pull,
                             onBack = { pullPage = null },
+                            // 入口 ②：PR 判冲突时把 head 拉进本地解决 —— 打开合并决策页并**预选**它。
+                            // 这一页不自己执行合并（有后果的动作落决策页，§6.1）
+                            onResolveLocally = { head ->
+                                mergePreselect = head
+                                showMerge = true
+                            },
                         )
                     }
 
@@ -1031,7 +1042,7 @@ fun RepositoryScreen(
                                         onOpenCommitDiff = { sha -> diffTarget = RepoRoute.LocalDiff(sha = sha) },
                                         // 合并（阶段 5）：面板只给三枚出口，动作全在宿主 ——
                                         // 「合并分支…」去决策页；合并中时「继续 / 放弃」两条出路
-                                        onMerge = { showMerge = true },
+                                        onMerge = { mergePreselect = null; showMerge = true },
                                         onResumeMerge = { showMergeConflict = true },
                                         onAbortMerge = {
                                             scope.launch {

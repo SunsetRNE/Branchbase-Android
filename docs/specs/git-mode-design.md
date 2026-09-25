@@ -8,8 +8,10 @@
 > （本地仓库页）、`ui/decision/`（决策页）、`core/src/git/`（引擎）的人。
 >
 > **状态：进行中**（不再是「草稿 · 未落地」）：阶段 0–4 已落地（1.0.93 → 1.0.101），
-> 阶段 5 落了**引擎那半**（1.0.102）与**UI 主干**（1.0.103：合并决策页 / 冲突弹窗 / 冲突详情页 /
-> 面板的合并中状态），只剩两条入口（§8）。本文里凡标「待落地」的，**都没写代码**。
+> 阶段 5 **全部落地**：引擎那半（1.0.102）、UI 主干（1.0.103：合并决策页 / 冲突弹窗 /
+> 冲突详情页 / 面板的合并中状态）、两条入口（1.1.1：分叉页第三条「合并远端」与
+> PR 冲突的「拉到本地解决」）。**下一个要做的就是阶段 6**（设置列表的管理页 + 行重绘，§8）。
+> 本文里凡标「待落地」的，**都没写代码**。
 >
 > **真源**：`core/src/git/mod.rs`（引擎）· [`local-git-engine-design.md`](local-git-engine-design.md)
 > §3/§4/§7 · [`decision-pages-design.md`](decision-pages-design.md) §1/§2/§3 ·
@@ -48,7 +50,7 @@
 | 设置列表「进入」→ 代码页 + 面板开到视图档 | **已落地 1.0.95** | `RepoDeepLink.openGitPanel`（`RepositoryScreen.kt`）· `ui/profile/SubPageScreens.kt` |
 | 面板的**出口收口**：分支管理接进两档（工作区 / 引用树）；面板里的**写操作恒为零** | **已落地 1.0.96** | `GitPanelViewHost` 的可选回调（null = 该宿主没这个出口 → 不画那枚胶囊）；胶囊行走 `FlowRow`（英文标签更长，`Row` 会裁掉） |
 | 日志插桩（锚点 `Git工作台`：动作 / 档位 / 返回退档 / 两条进入 / 各档取数） | **已落地 1.0.96** | `ui/log/Logging.kt` 的 `LOG_ANCHORS` + `GitPanelStage.kt` 的 tag 常量 |
-| 接线与插桩的**源码级钉子**（`GitWorkbenchWiringTest`，1.0.96 起 5 例 → 1.0.101 共 10 例） | **已落地 1.0.96** | `app/src/test/java/.../GitWorkbenchWiringTest.kt` |
+| 接线与插桩的**源码级钉子**（`GitWorkbenchWiringTest`，1.0.96 起 5 例 → 1.1.1 共 14 例） | **已落地 1.0.96** | `app/src/test/java/.../GitWorkbenchWiringTest.kt` |
 | 「文件历史」档（本地 `log_file` 优先 / REST `?path=` 兜底；行可点开看这次提交的 diff） | **已落地 1.0.100**（阶段 4） | `ui/repository/GitFileHistoryPanel.kt` · `FileHistoryModels.kt` |
 | 提交图的**未推送段**（本地来源下逐条标「未推送」，脚注只说已加载的这一屏） | **已落地 1.0.101**（阶段 4 收尾） | `core/src/git/mod.rs` 的 `unpushed_oids` · `CommitGraphPanel.kt` |
 | 设置列表「管理」页 / 列表重绘 | 待落地（阶段 6 / 后续问题） | — |
@@ -56,26 +58,42 @@
 | 危险动作收口（全部落决策页）+ 设置列表行内动作下线 | **部分**：面板内写操作已归零（1.0.96），行内动作仍在（§5 过渡期） | — |
 | 本地合并 + 冲突解决（**引擎那半**） | **已落地 1.0.102**（`merge_branch` / `merge_state` / `analyze_conflicts` / `resolve_conflict` / `write_resolved` / `merge_continue` / `merge_abort` + JNI + 重建 `.so`） | `core/src/git/mod.rs` · `core/src/bridge/jni.rs` · `RustBridge.kt` |
 | 本地合并 + 冲突解决（**UI 主干**） | **已落地 1.0.103**：合并决策页（分支清单 + 四条前置的如实说明）/ 冲突弹窗（出现即预解析）/ 冲突详情页（逐文件 ours↔theirs diff + 用我方 / 用对方 / `:editor` 手工 + 提交合并 / 放弃合并）/ 面板的「合并中」状态条与三枚出口 / 两个宿主各接一次 | `ui/repository/MergeDecisionScreen.kt` · `MergeConflictScreen.kt` · `MergeFlow.kt` · `MergeModels.kt` · `MergePreparse.kt` |
+| **分叉页第三条「合并远端」**（设置 → 本地仓库 → 分叉页）| **已落地 1.1.1**：分叉页四选一（保留 / **合并远端** / 放弃 / 取消）；跑动作的是宿主（`runMerge`），冲突弹窗与冲突详情页在这条路上也接通（第三个合并宿主） | `ui/decision/SyncDecisionScreens.kt` · `ui/profile/SubPageScreens.kt` |
+| **PR 冲突的「拉到本地解决」** | **已落地 1.1.1**：PR 详情页在 `mergeable == false` 时给第二枚入口（本地没副本 / head 在复刻仓库里 → 置灰并说明），点开是**预选了 PR head** 的合并决策页 | `ui/repository/RepositoryDetailScreens.kt` · `RepositoryModels.kt` · `RepositoryScreen.kt` · `MergeDecisionScreen.kt` |
+| 引擎的 `merge_branch` **认显式远端名**（`origin/x`） | **已落地 1.1.1**：`resolve_merge_target` 先按 `refs/remotes/{name}` 解析（此前只认裸名，而分叉场景两边同名 → 裸名解析成本地那条 = HEAD 自己 → `up_to_date`，静默空动作） | `core/src/git/mod.rs` |
 | 引擎 `log_graph` / `list_tags` / `log_file` / `diff_worktree` / `diff_commit` | **已落地 1.0.97**（阶段 3 只读接口 + 重建 `.so`） | `core/src/git/mod.rs` · `core/src/bridge/jni.rs` · `RustBridge.kt` |
 | 提交图**双来源**（本地 `log_graph` 优先 / REST 兜底）+ 浅克隆择源 + 「加深历史」出口 | **已落地 1.0.98**（阶段 4 前半） | `CommitGraphModels.kt` · `CommitGraphPanel.kt` · `LocalRepoDeepen.kt` |
 | 引擎 `fetch_deepen`（unshallow，复用 clone 的进度/取消通道） | **已落地 1.0.98**（重建 `.so`，`cargo test` 89 例） | `core/src/git/mod.rs` · `core/src/bridge/jni.rs` · `RustBridge.kt` |
 | **本地 diff 页**（工作区改动行 / 提交图提交行 → `diff_worktree` / `diff_commit`） | **已落地 1.0.99** | `ui/repository/LocalDiffScreen.kt` · `LocalDiffModels.kt` · `DiffLines.kt` |
-| 这三条本地接口的消费者 | **全部接上**（tags 引用树 ✅ / 提交图 ✅ / 工作区 diff ✅ / 文件历史 ✅） | — |
+| 这几个本地接口的消费者 | **全部接上**（tags 引用树 ✅ / 提交图 ✅ / 工作区 diff ✅ / 文件历史 ✅） | — |
 | 引擎的**合并与冲突**一组（七条） | **已落地 1.0.102**（阶段 5 引擎那半；`repo_status` 另加 `merging` 只增字段） | `core/src/git/mod.rs` · `core/src/bridge/jni.rs` · `RustBridge.kt` |
 
-**已落地的验证口径**：`:app:testDebugUnitTest`（923 例；其中 `GitPanelStageTest` 9 例、
-`GitRefsModelsTest` 5 例、`RepoDeepLinkTest` 4 例、`GitWorkbenchWiringTest` 13 例、
+**已落地的验证口径**：`:app:testDebugUnitTest`（939 例；其中 `GitPanelStageTest` 9 例、
+`GitRefsModelsTest` 8 例、`RepoDeepLinkTest` 4 例、`GitWorkbenchWiringTest` 14 例、
 `CommitGraphLayoutTest` 11 例、`CommitGraphSourceTest` 14 例、`LocalDiffModelsTest` 12 例、
-`FileHistoryModelsTest` 9 例、`MergeModelsTest` 6 例、`MergePreparseTest` 5 例、
+`FileHistoryModelsTest` 9 例、`MergeModelsTest` 9 例、`MergePreparseTest` 5 例、
+`PullDetailModelsTest` 14 例、`SyncDecisionPrecheckTest` 21 例、
 `PageTransitionsTest` 面板过渡与「三个切换器都下发 `LocalPageActive`」、
-`LogAnchorsTest` 盯锚点表 · `JniSignatureTest` 逐参数对账全部 104 对原生函数）·
-`cargo test` 105 例 · `assembleDebug` · `check-i18n --min-coverage 100`。
+`LogAnchorsTest` 盯锚点表（**双向**）· `JniSignatureTest` 逐参数对账全部 104 对原生函数）·
+`cargo test` 108 例（单测；另有 4 例集成）· `assembleDebug` · `check-i18n --min-coverage 100`。
 
 **1.0.95 收口时修掉的三处「文档说已落地、代码说没落地」**（都不是新功能，是账没对上）：
 ① 阶段 1 把「提交图」渲染接上了，`GitPanelKind.Graph.available` 却留在 `false` ——
 标签条标「待接入」、点进去是一张能用的图，而那枚钉子当时钉的正是这个错值；
 ② 代码与资源里指向本文的章节号是收束前的旧号（动效 `§3.4` 实为 §3.3、阶段表 `§9` 实为 §8）；
 ③ `VERSION-NOTES` §三 少了 195 这一版（阶段 0 那次提交），§二 1.0.94 的箭头也写成了 `194 → 195`。
+
+**1.1.1 收口时修掉的五处**（同一类问题，这次是**先对账再动手**——两条入口开工前把本文逐条对回代码）：
+① **引擎并不认远端分支名**（本文 §7 那句「引擎已支持远端分支名」是错的）：`resolve_merge_target`
+只认裸名，而分叉场景两边同名 → 裸名解析成本地那条 = HEAD 自己 → `up_to_date` 的**静默空动作**。
+1.1.1 给引擎补上显式远端名这一档（见 §7 末），这条声明才算成立；
+② **`合并` 这个日志锚点从没登记进 `LOG_ANCHORS`**（`MergeFlow.kt` 的注释却写着「已登记」），
+而 `LogAnchorsTest` 只做单向检查、抓不到 —— 现在补登记，钉子也改成双向；
+③ **`tools/i18n/extract.py` 已经跑不起来**：`strings.tsv` 里积了 7 条重复字面量（最早 1.0.99），
+加载器遇重复直接 `SystemExit`；`check-i18n` 只校验 XML 键集合，所以 CI 一直绿。现已并成 7 条；
+④ **三处过期文案**：分叉页两句「App 不做 merge/rebase」（D-g 在 1.0.102 就放行了）、
+面板底部「提交 / 推送 / **合并**入口按阶段接入」（合并胶囊 1.0.103 就在）；
+⑤ **两处陈旧计数**：`GitRefsModelsTest` 5 → 8、写方法扫描表 14 → 15（1.0.98 加了 `gitFetchDeepen` 后没改）。
 
 ---
 
@@ -124,10 +142,12 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
 
 面板里的**写操作恒为零**：提交 / 撤销 / 上游 / 回退都要落决策页，而决策页今天的宿主是
 「设置 → 本地仓库」与文件页，把它们的宿主扩到仓库页是阶段 2 的剩余项
-（`GitWorkbenchWiringTest` 扫全部 14 个 git 写方法，保证面板这一族源码里一个都不出现）。
+（`GitWorkbenchWiringTest` 扫全部 15 个 git 写方法 —— 1.0.98 加深那次补进 `gitFetchDeepen` 后
+这一格没跟着改，1.1.1 对账时改正 —— 保证面板这一族源码里一个都不出现）。
 
 **合并中时面板长什么样（1.0.103）**：那一条状态排在工作区档最上面 —— 停在合并中时工作区**必然**是脏的
-（冲突文件带标记），先列改动清单只会让人更糊涂；两条出路（继续 / 放弃）都只给出口，
+（冲突文件带标记），先列改动清单只会让人更糊涂；两条出路（胶囊文案是**「解决冲突」/「放弃合并」**，
+本文先前写成「继续 / 放弃」）都只给出口，
 写操作在宿主。同一档底部的「合并分支…」在合并中会**置灰**：同时开着「再合一次」与「解决这次冲突」
 会让人以为先把这一次合完才行。
 
@@ -136,7 +156,9 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
 把一个可点分支行放进 268dp 的浮层里，只会把误触变成默认路径。这一档只回答
 「有哪些引用、我在哪、哪些只在远端」，底部给「刷新」「同步」两个真能用的出口。
 **tag 不用 REST 的 `/tags` 顶替**：那会立刻出现第二个数据源与第二套字段口径（D-f），
-阶段 3 落地时还得拆两遍 —— 所以标签区如实写「按阶段接入」。
+阶段 3 落地时还得拆两遍 —— 所以 1.0.95 那版先在标签区如实写「按阶段接入」，
+**1.0.97 接上本地 `list_tags` 之后这句就没了**（现在列真 tag，没有 tag 时写「还没有 tag。」）。
+本文这半句直到 1.1.1 对账才改正。
 
 ### 3.3 框换框的动效规格（复用页面级常量，不许自造）
 
@@ -158,6 +180,8 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
 |---|---|---|
 | 代码页 / 文件页的 Git 气泡 | 点球 → 动作列表 → 视图档（仅「本地仓库（Git）」提交模式，`showGitBubble` 门控不变） | 已落地 |
 | 设置 → 本地仓库 行的**仓库名** | 打开该仓库代码页 + **自动展开到视图档**（`RepoDeepLink.openGitPanel`） | **已落地 1.0.95**（阶段 2） |
+| 设置 → 本地仓库 的**分叉页**第三条「合并远端」 | 把 `origin/{branch}` 合进本地（跑动作的是宿主，`MergeFlow.runMerge`）；冲突弹窗与冲突详情页在这条路上也接通 | **已落地 1.1.1**（阶段 5 入口 ①） |
+| PR 详情页在 `mergeable == false` 时的「拉到本地解决」 | 打开**预选了 PR head** 的合并决策页（本地没副本 / head 在复刻仓库里 → 置灰并说明） | **已落地 1.1.1**（阶段 5 入口 ②） |
 
 第二条的两条实现约定（都为了不出现「点了什么都没发生」）：
 
@@ -205,6 +229,12 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
   等于每一行都在喊同一件事，用户学到的只是「这个标记没有信息量」；而那时工作区档写的正是「已同步」；
 - **REST 来源一律不标**：那份响应里没有「本地推没推」这件事 —— 不是「都推过了」，是「这一屏答不了」。
   同理，脚注只数**已加载的这一屏**（「其中 N 条」），全量那个数在工作区档，不在这里冒充。
+
+> **两个数字何时才相等（1.1.1 对账补的限定）**：上面第一条只在**历史全量载入**时字面成立。
+> `repo_status` 的 `unpushed` 清单在引擎侧有 **50 条上限**（`core/src/git/mod.rs` 的 `unpushed_oids`
+> 调用点：清单用于展示，`ahead` 与图上的标记都不设上限），而脚注只数已加载的那一屏 ——
+> 所以「待推送 200」配一张只标了 100 条的图是**正常**的，不是口径分家。
+> 口径分家的判据是**同一屏内**：图上标的条数必须等于那一屏里确实没推的提交数。
 
 标记**只走文字**（行尾那枚小字），不去改节点的画法：虚线圈已经是「未提交」虚节点在用的形状语法
 （§4.3），再拿空心 / 虚线去表示「未推送」就是两件事抢一套画法。
@@ -265,8 +295,8 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
 | D-g | **允许 merge，不做 rebase** | §6.4；D11 措辞随之修正 |
 | D-h | **冲突交互 = 冲突弹窗（出现即预解析）→ 详情对比页** | §6.4 |
 | D-i | **不另建图谱缓存**（Room / JSON 都否掉）：本地仓库对象库就是缓存 | §6.3 |
-| D-k | **改动清单 / 提交行的落点 = 独立只读的「本地 diff 页」**（不给文件查看器加「本地工作树」来源）| §3.2 / §11.6；1.0.99 |
 | D-j | **「引用树」档只读**：分支的切换 / 新建 / 删除不搬进浮层（有后果 → 决策页），落点是既有的分支管理 / 本地分支同步；这一档只回答「有哪些引用、我在哪、哪些只在远端」 | §2 / §3.2（1.0.95） |
+| D-k | **改动清单 / 提交行的落点 = 独立只读的「本地 diff 页」**（不给文件查看器加「本地工作树」来源）| §3.2 / §11.6；1.0.99 |
 
 ### 6.2 已废弃 / 已被取代（**不要再捡回来**）
 
@@ -287,8 +317,10 @@ git 自己压缩与 gc）。没有本地副本的仓库，图谱按需从 REST �
 ### 6.4 合并与冲突（D-g / D-h）
 
 - **允许 `merge`**（产生两父合并提交，已有 sha 一字不变）；**仍禁** rebase / amend 已推送 / 强推；
-  [`local-git-engine-design.md`](local-git-engine-design.md) §5 的 D11 行落地时同步改措辞，
-  分叉页文案由两条变三条（合并 / 保留 / 放弃）；
+  [`local-git-engine-design.md`](local-git-engine-design.md) §5 的 D11 行与分叉页文案都已跟着改：
+  **1.1.1 起分叉页是四条**（保留本地（推荐）/ **合并远端** / 放弃本地 / 取消）——
+  顺序上「合并」排在「保留」之后是**有意的**：「推荐」标在无副作用的那一项上，
+  不把写操作做成按一下就发生的默认路径（与 D-j 同一条口径）；
 - **冲突流程**：
 
 ```
@@ -307,10 +339,13 @@ merge_branch ─► outcome == "conflict"
   进面板要能「继续 / 放弃」；② 合并提交信息的敏感扫描口径要说清；③ 浅克隆没有共同祖先 →
   merge 必然晚于 `fetch_deepen`；④ 详情对比页是**新全屏页** → 登记见 §9。
 
-**1.0.102（引擎那半）+ 1.0.103（UI 主干）之后，流程图长这样（已实现的部分标 ✅）**：
+**1.0.102（引擎那半）+ 1.0.103（UI 主干）+ 1.1.1（两条入口）之后，流程图长这样（全部 ✅）**：
 
 ```
-面板「合并分支…」✅ ─► 合并决策页（分支清单 / 事实 / 四条前置）✅ ─►「合并」
+面板「合并分支…」✅ ─┬─► 合并决策页（分支清单 / 事实 / 四条前置）✅ ─►「合并」
+                     └─（入口 ②）PR 详情页「拉到本地解决」✅ ─► 同一页，**预选了 PR 的 head** ✅
+
+分叉页（设置 → 本地仓库）✅ ─►「合并远端」✅ ─► 同一个运行器（`MergeFlow.runMerge`）✅
                                         │
                      ┌──────────────────┴───────────────────┐
                  up_to_date / fast_forward / merged ✅       conflict ✅
@@ -323,14 +358,15 @@ merge_branch ─► outcome == "conflict"
                                        全部解决 → 「提交合并」✅（先跑敏感扫描，扫不了就拦下）
                                        任何时候 → 「放弃合并」✅（二次确认 → 回到合并前）
                                                              │
-                                     合并到一半被杀？面板的「继续 / 放弃」✅（靠 repo_status.merging）
+                                     合并到一半被杀？面板的「解决冲突 / 放弃合并」✅（靠 repo_status.merging）
+                                     在设置页那条路上？同一个冲突页面 ✅（`LocalPage.MergeConflict`）
 ```
 
 **这四条风险各自落到哪**：
 
 | 风险 | 对策（已在引擎里） | 还差什么（UI 那半） |
 |---|---|---|
-| ① 合并到一半被杀 | `repo_status` 的只增字段 `merging` + `merge_state`（当前冲突清单 / 待提交信息 / `MERGE_HEAD`）；两条出路只依赖仓库自身状态，**不依赖内存里的列表** | ✅ 1.0.103：面板的状态条说清「还剩几个」并给「继续 / 放弃」；`startedWith`（本次共几个）来自合并那一刻的响应 —— 引擎不落盘「开始时有哪些冲突」，重启后只剩「还没解决的」 |
+| ① 合并到一半被杀 | `repo_status` 的只增字段 `merging` + `merge_state`（当前冲突清单 / 待提交信息 / `MERGE_HEAD`）；两条出路只依赖仓库自身状态，**不依赖内存里的列表** | ✅ 1.0.103：面板的状态条说清「还剩几个」并给两枚出口（胶囊文案是**「解决冲突」/「放弃合并」**）；`startedWith`（本次共几个）来自合并那一刻的响应 —— 引擎不落盘「开始时有哪些冲突」，重启后只剩「还没解决的」 |
 | ② 敏感扫描 | `merge_continue` 的 `message` 为空时用 `.git/MERGE_MSG`，**引擎自己生成的信息不含任何用户输入** | ✅ 1.0.103：提交合并前对 `message` 跑 `scan_sensitive`；**扫不了就拦下**（与文件页提交同一条口径），命中先警告、再点一次才提交 |
 | ③ 浅克隆没有共同祖先 | `merge_branch` 在 `repo.is_shallow()` 时**提前拒绝**并指出去哪加深 | ✅ 1.0.103：合并决策页把「浅克隆」写成一条**灰掉按钮的理由**（不是点下去才报错），并指向加深（运行器 1.0.98 已有） |
 | ④ 详情对比页是新全屏页 | — | ✅ 1.0.103：`MergeDecisionScreen` / `MergeConflictScreen` 都登记进 `SystemBarInsetsTest.fullScreenPages`，用 `DecisionScreenShell`（自带状态栏 / 手势条内边距）+ 只走 `PageBackHandler` |
@@ -366,7 +402,7 @@ merge_branch ─► outcome == "conflict"
 
 | # | 接口 | 用途 | 状态 |
 |---|---|---|---|
-| 6 | `merge_branch(dir, branch, token, author_name, author_email)` | 三方合并（不改写历史）；四条出口 `up_to_date` / `fast_forward` / `merged` / `conflict`。目标分支本地没有时**引擎自己 fetch 一次**（PR 冲突「拉到本地解决」那条路）。浅克隆 / 已在合并中 / 工作区脏 → 提前拒绝并给出路 | **已落地**（UI 那半待接） |
+| 6 | `merge_branch(dir, branch, token, author_name, author_email)` | 三方合并（不改写历史）；四条出口 `up_to_date` / `fast_forward` / `merged` / `conflict`。目标分支本地没有时**引擎自己 fetch 一次**（PR 冲突「拉到本地解决」那条路）。`branch` 三种写法：**裸名**（先本地分支、再 `origin/{名}`）/ **显式远端名** `origin/{名}`（1.1.1 起先按 `refs/remotes/{名}` 解析）/ 本地带斜杠的分支名（不会被显式规则抢走）。浅克隆 / 已在合并中 / 工作区脏 → 提前拒绝并给出路 | **已落地**（引擎 1.0.102 / UI 主干 1.0.103 / 两条入口 1.1.1） |
 | 7 | `merge_state(dir)` | 当前合并状态：`merging` / 待提交信息 / `MERGE_HEAD` / **还没解决**的冲突清单 | **已落地**（「合并到一半被杀」之后唯一的入口） |
 | 8 | `analyze_conflicts(dir)` | 预解析（**只读、不落盘**）：逐文件 `kind` / 三方 sha 与大小 / **ours ↔ theirs 的 patch**（冲突块就是它的 hunk）/ **三方内容** `ours` · `theirs` · `worktree`（工作区那份带标记 = 手工编辑的初值，单份上限 64 KB → `content_truncated`） | **已落地**（冲突详情页在用；内容字段 1.0.103 补） |
 | 9 | `resolve_conflict(dir, path, side)` · `write_resolved(dir, path, content)` | 逐文件解决：用某一侧 / 手工内容 → 写工作区 + 登记索引 | **已落地**（冲突详情页的两个按钮在用） |
@@ -377,11 +413,19 @@ merge_branch ─► outcome == "conflict"
 后者**没有单独存在**：`merge_state` 已经把「当前状态 + 冲突清单」一次答完，
 再来一条只报清单的接口就是两个入口问同一件事。
 
-**阶段 5 还差的两条入口**（引擎与主流程都已在，缺的是「从哪儿进」）：
-① **分叉页第三条**：pull 被判 `nff` 时，分叉决策页现在只给两条（保留 / 放弃），
-要加第三条「合并远端」——落点就是 `merge_branch` 合 `origin/{branch}`（引擎已支持远端分支名）；
-② **PR 冲突的「拉到本地解决」**：PR 详情页在 `mergeable = false` 时给一枚入口，
-目标分支（PR 的 head）本地没有也没关系 —— `merge_branch` 会自己 fetch 一次。
+**阶段 5 的两条入口（1.1.1 落地）**，以及它们暴露出的两处「原以为已经有」：
+
+① **分叉页「合并远端」**：pull 被判 `nff` 时，分叉决策页的第三条 —— 落点是 `merge_branch`
+   **合 `origin/{branch}`**。但这一版开工时发现**引擎当时并不认这个写法**：`resolve_merge_target`
+   只认裸分支名（`refs/heads/{x}` → `refs/remotes/origin/{x}`），而分叉场景两边**同名** ——
+   裸名会解析到本地那条（就是 HEAD 自己），`merge_analysis` 判成 `up_to_date`，
+   表现是「点了合并，什么都没发生」且不报错。所以 1.1.1 给引擎补了**显式远端名**这一档
+   （先查 `refs/remotes/{name}`），裸名语义一字未改；
+② **PR 冲突的「拉到本地解决」**：PR 详情页在 `mergeable == false` 时给第二枚入口，
+   点开的是**预选了 PR head** 的合并决策页。两条如实置灰的理由：本地没有这个仓库的副本；
+   head 在**复刻仓库**里（本地副本的 origin 上没有它 —— 引擎只从 origin 拉）。
+   预选的分支可能本地与远端跟踪引用都没有（从没 fetch 过），所以合并页会**补一条「只在远端」**的
+   选项 —— 否则「打开了页却找不到那条分支」，而引擎本来就会自己 fetch 一次。
 
 ---
 
@@ -395,7 +439,7 @@ merge_branch ─► outcome == "conflict"
 | **3** | `log_graph` / `list_tags` / `log_file` / `diff_worktree` / `diff_commit`（重建 `.so`） | **引擎 + JNI + 门面已落地 1.0.97**（`cargo test` 86 例） |
 | **3'** | 这三个接口的**消费者**：引用树 tags ✅ / 提交图换本地来源 ✅ / 工作区档的本地 diff ✅（并顺带把 `diff_commit` 接上：提交图点一行看这次提交的 diff） | **全部落地**：tags 1.0.97 · 提交图本地来源 1.0.98 · 本地 diff 页 1.0.99 |
 | **4** | `fetch_deepen`（任务中心 + 进度）+ 「文件历史」档（本地优先 + REST 兜底）+ 离线图谱（LocalSource 优先、未推送段） | **全部落地**：`fetch_deepen` 与双来源 1.0.98 · 「文件历史」档 1.0.100 · 未推送段 1.0.101（本地来源下逐条标出来，与工作区档的 `ahead` 同口径） |
-| **5** | 本地合并（D-g）+ 冲突弹窗 / 预解析 / 详情对比页（D-h）+ PR 冲突的「拉到本地解决」 | **主流程已落地**：引擎七条接口 **1.0.102**（+ JNI + 重建 `.so`）；UI 主干 **1.0.103**（合并决策页 / 冲突弹窗 / 详情对比页 / 面板的合并中状态 / 两个宿主接线）。**还差两条入口**：分叉页第三条（合并远端）与 PR 冲突的「拉到本地解决」（见 §7 末） |
+| **5** | 本地合并（D-g）+ 冲突弹窗 / 预解析 / 详情对比页（D-h）+ PR 冲突的「拉到本地解决」 | **全部落地**：引擎七条接口 **1.0.102**（+ JNI + 重建 `.so`）；UI 主干 **1.0.103**（合并决策页 / 冲突弹窗 / 详情对比页 / 面板的合并中状态 / 两个宿主接线）；两条入口 **1.1.1**（分叉页「合并远端」+ PR 的「拉到本地解决」，含引擎的显式远端名与设置页这**第三个合并宿主**）。**阶段 6 是接下来的事** |
 | **6** | 设置 → 本地仓库「管理」页（按仓库看占用 / 清理）+ 列表重绘（§5 的登记项） | 待做 |
 
 ---
@@ -407,11 +451,11 @@ merge_branch ─► outcome == "conflict"
 | 面板多一档 / 返回键层级变化 | 注释与本文件的 §3.1；**不新增页面、不动 `route` / `leavePage()` / `fullScreenPages`**（形态已定） |
 | 某一档落地 | `GitPanelKind` 的 `available` 翻成 `true` **并**在 `GitPanelViewHost` 里接上渲染 —— 两处是同一件事，漏一处就是「标着待接入、进去能用」（`GitPanelStageTest` 有一条源码级钉子对着宿主源码查） |
 | `PanelSwitcher` 改动 | `ui/navigation/PageTransitions.kt`（动效唯一真源）+ `PageTransitionsTest`（「三个切换器都下发 `LocalPageActive`」） |
-| **新全屏页**（阶段 5 的冲突详情对比页、阶段 6 的管理页） | `SystemBarInsetsTest.kt` 的 `fullScreenPages` + 只走 `PageBackHandler`（裸 `BackHandler` 被全目录扫描） |
+| **新全屏页**（阶段 5 的冲突详情对比页、阶段 6 的管理页） | `SystemBarInsetsTest.kt` 的 `fullScreenPages`（是个**显式清单**，不是扫全目录）+ 只走 `PageBackHandler`（裸 `BackHandler` 被全目录扫描） |
 | 新 `ui/` 文件里的颜色 | 走 `Primer` 角色；泳道配色在 `ui/theme/Color.kt`（`ThemeConvergenceTest`） |
-| 新字符串 | `tools/i18n/strings.tsv` → `extract.py --apply`（CI 硬门禁 `--min-coverage 100`） |
+| 新字符串 | `tools/i18n/strings.tsv` → `extract.py --apply`（CI 硬门禁 `--min-coverage 100`）。**表里一个字面量只能有一行**：重复会让 `extract.py` 的加载器直接 `SystemExit`（整条抽取链停摆），而 `check-i18n` 只校验 XML 键集合、**查不出这种停摆** —— 1.1.1 之前表里积了 7 条重复（最早 1.0.99 就有），跑了才发现 |
 | 面板里多一个**出口**（去决策页 / 管理页 / 加深的入口） | `GitPanelViewHost` 加**可选**回调（null = 这个宿主没这个出口 → **不画那枚胶囊**），两个宿主各接一次；`GitWorkbenchWiringTest` 盯着别只接一边。**跑动作的是宿主**：面板这一族源码里不许出现任何 git 写方法（同一支测试扫全表） |
-| 新日志锚点 | `ui/log/Logging.kt` 的 `LOG_ANCHORS`（导出包的 `report.md` 会带上这张表）+ tag 常量与该表的字面量必须一致（`LogAnchorsTest`）+ 关键入口逐个钉（`GitWorkbenchWiringTest`） |
+| 新日志锚点 | `ui/log/Logging.kt` 的 `LOG_ANCHORS`（导出包的 `report.md` 会带上这张表）+ tag 常量与该表的字面量必须一致（`LogAnchorsTest` **双向**：表→源码「不腐烂」、源码 `*LOG_TAG` →表「不漏登记」—— 单向那版让 1.0.103 的 `合并` 漏了整整一轮）+ 关键入口逐个钉（`GitWorkbenchWiringTest`） |
 | 新 JNI 函数 | `JniSignatureTest.kt`（逐参数、逐类型对账，参数表写错编译期查不出来）+ **重建 `.so`**（`core/build-android.sh`，约 12 分钟）+ `cargo test` |
 | 引擎接口**输出加字段**（签名不变，如 `log_graph` 的 `unpushed`） | 本文件 §7 + [`local-git-engine-design.md`](local-git-engine-design.md) §3 + **Kotlin 侧解析按缺省退化**（`.so` 与 Kotlin 是两份产物：缺键不许读成「都推过了」，也不许整档报错）。签名没变 → 不用动 `JniSignatureTest`，但**仍要重建 `.so`**，否则真机上跑的还是旧行为（本地测试全绿也看不出来） |
 | 新版本 | [`VERSION-NOTES.md`](VERSION-NOTES.md) §二/§三 → 最后改 `version.properties` |
@@ -471,3 +515,19 @@ merge_branch ─► outcome == "conflict"
    （任务记录不会停在 RUNNING），但进度弹窗会随页面一起消失 —— 回到页面看不到它还在跑。
    要做对得把这类长任务搬到应用级作用域 + 一处全局的「正在跑」入口（任务中心已经有一半），
    属于独立的一件事；clone 那条今天也是同样的行为。
+10. **决策页的预检理由在英文界面下仍是中文（1.1.1 对账登记）**：`discardLocalBlockReason` /
+    `mergeRemoteBlockReason` 这一族是**纯函数**，返回的是中文字面量（它们没有 `Context`），
+    而外层模板（`state_discard_blocked` / `state_merge_blocked_log`）是资源化的 ——
+    于是英文界面下会看到「Merge blocked: 工作区有 3 处未提交改动…」。
+    改对不是换个资源名：得让这一族返回「资源 id + 参数」（`Reason(resId, args)`）或搬进组合作用域，
+    涉及本文件顶部的四个纯函数与它们的 20 例单测。**本轮没动**（只登记），因为它是既有口径、
+    与 Git 模式无关的一层；但它确实是一处「抽了一半」的地方。
+11. **`repo_status` 的 `unpushed` 清单上限 50（1.1.1 对账登记）**：`ahead` 是全量、清单是前 50 条。
+    这条清单今天有**两个**消费者，两处都是「列出会丢什么」的地方，两处都已把差额如实写出来
+    （「…还有 N 条未列出」，共用的纯函数 `unlistedUnpushedCount` + 资源 `label_unpushed_rest`）：
+    ① 分叉页「本地未推送提交」；② **Git 化回退页**（`GitifyRollbackScreen` 的「未推送提交」卡 ——
+    它的危险确认用的正是全量的 `ahead`，截断不说就会变成「一共就这些」）。
+    **还差的是引擎侧**：`repo_status` 没有把「被截断」这件事作为字段暴露，界面只能靠
+    `ahead - unpushed.size` 反推（清单比 ahead 短 = 截断了）。要让下一个消费者不必自己反推，
+    得加一个 `unpushed_truncated` / `unpushed_total` 之类的**只增字段** ——
+    签名不变，但按 §9 仍要重建 `.so`，所以属于「下次动那个接口时顺手做」的事。

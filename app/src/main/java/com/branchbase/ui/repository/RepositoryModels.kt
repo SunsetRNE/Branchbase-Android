@@ -581,6 +581,15 @@ data class PullDetail(
      * 前者不该给用户看一句凭空捏造的拒绝理由（[pullMergeEntry] 也不把它当 false）。
      */
     val mergeable: Boolean? = null,
+    /**
+     * `GET /pulls/{n}` 的 `head.repo.full_name`（**PR 的来源仓库**，`owner/name`）。
+     *
+     * 它决定「拉到本地解决」能不能成立：引擎的 `merge_branch` 只从本地仓库的 `origin` 拉，
+     * 而复刻仓库里的 head 分支在 `origin` 上根本不存在 —— 那种情况入口要如实置灰，
+     * 而不是让用户点下去才看到一句「找不到分支」。空串 = 响应里没带（缺键 / 老数据），
+     * 那时**不预判**（按同仓库处理），与合并入口对 `mergeable == null` 的口径一致。
+     */
+    val headRepoFullName: String = "",
 )
 
 /** 详情页「合并」入口的三种形态：不露出 / 可点 / 置灰（附原因）。 */
@@ -622,6 +631,64 @@ fun pullMergeHintRes(mergeable: Boolean?, headRef: String, baseRef: String): Int
     mergeable == null -> R.string.merge_hint_calculating
     else -> null
 }
+
+/** 详情页「拉到本地解决」入口的三种形态（与 [PullMergeEntry] 同一套路）。 */
+enum class PullLocalResolveEntry { Hidden, Enabled, Disabled }
+
+/**
+ * 「拉到本地解决」入口的可见性规则（纯函数，便于单测钉住）。
+ *
+ * 它是 `mergeable == false`（PR 在 GitHub 侧冲突）时的**第二条路**：把这个 PR 的 head 分支
+ * 合到本地仓库的当前分支上，在本地逐文件解决（阶段 5 的合并流程已经能把这条路走完）。
+ *
+ * - 只有 `mergeable == false` 才露出：能自动合并的 PR 走 GitHub 那条更直接，
+ *   给第二条路只会让人以为「合并」按钮坏了；
+ * - 本地没有这个仓库的副本 → 置灰 + 说明：合并要有本地仓库，先去「设置 → 本地仓库」拉一份；
+ * - PR 的 head 在**复刻仓库**里（`headRepoFullName` 与当前仓库不同）→ 置灰 + 说明：
+ *   本地副本的 `origin` 上没有那条分支（引擎只从 `origin` 拉），点下去只能得到一句「找不到分支」；
+ * - `headRepoFullName` 为空（响应没带）**不预判** —— 与 `mergeable == null` 同一条口径。
+ */
+fun pullLocalResolveEntry(
+    mergeable: Boolean?,
+    localRepoExists: Boolean,
+    headRepoFullName: String,
+    headRef: String,
+    ownerRepo: String,
+): PullLocalResolveEntry = when {
+    mergeable != false || headRef.isBlank() -> PullLocalResolveEntry.Hidden
+    !localRepoExists -> PullLocalResolveEntry.Disabled
+    isForkHead(headRepoFullName, ownerRepo) -> PullLocalResolveEntry.Disabled
+    else -> PullLocalResolveEntry.Enabled
+}
+
+/**
+ * 置灰的那一句理由（可点时也用它给一句「会发生什么」的说明）；null = 不加文案。
+ *
+ * 与 [pullLocalResolveEntry] 一一对应：**每一个 Disabled 都要说得出原因**，
+ * 否则用户只能看到一枚点不动的按钮。
+ */
+fun pullLocalResolveHintRes(
+    mergeable: Boolean?,
+    localRepoExists: Boolean,
+    headRepoFullName: String,
+    headRef: String,
+    ownerRepo: String,
+): Int? = when {
+    mergeable != false || headRef.isBlank() -> null
+    !localRepoExists -> R.string.merge_local_hint_no_local
+    isForkHead(headRepoFullName, ownerRepo) -> R.string.merge_local_hint_fork
+    else -> R.string.merge_local_hint_ready
+}
+
+/**
+ * PR 的 head 是不是**复刻仓库**里的分支。
+ *
+ * 只在两边都非空时才能判断：空串（响应没带 / 缺键）算「不知道」，不当作复刻 ——
+ * 把「不知道」渲染成「复刻仓库」会凭空造出一句拒绝理由。
+ */
+private fun isForkHead(headRepoFullName: String, ownerRepo: String): Boolean =
+    headRepoFullName.isNotBlank() && ownerRepo.isNotBlank() &&
+        !headRepoFullName.equals(ownerRepo, ignoreCase = true)
 
 data class PullFile(
     val filename: String,
@@ -785,6 +852,11 @@ fun parsePullDetail(json: String): PullDetail? = runCatching {
         // 缺键与 JSON null 都算「未知」：`optBoolean("mergeable")` 会把两者都吞成 false，
         // 而那正是「GitHub 还在计算」被渲染成「不可合并」的路径，所以这里必须先判 isNull。
         mergeable = if (o.isNull("mergeable")) null else o.optBoolean("mergeable"),
+        // head.repo 在「来源仓库被删」时是 JSON null → 空串（不预判，见字段说明）
+        headRepoFullName = o.optJSONObject("head")
+            ?.optJSONObject("repo")
+            ?.optString("full_name")
+            .orEmpty(),
     )
 }.getOrNull()
 

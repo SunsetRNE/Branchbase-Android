@@ -156,7 +156,8 @@ object StartupMarks {
  * - 只记「发生了什么 + 关键参数 + 结果」，**绝不记凭据**（token / PAT / 密码一律不许进日志）；
  * - 一处动作一条，不要在重组（recomposition）里打 —— 会刷屏（见各调用点的 `LaunchedEffect` / 点击回调）。
  *
- * 钉子：`LogReportTest` 会逐个 tag 到源码里搜，确认它**真的被用过**（表不会腐烂）。
+ * 钉子：`LogAnchorsTest` **双向**查 —— 表里的每个 tag 都要在源码里被用过（表不会腐烂），
+ * 源码里每个 `*LOG_TAG` 常量也都要在表里（新增路径不许忘记登记；`合并` 就这样漏过一次）。
  */
 internal val LOG_ANCHORS: List<Pair<String, String>> = listOf(
     "PR一条龙" to "开 PR：待提交文件数、建分支 / 提交 / 开 PR 的每一步与失败原因",
@@ -166,6 +167,7 @@ internal val LOG_ANCHORS: List<Pair<String, String>> = listOf(
     "私有仓库" to "仓库打不开（404/403）时的判定与用户选择的出路",
     "草稿" to "草稿落盘与「远端已变化」判定",
     "Git工作台" to "Git 面板：进 / 退档与返回退档、动作点击（记稳定的 action.key）、三档取数条数与失败原因、深链接与设置列表的进入",
+    "合并" to "本地合并：合的是哪个分支、四条出口的结果、冲突文件数与「仓库停在合并中」、放弃合并",
 )
 
 /**

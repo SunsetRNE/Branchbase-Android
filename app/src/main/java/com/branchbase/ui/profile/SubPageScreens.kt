@@ -79,6 +79,8 @@ import com.branchbase.ui.repository.RepoRelation
 import com.branchbase.ui.repository.RepoDeepLink
 import com.branchbase.ui.repository.CloneDialogState
 import com.branchbase.ui.repository.CloneProgressDialog
+import com.branchbase.ui.repository.rememberMergeFlowState
+import com.branchbase.ui.repository.runMerge
 import com.branchbase.ui.repository.clonePhaseText
 import com.branchbase.ui.theme.selectionColor
 import com.branchbase.BuildConfig
@@ -970,6 +972,15 @@ internal fun ModeOptionRow(
 private sealed interface LocalPage {
     data object List : LocalPage
     data class Fork(val name: String) : LocalPage
+
+    /**
+     * 合并的冲突详情页（阶段 5 的第三条入口：分叉页「合并远端」）。
+     *
+     * 这个宿主也能把合并**跑出冲突**（分叉页选了「合并远端」而两边改了同一个文件），
+     * 所以「停止合并中 → 逐文件解决 → 提交合并 / 放弃合并」这条路必须在这一页里也走得通 ——
+     * 没有它的话，用户只能回仓库页的 Git 面板才能收拾，而他人是站在「设置 → 本地仓库」里的。
+     */
+    data class MergeConflict(val name: String) : LocalPage
     data class Undo(val name: String) : LocalPage
     data class Upstream(val name: String) : LocalPage
     data class Rollback(val name: String) : LocalPage
@@ -1055,6 +1066,15 @@ fun LocalRepoScreen(
 
     // 决策页状态机
     var page by remember { mutableStateOf<LocalPage>(LocalPage.List) }
+
+    // 合并（阶段 5 的第三条入口）：分叉页的「合并远端」由**宿主**执行，用的是与代码页 /
+    // 文件页同一个运行器（`MergeFlow.runMerge`）—— 合并的执行点全仓库只有那一处，
+    // 冲突弹窗与冲突详情页也就跟着复用（`mergeFlow` 与页面路由同层，跨子页存活）。
+    val mergeFlow = rememberMergeFlowState()
+    // 合并返回冲突后自增：分叉页据此重读事实（那一刻仓库已停在合并中，那条出口必须变灰）
+    var mergeReloadKey by remember { mutableIntStateOf(0) }
+    // 发起合并的仓库名：冲突弹窗的「查看并解决」要用它跳转，而那一刻 page 可能已经不是分叉页
+    var mergeRepo by remember { mutableStateOf<String?>(null) }
 
     // 返回键先消费「本页自己的决策页」：这一页内部有十来个子页（分叉 / 撤销 / 上游 / 回退 /
     // 删除警告 / 暂存提交 / 身份 / 分支 / 同步），它们的左上角返回都是「回本地仓库列表」，
@@ -1204,6 +1224,24 @@ fun LocalRepoScreen(
         }
     }
 
+    // ── 冲突弹窗（D-h：合并一返回冲突就出现） ──
+    //
+    // 它在**子页状态机之外**：合并虽然从分叉页发起，但用户在结果回来之前按了返回是常事
+    // （那时列表页正显示着），弹窗放进分叉页那个分支里的话，那一刻它根本不会被组合 ——
+    // 而仓库已经停在合并中，用户却什么都看不到。两个仓库宿主对它的要求也是「渲染在外层」。
+    //
+    // 路由要用**发起合并时那个仓库名**：那一刻 `page` 可能已经不是分叉页了。
+    mergeFlow.conflict?.let { notice ->
+        com.branchbase.ui.repository.MergeConflictDialog(
+            notice = notice,
+            onOpenDetail = {
+                mergeFlow.conflict = null
+                mergeRepo?.let { page = LocalPage.MergeConflict(it) }
+            },
+            onLater = { mergeFlow.conflict = null },
+        )
+    }
+
     // ── 决策页分发 ──
     when (val p = page) {
         is LocalPage.Fork -> {
@@ -1213,6 +1251,46 @@ fun LocalRepoScreen(
                 token = token,
                 onBack = { page = LocalPage.List },
                 onResolved = { msg -> feedback = msg; page = LocalPage.List },
+                // 第三条出口：把上游合进本地。跑动作的是**宿主**（`runMerge`）——
+                // 成功/快进/已包含 → 回列表并给一行反馈；失败 → 留在本页，原因走 Snackbar；
+                // 冲突 → 运行器自己弹窗（`mergeFlow.conflict`，上面那位渲染），本页只重读一次事实
+                onMergeRemote = { target ->
+                    // 记下是哪个仓库发起的：冲突弹窗的「查看并解决」要靠它跳转（那时 page 可能已变）
+                    mergeRepo = p.name
+                    scope.runMerge(
+                        context = context,
+                        flow = mergeFlow,
+                        repoDir = dirOf(p.name),
+                        repoName = p.name,
+                        target = target,
+                        token = token,
+                        onFeedback = { text, ok ->
+                            feedback = text
+                            if (ok) page = LocalPage.List
+                        },
+                        onChanged = {
+                            repos = listLocalRepos(repoRoot)
+                            mergeReloadKey++
+                        },
+                    )
+                },
+                mergeRunning = mergeFlow.running,
+                reloadKey = mergeReloadKey,
+            )
+            return
+        }
+        is LocalPage.MergeConflict -> {
+            com.branchbase.ui.repository.MergeConflictScreen(
+                repoDir = dirOf(p.name),
+                repoName = p.name,
+                startedWith = mergeFlow.startedWith,
+                flow = mergeFlow,
+                onBack = { page = LocalPage.List },
+                onFeedback = { text, _ -> feedback = text },
+                onChanged = {
+                    repos = listLocalRepos(repoRoot)
+                    mergeReloadKey++
+                },
             )
             return
         }

@@ -165,7 +165,8 @@
   三种模式都有单测 —— 另外两种直接调远端 API、本地没有工作树，球不显示。
 - 本地仓库模式下，球里给的是：就地切换提交模式、分支管理 / 对比、本地分支同步与刷新；
   徽标是本地工作树的**改动数 / 领先落后**。
-- **能力边界**（libgit2 浅 clone / pull（fast-forward）/ commit / push）与「不做 merge/rebase、不隐式 stash」等
+- **能力边界**（libgit2 浅 clone / pull（fast-forward）/ commit / push / **三方 merge（1.0.102 起允许，
+  只新增提交、不改写已推送历史）**）与「不 rebase / 不强推、不隐式 stash」等
   硬边界见 [`local-git-engine-design.md`](local-git-engine-design.md) §1 / §7。
 - 有后果的动作走**决策页面**（分叉 / 撤销 / 上游 / 回退 / 删除警告 / 暂存提交 / 身份 / 敏感信息 / 草稿恢复 / 离线冲突 …），
   见 [`decision-pages-design.md`](decision-pages-design.md)。

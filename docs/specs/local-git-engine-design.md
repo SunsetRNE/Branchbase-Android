@@ -26,7 +26,7 @@
 
 | 不做 | 为什么 | 证据 |
 |---|---|---|
-| 不 rebase / 不强推（**merge 允许**） | 已推送历史不改写；merge 只**新增**提交，所以放行（D11 拆分，1.0.102 落地）。分叉仍由用户在决策页选 | `core/src/git/mod.rs` 的 `merge_branch`「不改写历史，对齐 D-g」；`revert_commit:1050` |
+| 不 rebase / 不强推（**merge 允许**） | 已推送历史不改写；merge 只**新增**提交，所以放行（D11 拆分，1.0.102 落地）。分叉由用户在决策页选：**1.1.1 起分叉页给四条**（保留本地（推荐）/ 合并远端 / 放弃本地 / 取消），「合并远端」合的就是上游（`origin/{branch}`） | `core/src/git/mod.rs` 的 `merge_branch`「不改写历史，对齐 D-g」；`resolve_merge_target` 三种分支名写法（裸名 / 显式 `origin/{x}` / 带斜杠的本地名）；`revert_commit:1050` |
 | 不隐式 stash | 脏工作区切分支时宁可**拒绝**，也不替用户藏改动 | `:348`、`:432`「不做任何隐式丢弃」；UI 侧 `LocalBranchSyncScreen.kt:340` 明说「不会隐式 stash」 |
 | 不自动切分支去拉取 | 落后的非当前分支交给用户逐个「切换并拉取」 | `ui/repository/LocalBranchSyncModels.kt:110` |
 | 不碰 `main`/`master` 的删除 | 引擎层拒绝删除当前分支，保护性置灰由 UI 做 | `:413`「当前分支拒绝；调用方另外把 main/master 置灰」 |
@@ -60,7 +60,7 @@
 | 证书 / 代理 | `init_ssl_certs:924` · `set_git_proxy:979` | `init_ssl_certs` 全局生效一次；`set_git_proxy` 写全局 gitconfig 的 `[http] proxy`（空串 = 清除） |
 | 决策页面支持 | `repo_status` · `reset_soft` · `reset_hard_to_remote` · `amend_message` · `revert_commit` · `push_set_upstream` · `scan_sensitive`（同一段注释之下，按名字找） | 条款写在 [`decision-pages-design.md`](decision-pages-design.md) §6，本文不重复 |
 | **工作台本地读接口**（阶段 3，**全部只读**） | `log_graph` · `list_tags` · `log_file` · `diff_worktree` · `diff_commit`（同一段注释之下） | 输出是**扁平 native JSON**（不是 GitHub REST 那份嵌套结构）；分页一律 `limit` / `skip`；空仓库给 `[]` 而不是报错。`log_graph` 逐条带 `unpushed`（**HEAD 可达、上游不可达**，与 `repo_status` 的 `ahead` 同口径；没有上游时一条都不标 —— 见 `unpushed_oids`）；`list_tags` 按 D-f 取全字段、轻量 tag **留空不编值**；`diff_*` 的 `patch` 超 200 KB 截断并置 `truncated`；`diff_worktree` 里**未跟踪文件也带内容**（`show_untracked_content`：不给内容的话，「新增一个文件」点开就是一片空白），且 `files[i]` 与 patch 的第 i 段**同序**——上层按下标对齐，不解析路径 |
-| **本地合并与冲突解决**（阶段 5，1.0.102；只有 `merge_state` / `analyze_conflicts` 只读） | `merge_branch(dir, branch, token, author_name, author_email)` · `merge_state(dir)` · `analyze_conflicts(dir)` · `resolve_conflict(dir, path, side)` · `write_resolved(dir, path, content)` · `merge_continue(dir, message, author_name, author_email)` · `merge_abort(dir)` | **只新增提交，不改写历史**（D11 拆分后的 D-g）。`merge_branch` 四条出口：`up_to_date` / `fast_forward`（不产生提交）/ `merged`（落**两父**提交）/ `conflict`（**不是错误**：仓库停在合并中，返回未解决的冲突清单）；目标分支本地没有时引擎自己 `fetch` 一次。三条前置：浅克隆（`is_shallow()`）/ 已在合并中 / 工作区脏 —— 都提前拒绝并给出路。`analyze_conflicts` 另给三方内容（`ours` / `theirs` / `worktree`，单份上限 64 KB → `content_truncated`；`worktree` 是**带冲突标记**的那一份，即手工编辑的初值），base 只给 sha 与大小（界面要做的决定是「用我方还是用对方」，base 不参与，真要看走 patch）；`resolve_conflict` 的「用某一侧」读的是**索引三方条目**，不是带冲突标记的工作区那份；`merge_abort` 敢 hard reset 正因为入口要求了工作区干净。`repo_status` 另加只增字段 `merging` |
+| **本地合并与冲突解决**（阶段 5，1.0.102；只有 `merge_state` / `analyze_conflicts` 只读） | `merge_branch(dir, branch, token, author_name, author_email)` · `merge_state(dir)` · `analyze_conflicts(dir)` · `resolve_conflict(dir, path, side)` · `write_resolved(dir, path, content)` · `merge_continue(dir, message, author_name, author_email)` · `merge_abort(dir)` | **只新增提交，不改写历史**（D11 拆分后的 D-g）。`merge_branch` 四条出口：`up_to_date` / `fast_forward`（不产生提交）/ `merged`（落**两父**提交）/ `conflict`（**不是错误**：仓库停在合并中，返回未解决的冲突清单）；`branch` 三种写法：**裸名**（先 `refs/heads/{x}`、再 `refs/remotes/origin/{x}`）/ **显式远端名** `origin/{x}`（1.1.1 起先按 `refs/remotes/{x}` 解析 —— 分叉场景两边**同名**，裸名会解析成本地那条 = HEAD 自己，判成 `up_to_date` 的静默空动作）/ 带斜杠的本地分支名（不被显式规则抢走）；目标分支本地没有时引擎自己 `fetch` 一次。三条前置：浅克隆（`is_shallow()`）/ 已在合并中 / 工作区脏 —— 都提前拒绝并给出路。`analyze_conflicts` 另给三方内容（`ours` / `theirs` / `worktree`，单份上限 64 KB → `content_truncated`；`worktree` 是**带冲突标记**的那一份，即手工编辑的初值），base 只给 sha 与大小（界面要做的决定是「用我方还是用对方」，base 不参与，真要看走 patch）；`resolve_conflict` 的「用某一侧」读的是**索引三方条目**，不是带冲突标记的工作区那份；`merge_abort` 敢 hard reset 正因为入口要求了工作区干净。`repo_status` 另加只增字段 `merging` |
 | **加深克隆**（阶段 4） | `fetch_deepen(dir, depth, token)` | `depth <= 0` = 全量，内部发 `i32::MAX`（与 `git fetch --unshallow` 同一条路；libgit2 也拿 `INT_MAX` 当「不要浅边界」的哨兵）；`depth > 0` = 加深到该条数。**只动对象与 `refs/remotes/origin/*`**：不改工作区、不动本地提交 —— 因此是安全动作，但可能是长任务（进度/取消复用 clone 那一条通道，见 §3.1）。浅克隆里 `.git/shallow` 由 libgit2 在浅边界归零时删掉（`fetch.c:65` + `repository.c` 的 `shallow_roots_write`）—— UI 正是靠它把提交图翻回本地来源 |
 
 JNI 侧对应导出（`core/src/bridge/jni.rs`）：`nativeGitClone`、`nativeGitPull`、`nativeGitCommit`、
@@ -167,7 +167,7 @@ ext4（容器里 `/tmp`）与 `/sdcard/Download`（**同一个 FUSE、另一棵�
 |---|---|---|
 | **D3** | 草稿隔离目录：编辑草稿落在 `files/edit/...`，与正式文件分开 | `ui/decision/CommitPrepScreens.kt:376`、`ui/repository/RepositoryFileViewer.kt:121` |
 | **D10** | 「Git 化」是提交模式③（本地仓库）下的子开关 | `ui/decision/SyncDecisionScreens.kt:238` |
-| **D11** | **不改写已推送历史**。2026-09 拆分并落地：**merge 允许**（只新增提交、已有 sha 一字不变，`merge_branch`）；**仍禁** rebase / amend 已推送 / 强推，已推送的提交只能 revert | `SyncDecisionScreens.kt:101,490`、`core/src/git/mod.rs` 的 `merge_branch` / `revert_commit`。条款见 [`git-mode-design.md`](git-mode-design.md) §6.4 的 D-g；**UI 那半（分叉页文案由两条变三条）待做** |
+| **D11** | **不改写已推送历史**。2026-09 拆分并落地：**merge 允许**（只新增提交、已有 sha 一字不变，`merge_branch`）；**仍禁** rebase / amend 已推送 / 强推，已推送的提交只能 revert | `SyncDecisionScreens.kt:101,490`、`core/src/git/mod.rs` 的 `merge_branch` / `revert_commit`。条款见 [`git-mode-design.md`](git-mode-design.md) §6.4 的 D-g；**UI 那半 1.1.1 落地**：分叉页四条（保留本地 / 合并远端 / 放弃本地 / 取消） |
 
 > 这三个编号原本登记在丢失的 `docs/code-editing-collaboration-thinking.md` 里，现在只剩代码里的裸引用 ——
 > 本表就是它们的登记处；再出现新的 `Dxx` 请加到这里。
@@ -204,14 +204,18 @@ ext4（容器里 `/tmp`）与 `/sdcard/Download`（**同一个 FUSE、另一棵�
    它不参与云备份 / 设备迁移（与外部存储时代一致），也不再能被文件管理器翻到 ——
    代价与理由写在 `LocalRepos.base()` 的 KDoc 里。
    **文案已改（1.0.92）**：分叉决策页原先那句「请复制仓库路径到桌面端解决」不再出现 ——
-   改成「远端未动、App 不做 merge/rebase、改动可逐文件查看 / 复制」（见
+   改成「远端未动、改动可逐文件查看 / 复制」（见
    [`decision-pages-design.md`](decision-pages-design.md) §4.1）。
+   **1.1.1 又改一次**：那两句话里的「App 不做 merge/rebase」在 1.0.102 放行 merge 之后就过期了，
+   现在写的是「可以把远端合进本地（merge 只新增提交，已有历史一字不改）」。
    仍然没有「把仓库整体取走」的出路（导出 zip 之类），要的话得单独立项。
 
 ## 8. 钉子与验收
 
-- **单测**：`core/src/git/mod.rs` 内 `mod tests` 共 **38** 个 `#[test]`、`core/src/git/progress.rs` 内 **6** 个
-  （`cargo test` 会连集成测试一起跑：**90** 个单测 + 4 个 `core/tests/deepseek_http.rs`）。
+- **单测**：`cargo test` 的**单测共 108 个**（`core/src/git/mod.rs` 56、`core/src/git/progress.rs` 6、
+  其余在 `api/` `auth/` `html/` `workflow/` `translate/`），另有 4 个集成测试
+  （`core/tests/deepseek_http.rs`）—— 所以「`cargo test` 跑了几例」这句话要写清是哪一个口径，
+  两个数差 4。
   与决策页相关的是 `scan_sensitive`（5 条）、`map_push_error`（2 条）、
   `repo_status`（3 条：`dirty` 顺序、父子提交与完整 sha、远端 ref 三态含悬挂符号引用）；
   与 clone / 加深相关的是 `prepare_clone_target`（3 条）、`discard_partial_clone`（1 条）、

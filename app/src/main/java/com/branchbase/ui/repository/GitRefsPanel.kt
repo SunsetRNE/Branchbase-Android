@@ -166,7 +166,7 @@ fun GitRefsPanel(
         ) {
             item(key = "local-header") {
                 RefSectionHeader(
-                    stringResource(R.string.label_refs_local_branches),
+                    stringResource(R.string.label_local_branches),
                     refs.locals.size,
                 )
             }

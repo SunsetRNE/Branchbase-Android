@@ -88,6 +88,63 @@ internal fun discardLocalBlockReason(hasRemoteRef: Boolean, branch: String): Str
 }
 
 /**
+ * 分叉页「合并远端（`merge_branch` 合 `origin/{branch}`）」被拦下的原因；null = 可用。
+ *
+ * 三条都是引擎会在 `merge_branch` 里**提前拒绝**的前提（`core/src/git/mod.rs`）：
+ * 写在这里是为了让它们在界面上就是「按钮灰掉的那一行理由」，而不是点下去才看到的一句拒绝
+ * （决策页的既有口径：不给注定失败的入口）。
+ *
+ * - **已在合并中**：MERGE_HEAD 会被覆盖，「放弃合并」于是回到错的地方；
+ * - **工作区脏**：`merge_branch` 要求干净工作区 —— 它敢用 hard reset 收尾（`merge_abort`）
+ *   正因为入口保证了这一点，否则用户自己的改动会被那一下一起抹掉；
+ * - **浅克隆**：没有共同祖先，libgit2 只会回一句英文。
+ */
+internal fun mergeRemoteBlockReason(
+    dirtyCount: Int,
+    merging: Boolean,
+    shallow: Boolean,
+    branch: String,
+): String? {
+    val b = branch.ifBlank { "main" }
+    return when {
+        merging -> "仓库停在一次合并里：先解决冲突并「提交合并」，或者「放弃合并」，再合 origin/$b"
+        dirtyCount > 0 -> "工作区有 $dirtyCount 处未提交改动：合并要求工作区是干净的（先提交或放弃这些改动）"
+        shallow -> "本地是浅克隆（只有最近的历史）：与远端没有共同祖先，先「加深历史」再合 origin/$b"
+        else -> null
+    }
+}
+
+/**
+ * 分叉页的四条出口。
+ *
+ * 用枚举而不是 `Int` 下标：这一页原来是 `option == 1` 这种下标分派，
+ * 中间插一项就得人肉对齐所有下标 —— 错位了不报错，只会让底部按钮去做另一件事。
+ */
+internal enum class ForkChoice {
+    /** 保留本地提交（暂不处理）：**默认选中**，无副作用。 */
+    Keep,
+
+    /** 把上游 `origin/{branch}` 合进本地（双方提交都保留）。 */
+    MergeRemote,
+
+    /** 放弃本地提交（危险，`reset --hard origin/{branch}`）。 */
+    Discard,
+
+    /** 什么都不做，回列表。 */
+    Cancel,
+}
+
+/**
+ * 未推送清单里**没被列出来**的条数（`repo_status` 的 `unpushed` 最多 50 条，而 `ahead` 是全量）。
+ *
+ * 为什么必须有这个数：分叉页把「本地未推送提交」一条条列出来，50 条以上的分叉会**只列前 50 条**
+ * —— 少了这一句，用户看到的就是「一共就这些」，而工作区档与「放弃本地」的确认文案用的是全量的
+ * `ahead`。同一个面板上两个数字对不上、且没有任何解释，正是 §4.1「不许把截断画成历史的尽头」
+ * 要拦的那种画法（提交图那边用脚注说「已加载 N 条」，这里是清单，用一行「还有 N 条未列出」）。
+ */
+internal fun unlistedUnpushedCount(ahead: Int, listed: Int): Int = (ahead - listed).coerceAtLeast(0)
+
+/**
  * 失败文案：**只写能判定的原因**；判定不了就写中性说法，把排查交给日志。
  * 不再把一切失败一律归因到引擎（旧文案就是那样归因的：编造，且把排查方向带偏）。
  */
@@ -159,7 +216,23 @@ private fun DisabledOptionRow(title: String, desc: String, reason: String) {
 /**
  * ① 分叉决策页（P0-1）。
  * pull 非快进 / push 被拒时触发。事实区：分叉示意 + 未推送提交清单；
- * 选项：保留本地引导桌面（推荐）/ 放弃本地（危险二次确认）/ 取消。
+ * 选项：保留本地（推荐，默认选中）/ **合并远端** / 放弃本地（危险二次确认）/ 取消。
+ *
+ * 第三条（合并远端，1.1.1）补的是这一步：D11 在 1.0.102 拆分之后 merge 是允许的
+ * （只新增提交、已有 sha 一字不变），而这一页当时只剩「保留 / 放弃」两条 ——
+ * 用户拿回远端提交的唯一办法是去桌面端。（`local-git-engine-design.md` §5 的 D11 行
+ * 「UI 那半待做」指的就是这里。）
+ *
+ * **推荐仍留在无副作用的「保留本地」上**：合并是会写工作区的动作（可能留下冲突标记），
+ * 不把它做成按一下就发生的默认路径 —— 与 D-j「不把误触变成默认路径」同一条口径。
+ *
+ * @param onMergeRemote 第三条出口：把上游合进本地。**跑动作的是宿主**
+ *   （`ui/repository/MergeFlow.kt` 的 `runMerge`）—— 这一页只选路 + 说清前置，
+ *   与「面板只给出口」同一条口径，合并的执行点全仓库只有一处。
+ * @param mergeRunning 宿主侧的合并是否正在跑（`MergeFlowState.running`）：
+ *   跑的时候那条要灰掉，否则用户以为点空了（结果要等 fetch / 走完流程才回来）。
+ * @param reloadKey 宿主在合并返回**冲突**后自增：那一刻仓库已经停在合并中，
+ *   本页必须重读一次事实（否则「合并远端」还亮着，点下去只会撞一句引擎拒绝）。
  */
 @Composable
 fun ForkDecisionScreen(
@@ -168,46 +241,67 @@ fun ForkDecisionScreen(
     token: String,
     onBack: () -> Unit,
     onResolved: (message: String?) -> Unit,
+    onMergeRemote: (branch: String) -> Unit,
+    mergeRunning: Boolean = false,
+    reloadKey: Int = 0,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf<GitStatus?>(null) }
     var loading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf<String?>(null) }
-    var option by remember { mutableStateOf(0) } // 0=保留 1=放弃 2=取消
+    var choice by remember { mutableStateOf(ForkChoice.Keep) }
     var confirmed by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var feedback by remember { mutableStateOf<String?>(null) }
+    // 浅克隆判定要读 `.git/shallow`：组合期读文件是主线程的一次 stat，放 IO 上
+    var shallow by remember { mutableStateOf(false) }
 
     val branch = status?.branch?.takeIf { it.isNotBlank() } ?: "main"
-    // 预检：`reset --hard origin/{branch}` 要求 refs/remotes/origin/{branch} 已存在
-    // （core/src/git/mod.rs:698-705）—— 从没 fetch 过的仓库必然失败。所以先看 `hasRemoteRef`，
-    // 没有就把「放弃本地提交」变灰并说明原因，而不是让用户点了才看到一句归因错误的话。
+    // 两个预检：`reset --hard origin/{branch}` 要求 refs/remotes/origin/{branch} 已存在
+    // （core/src/git/mod.rs:698-705）—— 从没 fetch 过的仓库必然失败；合并另有三条前置。
+    // 都先判掉、在页面上写明原因，而不是让用户点了才看到一句归因错误的话。
     // status 还没拿到（加载中 / 读取失败）时不预判，交给 loadError 行说明。
     val discardBlock = status?.let { discardLocalBlockReason(it.hasRemoteRef, branch) }
+    val mergeBlock = status?.let {
+        mergeRemoteBlockReason(it.dirty.size, it.merging, shallow, branch)
+    }
 
     // 加载事实区
-    androidx.compose.runtime.LaunchedEffect(repoDir) {
+    androidx.compose.runtime.LaunchedEffect(repoDir, reloadKey) {
         loading = true
         val s = withContext(Dispatchers.IO) { RustBridge.gitStatus(repoDir)?.let { parseGitStatus(it) } }
+        shallow = withContext(Dispatchers.IO) { com.branchbase.ui.repository.isShallowClone(repoDir) }
         status = s
         loadError = if (s == null) context.getString(R.string.error_repo_status_unreadable) else null
         // 锚点：`决策页` —— 预检结论必须留痕：用户说「放弃本地点不动」时，日志能直接回答为什么
         Logger.local(
             "分叉页(${repoName})：status=${if (s == null) "读不到" else "ok"} branch=${s?.branch} " +
-                "ahead=${s?.ahead} behind=${s?.behind} hasRemoteRef=${s?.hasRemoteRef} → " +
-                (discardLocalBlockReason(s?.hasRemoteRef ?: false, s?.branch ?: "")?.let { context.getString(R.string.state_discard_blocked, it) } ?: context.getString(R.string.state_discard_available)),
+                "ahead=${s?.ahead} behind=${s?.behind} hasRemoteRef=${s?.hasRemoteRef} " +
+                "dirty=${s?.dirty?.size ?: 0} merging=${s?.merging} shallow=$shallow → " +
+                (discardLocalBlockReason(s?.hasRemoteRef ?: false, s?.branch ?: "")?.let { context.getString(R.string.state_discard_blocked, it) } ?: context.getString(R.string.state_discard_available)) +
+                " / 合并：" +
+                (mergeRemoteBlockReason(s?.dirty?.size ?: 0, s?.merging ?: false, shallow, s?.branch ?: "")?.let { context.getString(R.string.state_merge_blocked_log, it) } ?: context.getString(R.string.state_merge_available)),
             "决策页",
         )
         // 预检不通过时把选中项退回「保留本地」，避免停在「选项已灰、底部按钮还亮着」的半截状态
-        if (s?.hasRemoteRef == false && option == 1) option = 0
+        if (discardBlock != null && choice == ForkChoice.Discard) choice = ForkChoice.Keep
+        if (mergeBlock != null && choice == ForkChoice.MergeRemote) choice = ForkChoice.Keep
         loading = false
     }
 
     fun doResolve() {
-        when (option) {
-            0 -> onResolved(context.getString(R.string.state_kept_local_for_now))
-            1 -> {
+        when (choice) {
+            ForkChoice.Keep -> onResolved(context.getString(R.string.state_kept_local_for_now))
+            ForkChoice.MergeRemote -> {
+                // 兜底（正常路径下该选项已禁用）：预检不通过就不执行，也不编造原因
+                mergeBlock?.let { feedback = it; return }
+                // 显式远端名（`origin/{branch}`）：短名会先解析到**本地**那条同名分支 = HEAD 自己，
+                // 判定成 up_to_date（「点了合并，什么都没发生」）—— 引擎的 resolve_merge_target
+                // 两种写法都认，分叉场景必须给显式这一种
+                onMergeRemote("origin/$branch")
+            }
+            ForkChoice.Discard -> {
                 // 兜底（正常路径下该选项已禁用）：预检不通过就不执行，也不编造原因
                 discardBlock?.let { feedback = it; return }
                 if (!confirmed) { feedback = context.getString(R.string.error_confirm_required); return }
@@ -222,7 +316,7 @@ fun ForkDecisionScreen(
                     )
                 }
             }
-            2 -> onBack()
+            ForkChoice.Cancel -> onBack()
         }
     }
 
@@ -254,6 +348,10 @@ fun ForkDecisionScreen(
                 FactRow(stringResource(R.string.state_no_data), mono = true)
             } else {
                 ups.forEach { c -> FactRow("${c.sha}  ${c.message}", mono = true) }
+                // 引擎的 `unpushed` 清单最多 50 条，而 `ahead` 是全量：截断必须说出来
+                // （「放弃本地」的确认文案用的正是全量那个数，两处对不上就全靠这一行解释）
+                val rest = unlistedUnpushedCount(status?.ahead ?: 0, ups.size)
+                if (rest > 0) FactRow(stringResource(R.string.label_unpushed_rest, rest), mono = true)
             }
         }
 
@@ -263,17 +361,33 @@ fun ForkDecisionScreen(
                 DecisionOptionRow(
                     title = stringResource(R.string.action_keep_local_for_now),
                     desc = stringResource(R.string.note_keep_local_workspace),
-                    selected = option == 0,
+                    selected = choice == ForkChoice.Keep,
                     tag = OptionTag.RECOMMENDED,
-                    onSelect = { option = 0 },
+                    onSelect = { choice = ForkChoice.Keep },
                 )
+                // 合并远端（1.1.1）：D11 拆分后 merge 允许，这一条是「拿回远端提交」的唯一本地出路
+                if (mergeBlock == null && !mergeRunning) {
+                    DecisionOptionRow(
+                        title = stringResource(R.string.action_merge_remote, branch),
+                        desc = stringResource(R.string.note_merge_remote, branch),
+                        selected = choice == ForkChoice.MergeRemote,
+                        tag = OptionTag.NONE,
+                        onSelect = { choice = ForkChoice.MergeRemote },
+                    )
+                } else {
+                    DisabledOptionRow(
+                        title = stringResource(R.string.action_merge_remote, branch),
+                        desc = stringResource(R.string.note_merge_remote, branch),
+                        reason = mergeBlock ?: stringResource(R.string.state_merge_running_block),
+                    )
+                }
                 if (discardBlock == null) {
                     DecisionOptionRow(
                         title = stringResource(R.string.action_discard_local_commit),
                         desc = stringResource(R.string.confirm_reset_hard_loss, branch, status?.ahead ?: 0),
-                        selected = option == 1,
+                        selected = choice == ForkChoice.Discard,
                         tag = OptionTag.DANGER,
-                        onSelect = { option = 1 },
+                        onSelect = { choice = ForkChoice.Discard },
                     )
                 } else {
                     DisabledOptionRow(
@@ -285,13 +399,13 @@ fun ForkDecisionScreen(
                 DecisionOptionRow(
                     title = stringResource(R.string.action_cancel),
                     desc = stringResource(R.string.note_back_to_worktree_ahead),
-                    selected = option == 2,
-                    onSelect = { option = 2 },
+                    selected = choice == ForkChoice.Cancel,
+                    onSelect = { choice = ForkChoice.Cancel },
                 )
             }
         }
 
-        if (option == 1) {
+        if (choice == ForkChoice.Discard) {
             Spacer(Modifier.height(4.dp))
             DangerConfirmCard(
                 description = stringResource(R.string.confirm_discard_unpushed_body, status?.ahead ?: 0),
@@ -305,16 +419,28 @@ fun ForkDecisionScreen(
         loadError?.let { FeedbackLine(it, error = true) }
         feedback?.let { FeedbackLine(it, error = true) }
         if (busy) FeedbackLine(stringResource(R.string.state_running))
+        if (mergeRunning) FeedbackLine(stringResource(R.string.state_merging))
     },
     bottom = {
         TextButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.action_cancel)) }
+        val danger = choice == ForkChoice.Discard && discardBlock == null
         Button(
             onClick = { doResolve() },
-            enabled = !busy && !(option == 1 && (discardBlock != null || !confirmed)),
-            colors = if (option == 1 && discardBlock == null) ButtonDefaults.buttonColors(containerColor = Primer.Red500) else ButtonDefaults.buttonColors(containerColor = Primer.Green500),
+            enabled = !busy && !mergeRunning &&
+                !(choice == ForkChoice.Discard && (discardBlock != null || !confirmed)) &&
+                !(choice == ForkChoice.MergeRemote && mergeBlock != null),
+            colors = if (danger) ButtonDefaults.buttonColors(containerColor = Primer.Red500) else ButtonDefaults.buttonColors(containerColor = Primer.Green500),
             modifier = Modifier.weight(1f),
         ) {
-            Text(if (option == 1) stringResource(R.string.confirm_discard_local_commit_title) else if (option == 0) stringResource(R.string.action_keep_local_only) else stringResource(R.string.action_back_to_worktree), color = Color.White)
+            Text(
+                when (choice) {
+                    ForkChoice.Keep -> stringResource(R.string.action_keep_local)
+                    ForkChoice.MergeRemote -> stringResource(R.string.action_merge_remote_short)
+                    ForkChoice.Discard -> stringResource(R.string.confirm_discard_local_commit_title)
+                    ForkChoice.Cancel -> stringResource(R.string.action_back_to_worktree)
+                },
+                color = Color.White,
+            )
         }
     })
 }
@@ -392,7 +518,15 @@ fun GitifyRollbackScreen(
 
         FactCard(stringResource(R.string.label_unpushed_commits)) {
             val ups = status?.unpushed.orEmpty()
-            if (ups.isEmpty()) FactRow(stringResource(R.string.label_none), mono = true) else ups.forEach { c -> FactRow("${c.sha}  ${c.message}", mono = true) }
+            if (ups.isEmpty()) {
+                FactRow(stringResource(R.string.label_none), mono = true)
+            } else {
+                ups.forEach { c -> FactRow("${c.sha}  ${c.message}", mono = true) }
+                // 与分叉页同一条口径：`unpushed` 最多 50 条，而下面「移除 .git 会丢 N 个」用的是全量
+                // `ahead` —— 这一页正是「看清会丢什么」的地方，截断了就必须说出来
+                val rest = unlistedUnpushedCount(status?.ahead ?: 0, ups.size)
+                if (rest > 0) FactRow(stringResource(R.string.label_unpushed_rest, rest), mono = true)
+            }
         }
 
         FactCard(stringResource(R.string.label_revert_method)) {

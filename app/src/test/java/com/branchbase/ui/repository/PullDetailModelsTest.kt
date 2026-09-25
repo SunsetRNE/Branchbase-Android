@@ -103,6 +103,20 @@ class PullDetailModelsTest {
         )
         assertFalse(d.merged)
         assertNull(d.mergeable)
+        assertEquals("来源仓库缺省是空串（=不知道，不预判成复刻）", "", d.headRepoFullName)
+    }
+
+    @Test
+    fun `head_repo_full_name_从响应里解析出来`() {
+        val json = """
+            {"number":7,"title":"t","state":"open","body":"","user":{"login":"a"},
+             "created_at":"","base":{"ref":"main"},"head":{"ref":"f","repo":{"full_name":"someone/forked"}},
+             "merged":false,"mergeable":false}
+        """.trimIndent()
+        assertEquals("someone/forked", parsePullDetail(json)?.headRepoFullName)
+        // head.repo 是 JSON null（来源仓库被删）→ 空串，不能崩、也不能编一个名字出来
+        val deleted = json.replace("""{"full_name":"someone/forked"}""", "null")
+        assertEquals("", parsePullDetail(deleted)?.headRepoFullName)
     }
 
     // ── 入口可见性规则 ──
@@ -168,6 +182,72 @@ class PullDetailModelsTest {
         assertEquals(
             PullMergeEntry.Hidden,
             pullMergeEntry(afterMerge.state, afterMerge.merged, afterMerge.mergeable, afterMerge.headRef, afterMerge.baseRef),
+        )
+    }
+
+    // ── 入口 ②：拉到本地解决（`mergeable = false` 时的第二条路） ──
+
+    @Test
+    fun `只有不可自动合并的_PR_才给拉到本地解决`() {
+        // 可合并（true）与还在算（null）都不给：GitHub 那条路更直接，
+        // 多一条路只会让人以为「合并」按钮坏了
+        assertEquals(
+            PullLocalResolveEntry.Hidden,
+            pullLocalResolveEntry(mergeable = true, localRepoExists = true, headRepoFullName = "o/r", headRef = "f", ownerRepo = "o/r"),
+        )
+        assertEquals(
+            PullLocalResolveEntry.Hidden,
+            pullLocalResolveEntry(mergeable = null, localRepoExists = true, headRepoFullName = "o/r", headRef = "f", ownerRepo = "o/r"),
+        )
+        assertEquals(
+            PullLocalResolveEntry.Enabled,
+            pullLocalResolveEntry(mergeable = false, localRepoExists = true, headRepoFullName = "o/r", headRef = "f", ownerRepo = "o/r"),
+        )
+    }
+
+    @Test
+    fun `本地没有副本时置灰并指出去哪拉`() {
+        val entry = pullLocalResolveEntry(mergeable = false, localRepoExists = false, headRepoFullName = "o/r", headRef = "f", ownerRepo = "o/r")
+        assertEquals(PullLocalResolveEntry.Disabled, entry)
+        assertEquals(
+            R.string.merge_local_hint_no_local,
+            pullLocalResolveHintRes(mergeable = false, localRepoExists = false, headRepoFullName = "o/r", headRef = "f", ownerRepo = "o/r"),
+        )
+    }
+
+    @Test
+    fun `复刻仓库的_head_置灰而不是让用户点下去才看到找不到分支`() {
+        // 引擎只从本地仓库的 origin 拉：复刻仓库里的 head 在 origin 上不存在
+        assertEquals(
+            PullLocalResolveEntry.Disabled,
+            pullLocalResolveEntry(mergeable = false, localRepoExists = true, headRepoFullName = "someone/r", headRef = "f", ownerRepo = "o/r"),
+        )
+        assertEquals(
+            R.string.merge_local_hint_fork,
+            pullLocalResolveHintRes(mergeable = false, localRepoExists = true, headRepoFullName = "someone/r", headRef = "f", ownerRepo = "o/r"),
+        )
+        // 大小写不同不是复刻（GitHub 的 full_name 大小写不敏感）
+        assertEquals(
+            PullLocalResolveEntry.Enabled,
+            pullLocalResolveEntry(mergeable = false, localRepoExists = true, headRepoFullName = "O/R", headRef = "f", ownerRepo = "o/r"),
+        )
+    }
+
+    @Test
+    fun `来源仓库未知时不预判成复刻`() {
+        // 响应里没带 head.repo（缺键 / 来源仓库被删）→ 空串 = 不知道：按同仓库处理并给「会发生什么」
+        assertEquals(
+            PullLocalResolveEntry.Enabled,
+            pullLocalResolveEntry(mergeable = false, localRepoExists = true, headRepoFullName = "", headRef = "f", ownerRepo = "o/r"),
+        )
+        assertEquals(
+            R.string.merge_local_hint_ready,
+            pullLocalResolveHintRes(mergeable = false, localRepoExists = true, headRepoFullName = "", headRef = "f", ownerRepo = "o/r"),
+        )
+        // 分支名为空：没有可合的东西，连入口都不该露出
+        assertEquals(
+            PullLocalResolveEntry.Hidden,
+            pullLocalResolveEntry(mergeable = false, localRepoExists = true, headRepoFullName = "o/r", headRef = "", ownerRepo = "o/r"),
         )
     }
 }

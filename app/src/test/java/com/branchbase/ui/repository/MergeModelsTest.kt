@@ -166,4 +166,38 @@ class MergeModelsTest {
         assertTrue(options[0].diverged)
         assertEquals("↑3 ↓4", options[0].badge)
     }
+
+    // ── 预选（入口 ②：PR 冲突「拉到本地解决」给的是 PR 的 head） ──
+
+    @Test
+    fun `预选的分支已在清单里时不重复补一条`() {
+        val locals = listOf(LocalBranchInfo("main", isHead = true, upstream = "origin/main", ahead = 0, behind = 0))
+        val remotes = listOf(RemoteBranchInfo("feature", "feature", hasLocal = false, ahead = 0, behind = 0))
+        val options = mergeBranchOptionsOf(locals, remotes, preferred = "feature")
+        assertEquals("已经在清单里，不许再补一条重的", listOf("feature"), options.map { it.name })
+        assertTrue(options[0].isRemote)
+    }
+
+    @Test
+    fun `预选的分支本地与远端都没有时补一条只在远端的`() {
+        // 这是入口 ② 的常态：PR 的 head 从没 fetch 过，本地清单里根本没有它。
+        // 不补的话，用户点「拉到本地解决」打开的合并页里没有那条分支可选 ——
+        // 而引擎的 merge_branch 本来就会自己 fetch 一次
+        val locals = listOf(LocalBranchInfo("main", isHead = true, upstream = "origin/main", ahead = 0, behind = 0))
+        val remotes = listOf(RemoteBranchInfo("other", "", hasLocal = false, ahead = 0, behind = 0))
+        val options = mergeBranchOptionsOf(locals, remotes, preferred = "pr-head")
+        assertEquals(listOf("pr-head", "other"), options.map { it.name })
+        assertTrue("补出来的那一条按「只在远端」处理（引擎会先 fetch）", options[0].isRemote)
+        assertEquals("", options[0].upstream)
+        assertNull(options[0].badge)
+    }
+
+    @Test
+    fun `预选等于当前分支或为空时不补`() {
+        val locals = listOf(LocalBranchInfo("main", isHead = true, upstream = "origin/main", ahead = 0, behind = 0), LocalBranchInfo("wip", isHead = false, upstream = "", ahead = 0, behind = 0))
+        // 预选 = 当前分支：合自己必然是「已包含对方」，补出来只会是一个空动作
+        assertEquals(listOf("wip"), mergeBranchOptionsOf(locals, emptyList(), preferred = "main").map { it.name })
+        assertEquals(listOf("wip"), mergeBranchOptionsOf(locals, emptyList(), preferred = "  ").map { it.name })
+        assertEquals(listOf("wip"), mergeBranchOptionsOf(locals, emptyList(), preferred = null).map { it.name })
+    }
 }

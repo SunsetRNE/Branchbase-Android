@@ -1,6 +1,7 @@
 package com.branchbase.ui.repository
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,12 +25,14 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,7 +58,10 @@ import com.branchbase.ui.resolve
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.async
+import java.io.File
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * PR / 提交 详情页（列表 → 详情贯通）。
@@ -74,6 +80,13 @@ fun PullDetailScreen(
     repo: String,
     number: Long,
     onBack: () -> Unit,
+    /**
+     * 「拉到本地解决」（阶段 5 的第二条入口）：把 PR 的 head 分支合到本地仓库的当前分支上。
+     *
+     * 本页只给出口 —— 真正打开合并决策页（并预选这个分支）的是仓库页：
+     * 合并是「有后果的动作」，落点是决策页，不是这里一键执行（`git-mode-design.md` §6.1）。
+     */
+    onResolveLocally: (headRef: String) -> Unit = {},
 ) {
     val (host, token, login) = sessionInfo(sessionJson)
     val context = LocalContext.current
@@ -90,6 +103,17 @@ fun PullDetailScreen(
     // 主动刷新计数：合并成功后 +1。键进下面那个 LaunchedEffect ⇒ 详情重新回源
     // （force = true，跳过直出并忽略缓存新鲜度，否则刚合并完还会把旧的 open 详情再渲染一遍）
     var refreshTick by remember { mutableStateOf(0) }
+
+    /**
+     * 本地有没有这个仓库的副本（`.git` 在不在）—— 「拉到本地解决」入口的判据之一。
+     *
+     * 读文件放在 IO 上（组合期读文件是主线程的一次 stat，与本仓库的既有口径一致），
+     * 且**只读这一次**：入口的可见性与那句提示用的是同一个事实，
+     * 两处各 `exists()` 一遍的话，两行代码还会漂。
+     */
+    val localRepoExists by produceState(initialValue = false, owner, repo) {
+        value = withContext(Dispatchers.IO) { File(localRepoDir(context, repo), ".git").exists() }
+    }
 
     /**
      * 合并子页打开时，系统返回键**先关子页**。
@@ -194,6 +218,38 @@ fun PullDetailScreen(
                             )
                         }
                     }
+                    // 第二条路：GitHub 判冲突时，把 PR 的 head 拉进本地副本里解决（阶段 5 的入口 ②）。
+                    // 它**不是**「合并此 PR」的替代品，而是「这条 PR 现在合不了」时唯一能往前走的路
+                    val localEntry = pullLocalResolveEntry(
+                        mergeable = d.mergeable,
+                        localRepoExists = localRepoExists,
+                        headRepoFullName = d.headRepoFullName,
+                        headRef = d.headRef,
+                        ownerRepo = "$owner/$repo",
+                    )
+                    if (localEntry != PullLocalResolveEntry.Hidden) {
+                        item {
+                            LocalResolveEntry(
+                                enabled = localEntry == PullLocalResolveEntry.Enabled,
+                                hint = pullLocalResolveHintRes(
+                                    mergeable = d.mergeable,
+                                    localRepoExists = localRepoExists,
+                                    headRepoFullName = d.headRepoFullName,
+                                    headRef = d.headRef,
+                                    ownerRepo = "$owner/$repo",
+                                )?.let { stringResource(it) },
+                                onOpen = {
+                                    // 锚点：`PR合并` —— 与上面那条同一个锚点：两条路都是「从 PR 详情去处理这次合并」
+                                    Logger.local(
+                                        "拉到本地解决：$owner/$repo #${d.number} head=${d.headRef} " +
+                                            "headRepo=${d.headRepoFullName.ifBlank { "（响应未带）" }}",
+                                        "PR合并",
+                                    )
+                                    onResolveLocally(d.headRef)
+                                },
+                            )
+                        }
+                    }
                     // 分支传空串 = 用 HEAD 兜底（这里拿不到默认分支；写死 "main" 在 master 仓库上会 404）
                     if (bodyHtml != null) item { ReadmeWebView(bodyHtml!!, host, owner, repo, "", login, token, onLinkClick = {}) }
                     else if (d.body.isNotBlank()) item { CommentBody(d.body, d.author, d.createdAt) }
@@ -268,14 +324,46 @@ private fun MergeEntry(enabled: Boolean, hint: String?, onMerge: () -> Unit) {
 }
 
 /**
+ * 「拉到本地解决」入口（阶段 5 的入口 ②）。
+ *
+ * 与 [MergeEntry] 并列的第二条路：GitHub 判 `mergeable = false`（冲突）时，把 PR 的 head 分支
+ * 合进本地副本、在本地逐文件解决。**视觉上刻意与「合并此 PR」分开**（描边按钮 + 一句说明），
+ * 因为两者解决的不是同一件事：上面那条是「在 GitHub 上合掉这个 PR」，这条是「先把它拉下来
+ * 把冲突解掉」—— 混成一个按钮，用户会以为点了就会合并。
+ *
+ * 不可用（本地没有副本 / head 在复刻仓库里）时**不消失**，下方给一句原因：
+ * 「点不了」必须让用户看见为什么。
+ */
+@Composable
+private fun LocalResolveEntry(enabled: Boolean, hint: String?, onOpen: () -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+        OutlinedButton(
+            onClick = onOpen,
+            enabled = enabled,
+            modifier = Modifier.fillMaxWidth(),
+            border = BorderStroke(1.dp, if (enabled) Primer.Blue500 else Primer.Gray150),
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = if (enabled) Primer.Blue500 else Primer.TextTertiary,
+                disabledContentColor = Primer.TextTertiary,
+            ),
+        ) {
+            Text(stringResource(R.string.action_resolve_locally), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        }
+        if (hint != null) {
+            Spacer(Modifier.height(6.dp))
+            Text(hint, fontSize = 11.5.sp, color = Primer.TextTertiary, lineHeight = 16.sp)
+        }
+    }
+}
+
+/**
  * 合并结果反馈：合并页 `onMerged` 交回来的原话，一个字不改地显示（不吞消息）。
  *
  * [partial]（合并成功但删分支失败）**由合并页给出**，不在这里解析文案 ——
  * 文案抽成资源后 `contains("失败")` 在英文界面下永不成立，半成功会被渲染成纯成功。
  */
 @Composable
-private fun MergeResultBanner(message: String, partial: Boolean) {
-    Text(
+private fun MergeResultBanner(message: String, partial: Boolean) {    Text(
         message,
         fontSize = 12.sp,
         lineHeight = 17.sp,

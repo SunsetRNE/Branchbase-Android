@@ -59,6 +59,11 @@ import kotlinx.coroutines.withContext
  *   那时逐文件解决或整体放弃；
  * - **出路**：任何一个前置不成立时**按钮就是灰的，并在页面上说清为什么**（决策页的既有口径：
  *   不给注定失败的入口，也不让用户点下去才看到一句拒绝）。
+ *
+ * @param initialPick 打开时就**预选**的分支（入口 ②：PR 冲突的「拉到本地解决」给的是 PR 的 head）。
+ *   它可能既没有本地分支、也没有远端跟踪引用（那个分支从没 fetch 过）—— 那时补一条「只在远端」
+ *   的选项，而不是把预选丢掉（`merge_branch` 自己会 fetch 一次）。
+ *   null = 从面板进来，不预选。
  */
 @Composable
 internal fun MergeDecisionScreen(
@@ -70,21 +75,25 @@ internal fun MergeDecisionScreen(
     onBack: () -> Unit,
     onFeedback: (String, Boolean) -> Unit,
     onChanged: () -> Unit,
+    initialPick: String? = null,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     var options by remember(repoDir) { mutableStateOf<List<MergeBranchOption>?>(null) }
     var loadFailed by remember(repoDir) { mutableStateOf(false) }
     var reloadKey by remember(repoDir) { mutableIntStateOf(0) }
-    var picked by remember(repoDir) { mutableStateOf<String?>(null) }
+    // 键带上 initialPick：预选是**这一次打开**的意图（换一个 PR 进来就不该还选着上一个分支）
+    var picked by remember(repoDir, initialPick) {
+        mutableStateOf(initialPick?.takeIf { it.isNotBlank() })
+    }
     // 浅克隆判定要在 IO 上做（读 `.git/shallow`）：组合期读文件是主线程的一次 stat
     val shallow by produceState(initialValue = false, repoDir) {
         value = withContext(Dispatchers.IO) { isShallowClone(repoDir) }
     }
 
-    LaunchedEffect(repoDir, reloadKey) {
+    LaunchedEffect(repoDir, reloadKey, initialPick) {
         loadFailed = false
-        options = withContext(Dispatchers.IO) { loadMergeBranchOptions(repoDir) }
+        options = withContext(Dispatchers.IO) { loadMergeBranchOptions(repoDir, initialPick) }
         if (options == null) loadFailed = true
         // 选中的分支在重新取数后可能已经不在了（比如它被删了）—— 别让按钮指向一个不存在的名字
         if (options?.none { it.name == picked } != false) picked = null
@@ -146,7 +155,7 @@ internal fun MergeDecisionScreen(
             )
             FactRow(
                 stringResource(R.string.label_merge_target_state),
-                target?.badge ?: stringResource(R.string.state_merge_target_synced),
+                target?.badge ?: stringResource(R.string.state_synced),
                 rightColor = if (target?.diverged == true) Primer.WarningText else Primer.TextTertiary,
             )
             FactRow(
@@ -155,7 +164,7 @@ internal fun MergeDecisionScreen(
                 else stringResource(R.string.state_merge_workspace_clean),
             )
             if (target?.isRemote == true) {
-                FactRow(stringResource(R.string.label_merge_will_fetch), stringResource(R.string.state_merge_will_fetch))
+                FactRow(stringResource(R.string.label_refs_remote_branches), stringResource(R.string.state_merge_will_fetch))
             }
         }
 
@@ -200,15 +209,20 @@ internal fun MergeDecisionScreen(
 /**
  * 合并页的分支清单（**纯函数**，便于单测）。
  *
- * 规则三条，每条都对应一个真机上会看到的坏结果：
+ * 规则四条，每条都对应一个真机上会看到的坏结果：
  * - **去掉当前 HEAD 分支**：把「合并自己」摆在第一个，点了只会得到「已包含对方」这种空动作；
  * - **本地分支优先，远端只在本地没有同名的才出现**：同一个分支出现两次（`main` 与 `origin/main`）
  *   会让人以为它们不是一回事；
- * - 本地没配上游的分支**照样列出来**（合并跟上游无关，它比的是两个提交）。
+ * - 本地没配上游的分支**照样列出来**（合并跟上游无关，它比的是两个提交）；
+ * - [preferred]（预选）**一定在结果里**：PR 冲突「拉到本地解决」给的是 PR 的 head，
+ *   而那个分支常常本地与远端跟踪引用都没有（从没 fetch 过）—— 列表里没有就不给选的话，
+ *   入口会变成「点了打开一页，却没有那条分支」，而引擎本来就支持自己 fetch 一次。
+ *   补出来的那一条排在最前：它是这一页被打开的原因，不该要用户滚着找。
  */
 internal fun mergeBranchOptionsOf(
     locals: List<LocalBranchInfo>,
     remotes: List<RemoteBranchInfo>,
+    preferred: String? = null,
 ): List<MergeBranchOption> {
     val head = locals.firstOrNull { it.isHead }?.name.orEmpty()
     val localNames = locals.map { it.name }.toSet()
@@ -236,7 +250,19 @@ internal fun mergeBranchOptionsOf(
                 upstream = "",
             )
         }
-    return localOptions + remoteOptions
+    val all = localOptions + remoteOptions
+    val pick = preferred?.takeIf { it.isNotBlank() }
+    // 预选的分支既不在本地、也没有远端跟踪引用（含「它就是当前分支」这种退化解）→ 不再补
+    if (pick == null || pick == head || all.any { it.name == pick }) return all
+    return listOf(
+        MergeBranchOption(
+            name = pick,
+            isRemote = true,
+            badge = null,
+            diverged = false,
+            upstream = "",
+        ),
+    ) + all
 }
 
 /** 合并页里的一个可选分支。 */
@@ -253,14 +279,21 @@ internal data class MergeBranchOption(
     fun description(): String = when {
         isRemote -> stringResource(R.string.state_merge_remote_only)
         diverged -> stringResource(R.string.state_merge_diverged)
-        upstream.isBlank() -> stringResource(R.string.state_merge_no_upstream)
+        upstream.isBlank() -> stringResource(R.string.state_no_upstream_short)
         else -> upstream
     }
 }
 
-/** 读合并页要的分支清单；null = 读不到（仓库不存在 / 引擎不可用）。 */
-internal suspend fun loadMergeBranchOptions(repoDir: String): List<MergeBranchOption>? {
+/** 读合并页要的分支清单；[preferred] = 要预选的分支（见 [mergeBranchOptionsOf]）。null = 读不到。 */
+internal suspend fun loadMergeBranchOptions(
+    repoDir: String,
+    preferred: String? = null,
+): List<MergeBranchOption>? {
     val localsJson = RustBridge.localBranches(repoDir) ?: return null
     val remotesJson = RustBridge.remoteBranches(repoDir) ?: return null
-    return mergeBranchOptionsOf(parseLocalBranchInfos(localsJson), parseRemoteBranchInfos(remotesJson))
+    return mergeBranchOptionsOf(
+        parseLocalBranchInfos(localsJson),
+        parseRemoteBranchInfos(remotesJson),
+        preferred,
+    )
 }
