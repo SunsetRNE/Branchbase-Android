@@ -50,9 +50,13 @@ private val PANEL_WIDTH = 268.dp
  * 「引用树」档要按目录读 `local_branches` / `remote_branches`，这个路径写错的表现是
  * 「面板说没有引用、其实仓库是好的」，只有真机上才看得出来。
  *
- * @param refreshTick 宿主自己的刷新计数（工作区档由它驱动重读；引用树档同样跟着它重读）
+ * @param refreshTick 宿主自己的刷新计数（工作区档由它驱动重读；引用树档同样跟着它重读；
+ *   提交图档也靠它重读 —— 加深成功后就是这一变把图翻回本地来源）
  * @param onOpenBranches 去分支管理（切 / 建 / 删都落那边的决策流程）。**null = 这个宿主没有这个出口**
  *   —— 面板里就不画那枚胶囊，而不是画一个点了没反应的（本仓库的既有口径）
+ * @param onDeepen 加深克隆（unshallow）的出口。**null = 不画那枚胶囊**；
+ *   真正的长任务由宿主跑（任务中心 + 进度弹窗），面板这一族源码里**不许**出现写操作
+ *   （见 `GitWorkbenchWiringTest`）
  */
 @Composable
 fun GitPanelViewHost(
@@ -67,6 +71,7 @@ fun GitPanelViewHost(
     onRefresh: () -> Unit,
     onOpenSync: () -> Unit,
     onOpenBranches: (() -> Unit)? = null,
+    onDeepen: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -94,9 +99,13 @@ fun GitPanelViewHost(
                 owner = owner,
                 repo = repo,
                 branch = git.branch,
+                repoDir = repoDir,
+                localRepoExists = git.exists,
+                refreshTick = refreshTick,
                 dirtyCount = git.dirtyCount,
                 onOpenWorkspace = { onSelect(GitPanelKind.Workspace) },
                 onOpenSync = onOpenSync,
+                onDeepen = onDeepen,
             )
             GitPanelKind.Refs -> GitRefsPanel(
                 repoDir = repoDir,

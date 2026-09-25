@@ -135,6 +135,15 @@ fun FileViewerScreen(
      */
     var gitTick by remember { mutableIntStateOf(0) }
 
+    // 「加深历史」（提交图档底部的出口）：与代码页**同一份运行器**，长任务走任务中心 + 进度弹窗。
+    // 成功后 gitTick++ → 提交图重读一遍（含重新判定浅克隆）→ 换回本地来源
+    val deepen = rememberLocalDeepenRunner(
+        repo = repo,
+        repoDir = localRepoDir(context, repo),
+        token = token,
+        onDone = { gitTick++ },
+    )
+
     // 草稿（D3 隔离目录 files/edit/single/{owner}/{repo}/{path}）
     fun draftFile() = File(context.getExternalFilesDir(null), "edit/single/$owner/$repo/$path")
 
@@ -727,6 +736,8 @@ fun FileViewerScreen(
                         onOpenSync = onOpenLocalSync,
                         // 分支管理出口 —— 那正是「有后果的动作落既有页面」的出口
                         onOpenBranches = onOpenBranchManage,
+                        // 加深出口：真正的长任务在本页跑（与代码页同一份运行器）
+                        onDeepen = deepen::start,
                     )
                 },
                 title = localGit.summary(),
@@ -742,6 +753,9 @@ fun FileViewerScreen(
             )
         }
     }
+
+    // 加深的进度弹窗：与 clone 同一只（同一套进度与终态），标题是「加深历史」
+    LocalDeepenDialog(runner = deepen, repoFullName = "$owner/$repo")
 
     // ── 决策页分发（覆盖主界面，处理完回主流程） ──
     when (val p = page) {

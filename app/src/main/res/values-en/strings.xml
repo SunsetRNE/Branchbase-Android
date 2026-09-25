@@ -407,6 +407,12 @@
     <string name="state_no_repos">No repositories yet</string>
     <string name="label_git_bundle">Git bundle</string>
     <string name="label_git_workspace">Working tree</string>
+    <string name="action_deepen_history">Deepen history</string>
+    <string name="note_graph_shallow_local">The local clone is shallow (recent history only) — deepen it to browse offline</string>
+    <string name="error_graph_remote_failed">could not read the remote (network or repo name)</string>
+    <string name="error_graph_both_failed">could not read locally or remotely</string>
+    <string name="toast_history_deepened">Local history deepened</string>
+    <string name="label_deepen_task_title">Deepen history of %1$s</string>
     <string name="label_git_graph">Commit graph</string>
     <string name="state_git_view_pending">Soon</string>
     <string name="state_graph_empty">No commits on this branch yet</string>

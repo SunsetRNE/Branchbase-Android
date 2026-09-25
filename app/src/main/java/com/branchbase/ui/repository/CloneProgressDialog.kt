@@ -34,7 +34,7 @@ import com.branchbase.downloader.DownloadPaths
 import com.branchbase.ui.theme.Primer
 
 /**
- * 「拉取仓库」的模态进度弹窗。
+ * 长任务（clone / 加深历史）的模态进度弹窗。
  *
  * ## 为什么必须是弹窗，而不是列表上方那行小字
  *
@@ -46,16 +46,19 @@ import com.branchbase.ui.theme.Primer
  *    `clone 失败: failed to lock file '…'`）恰恰是用户唯一能拿去做判断的东西，
  *    日志页又是另一个入口。
  *
- * 所以这里改成：拉取开始即弹出模态窗，进度条跟着引擎的真实计数走（不插值、不假动画），
+ * 所以这里改成：开始即弹出模态窗，进度条跟着引擎的真实计数走（不插值、不假动画），
  * 失败时**停在原地**把原因摊开，并给「重试」——用户不用自己去日志页翻。
  *
  * ## 交互口径
  *
- * - **运行中不可点外部 / 不可返回键关闭**：拉取是一次写盘操作，关掉弹窗并不等于停止它，
+ * - **运行中不可点外部 / 不可返回键关闭**：这是一次写盘操作，关掉弹窗并不等于停止它，
  *   让人以为「关了就没在跑」比不让关更糟。要中断只有 [onCancel]（真的会停）。
  * - **取消是「尽快」而不是「立刻」**：libgit2 只在进度回调里接受中断，所以点下之后
  *   先显示「正在取消…」，等引擎在下一次回调里真的停下（见 `core/src/git/progress.rs`）。
  * - **失败态可以关闭 / 重试**：重试会把这次留下的半成品目录清掉重新来（引擎侧负责）。
+ *
+ * [title] 由调用方给：加深历史复用同一只弹窗（同一套进度与终态），标题必须跟着动作走 ——
+ * 点的是「加深历史」却弹出「拉取仓库」会让人以为点错了。
  */
 sealed interface CloneDialogState {
     /** 正在拉取（[progress] 为 null = 引擎还没给出第一份快照，或这一次没读到）。 */
@@ -72,6 +75,7 @@ fun CloneProgressDialog(
     onCancel: () -> Unit,
     onRetry: () -> Unit,
     onDismiss: () -> Unit,
+    title: String = stringResource(R.string.action_clone_repository),
 ) {
     val running = state is CloneDialogState.Running
     Dialog(
@@ -88,8 +92,8 @@ fun CloneProgressDialog(
                 .padding(16.dp),
         ) {
             Text(
-                // 标题与列表按钮同一个词：用户点的是「拉取仓库」，弹窗就得说「拉取仓库」
-                text = stringResource(R.string.action_clone_repository),
+                // 标题与触发它的动作同一个词：用户点的是「拉取仓库」/「加深历史」，弹窗就得说同一句
+                text = title,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = Primer.TextPrimary,

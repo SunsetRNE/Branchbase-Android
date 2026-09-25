@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只留格式契约 + 写法样板（3 个经典示例）；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.97**）
-与 §三 `versionCode` 流水（129 → **199**）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.98**）
+与 §三 `versionCode` 流水（129 → **200**）。
 
 ---
 
@@ -25,7 +25,62 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.97 → 1.0.22）
+## 二、`versionName` 流水（1.0.98 → 1.0.22）
+
+### 1.0.98
+
+**Git 模式阶段 4（前半）：`fetch_deepen` 全链路（引擎 + JNI + `.so` + 任务中心 + 进度弹窗）
++ 提交图换成本地优先的双来源**。
+
+① **为什么先做加深**：clone 用的是 `depth(1)`（浅 clone 减体积），而 `pull` / `fetch` **不设 depth** ——
+在浅仓库上不会撤销浅边界（git 自己也要 `--unshallow`）。于是本地永远只有 HEAD 一条提交，
+「提交图走本地来源」「文件历史本地优先」（阶段 3' / 4）全都无从谈起：直接换来源就是把
+「一屏 100 条」换成「1 条」。**加深是这两件事的前置条件**，所以它排在这一轮。
+
+- `fetch_deepen(dir, depth, token)`（`core/src/git/mod.rs`）：`depth <= 0` = 全量，
+  内部发 `i32::MAX` —— 与 `git fetch --unshallow` 同一条路，libgit2 也拿 `INT_MAX` 当
+  「不要浅边界」的哨兵（`fetch.c:65`：`nego.depth != INT_MAX` 才跳过本地已有的对象）；
+  `depth > 0` = 加深到该条数（增量档先留着，UI 未用）。**只动对象与 `refs/remotes/origin/*`**：
+  不改工作区、不动本地提交，所以是安全动作，失败 / 取消都可以重来；
+- 浅边界由 libgit2 自己收尾：浅边界归零时它会**删掉 `.git/shallow`**
+  （`repository.c` 的 `git_repository__shallow_roots_write`）—— 界面正是靠这个文件判定
+  「加深成功没有」（`isShallowClone`）；
+- 进度与取消**复用 clone 那一条通道**（`progress::begin/transfer/complete` + `CANCEL_REQUESTED`）：
+  §10 要求「不许出现第二种转圈」，所以弹窗也复用 `CloneProgressDialog`，只把标题参数化。
+
+② **提交图双来源**（`graphSourceOf(本地存在, 本地是浅克隆)`）：
+
+| 来源 | 取数 | 分页键 | 条件 |
+|---|---|---|---|
+| 本地 `log_graph` | 离线、不消耗限额、**看得见还没推送的本地提交** | `skip` = 已加载条数 | 本地仓库存在**且不是浅克隆** |
+| REST `/commits` | 与列表页同一接口（响应本来就带 `parents`） | 窗口内**最老的 sha** | 其余情况（含浅克隆） |
+
+- 分页键两种形状 → 抽成 `GraphPage`（sealed）+ `nextGraphPage`：共用一个 Int 的话，
+  表现是「点了『加载更早』没反应」或「反复加载同一页」（前者像网络慢，后者看不出错）；
+- 本地读不出来（引擎不可用 / 目录被删）→ **退回 REST 并留一条 warn**：
+  否则事后只看到「来源=本地」，没人知道它其实失败过；
+- 浅克隆时脚注**如实说明**（「本地是浅克隆，只有最近的历史 · 加深后可离线看图」）
+  并给一枚「加深历史」胶囊；加深成功后宿主 `refreshTick++` → 浅克隆判定重算 → 图换回本地来源。
+  顺带修掉一处旧的不实文案：REST 取数失败时原先报「本地仓库不存在：请先拉取」——
+  来源换成双份之后，这句话按来源分开（本地失败 / 远端读不到）。
+
+③ **加深是一次长任务**（`LocalRepoDeepen.kt`）：任务中心新 kind `TaskKind.DEEPEN`
+（借 `PULL` 的话，事后说不清那条记录为什么是几百 MB 的下载）、进度每 200ms 从引擎快照轮询、
+失败**停在弹窗里**把引擎原文摊开给「重试」、取消走同一条 `gitCloneCancel`。
+运行器只有一份，**代码页与文件页各挂一次** —— 写两遍的代价不是多几行，而是两套轮询节奏 /
+两套终态处理，行为会随「从哪个页面点」而不同（Git 球门控那次的教训）。
+面板这一族源码里**依旧一个 git 写方法都没有**：面板只拿 `onDeepen` 回调（`GitWorkbenchWiringTest` 扫全表）。
+
+**一个测不到的坑记在这里**：libgit2 的 local transport **不支持 depth**
+（`transports/local.c` 的 `local_shallow_roots` 直接返回空、下载时也不看 depth），
+所以单测里造不出「真的浅克隆」——`fetch_deepen` 那三条是**手工写下 `.git/shallow`** 再加深，
+钉的是界面依赖的性质（边界消失、全史可走）；真浅克隆只能在真机 / HTTP 上验。
+
+验证：`cargo test` 86 → **89** 例（新增 3 条：没有 origin 时如实报错 / 全量之后浅边界消失且历史完整 /
+已全量时再跑一次无害）· `:app:testDebugUnitTest` 869 → **882** 例（新增 `CommitGraphSourceTest` 11 例、
+`GitWorkbenchWiringTest` +2 例）· `assembleDebug` 通过 · 重建 `.so`（
+`core/build-android.sh`，`nm -D` 确认 `nativeGitFetchDeepen` 已导出）·
+`check-i18n --min-coverage 100`（新增 6 条中英资源）。versionCode 199 → 200（一次提交 +1）。
 
 ### 1.0.97
 
@@ -2428,11 +2483,16 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（199 → 129）
+## 三、`versionCode` 流水（200 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **200**：Git 模式阶段 4（前半）—— 引擎 `fetch_deepen`（unshallow，复用 clone 的进度 / 取消通道）
++ JNI 导出 + 重建 `.so` + 提交图**双来源**（本地 `log_graph` 优先、浅克隆排除、REST 兜底 + 分页键分家）
++ 面板「加深历史」出口（`TaskKind.DEEPEN` + 复用 clone 的进度弹窗，两个宿主各接一次）
++ `CommitGraphSourceTest` 11 例、`GitWorkbenchWiringTest` +2 例（一次提交，故 +1）
 
 - **199**：Git 模式阶段 3（引擎那半）—— 五个本地只读接口（`log_graph` / `list_tags` / `log_file` /
 `diff_worktree` / `diff_commit`）+ JNI 导出 + 重建 `.so`（`nm -D` 确认符号）+ 引用树档接上 tag

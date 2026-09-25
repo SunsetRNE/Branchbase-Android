@@ -21,7 +21,10 @@ import org.junit.Test
  * 3. **日志锚点是契约**：`LOG_ANCHORS` 那张表会被打进导出的 `report.md`，收到日志的人照着 grep。
  *    表里有、代码里没打（或反过来）都等于「照表搜不到东西」，所以这里把新锚点「Git工作台」
  *    的**四个关键入口**逐个钉住（`LogAnchorsTest` 只保证「表里的 tag 被用过至少一次」，
- *    挡不住「只在一个入口打了」）。
+ *    挡不住「只在一个入口打了」）；
+ * 4. **长任务不许被面板吞掉**：加深（1.0.98）是分钟级的全史下载，必须走任务中心 + 进度弹窗，
+ *    而且两个宿主都得接上出口 —— 写错的样子是「点了没反应」或「任务中心里什么都没有」，
+ *    两种都只有真机上点一次才看得出来。
  */
 class GitWorkbenchWiringTest {
 
@@ -49,6 +52,8 @@ class GitWorkbenchWiringTest {
             "gitCommit", "gitPushDetailed", "gitPushSetUpstream", "gitPullDetailed", "gitCloneDetailed",
             "gitResetSoft", "gitResetHardRemote", "gitAmend", "gitRevert", "gitFetchRemote",
             "checkoutBranch", "createBranchLocal", "deleteBranchLocal", "discardAllChanges",
+            // 加深也是「落到仓库上的一次网络写」：面板只给出口（onDeepen），跑它的是宿主
+            "gitFetchDeepen",
         )
         val offenders = panelSources.flatMap { path ->
             val text = source(path)
@@ -113,10 +118,45 @@ class GitWorkbenchWiringTest {
 
     @Test
     fun `图形档的取数结果与失败都要留痕`() {
-        // 提交图是 REST 取数，面板上只显示「N 条」或一句「加载失败」——
-        // 事后定位「是限额、是网络、还是分支名不对」只能靠日志
+        // 提交图是双来源取数（本地 / REST），面板上只显示「N 条」或一句「加载失败」——
+        // 事后定位「是限额、是网络、是分支名不对，还是本地库读不出来」只能靠日志。
+        // 所以这里连**来源**一起钉：只记条数的话，两条来源在日志里长得一模一样
         val text = source("src/main/java/com/branchbase/ui/repository/CommitGraphPanel.kt")
-        assertTrue("提交图取数成功要记一条（带条数）", text.contains("提交图 ▸") && text.contains("Logger.net("))
+        assertTrue("提交图取数成功要记一条（带条数与来源）", text.contains("提交图 ▸") && text.contains("Logger.net("))
         assertTrue("提交图取数失败要记 warn", text.contains("Logger.warn("))
+        assertTrue("本地读不出来要留一条（否则事后只看到『来源=本地』）", text.contains("退回 REST"))
+    }
+
+    @Test
+    fun `加深历史的出口两个宿主都要接，且面板自己不许调引擎`() {
+        // 与 onOpenBranches 同一条口径：出口回调是各宿主各传各的，只接一边的表现是
+        // 「代码页的面板能加深、文件页的不能」——用户报过同类不一致（Git 球门控那次）。
+        // 真正的长任务落在宿主（LocalRepoDeepen.kt 的运行器），面板这一族源码里
+        // 一个 git 写方法都不许出现（上面那条测试扫的就是它）
+        val hosts = listOf(
+            "src/main/java/com/branchbase/ui/repository/RepositoryScreen.kt" to "代码页",
+            "src/main/java/com/branchbase/ui/repository/RepositoryFileViewer.kt" to "文件页",
+        )
+        val missing = hosts.filter { (path, _) -> !source(path).contains("onDeepen =") }
+        assertEquals("这两个宿主都必须给面板接上「加深历史」出口：$missing", emptyList<Pair<String, String>>(), missing)
+
+        val offenders = panelSources.filter { source(it).contains("gitFetchDeepen(") }
+        assertEquals(
+            "面板这一族只给出口、不自己跑加深（长任务要落任务中心 + 进度弹窗，见 §10）：$offenders",
+            emptyList<String>(),
+            offenders,
+        )
+    }
+
+    @Test
+    fun `加深跑的是任务中心那一套进度`() {
+        // §10：长任务（加深 / 合并 / push）一律走 TaskStore + 进度弹窗，不许出现第二种「转圈」。
+        // 写错的表现是「加深在跑，任务中心里什么都没有」——事后完全无从判断它跑过没有
+        val runner = source("src/main/java/com/branchbase/ui/repository/LocalRepoDeepen.kt")
+        assertTrue("加深要落一条任务记录", runner.contains("TaskStore.start("))
+        assertTrue("加深要单列一种 kind（借 PULL 的话事后说不清那条记录是什么）", runner.contains("TaskKind.DEEPEN"))
+        assertTrue("进度从引擎快照里轮询", runner.contains("RustBridge.gitCloneProgress()"))
+        assertTrue("取消走同一条引擎取消", runner.contains("RustBridge.gitCloneCancel()"))
+        assertTrue("失败要停在弹窗里给原因（不许只闪一条反馈）", runner.contains("CloneProgressDialog("))
     }
 }

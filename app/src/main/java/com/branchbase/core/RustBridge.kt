@@ -195,6 +195,8 @@ object RustBridge {
 
     private external fun nativeGitPush(dir: String, token: String, branch: String): String
 
+    private external fun nativeGitFetchDeepen(dir: String, depth: Int, token: String): String
+
     private external fun nativeLocalBranches(dir: String): String
 
     private external fun nativeFetchRemote(dir: String, token: String, prune: Boolean): String
@@ -890,6 +892,24 @@ object RustBridge {
     suspend fun gitPush(dir: String, token: String = "", branch: String = "main"): Boolean =
         withContext(Dispatchers.IO) {
             !nativeGitPush(dir, token, branch).startsWith("ERROR:")
+        }
+
+    /**
+     * 加深克隆（unshallow）：把远端历史取到本地。`null` = 成功；其他 = 失败原因。
+     *
+     * - `depth <= 0` = **全量**（等价 `git fetch --unshallow`），当前 UI 只有这一档；
+     * - 只动 `.git` 里的对象与远端跟踪引用：**不改工作区、不动本地提交**，
+     *   所以它是安全动作，但可能是长任务 —— 进度走 [gitCloneProgress]（与 clone 同一个通道），
+     *   取消走 [gitCloneCancel]。
+     *
+     * 为什么必须单独一条而不是「再 pull 一次」：`pull` / `fetch` 不设 depth，
+     * 在浅仓库上不会撤销浅边界（git 自己也要 `--unshallow`），于是本地永远只有 HEAD 一条提交。
+     */
+    suspend fun gitFetchDeepen(dir: String, depth: Int = 0, token: String = ""): String? =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                engineErrorOrNull(nativeGitFetchDeepen(dir, depth, token))
+            }.getOrElse { ENGINE_UNAVAILABLE }
         }
 
     /** pull 三态（决策页用）：null=成功、"nff"=本地与远端分叉、其他=失败原因。 */

@@ -1270,3 +1270,9 @@ $count 个只在远端	%1$s remote-only	label_refs_remote_only_count
 工作区 · $count 处改动	Working tree · %1$s changes	label_working_tree_node
 未提交（HEAD 之上）	Uncommitted (above HEAD)	state_working_tree_uncommitted
 提交图加载失败：$reason	Failed to load the commit graph: %1$s	error_graph_load_failed
+加深历史	Deepen history	action_deepen_history
+本地是浅克隆，只有最近的历史 · 加深后可离线看图	The local clone is shallow (recent history only) — deepen it to browse offline	note_graph_shallow_local
+远端读不到（网络或仓库名）	could not read the remote (network or repo name)	error_graph_remote_failed
+本地历史已加深	Local history deepened	toast_history_deepened
+加深 $name 的历史	Deepen history of %1$s	label_deepen_task_title
+本地与远端都读不到	could not read locally or remotely	error_graph_both_failed

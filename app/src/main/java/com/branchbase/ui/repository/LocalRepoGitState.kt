@@ -54,6 +54,23 @@ data class LocalRepoGitState(
 fun localRepoDir(context: Context, repo: String): String =
     LocalRepos.dirOf(context, AccountStore.currentLogin(context), repo)
 
+/**
+ * 本地仓库是不是**浅克隆**（`.git/shallow` 存在）。
+ *
+ * 这个判定现在有真实用途：提交图的择源（[graphSourceOf]）。clone 用的是 `depth(1)`，
+ * 浅克隆里本地只有 HEAD 一条提交 —— 拿它当提交图来源就是把「一屏 100 条」换成「1 条」。
+ *
+ * 为什么读文件而不是问引擎：libgit2 有 `is_shallow`，但为此多开一条 JNI（还要重建 `.so`）
+ * 只为读一个「文件在不在」不值当；`git` 自己也是靠这个文件认定浅克隆的，
+ * 加深（`fetch_deepen`）成功时 libgit2 会把它删掉（`repository.c` 的
+ * `git_repository__shallow_roots_write`：roots 为空就 remove），所以这个判定会跟着翻。
+ *
+ * 纯 IO、无副作用：**调用方在 IO 上读**（提交图那一档在取数那一趟里读，
+ * 不在组合期读 —— 组合期读文件是主线程的一次 stat）。
+ */
+fun isShallowClone(repoDir: String): Boolean =
+    repoDir.isNotBlank() && File(repoDir, ".git/shallow").exists()
+
 /** 读取本地仓库 git 状态；目录或 `.git` 不存在时返回 `exists=false`。 */
 suspend fun loadLocalRepoGitState(context: Context, repo: String): LocalRepoGitState =
     withContext(Dispatchers.IO) {

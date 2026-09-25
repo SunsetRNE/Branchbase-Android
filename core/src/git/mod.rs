@@ -433,6 +433,85 @@ pub fn fetch_remote(dir: &str, token: Option<&str>, prune: bool) -> Result<()> {
     Ok(())
 }
 
+/// 加深克隆（unshallow / deepen）：把远端历史取到本地。
+///
+/// ## 为什么必须有这条，而不是「再 pull 一次」
+///
+/// clone 用的是 `depth(1)`（浅 clone 减体积，见 `clone_repo`），而 `pull_repo` /
+/// `fetch_remote` **不设 depth** —— 在浅仓库上，一次普通 fetch 不会撤销浅边界
+/// （git 自己也要显式 `--unshallow` 才做这件事）。于是本地永远只有 HEAD 一条提交，
+/// 「提交图走本地来源」「文件历史本地优先」（`docs/specs/git-mode-design.md` §4.1 / §8 阶段 4）
+/// 全都无从谈起。
+///
+/// ## 参数与语义
+///
+/// - `depth <= 0`：**全量**加深，等价 `git fetch --unshallow` —— 内部发 `i32::MAX`，
+///   与 git 自己的做法一致（libgit2 也是拿 `INT_MAX` 当「不要浅边界」的哨兵：
+///   `fetch.c` 里 `nego.depth != INT_MAX` 才跳过本地已有的对象）；
+/// - `depth > 0`：把历史加深到该条数（增量取，给「再往前看一点」留的口子）。
+///
+/// **只动 `.git` 里的对象与远端跟踪引用**：不改工作区、不动本地分支与已有提交。
+/// 因此它是一件**安全动作**（不会丢东西），但可能是长任务 —— 进度走 [`crate::git::progress`]
+/// 那份快照（与 clone 同一个通道，UI 不许出现第二种「转圈」），取消走 [`request_cancel`]。
+pub fn fetch_deepen(dir: &str, depth: i32, token: Option<&str>) -> Result<()> {
+    use git2::{FetchOptions, RemoteCallbacks, Repository};
+
+    // 与 clone 同一套进度语义：`begin` 先清上一次的结果，否则弹窗打开时会闪一下上一轮的 100%
+    progress::begin();
+    CANCEL_REQUESTED.store(false, Ordering::SeqCst);
+
+    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let mut remote = repo
+        .find_remote("origin")
+        .map_err(|e| CoreError::Other(format!("找不到 origin: {e}")))?;
+
+    let mut callbacks = RemoteCallbacks::new();
+    callbacks.certificate_check(check_cert);
+    callbacks.transfer_progress(|stats| {
+        if cancelled() {
+            return false;
+        }
+        progress::transfer(
+            stats.received_objects(),
+            stats.total_objects(),
+            stats.indexed_objects(),
+            stats.received_bytes() as u64,
+        );
+        true
+    });
+    if let Some(tk) = token {
+        let tk = tk.to_string();
+        callbacks.credentials(move |_url, username, allowed| {
+            let user = username.unwrap_or("x-access-token");
+            if allowed.contains(git2::CredentialType::USERNAME) {
+                return git2::Cred::username(user);
+            }
+            git2::Cred::userpass_plaintext(user, &tk)
+        });
+    }
+
+    let mut fo = FetchOptions::new();
+    fo.remote_callbacks(callbacks);
+    fo.depth(if depth <= 0 { i32::MAX } else { depth });
+
+    let outcome = remote.fetch(&["refs/heads/*:refs/remotes/origin/*"], Some(&mut fo), None);
+    match outcome {
+        Ok(()) => {
+            progress::complete(true);
+            Ok(())
+        }
+        Err(e) => {
+            // 失败也要落一个终态：不然进度条会永远停在「接收中」，而它其实已经停了
+            progress::complete(false);
+            // 用户按的取消不是「失败」：libgit2 用回调返回 false 中断，错误原文对用户没有意义
+            if cancelled() {
+                return Err(CoreError::Other("已取消".into()));
+            }
+            Err(CoreError::Other(format!("加深失败: {e}")))
+        }
+    }
+}
+
 /// 远端分支清单（`refs/remotes/origin/*`），并带上对应本地分支的跟踪状态。
 ///
 /// 输出 JSON 数组：`[{ name, local, has_local, ahead, behind }]`
@@ -2045,6 +2124,73 @@ mod tests {
         request_cancel();
         assert!(cancelled());
         CANCEL_REQUESTED.store(false, Ordering::SeqCst);
+    }
+
+    // ───────────────────── 阶段 4：加深克隆 ─────────────────────
+    //
+    // 说清这一组**测不到**什么：libgit2 的 local transport 不支持 depth
+    // （`transports/local.c` 的 `local_shallow_roots` 直接返回空、下载时也不看 depth），
+    // 所以「从本地路径浅 clone 出 `.git/shallow`」这条路在单测里造不出来 ——
+    // 真的浅克隆只会出现在 HTTP（GitHub）上。这里因此**手工写下浅边界**，
+    // 钉的是加深之后那条界面依赖的性质：**边界消失、全史可走**。
+
+    /// 没有 origin 的仓库：加深这件事本身不成立，要如实报错而不是 panic。
+    #[test]
+    fn fetch_deepen_没有_origin_时如实报错() {
+        let (dir, _repo) = temp_repo("deepen-no-origin");
+        let err = fetch_deepen(dir.to_str().unwrap(), 0, None).unwrap_err();
+        let text = other_message(err);
+        assert!(text.contains("找不到 origin"), "实际：{text}");
+    }
+
+    /// 全量加深：远端的历史都到本地，浅边界（`.git/shallow`）消失。
+    #[test]
+    fn fetch_deepen_全量之后浅边界消失且历史完整() {
+        // 远端：3 个提交（用本地路径当远端 —— 与其它 clone 测试同一手法）
+        let (origin_dir, origin) = temp_repo("deepen-origin");
+        let first = commit_file(&origin, "a.txt", "one\n", "第一个提交", "Alice");
+        let second = commit_file(&origin, "a.txt", "two\n", "第二个提交", "Bob");
+        let tip = commit_file(&origin, "a.txt", "three\n", "第三个提交", "Carol");
+
+        // 克隆（local transport 会连全史一起搬过来）
+        let into = std::env::temp_dir().join(format!("bb-git-deepen-clone-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&into);
+        clone_repo(origin_dir.to_str().unwrap(), into.to_str().unwrap(), None, None).unwrap();
+
+        // 手工造出浅边界：`.git/shallow` 里写上 tip —— 这正是 `depth(1)` clone 的样子
+        let shallow = into.join(".git").join("shallow");
+        std::fs::write(&shallow, format!("{tip}\n")).unwrap();
+        assert!(shallow.exists());
+
+        fetch_deepen(into.to_str().unwrap(), 0, None).unwrap();
+
+        // ① 浅边界没了（界面据此把提交图切回本地来源：留着就一直走 REST）
+        assert!(!shallow.exists(), "加深之后 .git/shallow 必须被删掉");
+        // ② 历史完整：加深不改写提交，前两个提交一个不少
+        let json = log_graph(into.to_str().unwrap(), 10, 0).unwrap();
+        let arr: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+        assert_eq!(arr.len(), 3, "加深后应能走完整史：{json}");
+        assert_eq!(arr[0]["sha"], tip.to_string());
+        assert_eq!(arr[1]["sha"], second.to_string());
+        assert_eq!(arr[2]["sha"], first.to_string());
+    }
+
+    /// 加深是**幂等**的：已经全量的仓库再加深一次不该报错、也不该多出东西。
+    #[test]
+    fn fetch_deepen_已全量时再跑一次也无害() {
+        let (origin_dir, origin) = temp_repo("deepen-idempotent-origin");
+        commit_file(&origin, "a.txt", "one\n", "只有一次", "Alice");
+        let into = std::env::temp_dir().join(format!("bb-git-deepen-idem-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&into);
+        clone_repo(origin_dir.to_str().unwrap(), into.to_str().unwrap(), None, None).unwrap();
+
+        fetch_deepen(into.to_str().unwrap(), 0, None).unwrap();
+        fetch_deepen(into.to_str().unwrap(), 0, None).unwrap();
+
+        assert!(!into.join(".git").join("shallow").exists());
+        let json = log_graph(into.to_str().unwrap(), 10, 0).unwrap();
+        let arr: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+        assert_eq!(arr.len(), 1);
     }
 
     // ───────────────────── 阶段 3：本地读接口 ─────────────────────

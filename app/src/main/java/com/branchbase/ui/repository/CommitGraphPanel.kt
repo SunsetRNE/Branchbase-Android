@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -56,14 +57,19 @@ import kotlinx.coroutines.withContext
 /**
  * Git 工作台 —— **「提交图」档**（[GitPanelKind.Graph]）。
  *
- * ## 数据从哪来
+ * ## 数据从哪来（阶段 3' 起是**双来源**，由 [graphSourceOf] 择源）
  *
- * 阶段 1 走 REST：`GET /repos/{o}/{r}/commits?sha={branch}&per_page=100`（**响应里本来就带
- * `parents`**，只是旧的 `parseCommits` 把它丢了 —— 图用 [parseGraphCommits] 自己解析，
- * 不去动提交列表那份）。分页「加载更早」用窗口内最老的 sha 续取，**不设次数上限**（已拍板）。
+ * | 来源 | 取数 | 分页键 | 什么时候用 |
+ * |---|---|---|---|
+ * | 本地 `log_graph` | 离线、不消耗 API 限额、**看得见还没推送的本地提交** | `skip`（已加载条数） | 本地仓库存在**且不是浅克隆** |
+ * | REST `/commits?sha=&per_page=100` | 与列表页同一个接口（响应里本来就带 `parents`） | 窗口内**最老的 sha** | 其余情况 |
  *
- * 本地 `log_graph`（阶段 3）落地之后，这里的来源会换成本地仓库；届时**渲染层不用改** ——
- * 它只吃 [GraphRow] 列表。
+ * 为什么浅克隆不能当来源：clone 用 `depth(1)`，本地只有 HEAD 一条提交 —— 直接换过去
+ * 就是把「一屏 100 条」换成「1 条」。浅克隆的出路是「加深」（`fetch_deepen`，阶段 4），
+ * 面板底部给的就是那枚出口；加深完成后宿主把 `refreshTick` 一变，这里自然翻回本地来源。
+ *
+ * 本地读不出来（引擎不可用 / 目录被删）时**退回 REST**：图还能看，但日志里留一条 warn ——
+ * 否则事后只看到「来源=本地」，没人知道它其实失败过。
  *
  * ## 虚节点（方案 A）
  *
@@ -78,21 +84,30 @@ fun CommitGraphPanel(
     owner: String,
     repo: String,
     branch: String,
+    repoDir: String,
+    localRepoExists: Boolean,
+    refreshTick: Int,
     dirtyCount: Int,
     onOpenWorkspace: () -> Unit,
     onOpenSync: () -> Unit,
+    onDeepen: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    var commits by remember(branch) { mutableStateOf<List<GraphCommit>>(emptyList()) }
-    var loading by remember(branch) { mutableStateOf(true) }
-    var loadingMore by remember(branch) { mutableStateOf(false) }
-    var truncated by remember(branch) { mutableStateOf(false) }
-    var error by remember(branch) { mutableStateOf<String?>(null) }
+    var commits by remember { mutableStateOf<List<GraphCommit>>(emptyList()) }
+    // 本轮**实际**用的来源：本地失败会退回 REST，所以它不一定等于 [graphSourceOf] 的结果
+    var source by remember { mutableStateOf<GraphSource?>(null) }
+    // 本地是不是浅克隆：**在取数那一趟里读**（IO 上），不在组合期读 ——
+    // 组合期读文件是主线程的一次 stat，而面板可能因为任何原因重组
+    var shallowLocal by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(true) }
+    var loadingMore by remember { mutableStateOf(false) }
+    var truncated by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     // `stringResource` 不能在 suspend / 点击回调里调（不是组合上下文）——统一走 Context
     val context = LocalContext.current
 
-    suspend fun fetch(sha: String?): List<GraphCommit>? {
+    suspend fun fetchRest(sha: String?): List<GraphCommit>? {
         val path = buildString {
             append("/repos/$owner/$repo/commits?per_page=")
             append(PAGE_SIZE)
@@ -104,28 +119,68 @@ fun CommitGraphPanel(
         return parseGraphCommits(json)
     }
 
-    LaunchedEffect(host, token, owner, repo, branch) {
+    suspend fun fetchPage(page: GraphPage, from: GraphSource): List<GraphCommit>? = when (page) {
+        is GraphPage.Local ->
+            RustBridge.gitLogGraph(repoDir, PAGE_SIZE, page.skip)?.let(::parseLocalGraphCommits)
+        is GraphPage.Rest -> fetchRest(page.sha)
+    }
+
+    /**
+     * 读第一页（含**退回 REST**）。首屏与「重试」共用这一份 ——
+     * 重试只重读当前来源的话，本地那侧坏掉时会永远卡在同一个错误上，
+     * 而真正该做的是再走一遍择源 + 兜底。
+     */
+    suspend fun loadFirstPage() {
         loading = true
         error = null
-        val first = withContext(Dispatchers.IO) { fetch(null) }
+        // 浅克隆判定在 IO 上做（读 `.git/shallow`），拿到的结果同时供择源与脚注使用
+        val shallow = withContext(Dispatchers.IO) { isShallowClone(repoDir) }
+        shallowLocal = shallow
+        var used = graphSourceOf(localRepoExists, shallow)
+        var localFailed = false
+        var first = withContext(Dispatchers.IO) { fetchPage(nextGraphPage(used, emptyList()), used) }
+        if (first == null && used == GraphSource.LOCAL) {
+            localFailed = true
+            Logger.warn(
+                LogCategory.NETWORK, GIT_WORKBENCH_LOG_TAG,
+                "提交图 ▸ 本地 $repoDir 读取失败，退回 REST",
+            )
+            used = GraphSource.REST
+            first = withContext(Dispatchers.IO) { fetchPage(GraphPage.Rest(null), GraphSource.REST) }
+        }
+        source = used
         if (first == null) {
-            error = context.getString(R.string.error_local_repo_missing_clone)
+            error = context.getString(
+                R.string.error_graph_load_failed,
+                context.getString(
+                    if (localFailed) R.string.error_graph_both_failed
+                    else R.string.error_graph_remote_failed,
+                ),
+            )
             loading = false
             // 取数失败**必须留一条**：面板上只有一句「加载失败」，事后没人知道是网络、
             // 限额还是仓库名错了（日志锚点「Git工作台」）
             Logger.warn(
                 LogCategory.NETWORK, GIT_WORKBENCH_LOG_TAG,
-                "提交图 ▸ $owner/$repo@${branch.ifBlank { "HEAD" }} 取数失败",
+                "提交图 ▸ $owner/$repo@${branch.ifBlank { "HEAD" }} 取数失败（来源 $used）",
             )
-            return@LaunchedEffect
+            return
         }
         commits = first
         truncated = first.size >= PAGE_SIZE
         loading = false
         Logger.net(
-            "提交图 ▸ $owner/$repo@${branch.ifBlank { "HEAD" }}：${first.size} 条${if (truncated) "（还有更早）" else ""}",
+            "提交图 ▸ $owner/$repo@${branch.ifBlank { "HEAD" }}：${first.size} 条" +
+                "（来源 ${if (used == GraphSource.LOCAL) "本地" else "REST"}）" +
+                if (truncated) "（还有更早）" else "",
             GIT_WORKBENCH_LOG_TAG,
         )
+    }
+
+    // 取数键里带上 repoDir / refreshTick：加深成功后 refreshTick 一变，这一轮才真的会重读
+    //（并重新读一次 `.git/shallow`）—— 少了它，界面会停在加深前的那一份（用户以为没生效）
+    LaunchedEffect(host, token, owner, repo, branch, repoDir, localRepoExists, refreshTick) {
+        loadFirstPage()
     }
 
     val rows = remember(commits, dirtyCount) {
@@ -139,15 +194,12 @@ fun CommitGraphPanel(
         }
         error?.let {
             Text(
-                stringResource(R.string.error_graph_load_failed, it),
+                it,
                 fontSize = 11.5.sp,
                 color = Primer.DangerText,
                 modifier = Modifier.padding(vertical = 8.dp),
             )
-            TextButton(onClick = { scope.launch { loading = true; error = null
-                val again = withContext(Dispatchers.IO) { fetch(null) }
-                if (again == null) error = context.getString(R.string.error_local_repo_missing_clone) else commits = again
-                loading = false } }) {
+            TextButton(onClick = { scope.launch { loadFirstPage() } }) {
                 Text(stringResource(R.string.action_retry), color = Primer.Blue500, fontSize = 12.sp)
             }
             return@Column
@@ -185,44 +237,70 @@ fun CommitGraphPanel(
 
         // 分页脚注：**如实说明还有更早的历史**（产品决策：不设上限，但也不许把截断画成尽头）
         if (rows.isNotEmpty()) {
-            Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (truncated) {
+                    stringResource(R.string.label_graph_truncated, commits.size)
+                } else {
+                    stringResource(R.string.label_graph_all_loaded, commits.size)
+                },
+                fontSize = 10.sp,
+                color = Primer.TextTertiary,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+            // 浅克隆：REST 的这一屏是完整的，但**本地那份不是** —— 说清「离线看图要先把历史拉下来」。
+            // 不许只在有出口时才说：没有出口（宿主没接）时这一句同样是用户需要知道的事实
+            if (source == GraphSource.REST && shallowLocal && localRepoExists) {
                 Text(
-                    if (truncated) {
-                        stringResource(R.string.label_graph_truncated, commits.size)
-                    } else {
-                        stringResource(R.string.label_graph_all_loaded, commits.size)
-                    },
+                    stringResource(R.string.note_graph_shallow_local),
                     fontSize = 10.sp,
                     color = Primer.TextTertiary,
-                    modifier = Modifier.weight(1f),
+                    lineHeight = 13.sp,
+                    modifier = Modifier.padding(top = 2.dp),
                 )
-                if (truncated) {
-                    TextButton(
-                        enabled = !loadingMore,
-                        onClick = {
-                            val oldest = commits.lastOrNull()?.fullSha ?: return@TextButton
-                            scope.launch {
-                                loadingMore = true
-                                val more = withContext(Dispatchers.IO) { fetch(oldest) }
-                                if (more != null) {
-                                    val seen = commits.map { it.fullSha }.toHashSet()
-                                    val fresh = more.filter { it.fullSha !in seen }
-                                    commits = commits + fresh
-                                    truncated = more.size >= PAGE_SIZE
-                                    Logger.net(
-                                        "提交图 ▸ $owner/$repo 加载更早：+${fresh.size}（共 ${commits.size}）",
-                                        GIT_WORKBENCH_LOG_TAG,
-                                    )
+            }
+            // 胶囊行走 FlowRow：英文标签更长，两枚挤一行会超出 268dp 被裁掉（Row 不换行也不报错）。
+            // 一枚都没有时整块不画 —— 空的 FlowRow 也会带走一段 padding
+            val deepenChip = source == GraphSource.REST && shallowLocal && localRepoExists && onDeepen != null
+            if (truncated || deepenChip) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(top = 6.dp),
+                ) {
+                    if (truncated) {
+                        PanelChip(
+                            label = stringResource(R.string.action_load_more),
+                            enabled = !loadingMore,
+                            onClick = {
+                                val from = source ?: return@PanelChip
+                                scope.launch {
+                                    loadingMore = true
+                                    val more = withContext(Dispatchers.IO) {
+                                        fetchPage(nextGraphPage(from, commits), from)
+                                    }
+                                    if (more != null) {
+                                        val seen = commits.map { it.fullSha }.toHashSet()
+                                        val fresh = more.filter { it.fullSha !in seen }
+                                        commits = commits + fresh
+                                        truncated = more.size >= PAGE_SIZE
+                                        Logger.net(
+                                            "提交图 ▸ $owner/$repo 加载更早：+${fresh.size}（共 ${commits.size}，来源 $from）",
+                                            GIT_WORKBENCH_LOG_TAG,
+                                        )
+                                    }
+                                    loadingMore = false
                                 }
-                                loadingMore = false
-                            }
-                        },
-                    ) {
-                        Text(
-                            stringResource(R.string.action_load_more),
-                            fontSize = 11.sp,
-                            color = if (loadingMore) Primer.TextTertiary else Primer.Blue500,
+                            },
                         )
+                    }
+                    if (deepenChip) {
+                        onDeepen?.let {
+                            PanelChip(
+                                label = stringResource(R.string.action_deepen_history),
+                                enabled = true,
+                                onClick = it,
+                            )
+                        }
                     }
                 }
             }

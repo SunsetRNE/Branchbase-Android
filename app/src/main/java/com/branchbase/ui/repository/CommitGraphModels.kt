@@ -110,6 +110,82 @@ fun parseGraphCommits(json: String?): List<GraphCommit> {
 }
 
 /**
+ * 解析本地 `log_graph` 的输出（**扁平** native JSON：`[{sha, parents, subject, author, date}]`）。
+ *
+ * 与 [parseGraphCommits] 分开是**故意的**：本地那份不是 GitHub 的嵌套响应体
+ * （`{sha, commit:{message, author:{…}, parents:[{sha}]}}`），把两者塞进一个函数只会
+ * 让「谁在撒谎」变得难查 —— 字段口径不同就各解析各的，与 `parseCommits` / `parseGraphCommits`
+ * 分开的理由是同一条。
+ *
+ * 容错口径与其它解析一致：解析不出来返回空列表、不抛。但**空数组是有意义的另一件事**
+ * （仓库里真的还没有提交），调用方按「还没有提交」渲染，不是「读取失败」。
+ */
+fun parseLocalGraphCommits(json: String?): List<GraphCommit> {
+    if (json.isNullOrBlank()) return emptyList()
+    return runCatching {
+        val arr = JSONArray(json)
+        (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            val sha = o.optString("sha")
+            if (sha.isBlank()) return@mapNotNull null
+            val parents = o.optJSONArray("parents")?.let { ps ->
+                (0 until ps.length()).mapNotNull { k ->
+                    ps.optString(k).takeIf { it.isNotBlank() }
+                }
+            }.orEmpty()
+            GraphCommit(
+                fullSha = sha,
+                parents = parents,
+                subject = o.optString("subject"),
+                author = o.optString("author"),
+                date = o.optString("date"),
+            )
+        }
+    }.getOrDefault(emptyList())
+}
+
+/**
+ * 提交图的**数据来源**。
+ *
+ * 阶段 3' 起本地仓库能自己走出提交图（`log_graph`，离线、不消耗 API 限额、还能看见
+ * **还没推送的本地提交**）—— 但本地仓库是 `depth(1)` 浅克隆，只有 HEAD 一条提交，
+ * 直接拿它当来源就是把「100 条」换成「1 条」。所以来源不是「有没有本地仓库」，
+ * 而是「本地仓库**值不值得**当来源」：见 [graphSourceOf]。
+ */
+enum class GraphSource { LOCAL, REST }
+
+/**
+ * 择源规则（纯函数）：**本地仓库存在且不是浅克隆** → 本地；否则 REST。
+ *
+ * 为什么浅克隆必须排除：clone 用的是 `depth(1)`，而 `pull` / `fetch` 不会撤销浅边界
+ * （git 自己也要 `--unshallow`），本地历史上只有 HEAD 一条 —— 那时走本地来源等于让用户
+ * 从「一屏 100 条」退回「1 条」。浅克隆的出路是面板里的「拉到本地（加深）」
+ * （`fetch_deepen`，阶段 4），加深成功后 `refreshTick` 一变，这个判定自然翻成本地来源。
+ */
+internal fun graphSourceOf(localRepoExists: Boolean, localShallow: Boolean): GraphSource =
+    if (localRepoExists && !localShallow) GraphSource.LOCAL else GraphSource.REST
+
+/** 一页取数请求。**两种来源的分页键不一样**，所以这里是 sealed 而不是一个 Int。 */
+internal sealed interface GraphPage {
+    /** 本地：按 `skip` 续取（引擎自己走 revwalk，第 N 页就是跳过前 N 条）。 */
+    data class Local(val skip: Int) : GraphPage
+
+    /** REST：按**窗口内最老的 sha** 续取（GitHub 的 `sha` 参数不支持 offset）。 */
+    data class Rest(val sha: String?) : GraphPage
+}
+
+/**
+ * 下一页取数键：本地给 `skip = 已加载条数`，REST 给最老那条 sha（首页为 null）。
+ *
+ * 抽成纯函数是因为这两条在真机上只表现成「点了『加载更早』没反应 / 重复同一页」——
+ * 前者看着像网络慢，后者会让人以为仓库历史就这么点。
+ */
+internal fun nextGraphPage(source: GraphSource, loaded: List<GraphCommit>): GraphPage = when (source) {
+    GraphSource.LOCAL -> GraphPage.Local(skip = loaded.size)
+    GraphSource.REST -> GraphPage.Rest(sha = loaded.lastOrNull()?.fullSha)
+}
+
+/**
  * 泳道布局（经典 swimlane）：**一条泳道 = 一个「还在等谁出现」的父提交**。
  *
  * 规则（`git-version-tree-design.md` §6）：

@@ -1197,6 +1197,15 @@ private fun CodePageGitPanel(
     var stage by remember { mutableStateOf(initialStage) }
     val localGit = rememberLocalRepoGitState(repo, refreshTick)
     val otherBranch = branches.firstOrNull { it != defaultBranch }
+    // 「加深历史」（提交图档底部的出口）：长任务在**这里**跑（任务中心 + 进度弹窗），
+    // 面板只拿到一个 onDeepen 回调 —— 面板这一族源码里不许出现任何 git 写操作
+    val deepen = rememberLocalDeepenRunner(
+        repo = repo,
+        repoDir = localRepoDir(LocalContext.current, repo),
+        token = token,
+        // 加深成功后刷新：refreshTick 一变，提交图重读一遍（含重新判定浅克隆）→ 换回本地来源
+        onDone = onRefresh,
+    )
 
     // 展开态铺了一层全屏透明遮罩（点空白收起）：返回键要消费的是「收起面板」，
     // 而不是把整个仓库页关掉（遮罩挡着正文时，用户按返回的意图一定是不看了）。
@@ -1285,6 +1294,7 @@ private fun CodePageGitPanel(
                 onRefresh = onRefresh,
                 onOpenSync = onOpenLocalSync,
                 onOpenBranches = onOpenBranches,
+                onDeepen = deepen::start,
             )
         },
         title = localGit.summary(),
@@ -1295,6 +1305,9 @@ private fun CodePageGitPanel(
             else -> null
         },
     )
+
+    // 加深的进度弹窗：与 clone 同一只（同一套进度与终态），标题是「加深历史」
+    LocalDeepenDialog(runner = deepen, repoFullName = "$owner/$repo")
 }
 
 /** README 链接路由（blob 直接打开文件 + 行号高亮；tree 进代码页；issue/pull/commit 映射到列表页） */

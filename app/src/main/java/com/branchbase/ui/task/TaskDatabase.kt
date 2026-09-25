@@ -35,6 +35,15 @@ enum class TaskKind(val label: String, val durable: Boolean) {
     PR("PR", true),
     MERGE("MERGE", true),
     SYNC("SYNC", false),
+
+    /**
+     * 加深克隆（unshallow）：把远端历史拉到本地。
+     *
+     * 单列一种而不是借 `PULL`：它是一次**全史下载**（大仓库几分钟、几百 MB），
+     * 在任务中心里与一次普通的 pull 长得一样，事后没人说得清那条记录是什么、为什么慢。
+     * 老库里的未知 kind 由 `toRecord` 回落到 `OTHER`，所以加这一项不需要迁移。
+     */
+    DEEPEN("DEEPEN", true),
     OTHER("TASK", false),
 }
 

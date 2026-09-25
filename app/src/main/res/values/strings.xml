@@ -412,6 +412,12 @@
     <string name="state_no_repos">暂无仓库</string>
     <string name="label_git_bundle">Git 配置包</string>
     <string name="label_git_workspace">工作区</string>
+    <string name="action_deepen_history">加深历史</string>
+    <string name="note_graph_shallow_local">本地是浅克隆，只有最近的历史 · 加深后可离线看图</string>
+    <string name="error_graph_remote_failed">远端读不到（网络或仓库名）</string>
+    <string name="error_graph_both_failed">本地与远端都读不到</string>
+    <string name="toast_history_deepened">本地历史已加深</string>
+    <string name="label_deepen_task_title">加深 %1$s 的历史</string>
     <string name="label_git_graph">提交图</string>
     <string name="state_git_view_pending">待接入</string>
     <string name="state_graph_empty">这个分支还没有提交</string>

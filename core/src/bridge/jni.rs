@@ -947,6 +947,25 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitPull<'local>
     into_jstring(&mut env, result)
 }
 
+/// 加深克隆（unshallow）：把远端历史取到本地（返回空串=成功，ERROR:=失败）
+/// 参数：dir, depth(<=0 = 全量), token(可空)
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitFetchDeepen<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+    depth: jint,
+    token: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let token = jstr(&mut env, &token);
+    let token_opt = if token.is_empty() { None } else { Some(token.as_str()) };
+
+    let result: crate::error::Result<String> =
+        crate::git::fetch_deepen(&dir, depth, token_opt).map(|_| String::new());
+    into_jstring(&mut env, result)
+}
+
 /// 更新/新建单文件（`PUT /repos/{o}/{r}/contents/{path}`，返回原始 JSON）
 /// 参数：host, token, owner, repo, path, message, content, sha, branch
 #[no_mangle]
