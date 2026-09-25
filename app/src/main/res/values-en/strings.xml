@@ -205,6 +205,7 @@
     <string name="label_preview">Preview</string>
     <string name="toast_code_copied">Code copied</string>
     <string name="nav_code">Code</string>
+    <string name="nav_up_one_level">Up one level</string>
     <string name="action_push_branch">Push %1$s</string>
     <string name="action_switch_and_pull">Switch and pull</string>
     <string name="state_nothing_to_sync">No branches need syncing</string>
@@ -447,7 +448,13 @@
     <string name="state_refs_tag_lightweight">Lightweight</string>
     <string name="state_workspace_clean">Working tree is clean — nothing uncommitted</string>
     <string name="state_no_upstream_short">No upstream</string>
-    <string name="note_git_views_pending">Commit, revert, upstream and reset entry points arrive in later phases.</string>
+    <string name="note_outlet_commit">Hands the working tree to the “Commit changes” page: write a message and land one commit on the current branch. If no commit identity is set yet, one page in between collects it first.</string>
+    <string name="note_outlet_undo">Undoes the most recent commit: amend / soft / hard while it is unpushed, revert only once it is pushed. The next page spells out exactly how history and the working tree change.</string>
+    <string name="note_outlet_upstream">Sets an upstream for the current branch: enter the remote URL and push once. Until then “Local branch sync” has nothing to align with.</string>
+    <string name="note_outlet_rollback">Returns the whole local repository to the unmanaged state (as if it had never been cloned on this device): keep .git (recommended) / remove .git / delete the entire repository. History and the remote are untouched — to undo a single commit, use “Undo”.</string>
+    <string name="action_outlet_continue">Continue</string>
+    <string name="note_commit_local_repo_scope">Local repository (Git) mode commits every change in the working tree (the engine stages all of it first), so files are not ticked individually here.</string>
+    <string name="note_fork_entry_settings">This step needs a fork — finish the fork flow under Settings → Local repositories, then come back to set the upstream.</string>
     <string name="note_git_view_unavailable">This view is not available yet — it arrives in a later phase (see docs/specs/git-mode-design.md §8).</string>
     <string name="note_proxy_scope">Only affects clone / pull / push for local repositories.</string>
     <string name="note_delete_local_branch">Deletes the local branch only; the remote is unaffected. Unmerged commits will be lost.</string>
@@ -544,6 +551,7 @@
     <string name="warning_secrets_detected">This commit matches %1$s suspected secret patterns. Once committed, the content becomes permanently public in the repository history and can still be recovered after deletion.</string>
     <string name="label_author_name_required">Author name (required)</string>
     <string name="label_changed_files_scope">Changed files (tick what this commit includes)</string>
+    <string name="label_changed_files_local">Changed files (this commit takes all of them)</string>
     <string name="note_use_once">Not persisted; you will be asked again next time.</string>
     <string name="note_no_commit_mode">⚠ No commit mode selected · you will be asked when committing. Once chosen it is stored in the local configuration and can be changed in Settings at any time.</string>
     <string name="label_repo_mode">%1$s · %2$s</string>

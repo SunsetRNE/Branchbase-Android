@@ -58,8 +58,9 @@ Compose 的返回键是「**最后注册且启用者胜**」。`PageSwitcher` �
 | 顶层写 `enabled = route.depth > 0` | 顶层整个关掉 handler，把「顶层按返回」让给外层兜底 → 中间多一层门（如提交模式引导页）就**直接退出 App** | 顶层也显式分派（见 `backDisposition`） |
 | 顶层改成 `enabled = true` | 退场动画期间仍然启用 → **吃掉第二次返回键**，「再按一次退出」失灵 | 一律用 `PageBackHandler`（叠加 `LocalPageActive`） |
 | **只在 `TabSwitcher` 里下发 `LocalPageActive`** | 机制「看着有」，但走 `PageSwitcher` 的页面（主界面路由 / 仓库十几个子页 / 个人页子页 / 登录流程）拿到的恒为 `true` → 退场旧页照样抢返回键 | **两个切换器都下发**；`PageTransitionsTest` 有源码级钉子数下发次数（必须是 2） |
-| 页面里有自己的下一层（决策页 / 详情页 / 编辑态）却不挂 `PageBackHandler` | 页面内返回箭头是「回上一层」，系统返回键却直接跳出去（整页连同已填内容一起丢） | 每个「下一层」都收敛成一条路由/状态，并由这一页自己消费返回键（如 `LocalRepoScreen` 的 `LocalPage`、`TaskScreen.detail`、`RepositoryFileViewer.page`、`IssueDetailScreen.editing`） |
-| 返回键写死回到最外层（如个人页子页一律 `subPage = null`） | 在「设置 → 关于」按返回直接跳回个人主页，而页面左上角是回设置 → 两条路径两个结果 | 按层级分派（`profileBackTarget` / `subPageDepth`，有单测） |
+| 页面里有自己的下一层（决策页 / 详情页 / 编辑态）却不挂 `PageBackHandler` | 页面内返回箭头是「回上一层」，系统返回键却直接跳出去（整页连同已填内容一起丢） | 每个「下一层」都收敛成一条路由/状态，并由这一页自己消费返回键（如 `LocalRepoScreen` 的 `LocalPage`、`TaskScreen.detail`、`RepositoryFileViewer.page`、`IssueDetailScreen.editing`、`RepositoryScreen` 的 `codePath` 文件树目录层级） |
+| **下一层住在 Tab 内部**（文件树目录 / Git 面板档位），状态却 `remember` 在内容组件里 | ① 返回键看不到这一层，直接跳出整个仓库页（用户原话：「点击任意项目文件夹，没有返回上一层文件夹的功能设计」）；② 打开文件会切到全屏文件页、Tab 那一支离开组合，**目录层级被静默重置回根** | 状态上提到**页面级**（`RepositoryScreen` 的 `codePath` / `gitPanelStage`），返回键据此分派；「上一层」还要有一个**看得见的整行入口**，渲染走**文件管理器那套 `..`**（与目录行同一个文件夹图标 + `..`，a11y 标签 `nav_up_one_level`）—— 不能只靠面包屑那截 24dp 宽的蓝字，也别另造一个只在这里出现的上箭头 |
+| 返回键写死回到最外层（如个人页子页一律 `subPage = null`） | 在「设置 → 关于」按返回直接跳回个人主页，而页面左上角是回设置 → 两条路径两个结果 | 按层级分派（`profileBackTarget` / `subPageDepth` / `codeFolderBackTarget`，有单测） |
 | 每个页面各挂一个裸 `BackHandler` | 谁赢取决于注册顺序，动画期间新旧两页会抢同一个事件 | 全部换成 `PageBackHandler`；多层页面用嵌套 `PageSwitcher` 各自下发 active |
 | 把 busy/error 塞进页面状态（如密钥填写页） | 状态值一变就被当成换页：多播一次动画 + 重建内容丢输入 | 页面身份与请求态分开（页面态存 `data object`，请求态用独立 `StateFlow`） |
 | **把 Tab 目的地塞进外层路由**（`MainRoute.Tabs(selected)` / `RepoRoute.Tab(page)` / `ProfileRoute.Main(tab)`） | 切一次 Tab 就等于换一次路由 → 外层 `PageSwitcher` 把整块内容播同级动效（淡入淡出 + 2% 垂直位移），**底部导航栏跟着一起上移/上浮、两栏错位叠着**（用户反馈「切页面时导航栏上下跳」）；内层 `TabSwitcher` 还会再播一次，位移叠加成 4% | Tab 是**内容区自己的维度**，不进外层路由（三个路由都改成 `data object`）；切 Tab 由内容区自己的 `TabSwitcher` 负责；导航栏归 `NavigationShell`（在 `PageSwitcher` 外面），`barVisible` 由路由决定 |
@@ -95,6 +96,13 @@ Compose 的返回键是「**最后注册且启用者胜**」。`PageSwitcher` �
 - [ ] 改了切换器？确认 `PageSwitcher` **和** `TabSwitcher` 都下发了 `LocalPageActive`？
 - [ ] 新页面自己有下一层（决策页 / 详情 / 编辑态）时，挂 `PageBackHandler` 了吗？目标与页面内返回箭头一致吗？
 - [ ] 多一层可返回的页面时，用的是嵌套 `PageSwitcher`，而不是在同一层堆 `if`？
+- [ ] 页面里的「下一层」是**Tab 内部**的一层（文件树目录 / Git 面板档位）？状态要住在**页面级**
+      （`RepositoryScreen` 的 `codePath` / `gitPanelStage`），返回键走纯函数（`codeFolderBackTarget`）——
+      住在内容组件内部的话，一进全屏子页（打开文件、进决策页）那一支就离开组合，层级会被静默重置；
+      「上一层」还要有看得见的整行入口，别只留面包屑上那截蓝字；渲染**别另造图标** ——
+      列表里的「上一层」用文件管理器那套 `..`（文件夹图标 + `..`，a11y 标签兜底含义）。
+- [ ] Tab 内的标签条在**英文界面**下装得下吗？（`Row` 会在词内折行：`File history` 折成 `File`/`hist`/`ory`
+      三行 —— 268dp 的面板可用 248dp，英文四档约 273dp；这种条用 `FlowRow`）
 - [ ] 新页面**消费了系统栏内边距**？（edge-to-edge 是强制的：要么自己 `statusBarsPadding()` +
       `navigationBarsPadding()`，要么走 `DetailScaffold` / `FullScreen` / `DecisionScreenShell` 这些已经取过的壳。
       仓库树里进详情页时底部导航栏会收起（`barVisible = route is RepoRoute.Tab`），**没有人为子页兜底底部**）

@@ -285,11 +285,40 @@ internal suspend fun markdownToHtml(
 
 // ── 代码（文件树，两级导航） ──
 
+/** 代码页文件树的日志锚点（登记在 `ui/log/Logging.kt` 的 `LOG_ANCHORS`，导出包的 report.md 会带上） */
+internal const val FILE_TREE_LOG_TAG = "代码页文件树"
+
+/**
+ * 插桩：把「这次列表的头几项」写进日志。
+ *
+ * 排序规则（文件夹优先 / `.` 开头最前 / A→Z）是**只在真机上肉眼才看得出来**的那类改动 ——
+ * 设备上 grep 这个锚点就能确认渲染顺序真的换过来了，不必逐目录截图比对；
+ * 顺带记下项数与目录数：`0 项` 就是「目录空 or 取数失败」的第一手线索。
+ */
+private fun logFileTree(owner: String, repo: String, path: String, items: List<FileTreeItem>) {
+    val at = if (path.isEmpty()) "$owner/$repo" else "$owner/$repo/$path"
+    Logger.ui(
+        "$FILE_TREE_LOG_TAG ▸ $at：${items.size} 项（目录 ${items.count { it.type == "dir" }}）· " +
+            "顺序 ${items.take(6).joinToString(" / ") { it.name }}",
+        FILE_TREE_LOG_TAG,
+    )
+}
+
 @Composable
-fun RepositoryCodeContent(sessionJson: String, owner: String, repo: String, branch: String? = null, refreshTick: Int = 0, onOpenFile: (String) -> Unit) {
+fun RepositoryCodeContent(
+    sessionJson: String,
+    owner: String,
+    repo: String,
+    branch: String? = null,
+    refreshTick: Int = 0,
+    // 目录状态由**宿主**持有（页面级）：返回键要按层级分派，而且打开文件会切到全屏文件页、
+    // 这一支离开组合 —— 状态留在里面的话，从文件页回来就悄悄回到仓库根目录了。
+    path: String,
+    onNavigate: (String) -> Unit,
+    onOpenFile: (String) -> Unit,
+) {
     val (host, token, _) = sessionInfo(sessionJson)
     val context = LocalContext.current
-    var path by remember { mutableStateOf("") }
     // 缓存键先于状态声明：key 变化（切仓库/目录/分支）时列表自动清空，
     // 避免新请求失败时静默显示上一页内容
     val cacheKey = ListCache.key(owner, repo, ListCache.PAGE_CODE, ListCache.codeParams(path, branch))
@@ -333,24 +362,76 @@ fun RepositoryCodeContent(sessionJson: String, owner: String, repo: String, bran
             ListCache.write(manager, cacheKey, json)
         }
         loading = false
+        // 插桩：列表定下来之后再记一条 —— 两条路径（缓存直出 / 回源）只留**最终**这一个顺序，
+        // 免得日志里出现两条互相矛盾的顺序、还得猜哪条上了屏。
+        logFileTree(owner, repo, path, items)
     }
 
     Column(Modifier.fillMaxSize()) {
-        BreadcrumbBar(owner, repo, path) { newPath -> path = newPath }
+        BreadcrumbBar(owner, repo, path, onNavigate)
         when {
             loading -> ListLoading()
             error != null -> ListError(error!!) { retryTick++ }
             items.isEmpty() -> ListEmpty(stringResource(R.string.state_empty_directory))
             else -> LazyColumn(Modifier.fillMaxSize()) {
+                // 「上一层」是列表首行的 `..`（不是只靠面包屑那段蓝字）：点进任意子目录后总有一个
+                // 明确、整行可点的回退入口 —— 返回键也走同一个目标（见 codeFolderBackTarget）
+                if (path.isNotBlank()) {
+                    item(key = PARENT_ROW_KEY) { ParentFolderRow { onNavigate(parentPath(path)) } }
+                }
                 // 同一目录内文件名唯一（GitHub contents API 保证），name 可作稳定 key
                 items(items, key = { it.name }) { f ->
                     FileTreeRow(f) {
-                        if (f.type == "dir") path = joinPath(path, f.name)
+                        if (f.type == "dir") onNavigate(joinPath(path, f.name))
                         else onOpenFile(joinPath(path, f.name))
                     }
                 }
             }
         }
+    }
+}
+
+/** 「上一层」行的 key：与文件名不可能撞（文件名里不会有 NUL） */
+private const val PARENT_ROW_KEY = "\u0000up"
+
+/**
+ * 「上一层」在列表里的**名字**：文件管理器那一套 `..`（不是再画一个只在这里出现的上箭头）。
+ * 它在这一列里长得就像一枚目录项，用户不用先认图标；屏幕阅读器走 a11y 标签
+ * `nav_up_one_level`（上一层 / Up one level），不会念成「点 点」。
+ */
+private const val PARENT_ENTRY_NAME = ".."
+
+/**
+ * 目录里的第一行：返回上一层文件夹。
+ *
+ * 长得就是一枚**目录项**：[FileTreeRow] 的文件夹图标 + `..`（同高同边距、整行可点）。
+ * 这是文件管理器几十年的老约定（Windows 资源管理器 / Finder / `ls -a` 都有这一行），
+ * 比「一个新图标 + 一句文案」更省一次学习 —— 用户看到 `..` 就知道是上一层，不用先认出那个箭头。
+ * 文案不写「上一层」是因为这一列里其余行都是**名字**，混进一句说明会打断扫读；
+ * 可读性交给 a11y 标签（`nav_up_one_level`）。
+ */
+@Composable
+private fun ParentFolderRow(onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(horizontal = 16.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Filled.Folder,
+            contentDescription = stringResource(R.string.nav_up_one_level),
+            tint = Primer.IconSecondary,
+            modifier = Modifier.size(16.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            PARENT_ENTRY_NAME,
+            fontSize = 13.sp,
+            color = Primer.TextSecondary,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 

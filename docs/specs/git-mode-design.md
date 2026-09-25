@@ -10,8 +10,16 @@
 > **状态：进行中**（不再是「草稿 · 未落地」）：阶段 0–4 已落地（1.0.93 → 1.0.101），
 > 阶段 5 **全部落地**：引擎那半（1.0.102）、UI 主干（1.0.103：合并决策页 / 冲突弹窗 /
 > 冲突详情页 / 面板的合并中状态）、两条入口（1.1.1：分叉页第三条「合并远端」与
-> PR 冲突的「拉到本地解决」）。**下一个要做的就是阶段 6**（设置列表的管理页 + 行重绘，§8）。
+> PR 冲突的「拉到本地解决」）。**下一步是「阶段 2 剩余」**（2026-09-26 拍板收窄：四个写出口 +
+> 各自的**后果弹窗** + 决策页宿主扩到**代码页**（回退也给代码页）与文件页 + 面板密度调整，§3.6 / §8）；
+> 之后才是阶段 6（设置列表的管理页 + 行重绘，§8）。
 > 本文里凡标「待落地」的，**都没写代码**。
+>
+> **2026-09-26 新登记的两条引擎需求**：**「回到某个历史版本」**（§11.12，**已拍板：A + B 两条都给**
+> → §7「已拍板 · 待新增」#11 / #12，其中 B **引擎零改动**、只缺 UI 出口）与
+> **「更精细的版本代码对比引擎」**（§11.13，**未拍板**，契约评估已写入该条：**不需要大改契约**，
+> ③ 结构化 hunk 走「只增字段」）。两条都会动引擎（新 JNI / 新字段 → 都要重建 `.so`），
+> **先落阶段 2 剩余、再动它们**；它们在本文里的位置就是那两条，不要另开文档。
 >
 > **真源**：`core/src/git/mod.rs`（引擎）· [`local-git-engine-design.md`](local-git-engine-design.md)
 > §3/§4/§7 · [`decision-pages-design.md`](decision-pages-design.md) §1/§2/§3 ·
@@ -31,7 +39,13 @@
    展开出来的**多档面板** —— 视图在**弹窗内部**换框，**不跳页面**（动效规格见 §3.3）；
 2. **设置里的本地仓库列表收敛成统筹台**（进入 / 更新 / 删除 + 页头「管理」），
    行内那些提交 / 推送 / 分支 / 同步动作**逐步迁进面板**（过渡期双入口，见 §5）；
-3. **动作分三档**：面板内直接执行（安全）/ 走决策页（有后果）/ 明确不做（§6）。
+3. **动作分三档**：面板内直接执行（安全）/ **面板内先给「后果弹窗」**、需要选择或输入时再进决策页
+   （有后果）/ 明确不做（§6）。**有后果 ≠ 必须离开面板**（D-l）：气泡是**主操作面**，
+   「设置 → 本地仓库」的二次页面只是**过渡期**的并行入口，不再承担独有能力（D-m / §5）；
+4. **入口本身要过账号这一关**（2026-09-26 补充规则，D-o）：**非团队、非协同、非仓库管理员**
+   身份的账号，在相应的仓库下**不显示这枚 Git 工具气泡球** —— 球里的动作（提交 / 撤销 / 上游 /
+   回退 / 分支 / 合并 / 本地分支同步）全都要写权限，只读的外人点下去只有失败。
+   判定与模式门控收在同一个纯函数 `showGitBubble(mode, relation)` 里（§3.4 / §9）。
 
 ---
 
@@ -49,12 +63,13 @@
 | 标签条的可用态（**四个档全 ✅**，1.0.100 起） | **已落地 1.0.95**（文件历史 1.0.100 补齐） | `GitPanelStage.kt` 的 `available` + 源码级钉子（提交图那格是 1.0.94 的漏改） |
 | 设置列表「进入」→ 代码页 + 面板开到视图档 | **已落地 1.0.95** | `RepoDeepLink.openGitPanel`（`RepositoryScreen.kt`）· `ui/profile/SubPageScreens.kt` |
 | 面板的**出口收口**：分支管理接进两档（工作区 / 引用树）；面板里的**写操作恒为零** | **已落地 1.0.96** | `GitPanelViewHost` 的可选回调（null = 该宿主没这个出口 → 不画那枚胶囊）；胶囊行走 `FlowRow`（英文标签更长，`Row` 会裁掉） |
+| Git 工具气泡球的**账号门控**（非团队 / 非协同 / 非仓库管理员在该仓库下不显示） | **已落地 1.1.3**（2026-09-26 补充规则，D-o） | `ui/repository/GitBubblePanel.kt` 的 `showGitBubble(mode, relation)`；两个调用点：`RepositoryScreen.kt`（代码页）· `RepositoryFileViewer.kt`（文件页，关系态由宿主传入、**参数无默认值**）；`GitBubbleModeTest` 7 例 |
 | 日志插桩（锚点 `Git工作台`：动作 / 档位 / 返回退档 / 两条进入 / 各档取数） | **已落地 1.0.96** | `ui/log/Logging.kt` 的 `LOG_ANCHORS` + `GitPanelStage.kt` 的 tag 常量 |
 | 接线与插桩的**源码级钉子**（`GitWorkbenchWiringTest`，1.0.96 起 5 例 → 1.1.1 共 14 例） | **已落地 1.0.96** | `app/src/test/java/.../GitWorkbenchWiringTest.kt` |
 | 「文件历史」档（本地 `log_file` 优先 / REST `?path=` 兜底；行可点开看这次提交的 diff） | **已落地 1.0.100**（阶段 4） | `ui/repository/GitFileHistoryPanel.kt` · `FileHistoryModels.kt` |
 | 提交图的**未推送段**（本地来源下逐条标「未推送」，脚注只说已加载的这一屏） | **已落地 1.0.101**（阶段 4 收尾） | `core/src/git/mod.rs` 的 `unpushed_oids` · `CommitGraphPanel.kt` |
 | 设置列表「管理」页 / 列表重绘 | 待落地（阶段 6 / 后续问题） | — |
-| 面板内**执行**有后果的动作（提交 / 撤销 / 上游 / 回退）—— 要把决策页的宿主扩到仓库页 | 待落地（阶段 2 剩余） | — |
+| 面板内**执行**有后果的动作（提交 / 撤销 / 上游 / 回退）—— 要把决策页的宿主扩到仓库页 | **已拍板 · 待落地**（阶段 2 剩余；2026-09-26 收窄成：四枚出口 + 各自「后果弹窗」+ 决策页宿主扩到**代码页与文件页**，**回退也给代码页**；面板密度一并调，见 §3.6 / §8） | — |
 | 危险动作收口（全部落决策页）+ 设置列表行内动作下线 | **部分**：面板内写操作已归零（1.0.96），行内动作仍在（§5 过渡期） | — |
 | 本地合并 + 冲突解决（**引擎那半**） | **已落地 1.0.102**（`merge_branch` / `merge_state` / `analyze_conflicts` / `resolve_conflict` / `write_resolved` / `merge_continue` / `merge_abort` + JNI + 重建 `.so`） | `core/src/git/mod.rs` · `core/src/bridge/jni.rs` · `RustBridge.kt` |
 | 本地合并 + 冲突解决（**UI 主干**） | **已落地 1.0.103**：合并决策页（分支清单 + 四条前置的如实说明）/ 冲突弹窗（出现即预解析）/ 冲突详情页（逐文件 ours↔theirs diff + 用我方 / 用对方 / `:editor` 手工 + 提交合并 / 放弃合并）/ 面板的「合并中」状态条与三枚出口 / 两个宿主各接一次 | `ui/repository/MergeDecisionScreen.kt` · `MergeConflictScreen.kt` · `MergeFlow.kt` · `MergeModels.kt` · `MergePreparse.kt` |
@@ -68,10 +83,12 @@
 | 这几个本地接口的消费者 | **全部接上**（tags 引用树 ✅ / 提交图 ✅ / 工作区 diff ✅ / 文件历史 ✅） | — |
 | 引擎的**合并与冲突**一组（七条） | **已落地 1.0.102**（阶段 5 引擎那半；`repo_status` 另加 `merging` 只增字段） | `core/src/git/mod.rs` · `core/src/bridge/jni.rs` · `RustBridge.kt` |
 
-**已落地的验证口径**：`:app:testDebugUnitTest`（939 例；其中 `GitPanelStageTest` 9 例、
+**已落地的验证口径**：`:app:testDebugUnitTest`（969 例；其中 `GitPanelStageTest` 9 例、
 `GitRefsModelsTest` 8 例、`RepoDeepLinkTest` 4 例、`GitWorkbenchWiringTest` 14 例、
 `CommitGraphLayoutTest` 11 例、`CommitGraphSourceTest` 14 例、`LocalDiffModelsTest` 12 例、
 `FileHistoryModelsTest` 9 例、`MergeModelsTest` 9 例、`MergePreparseTest` 5 例、
+`CodeFolderBackTest` 8 例（目录层级返回键）、`GitBubbleModeTest` 7 例（Git 球两重门控）、
+`FileTreeOrderTest` 11 例（文件树排序对齐 GitHub + 插桩）、
 `PullDetailModelsTest` 14 例、`SyncDecisionPrecheckTest` 21 例、
 `PageTransitionsTest` 面板过渡与「三个切换器都下发 `LocalPageActive`」、
 `LogAnchorsTest` 盯锚点表（**双向**）· `JniSignatureTest` 逐参数对账全部 104 对原生函数）·
@@ -116,7 +133,7 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
 
 | 档 | 内容 | 数据源 | 状态 |
 |---|---|---|---|
-| **工作区** | 分支 / 领先落后 / 上游 / 改动文件清单 / 刷新 / 同步 / **合并分支…**；合并中时最先显示「正在合并 · 还剩 N 个文件」+ **继续 / 放弃** | `LocalRepoGitState`（一次 `repo_status`，与徽标同源；**只有合并中才多读一条** `merge_state`） | 已落地（合并入口 1.0.103） |
+| **工作区** | 分支 / 领先落后 / 上游 / 改动文件清单 / 刷新 / 同步 / **合并分支…**；**提交… · 撤销提交… · 上游… · 回退 Git 化…**（四个写出口，各带「后果弹窗」，§3.6）；合并中时最先显示「正在合并 · 还剩 N 个文件」+ **解决冲突 / 放弃合并** | `LocalRepoGitState`（一次 `repo_status`，与徽标同源；**只有合并中才多读一条** `merge_state`） | 已落地（合并入口 1.0.103）；四个写出口 **待落地（阶段 2 剩余）** |
 | **提交图** | 泳道 DAG + **未提交虚节点** + 分页脚注 + 点一行看这条提交的本地 diff（1.0.99）+ **未推送段**（1.0.101：本地来源下逐条标「未推送」） | **本地 `log_graph`**（本地仓库存在且**不是浅克隆**时，离线、看得见未推送的提交，并逐条带 `unpushed`）；否则 REST `/commits?sha=&per_page=100`（**保留 `parents`**）兜底 | 已落地（1.0.94 REST 版 → **1.0.98 换成本地优先** → **1.0.101 标未推送段**） |
 | **引用树** | 本地 / 远端分支、上游、领先落后；tag（annotated 带说明与作者，轻量只有名字） | `local_branches` · `remote_branches` · `list_tags`（本地仓库，离线可读） | 已落地（阶段 2 + tags 阶段 3，**只读**） |
 | **文件历史** | 该文件的提交序列（**只列真的碰过这个路径的提交**）+ 点一行看这次提交的 diff | **本地优先**（`log_file`，非浅克隆时）/ REST `/commits?path=` 兜底 | 已落地（1.0.100，阶段 4） |
@@ -140,10 +157,14 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
 
 **不做「点开看到另一份内容」的入口**仍是这一档的硬约束：宿主没给出口时，行**不可点**。
 
-面板里的**写操作恒为零**：提交 / 撤销 / 上游 / 回退都要落决策页，而决策页今天的宿主是
-「设置 → 本地仓库」与文件页，把它们的宿主扩到仓库页是阶段 2 的剩余项
-（`GitWorkbenchWiringTest` 扫全部 15 个 git 写方法 —— 1.0.98 加深那次补进 `gitFetchDeepen` 后
-这一格没跟着改，1.1.1 对账时改正 —— 保证面板这一族源码里一个都不出现）。
+面板里的**写操作恒为零**，说的是**面板这一族源码里不出现任何 git 写方法**
+（`GitWorkbenchWiringTest` 扫全部 15 个 —— 1.0.98 加深那次补进 `gitFetchDeepen` 后
+这一格没跟着改，1.1.1 对账时改正）：**跑动作的永远是宿主的运行器**，
+面板只负责把出口给出来、把用户意图转交宿主。
+但「零写操作」**不等于面板没有写入口** —— 1.1.3 起工作区档有四个写出口（§3.6），
+每个出口在**宿主侧**先弹一枚**后果弹窗**（说清会发生什么、能不能撤回），
+需要选择或输入时再进决策页（D-l）；
+设置页与文件页**不再是唯一宿主**：代码页与文件页各接一次（回退也给代码页，2026-09-26 拍板）。
 
 **合并中时面板长什么样（1.0.103）**：那一条状态排在工作区档最上面 —— 停在合并中时工作区**必然**是脏的
 （冲突文件带标记），先列改动清单只会让人更糊涂；两条出路（胶囊文案是**「解决冲突」/「放弃合并」**，
@@ -211,7 +232,7 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
 
 | 入口 | 行为 | 状态 |
 |---|---|---|
-| 代码页 / 文件页的 Git 气泡 | 点球 → 动作列表 → 视图档（仅「本地仓库（Git）」提交模式，`showGitBubble` 门控不变） | 已落地 |
+| 代码页 / 文件页的 Git 气泡 | 点球 → 动作列表 → 视图档（**两重门控**：仅「本地仓库（Git）」提交模式 **且**账号与仓库有关系 —— `showGitBubble(mode, relation)`，见 D-o） | 已落地（账号门控 1.1.3） |
 | 设置 → 本地仓库 行的**仓库名** | 打开该仓库代码页 + **自动展开到视图档**（`RepoDeepLink.openGitPanel`） | **已落地 1.0.95**（阶段 2） |
 | 设置 → 本地仓库 的**分叉页**第三条「合并远端」 | 把 `origin/{branch}` 合进本地（跑动作的是宿主，`MergeFlow.runMerge`）；冲突弹窗与冲突详情页在这条路上也接通 | **已落地 1.1.1**（阶段 5 入口 ①） |
 | PR 详情页在 `mergeable == false` 时的「拉到本地解决」 | 打开**预选了 PR head** 的合并决策页（本地没副本 / head 在复刻仓库里 → 置灰并说明） | **已落地 1.1.1**（阶段 5 入口 ②） |
@@ -225,6 +246,58 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
 - owner/repo 由本地仓库的 `origin` URL 反推（**复用列表本来就要跑的那轮 `gitStatus`**，
   不额外读第二遍）；解析不出时回落到「当前账号 + 目录名」—— 本地仓库按账号存放、clone 也来自
   「我的仓库」，所以那就是同一个仓库，而「解析不出就不给进入」只会让一个能用的入口凭空消失。
+
+### 3.6 四个写出口与「后果弹窗」（2026-09-26 拍板，阶段 2 剩余）
+
+> **状态（2026-09-26）**：**代码已落地（未提交，1.1.3）** —— 面板四枚胶囊、`GitOutletFlow.kt`
+> （`GitOutlet` / `GitOutletFlowState` / `GitOutletDialog` / `runLocalRepoCommit`）、两个宿主的
+> 后果弹窗与四个目的地、`panelViewAreaHeight(Workspace) = 340.dp`、`PanelChip` 收紧一档、
+> `note_git_views_pending` 三处删除、`StageCommitScreen` 本地仓库档不再给「按文件勾选」。
+> **设备验收第一半已完成**（1.1.3 / versionCode 208 真机英文界面：八枚胶囊四行、**一枚不缺、无裁切**，
+> `Working tree` 档正文如实显示「`—` / `No upstream` / `Working tree is clean — nothing uncommitted`」）；
+> 同一屏**抓出**分档标签条被挤坏（`File history` 词内折三行）—— 已改 `FlowRow`，
+> 见本小节末的注。**剩下的一半**：`Commit / Undo / Upstream / Revert gitify` 四枚出口的**点击链路**
+> 与「代码页也接回退」要在真机走一遍（用 1.1.3 / versionCode 209 那一版）。
+>
+> **设备验收第二半（2026-09-26 晚，同一批未提交改动，versionCode 仍是 209）**：
+> ① 目录层级返回键（§8 ⑦）在真机**验收通过**；
+> ② 「上一层」入口按用户拍板换成文件管理器那套 `..`（文件夹图标 + `..` + a11y 标签，见 VERSION-NOTES 1.1.3 ⑦）；
+> ③ **新增 D-o**：非团队、非协同、非仓库管理员的账号，在相应仓库下**不显示这枚 Git 工具气泡球**
+>    （判定与模式门控合成 `showGitBubble(mode, relation)`，见 §1 第 4 条 / §3.4 / §9）。
+
+**四个出口**（工作区档底部，仍在 `FlowRow` 里，与既有胶囊同一种 `PanelChip`）：
+
+| 出口 | 文案（复用既有键，不新增字面量） | 置灰条件 | 目的地（跑动作的是**宿主的运行器**） |
+|---|---|---|---|
+| 提交… | `action_commit` 提交 / Commit | `!git.exists \|\| git.dirty.isEmpty() \|\| git.merging` | 提交决策页（`StageCommitScreen`，`CommitMode.LOCAL_REPO`）—— 要写 message、选文件、可能补身份 |
+| 撤销提交… | `action_undo` 撤销 / Undo | `!git.exists` | `UndoCommitScreen`（amend / soft / hard / revert 四选一） |
+| 上游… | `nav_upstream` 上游 / Upstream | `!git.exists` | `UpstreamSetupScreen`（填 URL + token，可能转分叉页） |
+| 回退 Git 化… | `nav_revert_gitify` 回退 Git 化 / Revert gitify | `!git.exists` | `GitifyRollbackScreen`（**含「删除整个本地仓库」这条出路**，代码页也接；删完按 `exists = false` 显示「未拉取到本地」） |
+
+**「后果弹窗」的两层结构**（D-l）：点出口 → ① 一枚**后果弹窗**（这一步会发生什么、有没有退路、
+要不要先备份/先推送）→ ② **需要选择或输入**的动作再进决策页。**「撤销提交」与「回退 Git 化」各写各的
+文案**，不共用、不合并：前者抵销一次误提交（不动远端历史），后者移除整个 `.git`（本地仓库不再是仓库）。
+两枚近义胶囊相邻本身就是误触来源，解决办法是**各自把后果说清**，不是靠按钮位置或靠猜。
+
+**为什么不在弹窗里就执行完**：要 message / 分支 / token 的动作，弹窗里塞不下输入与预检
+（敏感扫描、置灰理由都在页面里，比如 `StageCommitScreen` / `UpstreamSetupScreen`）——
+把它们搬进 268dp 的浮层等于重写一遍。所以「快捷」的落法是**从面板一步进到已预填好的决策页**
+（`repoName` / `repoDir` / `token` 由宿主直接给），不是把决策页掏空。
+
+**面板密度**（同一次拍板，和上一条是一件事）：工作区档内容区高度 **280dp → 340dp**
+（`panelViewAreaHeight(Workspace)`；`PanelAreaSkeleton` 的 Workspace 支按 `area - 60` 自动跟随，
+四档常量仍远低于机型可用高度）。同时：① 胶囊**再收一档密度**（内边距 / 字号 / 圆角往紧里调，
+不为塞下第 8 枚而把整块面板撑长）；② 删掉一切「按阶段接入」这类**占位提示**
+（`note_git_views_pending` 落地即删，§2 已登过三处同类过期文案）；③ 验收必须带
+**英文界面 + 8 个以上改动文件**：`clipToBounds()` 会把超出的胶囊**静默裁掉**，
+不报错、不崩溃、单测也不会红（§3.5 那次的现场就是同一个盒子）。
+
+> **英文验收当场就抓出一条**（1.1.3 真机截图）：八枚胶囊四行都在、没被裁（③ 的口径成立），
+> 但**分档标签条**被挤坏了 —— 268dp 的面板可用 248dp，英文四档（`Working tree` /
+> `Commit graph` / `Refs` / `File history`）连内边距约 273dp，`Row` 下最后一枚只分到 ~30dp，
+> 安卓把 `File history` 在**词内**折成 `File` / `hist` / `ory` 三行。`GitPanelTabs` 已改成
+> `FlowRow`（英文折两行、中文仍一行；面板外壳是 wrap-content，多出的高度不会被 `clipToBounds()` 吃掉）。
+> 口径记进 `NAVIGATION-NOTES.md` §五 自检表：**Tab 内的标签条一律 `FlowRow`，并在英文界面下过一眼**。
 
 ---
 
@@ -307,6 +380,17 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
   现在只是把这条路打通（§3.4）；
 - **过渡期**：行内动作（提交 / 推送 / 撤销 / 上游 / 回退 / 分支 / 同步）暂时保留，
   每处标注「真源在 Git 面板」，**每迁走一个就删掉一个**（一次一个，跟着该动作在面板里验收通过）；
+  **下线顺序**（2026-09-26 拍板）：① 分支 / 同步 —— 面板 1.0.96 起已有出口，**现在就能删**；
+  ② 提交 / 撤销 / 上游 / 回退 —— 等 §3.6 那四枚出口验收通过；③ 推送 —— 被「同步」出口
+  （`LocalBranchSyncScreen` 已含 push / set-upstream / reset --hard origin）完全覆盖，最后删。
+  **回退也给代码页**（原本只想给设置页）：四个决策页的宿主都到齐后，设置列表这一页就只剩
+  进入 / 更新 / 删除 + 页头「管理」，行内动作全部下线；
+- **① 的实际执行（1.1.3，2026-09-26）**：**「同步」已下线**（面板的「同步」出口进的是**同一个**
+  `LocalBranchSyncScreen`，设置里再留一枚只是同一件事摆两处）；**「分支」暂时保留** ——
+  本地分支的**删除**（`RustBridge.deleteBranchLocal`）全仓库只有设置页那个 `BranchesScreen`
+  一个落点（`LocalBranchSyncScreen` 只有 checkout :154 与 createBranchLocal :184），
+  现在删入口会**真丢一个能力**。等本地分支删除有了新家（挪进分支页 / 阶段 6 重绘时一起给），
+  再跟着删这一枚。② ③ 按上面的顺序等验收；
 - **已登记的后续问题（现阶段不做）**：本地仓库**列表行本身要重绘** ——
   现在名称 / 分支 / 状态 / 动作混在一行里，**没按语义边界区分**；用户明确「不能硬加边界」，
   所以要按 [`ui-design.md`](ui-design.md) 的行型与分组规范重新细化，等动作收敛完再动。
@@ -330,6 +414,10 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
 | D-i | **不另建图谱缓存**（Room / JSON 都否掉）：本地仓库对象库就是缓存 | §6.3 |
 | D-j | **「引用树」档只读**：分支的切换 / 新建 / 删除不搬进浮层（有后果 → 决策页），落点是既有的分支管理 / 本地分支同步；这一档只回答「有哪些引用、我在哪、哪些只在远端」 | §2 / §3.2（1.0.95） |
 | D-k | **改动清单 / 提交行的落点 = 独立只读的「本地 diff 页」**（不给文件查看器加「本地工作树」来源）| §3.2 / §11.6；1.0.99 |
+| D-l | **有后果的动作先给「后果弹窗」**：面板出口 → 说清这一步会发生什么 / 有没有退路的确认层 → 需要选择或输入时再进决策页。近义动作（**撤销提交** ⟷ **回退 Git 化**）**各写各的弹窗文案**，不共用 | §3.6；2026-09-26 拍板，落地点是阶段 2 剩余 |
+| D-m | **气泡面板是主操作面**：功能优先在**面板内部**补全（弹窗里可达、预填好再进决策页），**不把操作锁死在「设置 → 本地仓库」的二次页面里**；设置列表继续收敛成统筹台（D-b 的强化） | §1 / §5 / §3.6；与 D-j、§6.4「不把写操作做成按一下就发生的默认路径」同一条口径 |
+| D-n | **「回到某个历史版本」= A + B 两条都给**：**(A)** `reset --hard` 到指定提交（危险 → 后果弹窗 + **把旧 HEAD 的 sha 交给用户**，回到原位置就走 B）；**(B)** 从指定提交**开一条新分支**（不动原分支、不改写历史）。同一个入口的两档，不是两个功能 | §11.12（评估）/ §7（A 待新增 · **B 引擎已有，只缺 UI 出口**）；2026-09-26 拍板 |
+| D-o | **Git 工具气泡球按账号与仓库的关系门控**：**非团队、非协同、非仓库管理员**身份的账号，在相应的仓库下**不显示**这枚球。判定 = `RepoRelation.canWrite`（账号仓库 owner / `permissions.push` —— 受邀协作、组织成员、团队授予的写权限都体现在同一个 `push` 上）；**仓库信息还没到时保守不显示**（与 `parseRepoInfo` 的「`permissions` 缺失即视为无写权限」同口径）。模式门控与账号门控收进**同一个**纯函数 `showGitBubble(mode, relation)`：两个调用点（代码页 / 文件页）少传一个参数就编不过，不给「代码页改了、文件页忘了」留缝 | §1 第 4 条 / §3.4 / §9；2026-09-26 补充规则（用户拍板），落地 1.1.3 |
 
 ### 6.2 已废弃 / 已被取代（**不要再捡回来**）
 
@@ -460,6 +548,24 @@ merge_branch ─► outcome == "conflict"
    预选的分支可能本地与远端跟踪引用都没有（从没 fetch 过），所以合并页会**补一条「只在远端」**的
    选项 —— 否则「打开了页却找不到那条分支」，而引擎本来就会自己 fetch 一次。
 
+**已拍板 · 待新增**（2026-09-26 拍板：「回到某个历史版本」= **A + B 两条都给**，
+见 D-n / §11.12）：
+
+| # | 接口 | 用途 | 状态 |
+|---|---|---|---|
+| 11 | `reset_hard_to_commit(dir, sha)` | 把当前分支 `reset --hard` 到指定提交（**危险**：丢工作区改动与该提交之后的提交）。实现与既有 `reset_hard_to_remote` 同形，只差起点是 `sha` 而不是 `refs/remotes/origin/{branch}`（`revparse_single(sha)` → `peel_to_commit` → `reset(Hard)`）；**要把旧 HEAD 的 sha 返回给 UI**（`{from_sha, to_sha}`）—— 那是用户「回到原位置」的唯一线索（提交对象没被删，用 #12 就能回来） | **待落地**：走完 §9 那条链（`mod.rs` → `jni.rs` → `RustBridge` → `JniSignatureTest` → **重建 `.so`** → `cargo test`） |
+| 12 | ~~`create_branch_at(dir, name, sha)`~~ **不需要新增** | 「从指定提交开一条新分支」今天**已经有了**：`create_branch_local(dir, name, from)`（`core/src/git/mod.rs:600`）的 `from` 走 `repo.revparse_single(from)`，**sha / tag / `origin/x` / `HEAD~3` 都收**（空串 = HEAD），建完立即 `checkout_branch`；门面 `RustBridge.createBranchLocal(dir, name, from = "")`（`app/src/main/java/com/branchbase/core/RustBridge.kt:1123`）也在 | **引擎零改动**；缺的是 **UI 出口**（今天仅两处调用、只传 `""` 与 `"origin/$name"`：`LocalBranchSyncScreen.kt:184` / `SubPageScreens.kt:1465`） |
+
+**未拍板的引擎增项（2026-09-26 登记，别顺手做）**：
+**「更精细的版本代码对比引擎」**（§11.13，契约评估已写入该条）。
+它会**新增 JNI 函数或改输出契约** ⇒ 要走完 §9 那条链（`mod.rs` → `jni.rs` →
+`RustBridge` → `JniSignatureTest` → **重建 `.so`** ≈ 12 分钟 → `cargo test`），
+所以**先评估、再拍板、最后才动接口**；本文的这条未决就是它唯一的登记处（别另开文档）。
+今天的引擎底盘：`core/src/git/mod.rs` 共 **35 条 `pub fn`**，与版本回退 / 精细对比沾边的只有
+`reset_soft`（撤销最近一次提交）、`reset_hard_to_remote`（回到 `origin/{branch}`）、
+`revert_commit`（不改写历史的抵销提交）、`checkout_branch`（只认分支名）、
+`diff_worktree` / `diff_commit`（只出**一个 patch 字符串** + 逐文件统计，`context_lines(3)` 写死）。
+
 ---
 
 ## 8. 路线图（每阶段可独立交付 / 回滚）
@@ -468,7 +574,7 @@ merge_branch ─► outcome == "conflict"
 |---|---|---|
 | **0** | 面板三档 + `PanelSwitcher` + 「工作区」档 | **已落地 1.0.93** |
 | **1** | 「提交图」档（REST + 泳道布局）+ 虚节点 + 分档标签条 | **已落地 1.0.94** |
-| **2** | 「引用树」档（`local_branches` / `remote_branches` / tags 占位）+ `RepoDeepLink.openGitPanel`（含设置列表「进入」）+ 出口收口与日志/回归插桩（1.0.96） | **部分落地 1.0.95 / 1.0.96**；面板内执行有后果的动作（要把决策页宿主扩到仓库页）+ 设置列表动作下线**待做** |
+| **2** | 「引用树」档（`local_branches` / `remote_branches` / tags 占位）+ `RepoDeepLink.openGitPanel`（含设置列表「进入」）+ 出口收口与日志/回归插桩（1.0.96） | **部分落地 1.0.95 / 1.0.96**；**剩余（2026-09-26 收窄）**：① 工作区档四个写出口 + 各自「后果弹窗」（§3.6 / D-l）**已落地代码（未提交，1.1.3）**；② 四个决策页的宿主扩到**代码页**（`RepoRoute` 新增五支 —— 提交 / 身份 / 撤销 / 上游 / 回退，**回退也给代码页**，含删除仓库那条出路）与文件页 **已落地代码**；③ 代码页面板的档位上提 **已落地代码**（`stage` 提到页面级）；④ 面板密度调整（280 → 340dp、胶囊收紧、删 `note_git_views_pending`）**已落地代码**；⑤ 设置列表行内动作**按序下线**（§5）**部分执行**：① 的「同步」已删、「分支」按 §5 的例外保留，②③ 等 §3.6 设备验收。**不含** §11.12 / §11.13 那两条引擎增项 |
 | **3** | `log_graph` / `list_tags` / `log_file` / `diff_worktree` / `diff_commit`（重建 `.so`） | **引擎 + JNI + 门面已落地 1.0.97**（`cargo test` 86 例） |
 | **3'** | 这三个接口的**消费者**：引用树 tags ✅ / 提交图换本地来源 ✅ / 工作区档的本地 diff ✅（并顺带把 `diff_commit` 接上：提交图点一行看这次提交的 diff） | **全部落地**：tags 1.0.97 · 提交图本地来源 1.0.98 · 本地 diff 页 1.0.99 |
 | **4** | `fetch_deepen`（任务中心 + 进度）+ 「文件历史」档（本地优先 + REST 兜底）+ 离线图谱（LocalSource 优先、未推送段） | **全部落地**：`fetch_deepen` 与双来源 1.0.98 · 「文件历史」档 1.0.100 · 未推送段 1.0.101（本地来源下逐条标出来，与工作区档的 `ahead` 同口径） |
@@ -481,14 +587,15 @@ merge_branch ─► outcome == "conflict"
 
 | 要动的东西 | 登记处 |
 |---|---|
-| 面板多一档 / 返回键层级变化 | 注释与本文件的 §3.1；**不新增页面、不动 `route` / `leavePage()` / `fullScreenPages`**（形态已定） |
+| 面板多一档 / 返回键层级变化 | 注释与本文件的 §3.1；**面板这一层不新增页面、不动 `route` / `leavePage()` / `fullScreenPages`**（形态已定）。⚠️ 这只约束**面板自身**：**阶段 2 剩余**要给代码页加**决策页路由**（`RepoRoute` 新增四支），那**必须**动 `route` / `leavePage()`，并在两个宿主各自的返回规则里各表一次态；但那加的是**既有决策页的新宿主**、不是新全屏页，所以 `fullScreenPages` 仍不用登记（`ui/decision/SyncDecisionScreens.kt` / `CommitPrepScreens.kt` 早就在那份显式清单里） |
 | 某一档落地 | `GitPanelKind` 的 `available` 翻成 `true` **并**在 `GitPanelViewHost` 里接上渲染 —— 两处是同一件事，漏一处就是「标着待接入、进去能用」（`GitPanelStageTest` 有一条源码级钉子对着宿主源码查） |
 | `PanelSwitcher` 改动 | `ui/navigation/PageTransitions.kt`（动效唯一真源）+ `PageTransitionsTest`（「三个切换器都下发 `LocalPageActive`」） |
 | **新全屏页**（阶段 5 的冲突详情对比页、阶段 6 的管理页） | `SystemBarInsetsTest.kt` 的 `fullScreenPages`（是个**显式清单**，不是扫全目录）+ 只走 `PageBackHandler`（裸 `BackHandler` 被全目录扫描） |
 | 新 `ui/` 文件里的颜色 | 走 `Primer` 角色；泳道配色在 `ui/theme/Color.kt`（`ThemeConvergenceTest`） |
 | 新字符串 | `tools/i18n/strings.tsv` → `extract.py --apply`（CI 硬门禁 `--min-coverage 100`）。**表里一个字面量只能有一行**：重复会让 `extract.py` 的加载器直接 `SystemExit`（整条抽取链停摆），而 `check-i18n` 只校验 XML 键集合、**查不出这种停摆** —— 1.1.1 之前表里积了 7 条重复（最早 1.0.99 就有），跑了才发现 |
-| 面板里多一个**出口**（去决策页 / 管理页 / 加深的入口） | `GitPanelViewHost` 加**可选**回调（null = 这个宿主没这个出口 → **不画那枚胶囊**），两个宿主各接一次；`GitWorkbenchWiringTest` 盯着别只接一边。**跑动作的是宿主**：面板这一族源码里不许出现任何 git 写方法（同一支测试扫全表） |
+| 面板里多一个**出口**（去决策页 / 管理页 / 加深的入口） | `GitPanelViewHost` 加**可选**回调（null = 这个宿主没这个出口 → **不画那枚胶囊**），两个宿主各接一次；`GitWorkbenchWiringTest` 盯着别只接一边。**跑动作的是宿主**：面板这一族源码里不许出现任何 git 写方法（同一支测试扫全表）。**有后果的出口还要各带一枚「后果弹窗」**（D-l / §3.6），且「撤销提交」⟷「回退 Git 化」的文案**不共用**；钉子照「合并」那组模板加一条 `for (outlet in listOf("onCommit =", "onUndo =", "onUpstream =", "onRollback ="))` 两个宿主都要接 |
 | 新日志锚点 | `ui/log/Logging.kt` 的 `LOG_ANCHORS`（导出包的 `report.md` 会带上这张表）+ tag 常量与该表的字面量必须一致（`LogAnchorsTest` **双向**：表→源码「不腐烂」、源码 `*LOG_TAG` →表「不漏登记」—— 单向那版让 1.0.103 的 `合并` 漏了整整一轮）+ 关键入口逐个钉（`GitWorkbenchWiringTest`） |
+| **Git 气泡球的门控**（谁看得见 Git 模式） | 判定只有一个真源：`showGitBubble(mode, relation)`（`ui/repository/GitBubblePanel.kt`）—— **两个参数都必须传**（调用点少一个就编不过）；文件页 `FileViewerScreen` 的 `gitBallRelation` 参数**不给默认值**（宿主漏传要编不过，不是静默藏球）。账号口径**复用** `repoRelationOf`（owner / `permissions.push`），**别新造一套写权限判定**（星标 / 发布页已经用的是它）；仓库信息未到时按「无写权限」保守处理。钉子 `GitBubbleModeTest`（两种模式 × 四种关系 + 「只有这两个调用点」+ 判定实现原文） |
 | 新 JNI 函数 | `JniSignatureTest.kt`（逐参数、逐类型对账，参数表写错编译期查不出来）+ **重建 `.so`**（`core/build-android.sh`，约 12 分钟）+ `cargo test` |
 | 引擎接口**输出加字段**（签名不变，如 `log_graph` 的 `unpushed`） | 本文件 §7 + [`local-git-engine-design.md`](local-git-engine-design.md) §3 + **Kotlin 侧解析按缺省退化**（`.so` 与 Kotlin 是两份产物：缺键不许读成「都推过了」，也不许整档报错）。签名没变 → 不用动 `JniSignatureTest`，但**仍要重建 `.so`**，否则真机上跑的还是旧行为（本地测试全绿也看不出来） |
 | 新版本 | [`VERSION-NOTES.md`](VERSION-NOTES.md) §二/§三 → 最后改 `version.properties` |
@@ -532,7 +639,8 @@ merge_branch ─► outcome == "conflict"
    （仓库页走 `leavePage`，文件页走它已有的 `page != FilePage.None` 分支）。
    查看器的「本地工作树」来源**不做**：它的成本在编辑 / 草稿 / 冲突那一整套机制上，
    而收益（看原文）答的不是用户的问题（看差异）。**剩下的**是「提交详情 / 对比 / 回滚」那一族 ——
-   它们仍然没有落点，见 §4.3 对虚节点的说明；
+   它们仍然没有落点，见 §4.3 对虚节点的说明（2026-09-26 给其中的「对比 / 回滚」两条立了未决：
+   §11.12 / §11.13；**§11.12 已拍板 A + B**（§7 #11 / #12），§11.13 **仍未拍板**）；
 7. **从个人页子页进仓库页再返回，落点是个人页主页、不是原来那个子页**（1.0.95 的「进入」会走到它）：
    个人页的子页状态是普通 `remember`，`PageSwitcher` 切走时旧页被销毁；现有的 `pendingSubPage`
    寄存点只覆盖「冷启动 / 整屏接管后重建」。要么把它做成通用机制（任何子页都寄存），
@@ -564,3 +672,80 @@ merge_branch ─► outcome == "conflict"
     `ahead - unpushed.size` 反推（清单比 ahead 短 = 截断了）。要让下一个消费者不必自己反推，
     得加一个 `unpushed_truncated` / `unpushed_total` 之类的**只增字段** ——
     签名不变，但按 §9 仍要重建 `.so`，所以属于「下次动那个接口时顺手做」的事。
+12. **「回到某个历史版本」（版本回退）—— 已拍板：A + B 两条都给（2026-09-26）**。
+    用户的拍板原话：「版本回退做 A 加 B」。**结论落地为 D-n / §7 的「已拍板 · 待新增」#11 / #12**：
+    - **(A) `reset_hard_to_commit(dir, sha)`（要新增引擎接口）**：与既有 `reset_hard_to_remote` 同形，
+      只把起点从 `refs/remotes/origin/{branch}` 换成 `revparse_single(sha)`；**签名里要把旧 HEAD 的 sha
+      带回来**（`{from_sha, to_sha}`），因为对象并没有被删 —— 用户想「回到原位置」就用 (B) 回到 `from_sha`，
+      这条退路必须写在后果弹窗里（D-l），否则 (A) 就是一条只有去路的动作。
+      置灰/拦下的口径照既有预检函数：初始提交（没有父）、浅克隆里 `sha` 不是本地可达对象
+      （出路是「加深历史」，`fetch_deepen`）、`sha` 不存在。
+    - **(B) 从指定提交开一条新分支（引擎零改动）**：`create_branch_local(dir, name, from)`
+      （`core/src/git/mod.rs:600`）的 `from` 本来就 `repo.revparse_single(from)`
+      ⇒ **sha / tag / `origin/x` / `HEAD~3` 全都收**，建完立即 `checkout_branch`。
+      所以 §7 原表设想的 `create_branch_at` **不需要新增**，缺的只是 **UI 出口**
+      （今天仅两处调用，传的是 `""` 与 `"origin/$name"`：`LocalBranchSyncScreen.kt:184` /
+      `SubPageScreens.kt:1465`）—— 一个「新分支名」输入框 + 复用既有 `RustBridge.createBranchLocal`。
+    - **(c) 用既有 `revert_commit` 组合**：**不做**（历史只增、提交数膨胀，与 D-d「图不设上限」不搭；
+      需要它时它是既有能力，不用立项）。
+    落点与形态：两档是**同一个入口的两档**（提交图行 / 引用树行 / 提交详情 → 后果弹窗 → A 走二次确认、
+    B 走新分支名输入），不新开页面；「已推送的提交」不单独加档（`amend 已推送 / 强推` 仍是 §6.4 禁区）。
+    `reset --mixed` 不顺手补：`--soft`（撤销提交保改动）与 `--hard` 已经把两条路占了，中间那档没有用户故事。
+13. **「更精细的版本代码对比引擎」做到哪一档（2026-09-26 登记，未拍板）**：
+    现状：`diff_worktree(dir)` / `diff_commit(dir, sha)` 的输出都只是**一个 patch 字符串** + 逐文件统计
+    （`LocalDiffView(files, truncated)` / `LocalDiffFile(path, status, additions, deletions, patch)`，
+    `app/src/main/java/com/branchbase/ui/repository/LocalDiffModels.kt:30` 起；`patchHasHunks(patch)`
+    直接对字符串判断），`opts.context_lines(3)` 写死、`DIFF_PATCH_LIMIT = 200 * 1024` 截断；
+    `diff_commit` 只与**第一父**比（merge 提交看不出「两条线上各改了什么」），
+    `analyze_conflicts` 走的是同一个 `render_diff`。候选能力（各自独立、可分批）：
+    ① **任意两个提交对比** `diff_commits(dir, base, head)`（含 merge 提交选父 / 跟父 2 比）；
+    ② **`DiffOptions` 三个开关**：上下文行数可调、忽略空白、重命名识别（成本最低，签名不变）；
+    ③ **结构化 hunk**（行级 `{origin, old_lineno, new_lineno, text}`）替代字符串 —— 界面才能
+    折叠 hunk / 并排 / 行内高亮；**并不需要大改契约**（按下面的实测：只增字段即可），
+    真正牵动的是**界面的渲染源**：`localDiffRows` · `LocalDiffScreen` ·
+    `LocalDiffModelsTest`（12 例）——`parseUnifiedDiff` / `DiffLines.kt` 是**三页共享**的，别动它们；
+    ④ **词级（行内）高亮**；⑤ **三栏合并器**（= §11.3 那条的延长线，独立模块级工作量，
+    别和 ①②③ 混在一版）。
+    顺序建议 **② → ① → ③**，④⑤ 另议；**先做哪一档由用户拍板**。
+    值得一起评估的还有：200 KB 截断时今天只能看前 200 KB，要不要给「按文件取 / 分页」。
+
+    **契约评估（2026-09-26 实测，结论：不需要「大改契约」）**
+
+    契约面比它看上去小得多 —— 整条链只有这几处：
+
+    - **引擎**：`diff_worktree`（`core/src/git/mod.rs:2276`）/ `diff_commit`（同文件 `:2304`）
+      返回的是**一个 JSON 字符串**，由 `render_diff` 用 `json!` 宏拼出（**无类型的值**，加字段零成本）：
+      `{patch, files:[{path, status, additions, deletions}], truncated}`。
+      `patch` 来自 `diff.print(DiffFormat::Patch, |delta, hunk, line| …)` —— **回调本来就把 `hunk` 与
+      `line` 递到手边**（今天只取了 `origin` 与 `content`），`line.old_lineno() / new_lineno()` 也在同一处，
+      所以 ③ 在引擎侧是**同一趟回调里多收一份**，不是重写 diff。
+    - **门面**：JNI 声明两行（`app/src/main/java/com/branchbase/core/RustBridge.kt:222` / `:224`）+
+      `suspend` 包装两行（同文件 `:1025-1031`）。
+    - **解析**：**唯一解析器** `parseLocalDiff`（`app/src/main/java/com/branchbase/ui/repository/LocalDiffModels.kt:84`）
+      → **唯一页面** `LocalDiffScreen.kt`（`:75` / `:84-87` / `:176`）→ 摊平 `localDiffRows`
+      （`LocalDiffModels.kt:131`）→ 共享渲染 `parseUnifiedDiff`（`app/src/main/java/com/branchbase/ui/repository/BranchDiff.kt:16`）
+      + `DiffLines.kt`（74 行）。**`parseUnifiedDiff` 另有 2 个消费者**：`BranchCompareScreen.kt:402`
+      （REST 逐文件 patch）与 `MergeConflictScreen.kt:381`（冲突的 ours ↔ theirs patch）。
+    - **测试**：`app/src/test/java/com/branchbase/ui/repository/LocalDiffModelsTest.kt` **12 例**，
+      全部落在「JSON 形状 / patch 拆段」这一层。
+    - **不变量**：patch 的段数与 `files` 的条数**按下标对齐**（`LocalDiffModels.kt:93`；
+      引擎侧 `core/src/git/mod.rs:3243` 的 `diff_worktree_未跟踪文件带内容且两段按下标对齐` 钉着。
+
+    | 档 | 契约面 | 破坏面 |
+    |---|---|---|
+    | ② 选项开关（上下文行数 / 忽略空白 / 重命名） | 走**新入口**（如 `diff_range(dir, base, head, opts)`）＝零破坏；硬塞进旧签名也能做，但两个旧调用点只有 `LocalDiffScreen.kt:84-85` 两行 | 极小 |
+    | ① 任意两提交对比 | **纯新增**函数 | 零 |
+    | ③ 结构化 hunk | **只增字段**：`hunks` 加在 `files[i]` 里，旧解析器用 `JSONObject.optXxx`，**天然忽略未知键** ⇒ Kotlin 一行不改也能继续跑。这正是 §9「输出加字段」那条路：**签名不变 → 不动 `JniSignatureTest`，但仍要重建 `.so`** | 引擎零 · 界面中 |
+    | ④ 词级行内高亮 | 可在客户端基于 ③ 算（不碰契约）；引擎出也只是只增字段 | 零 / 界面 |
+
+    **所以「大改」落在界面、不在契约**：③ 落地时要把 `localDiffRows` 的渲染源从 `file.patch` 换成
+    结构化数据，并给 `LocalDiffModelsTest` 的 12 例加/换口径；`parseUnifiedDiff` + `DiffLines.kt`
+    是**三页共享**的，**别改它** —— 给本地 diff 页加第二条渲染路径（结构化行 → 同一套 `DiffLineRow`）
+    比改造共享解析器安全得多。可以**分两步**：引擎先只增字段（旧界面照跑），界面等要做
+    折叠 / 并排 / 词级时再切。
+
+    **两条真风险**：① **JSON 体积** —— `hunks` 会把 `patch` 里已有的文本再写一遍（≈ 2×），
+    而 `DIFF_PATCH_LIMIT = 200 * 1024` 只管 `patch` 这一项，两套上限必须**分开定义**，
+    否则会出现「patch 截断了、hunks 却是全的」这种自相矛盾的画面；
+    ② 将来真要做「按文件取 / 分页」，上面那条**下标对齐**不变量得重新定义
+    （它今天撑着「宁可少画，不可画错」）。

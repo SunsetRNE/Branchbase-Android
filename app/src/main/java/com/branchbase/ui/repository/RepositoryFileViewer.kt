@@ -57,6 +57,7 @@ import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
 import com.branchbase.editor.BranchbaseCodeEditor
 import com.branchbase.ui.decision.AuthorIdentityScreen
+import com.branchbase.ui.decision.DeleteRepoWarningScreen
 import com.branchbase.ui.decision.DraftInfo
 import com.branchbase.ui.decision.DraftRecoverScreen
 import com.branchbase.ui.log.LogCategory
@@ -66,6 +67,11 @@ import com.branchbase.ui.decision.OfflineConflictScreen
 import com.branchbase.ui.decision.SensitiveWarningScreen
 import com.branchbase.ui.decision.StageCommitScreen
 import com.branchbase.ui.decision.StageFile
+import com.branchbase.ui.decision.GitifyRollbackScreen
+import com.branchbase.ui.decision.UndoCommitScreen
+import com.branchbase.ui.decision.UnpushedCommit
+import com.branchbase.ui.decision.UpstreamSetupScreen
+import com.branchbase.ui.decision.parseGitStatus
 import com.branchbase.ui.decision.parseSensitiveHits
 import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.profile.CommitMode
@@ -97,6 +103,11 @@ fun FileViewerScreen(
     highlightLines: String? = null,
     defaultBranch: String = "main",
     branches: List<String> = emptyList(),
+    /**
+     * 当前账号与这个仓库的关系 —— 文件页那枚 Git 工具气泡球的账号门控（判定见 [showGitBubble]）。
+     * **没有默认值**：宿主忘了传就编不过，不会出现「代码页有门控、文件页没有」这种一半生效。
+     */
+    gitBallRelation: RepoRelation,
     onOpenBranchManage: () -> Unit = {},
     onOpenLocalSync: () -> Unit = {},
     onBack: () -> Unit,
@@ -487,6 +498,33 @@ fun FileViewerScreen(
     val localGit = rememberLocalRepoGitState(repo, gitTick + resumeTick)
     var gitPanelStage by remember { mutableStateOf<GitPanelStage>(GitPanelStage.Collapsed) }
 
+    // ── 四个写出口：后果弹窗 + 目的地（`git-mode-design.md` §3.6） ──
+    // 与代码页同一套：面板只画胶囊，**宿主**负责「先说清后果，再送进决策页」。
+    // 两页各接一次是有意的 —— 面板不知道自己在谁里面，弹窗与动作都得由宿主收口。
+    val outletFlow = rememberGitOutletFlowState()
+
+    /** 送进目的地（与代码页同形；这里只有一条 `page` 状态机，所以直接改它）。 */
+    fun openOutletDestination(outlet: GitOutlet) {
+        when (outlet) {
+            GitOutlet.Commit -> scope.launch {
+                val dir = localRepoDir(context, repo)
+                val status = withContext(Dispatchers.IO) {
+                    RustBridge.gitStatus(dir)?.let { parseGitStatus(it) }
+                }
+                val files = status?.dirty.orEmpty().map { StageFile(it.path, it.status) }
+                if (files.isEmpty()) {
+                    feedback = Feedback(context.getString(R.string.error_nothing_to_commit), false)
+                } else {
+                    // 清单只作展示（本地仓库档不勾选）：真正提交的是整个工作区
+                    page = FilePage.Stage(files, CommitMode.LOCAL_REPO)
+                }
+            }
+            GitOutlet.Undo -> page = FilePage.OutletUndo
+            GitOutlet.Upstream -> page = FilePage.OutletUpstream
+            GitOutlet.Rollback -> page = FilePage.OutletRollback
+        }
+    }
+
     // 返回键先消费本页自己的三层覆盖（从内到外）：
     // 1. 决策页（敏感内容 / 暂存提交 / 身份 / 草稿恢复 / 离线冲突）—— 叠在正文之上的全屏层，
     //    它们的返回箭头都是「回编辑态」；
@@ -647,10 +685,11 @@ fun FileViewerScreen(
         }
     }
 
-        // Git 悬浮球：**绑定「本地仓库（Git）」模式**（判定见 showGitBubble）——
-        // 单文件 / 多文件两种模式不显示。它管的都是本地仓库的事（工作树 / 提交 / 分支同步），
-        // 模式不对时挂着只会白挡正文（编辑态的提交 / 保存草稿 / 取消在底部本来就有一份）。
-        if (showGitBubble(effectiveMode)) {
+        // Git 悬浮球：**模式 + 账号关系**双重门控（判定见 showGitBubble）——
+        // 单文件 / 多文件两种模式不显示；非团队、非协同、非仓库管理员的账号也不显示
+        // （2026-09-26 规则）。它管的都是本地仓库的事（工作树 / 提交 / 分支同步），
+        // 模式不对或没有写权限时挂着只会白挡正文（编辑态的提交 / 保存草稿 / 取消在底部本来就有一份）。
+        if (showGitBubble(effectiveMode, gitBallRelation)) {
             GitBubblePanel(
                 actions = buildList {
                     if (editing) {
@@ -761,6 +800,12 @@ fun FileViewerScreen(
                         // 「文件历史」档要看的就是正在看的这个文件 ——
                         // 漏了它这一档会退化成「请去文件里看」，而这一页**就是**那个文件页
                         filePath = path,
+                        // 四个写出口（§3.6）：与代码页一一对应。面板只画胶囊，
+                        // 后果弹窗与四个目的地都由本页承担（`outletFlow`）
+                        onCommit = { outletFlow.pending = GitOutlet.Commit },
+                        onUndo = { outletFlow.pending = GitOutlet.Undo },
+                        onUpstream = { outletFlow.pending = GitOutlet.Upstream },
+                        onRollback = { outletFlow.pending = GitOutlet.Rollback },
                     )
                 },
                 title = localGit.summary(),
@@ -790,6 +835,20 @@ fun FileViewerScreen(
                 page = FilePage.MergeConflict
             },
             onLater = { mergeFlow.conflict = null },
+        )
+    }
+
+    // 四个写出口的「后果弹窗」（§3.6）：与代码页同一个位置、同一个理由 ——
+    // 它是在工作台里点出来的，而那一档随时可能因为换页而不在组合里；
+    // 弹窗只负责说清后果，真正的动作交给 openOutletDestination 送去的决策页
+    outletFlow.pending?.let { outlet ->
+        GitOutletDialog(
+            outlet = outlet,
+            onConfirm = {
+                openOutletDestination(outlet)
+                outletFlow.settle()
+            },
+            onDismiss = { outletFlow.settle() },
         )
     }
 
@@ -852,20 +911,38 @@ fun FileViewerScreen(
             StageCommitScreen(
                 repoName = "$owner/$repo",
                 files = p.files,
-                mode = CommitMode.MULTI_FILE,
+                mode = p.mode,
                 onBack = { page = FilePage.None },
                 onPickMode = { /* 已固化 */ },
                 onCommit = { message, selected ->
-                    page = FilePage.None
-                    doBatchCommit(message, selected)
+                    if (p.mode == CommitMode.LOCAL_REPO) {
+                        // 工作台「提交」出口：整个工作区一起提交（引擎 add_all(".")，勾选无意义）
+                        if (commitIdentityReady(context)) {
+                            page = FilePage.None
+                            scope.runLocalRepoCommit(
+                                context = context,
+                                repoDir = localRepoDir(context, repo),
+                                repoName = repo,
+                                message = message,
+                                onFeedback = { text, ok -> feedback = Feedback(text, ok = ok) },
+                                onChanged = { gitTick++ },
+                            )
+                        } else {
+                            // 第一次提交：补完身份再回来（信息带过去，不必重写）
+                            page = FilePage.Identity(message, localRepo = true)
+                        }
+                    } else {
+                        page = FilePage.None
+                        doBatchCommit(message, selected)
+                    }
                 },
             )
             return
         }
         is FilePage.Identity -> {
             AuthorIdentityScreen(
-                suggestedName = "",
-                suggestedEmail = "@users.noreply.github.com",
+                suggestedName = owner,
+                suggestedEmail = "$owner@users.noreply.github.com",
                 onBack = { page = FilePage.None },
                 onConfirm = { name, email, save ->
                     if (save) {
@@ -873,7 +950,98 @@ fun FileViewerScreen(
                             .edit().putString("commit.author.name", name).putString("commit.author.email", email).apply()
                     }
                     page = FilePage.None
-                    doGitCommit(p.message)
+                    if (p.localRepo) {
+                        // 工作台「提交」出口那条路：整个工作区一起提交；
+                        // 选了「仅本次使用」时 prefs 里没有这两个值，那就这一次用它
+                        scope.runLocalRepoCommit(
+                            context = context,
+                            repoDir = localRepoDir(context, repo),
+                            repoName = repo,
+                            message = p.message,
+                            onFeedback = { text, ok -> feedback = Feedback(text, ok = ok) },
+                            onChanged = { gitTick++ },
+                            authorName = name,
+                            authorEmail = email,
+                        )
+                    } else {
+                        doGitCommit(p.message)
+                    }
+                },
+            )
+            return
+        }
+        // ── 四个写出口的目的地（§3.6）：与代码页同一批页面、同一份口径 ──
+        FilePage.OutletUndo -> {
+            UndoCommitScreen(
+                repoName = repo,
+                repoDir = localRepoDir(context, repo),
+                onBack = { page = FilePage.None },
+                onResolved = { msg ->
+                    msg?.takeIf { it.isNotBlank() }?.let { feedback = Feedback(it, ok = true) }
+                    gitTick++
+                    page = FilePage.None
+                },
+            )
+            return
+        }
+        FilePage.OutletUpstream -> {
+            UpstreamSetupScreen(
+                repoName = repo,
+                repoDir = localRepoDir(context, repo),
+                token = token,
+                onBack = { page = FilePage.None },
+                onResolved = { msg, fork ->
+                    // fork 那一步有自己的页面（在设置 → 本地仓库里）：本页没有这一页，
+                    // 那就如实说去哪，而不是在这里假装上游设好了
+                    if (fork) feedback = Feedback(context.getString(R.string.note_fork_entry_settings), ok = true)
+                    else msg?.takeIf { it.isNotBlank() }?.let { feedback = Feedback(it, ok = true) }
+                    gitTick++
+                    page = FilePage.None
+                },
+            )
+            return
+        }
+        FilePage.OutletRollback -> {
+            GitifyRollbackScreen(
+                repoName = repo,
+                repoDir = localRepoDir(context, repo),
+                onBack = { page = FilePage.None },
+                onDeletedRepo = {
+                    // 选项 ② 只交接**后果**：先读「还有多少没推送」，再换收尾页确认删除
+                    scope.launch {
+                        val dir = localRepoDir(context, repo)
+                        val st = withContext(Dispatchers.IO) {
+                            RustBridge.gitStatus(dir)?.let { parseGitStatus(it) }
+                        }
+                        page = FilePage.OutletDeleteWarn(st?.unpushed.orEmpty())
+                    }
+                },
+                onResolved = { msg ->
+                    msg?.takeIf { it.isNotBlank() }?.let { feedback = Feedback(it, ok = true) }
+                    gitTick++
+                    page = FilePage.None
+                },
+            )
+            return
+        }
+        is FilePage.OutletDeleteWarn -> {
+            DeleteRepoWarningScreen(
+                repoName = repo,
+                unpushed = p.unpushed,
+                // stats 留 null：它要一次额外的网络请求。少了它，这一页该列的「会丢什么」一条不少
+                stats = null,
+                onBack = { page = FilePage.None },
+                // 「先推送」：这是「本地分支同步」的活 —— 关掉这一页，让用户从面板去那边
+                onPushFirst = { page = FilePage.None },
+                onDelete = {
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            File(localRepoDir(context, repo)).deleteRecursively()
+                        }
+                        feedback = Feedback(context.getString(R.string.toast_deleted, repo), ok = true)
+                        gitTick++
+                        page = FilePage.None
+                    }
                 },
             )
             return
@@ -971,8 +1139,26 @@ fun FileViewerScreen(
 private sealed interface FilePage {
     data object None : FilePage
     data class Sensitive(val hits: List<com.branchbase.ui.decision.SensitiveHit>) : FilePage
-    data class Stage(val files: List<StageFile>) : FilePage
-    data class Identity(val message: String) : FilePage
+    data class Stage(
+        val files: List<StageFile>,
+        /**
+         * 提交口径。
+         *
+         * 同一页要服务两条完全不同的路：本页「编辑 → 草稿 → 提交」走 `MULTI_FILE`（按文件勾选），
+         * 而工作台四个写出口里的「提交」走 `LOCAL_REPO`（整个工作区一起提交，不勾选）——
+         * 见 `StageCommitScreen` 里的 `localRepo` 分支。
+         */
+        val mode: CommitMode = CommitMode.MULTI_FILE,
+    ) : FilePage
+
+    /**
+     * 提交身份页。
+     *
+     * `localRepo` 区分**这是哪条路的身份页**：本页草稿提交（false，确认后 `doGitCommit`）
+     * 还是工作台「提交」出口（true，确认后跑 `runLocalRepoCommit`，整个工作区一起提交）。
+     * 两者共用同一页是有意的 —— 身份就一份（`commit.author.*`），不该有两页问同一个问题。
+     */
+    data class Identity(val message: String, val localRepo: Boolean = false) : FilePage
     data class Draft(val drafts: List<DraftInfo>) : FilePage
     /** 离线冲突：本地草稿基于的远端 sha 已变化 */
     data class Conflict(val local: String, val remote: String) : FilePage
@@ -995,6 +1181,21 @@ private sealed interface FilePage {
 
     /** 冲突详情对比页（逐文件解决 → 提交合并 / 放弃合并）。 */
     data object MergeConflict : FilePage
+
+    // ── 四个写出口的目的地（`git-mode-design.md` §3.6）：与代码页一一对应 ──
+    // 「提交」复用上面的 [Stage]（`mode = LOCAL_REPO`）；身份复用 [Identity]（`localRepo = true`）。
+
+    /** 撤销最近一次提交（未推送 amend / soft / hard · 已推送 revert）。 */
+    data object OutletUndo : FilePage
+
+    /** 上游设置（首次 push）。 */
+    data object OutletUpstream : FilePage
+
+    /** 回退 Git 化（保留 `.git` / 移除 `.git` / 删除整个仓库）。 */
+    data object OutletRollback : FilePage
+
+    /** 「删除整个仓库」的收尾页（回退的选项 ②）；带上没推送的提交。 */
+    data class OutletDeleteWarn(val unpushed: List<UnpushedCommit>) : FilePage
 }
 
 /** 解析行号锚点（如 "L12-L34"、"L12"）为闭区间 [start..end]，非法返回 null。 */

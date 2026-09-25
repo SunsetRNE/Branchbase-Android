@@ -82,7 +82,16 @@ import com.branchbase.core.GithubWebSession
 import com.branchbase.core.RepoCredentialStore
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.auth.keyTokenCreateUrl
+import com.branchbase.ui.decision.AuthorIdentityScreen
+import com.branchbase.ui.decision.DeleteRepoWarningScreen
+import com.branchbase.ui.decision.GitifyRollbackScreen
 import com.branchbase.ui.decision.PatInputScreen
+import com.branchbase.ui.decision.StageCommitScreen
+import com.branchbase.ui.decision.StageFile
+import com.branchbase.ui.decision.UndoCommitScreen
+import com.branchbase.ui.decision.UnpushedCommit
+import com.branchbase.ui.decision.UpstreamSetupScreen
+import com.branchbase.ui.decision.parseGitStatus
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.navigation.NavigationShell
 import com.branchbase.ui.navigation.PageBackHandler
@@ -101,7 +110,9 @@ import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 仓库详情页容器：顶部返回 + 内容区（分页切换）+ 底部导航（5 项 + ⋮ 气泡）。
@@ -158,6 +169,23 @@ internal fun initialRepoPage(openGitPanel: Boolean, explicit: RepoPage?): RepoPa
     explicit != null -> explicit
     openGitPanel -> RepoPage.Code
     else -> RepoPage.Overview
+}
+
+/**
+ * 代码页按返回键该落到哪个目录（纯函数，便于单测）。
+ *
+ * - 在子目录里 → 上一层目录（`"core/src"` → `"core"`）；
+ * - 已经在根目录 / 不在代码页 / 不在 Tab 骨架（全屏子页自会消费）→ `null`，**放手给宿主**。
+ *
+ * 「按返回跳层」这类问题只有真机连按才试得出来，回归时最难发现，所以按
+ * `NAVIGATION-NOTES.md` 规则 2 钉成纯函数：**左上角返回箭头与系统返回键必须走同一个目标**。
+ * 旧表现：在 `core/src` 按系统返回直接跳出整个仓库页（左上角箭头也一样），
+ * 只能在面包屑上点那截 24dp 宽的蓝字才能回上一层 —— 用户报的「点进文件夹没有返回上一层」。
+ */
+internal fun codeFolderBackTarget(page: RepoPage, tabRoute: Boolean, path: String): String? = when {
+    !tabRoute || page != RepoPage.Code -> null
+    path.isBlank() -> null
+    else -> parentPath(path)
 }
 
 @Composable
@@ -240,6 +268,15 @@ fun RepositoryScreen(
     var diffTarget by remember { mutableStateOf<RepoRoute.LocalDiff?>(null) }
     var showLocalSync by remember { mutableStateOf(false) }
 
+    // 代码页当前所在的目录（面包屑 / 「上一层」/ 返回键）。
+    // **必须住在页面级**，两个理由：
+    // ① 打开文件会切到全屏文件页，PageSwitcher 的 Tab 那一支离开组合 —— 目录状态留在
+    //    `RepositoryCodeContent` 里面的话，从文件页返回时目录就丢了（悄悄回到仓库根目录）；
+    // ② 返回键要按层级分派（`NAVIGATION-NOTES.md` 规则 2）：系统返回键与左上角返回箭头
+    //    必须走同一个目标，而**宿主**是唯一同时看得见两者的地方。
+    // 键选 `repo`：换仓库从根目录开始（换个仓库还停在 `core/src` 只会 404 或看错目录）。
+    var codePath by remember(repo) { mutableStateOf("") }
+
     // 合并（阶段 5 的 UI 那半）：决策页 / 冲突详情页两屏，加上「正在进行的那次合并」的状态。
     // 路由由这两个 boolean 推出来（与 LocalDiff 同一条规矩：状态与路由不许各写一份）
     var showMerge by remember { mutableStateOf(false) }
@@ -252,6 +289,70 @@ fun RepositoryScreen(
     var showCommitMode by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    // ── 四个写出口：后果弹窗 + 四个目的地（`git-mode-design.md` §3.6） ──────────
+    //
+    // 面板那一族源码里不出现任何 git 写方法（`GitWorkbenchWiringTest` 执法）：面板画胶囊，
+    // **宿主**负责「先说清后果、再送进决策页」。弹窗住在这边是有理由的 —— 提交页要的
+    // message、撤销页要的 sha / 已推送与否、上游页要的 token，全都在页面上；在弹窗里把它们
+    // 收齐等于把决策页重写一遍（§3.6 ③）。
+    //
+    // 面板档位（§8 阶段 2 剩余 ③）**上提到这里**：面板长在 PageSwitcher 的 Tab 分支里，
+    // 进决策页时那一支离开组合，`remember` 在面板内部的话档位就丢了 —— 用户从「提交…」回来，
+    // 面板又躺平成收起的球。放在页面级能穿过这些决策页（文件页早就是这么做的）
+    var gitPanelStage by remember { mutableStateOf(initialGitPanelStage(initial?.openGitPanel == true)) }
+    val outletFlow = rememberGitOutletFlowState()
+    // 「提交」出口要用哪几行改动：在**弹窗确认之后**现读一次快照，而不是吃面板里那份
+    // （面板那份可能已经过期几十秒 —— 拿它去提交，用户看到的清单与实际提交的不是一回事）
+    var outletStageFiles by remember(repo) { mutableStateOf<List<StageFile>>(emptyList()) }
+    var showOutletCommit by remember(repo) { mutableStateOf(false) }
+    var showOutletUndo by remember(repo) { mutableStateOf(false) }
+    var showOutletUpstream by remember(repo) { mutableStateOf(false) }
+    var showOutletRollback by remember(repo) { mutableStateOf(false) }
+    // 身份没填过时先停一页补身份：把用户**已经写好的**提交信息带过去（回来时不必重写）
+    var outletIdentityMessage by remember(repo) { mutableStateOf<String?>(null) }
+    // 「回退 Git 化」选到「删除整个仓库」时的收尾页：null = 这一页没开
+    // （回退页的选项 ② 只是把**后果**交接过来，真正动手删除的是这一页 —— 与设置那条路同形）
+    var outletDeleteUnpushed by remember(repo) { mutableStateOf<List<UnpushedCommit>?>(null) }
+
+    /** 送进目的地；四个出口都从这里走，避免四段几乎一样的 when 各自漏一条。 */
+    fun openOutletDestination(outlet: GitOutlet) {
+        when (outlet) {
+            GitOutlet.Commit -> scope.launch {
+                val dir = localRepoDir(context, repo)
+                val status = withContext(Dispatchers.IO) {
+                    RustBridge.gitStatus(dir)?.let { parseGitStatus(it) }
+                }
+                val files = status?.dirty.orEmpty().map { StageFile(it.path, it.status) }
+                // 弹窗说完后果、清单却是空的：这一趟没有可提交的东西，说实话比进一个空页面好。
+                // 这里不调下面的局部 `toast()`：局部函数只能先声明后使用，而出口的状态与处理
+                // 必须跟其他状态声明在一起（它们在 toast 之前）
+                if (files.isEmpty()) {
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.error_nothing_to_commit),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                } else {
+                    outletStageFiles = files
+                    showOutletCommit = true
+                }
+            }
+            GitOutlet.Undo -> showOutletUndo = true
+            GitOutlet.Upstream -> showOutletUpstream = true
+            GitOutlet.Rollback -> showOutletRollback = true
+        }
+    }
+
+    /** 四个目的地全部关掉（提交/撤销/上游/回退跑完后的统一收口）。 */
+    fun closeOutletPages() {
+        showOutletCommit = false
+        showOutletUndo = false
+        showOutletUpstream = false
+        showOutletRollback = false
+        outletIdentityMessage = null
+        outletDeleteUnpushed = null
+    }
 
 
     // ── 仓库凭据（D）：账号优先，账号打不开这个仓库时才回退 ──────────────────
@@ -364,6 +465,17 @@ fun RepositoryScreen(
     // token 复用上面已解好的 sessionToken（本地 git 动作也要它）
     val sessionHost = remember(session) { sessionInfo(session).first }
     val sessionLogin = remember(session) { sessionInfo(session).third }
+    // 「Git 工具气泡球」的账号门控（2026-09-26 规则）：非团队、非协同、非仓库管理员 → 不显示。
+    // 判定与星标 / 发布页的写权限同一套口径（owner / permissions.push，见 repoRelationOf）；
+    // 仓库信息还没到（repoCanPush 默认 false、repoInfo 为 null）时按「无写权限」保守处理 ——
+    // 只读账号全程看不到球，写账号在 info 回来那一帧才出现。判定见 showGitBubble。
+    val gitBallRelation = repoRelationOf(
+        ownerLogin = owner,
+        me = sessionLogin,
+        canPush = repoCanPush,
+        canPull = repoInfo?.canPull ?: true,
+        isPrivate = repoInfo?.isPrivate ?: false,
+    )
     fun toast(text: String) = Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
 
     /**
@@ -486,6 +598,14 @@ fun RepositoryScreen(
         showMergeConflict -> RepoRoute.MergeConflict
         showMerge -> RepoRoute.Merge
         showLocalSync -> RepoRoute.LocalSync
+        // 四个写出口的目的地（§3.6）：身份页压在最上面 —— 它只在「提交」那条路上出现，
+        // 回退（返回键）时落回提交页，用户写好的信息还在 `outletIdentityMessage` 里
+        outletIdentityMessage != null -> RepoRoute.OutletIdentity
+        outletDeleteUnpushed != null -> RepoRoute.OutletDeleteWarn(outletDeleteUnpushed!!)
+        showOutletCommit -> RepoRoute.OutletCommit
+        showOutletUndo -> RepoRoute.OutletUndo
+        showOutletUpstream -> RepoRoute.OutletUpstream
+        showOutletRollback -> RepoRoute.OutletRollback
         peoplePage != null -> RepoRoute.People(peoplePage!!)
         filePage != null -> RepoRoute.File(filePage!!)
         issuePage != null -> RepoRoute.Issue(issuePage!!)
@@ -498,10 +618,21 @@ fun RepositoryScreen(
         else -> RepoRoute.Tab
     }
 
+    // 代码页在子目录里时，返回键先「上一层目录」（`codeFolderBackTarget` 是纯函数 + 单测）。
+    // 注册在气泡之后：气泡铺着全屏遮罩时先收气泡，收完再退目录 —— 这是返回键的层级顺序
+    //（面板档位 → 气泡 → 上一层目录 → 宿主），每一层都比上一层**更靠近用户当下看的东西**。
+    val folderUp: String? = codeFolderBackTarget(page, tabRoute = route == RepoRoute.Tab, path = codePath)
+
     // 底部 ⋮ 气泡展开时同样铺了一层全屏遮罩：返回键先收起它，而不是关掉整个仓库页。
     // 注册顺序：在按路由分派的 handler 之后、各子页的 handler 之前 ——
     // 子页打开时气泡是收起的，两者不会同时启用。
-    PageBackHandler(bubbleExpanded) { bubbleExpanded = false }
+    PageBackHandler(bubbleExpanded || folderUp != null) {
+        if (bubbleExpanded) {
+            bubbleExpanded = false
+        } else {
+            folderUp?.let { codePath = it }
+        }
+    }
 
     // 打不开仓库时的「出路」：失败卡（ListError）从这里取 —— 见 LocalRepoAccessActions 的说明
     val repoAccessActions = remember(owner, repo, session) {
@@ -598,6 +729,14 @@ fun RepositoryScreen(
                     RepoRoute.LocalSync -> showLocalSync = false
                     RepoRoute.WebLogin -> showWebLogin = false
                     RepoRoute.PatInput -> showPatInput = false
+                    // 四个写出口（§3.6）：身份页的返回落回**提交页**而不是面板 ——
+                    // 用户是在补身份的路上被打断的，提交信息还在 `outletIdentityMessage` 里
+                    RepoRoute.OutletIdentity -> outletIdentityMessage = null
+                    is RepoRoute.OutletDeleteWarn -> outletDeleteUnpushed = null
+                    RepoRoute.OutletCommit -> showOutletCommit = false
+                    RepoRoute.OutletUndo -> showOutletUndo = false
+                    RepoRoute.OutletUpstream -> showOutletUpstream = false
+                    RepoRoute.OutletRollback -> showOutletRollback = false
                     is RepoRoute.BranchCompare -> comparePair = null
                     is RepoRoute.LocalDiff -> diffTarget = null
                     is RepoRoute.ReleaseDetail -> releaseDetail = null
@@ -750,6 +889,154 @@ fun RepositoryScreen(
                         )
                     }
 
+                    // ── 四个写出口的目的地（`git-mode-design.md` §3.6） ──
+                    //
+                    // 共同形状：**改完就收**（`closeOutletPages()`）+ 让面板重读一次快照。
+                    // 不刷新的话，「提交完了面板还写着 3 个改动」会原样发生在工作区档上。
+                    //
+                    // 提交（本地仓库模式）：清单只作展示，不按文件勾选 —— 引擎 `commit_repo`
+                    // 先 `add_all(".")`，勾选框在这一档只会变成「取消了勾选、提交照样带上」的静默失效
+                    RepoRoute.OutletCommit -> {
+                        StageCommitScreen(
+                            repoName = repo,
+                            files = outletStageFiles,
+                            mode = CommitMode.LOCAL_REPO,
+                            onBack = { showOutletCommit = false },
+                            // 出口本身就是「本地仓库」这一档：不再问模式（问一遍也只是同一个答案）
+                            onPickMode = { },
+                            onCommit = { message, _ ->
+                                if (commitIdentityReady(context)) {
+                                    scope.runLocalRepoCommit(
+                                        context = context,
+                                        repoDir = localRepoDir(context, repo),
+                                        repoName = repo,
+                                        message = message,
+                                        onFeedback = { text, _ -> toast(text) },
+                                        onChanged = { refreshTick++; closeOutletPages() },
+                                    )
+                                } else {
+                                    // 第一次提交：先补身份。用户写好的信息跟着过去，回来不必重写
+                                    outletIdentityMessage = message
+                                }
+                            },
+                        )
+                    }
+
+                    // 提交身份（只在「提交」那条路上出现，压在最上层）
+                    RepoRoute.OutletIdentity -> {
+                        AuthorIdentityScreen(
+                            suggestedName = sessionLogin.ifBlank { "Branchbase" },
+                            suggestedEmail = "${sessionLogin.ifBlank { "branchbase" }}@users.noreply.github.com",
+                            onBack = { outletIdentityMessage = null },
+                            onConfirm = { name, email, save ->
+                                if (save) {
+                                    context.getSharedPreferences("branchbase", Context.MODE_PRIVATE)
+                                        .edit()
+                                        .putString("commit.author.name", name)
+                                        .putString("commit.author.email", email)
+                                        .apply()
+                                }
+                                // 选了「仅本次使用」时 prefs 里没有这两个值 —— 那就这一次用它们
+                                scope.runLocalRepoCommit(
+                                    context = context,
+                                    repoDir = localRepoDir(context, repo),
+                                    repoName = repo,
+                                    message = outletIdentityMessage.orEmpty(),
+                                    onFeedback = { text, _ -> toast(text) },
+                                    onChanged = { refreshTick++; closeOutletPages() },
+                                    authorName = name,
+                                    authorEmail = email,
+                                )
+                            },
+                        )
+                    }
+
+                    // 撤销最近一次提交（未推送 amend/soft/hard · 已推送只走 revert）
+                    RepoRoute.OutletUndo -> {
+                        UndoCommitScreen(
+                            repoName = repo,
+                            repoDir = localRepoDir(context, repo),
+                            onBack = { showOutletUndo = false },
+                            onResolved = { msg ->
+                                msg?.takeIf { it.isNotBlank() }?.let { toast(it) }
+                                refreshTick++
+                                closeOutletPages()
+                            },
+                        )
+                    }
+
+                    // 上游设置（首次 push）：token 来自当前会话 —— 与面板别的出口同一份凭据
+                    RepoRoute.OutletUpstream -> {
+                        UpstreamSetupScreen(
+                            repoName = repo,
+                            repoDir = localRepoDir(context, repo),
+                            token = sessionToken,
+                            onBack = { showOutletUpstream = false },
+                            onResolved = { msg, fork ->
+                                // fork 这一步有自己的页面（设置 → 本地仓库那条路）：代码页没有这一页，
+                                // 那就**如实说去哪**，而不是在这里假装设好了上游
+                                if (fork) toast(context.getString(R.string.note_fork_entry_settings))
+                                else msg?.takeIf { it.isNotBlank() }?.let { toast(it) }
+                                refreshTick++
+                                closeOutletPages()
+                            },
+                        )
+                    }
+
+                    // 回退 Git 化：退出纳管（保留 .git / 移除 .git / 删除整个仓库）
+                    RepoRoute.OutletRollback -> {
+                        GitifyRollbackScreen(
+                            repoName = repo,
+                            repoDir = localRepoDir(context, repo),
+                            onBack = { showOutletRollback = false },
+                            onDeletedRepo = {
+                                // 选项 ② 只交接**后果**：先把「还有多少没推送」读出来，
+                                // 换成收尾页（与设置那条路一致：先看清会丢什么，再确认删除）
+                                scope.launch {
+                                    val dir = localRepoDir(context, repo)
+                                    val st = withContext(Dispatchers.IO) {
+                                        RustBridge.gitStatus(dir)?.let { parseGitStatus(it) }
+                                    }
+                                    outletDeleteUnpushed = st?.unpushed.orEmpty()
+                                    showOutletRollback = false
+                                }
+                            },
+                            onResolved = { msg ->
+                                msg?.takeIf { it.isNotBlank() }?.let { toast(it) }
+                                refreshTick++
+                                closeOutletPages()
+                            },
+                        )
+                    }
+
+                    // 删仓收尾页（回退的选项 ②）
+                    is RepoRoute.OutletDeleteWarn -> {
+                        DeleteRepoWarningScreen(
+                            repoName = repo,
+                            unpushed = r.unpushed,
+                            // stats 留在 null：它要一次额外的网络请求（设置那一版是进页前取的）。
+                            // 即便没有它，这一页该列的「会丢什么」一条不少 —— 少的只是一行远端统计
+                            stats = null,
+                            onBack = { outletDeleteUnpushed = null },
+                            // 「先推送」：这就是「本地分支同步」页面的活，把人送过去（不在这里重写一遍推送）
+                            onPushFirst = {
+                                outletDeleteUnpushed = null
+                                closeOutletPages()
+                                showLocalSync = true
+                            },
+                            onDelete = {
+                                scope.launch {
+                                    withContext(Dispatchers.IO) {
+                                        java.io.File(localRepoDir(context, repo)).deleteRecursively()
+                                    }
+                                    toast(context.getString(R.string.toast_deleted, repo))
+                                    refreshTick++
+                                    closeOutletPages()
+                                }
+                            },
+                        )
+                    }
+
                     // 星标/复刻/关注列表页（全屏，覆盖底部导航）
                     is RepoRoute.People -> {
                         val people = r.type
@@ -817,6 +1104,8 @@ fun RepositoryScreen(
                             highlightLines = file.second,
                             defaultBranch = branch ?: "main",
                             branches = branches.map { it.name },
+                            // 文件页那枚球与代码页同一套账号门控（2026-09-26 规则）
+                            gitBallRelation = gitBallRelation,
                             onOpenBranchManage = { showBranchManage = true },
                             onOpenLocalSync = { showLocalSync = true },
                             onBack = { filePage = null },
@@ -943,7 +1232,9 @@ fun RepositoryScreen(
                                 title = "$owner/$repo",
                                 branch = branch,
                                 showBranch = page in branchPages,
-                                onBack = onBack,
+                                // 左上角返回箭头与系统返回键**同一个目标**（folderUp）：在子目录里
+                                // 先回上一层，根目录才真的离开这个仓库页 —— 两条路径不许给出两个结果。
+                                onBack = { if (folderUp != null) codePath = folderUp else onBack() },
                                 onOpenBranches = { showBranchDialog = true },
                                 onRefresh = {
                                     // 强制刷新（bypass cache）：清除分支缓存 + README 缓存，再触发重载
@@ -998,7 +1289,18 @@ fun RepositoryScreen(
                                                 onForkClick = { onForkClick() },
                                                 // 分支同步入口在底部栏 ⋮ 气泡里（见 bubbleEntries）
                                             )
-                                            RepoPage.Code -> RepositoryCodeContent(session, owner, repo, branch, refreshTick, onOpenFile = { filePage = it to null })
+                                            // 目录状态在页面级（codePath）：进/退目录都走这里，
+                                            // 打开文件再回来也还在同一个目录
+                                            RepoPage.Code -> RepositoryCodeContent(
+                                                sessionJson = session,
+                                                owner = owner,
+                                                repo = repo,
+                                                branch = branch,
+                                                refreshTick = refreshTick,
+                                                path = codePath,
+                                                onNavigate = { codePath = it },
+                                                onOpenFile = { filePage = it to null },
+                                            )
                                             RepoPage.Issues -> IssueListContent(session, owner, repo, refreshTick, onItemClick = { issuePage = it.number })
                                             RepoPage.Workflows -> WorkflowListContent(
                                                 session, owner, repo, branch, refreshTick,
@@ -1023,9 +1325,10 @@ fun RepositoryScreen(
                                     }
                                 }
 
-                                // Git 悬浮球（代码页覆盖层）：**绑定「本地仓库（Git）」模式**，
-                                // 另外两种模式（单文件 / 多文件）不显示（判定见 showGitBubble）。
-                                if (page == RepoPage.Code && showGitBubble(mode)) {
+                                // Git 悬浮球（代码页覆盖层）：**模式 + 账号关系**双重门控 ——
+                                // 只在「本地仓库（Git）」模式，且账号与仓库有关系时显示
+                                // （非团队 / 非协同 / 非仓库管理员看不到，判定见 showGitBubble）。
+                                if (page == RepoPage.Code && showGitBubble(mode, gitBallRelation)) {
                                     CodePageGitPanel(
                                         repo = repo,
                                         owner = owner,
@@ -1034,8 +1337,9 @@ fun RepositoryScreen(
                                         branches = branches.map { it.name },
                                         defaultBranch = branch ?: branches.firstOrNull()?.name ?: "main",
                                         refreshTick = refreshTick,
-                                        // 设置 → 本地仓库 的「进入」带 openGitPanel 进来：直接落在视图档
-                                        initialStage = initialGitPanelStage(initial?.openGitPanel == true),
+                                        // 档位住在页面级（§8 剩余 ③）：进决策页回来还是原来那一档
+                                        stage = gitPanelStage,
+                                        onStageChange = { gitPanelStage = it },
                                         modeLabel = mode?.let { stringResource(it.labelRes) },
                                         onPickMode = { showCommitMode = true },
                                         onOpenBranchManage = { showBranchManage = true },
@@ -1064,6 +1368,12 @@ fun RepositoryScreen(
                                                 )
                                             }
                                         },
+                                        // 四个写出口（§3.6）：面板只画胶囊，点下去是**这里的**后果弹窗，
+                                        // 确认之后才由 openOutletDestination 送进对应的决策页
+                                        onCommit = { outletFlow.pending = GitOutlet.Commit },
+                                        onUndo = { outletFlow.pending = GitOutlet.Undo },
+                                        onUpstream = { outletFlow.pending = GitOutlet.Upstream },
+                                        onRollback = { outletFlow.pending = GitOutlet.Rollback },
                                     )
                                 }
                             }
@@ -1095,6 +1405,23 @@ fun RepositoryScreen(
                 showWebLogin = true
             },
             onDismiss = { showWatchPanel = false },
+        )
+    }
+
+    // 四个写出口的「后果弹窗」（§3.6）。与合并冲突弹窗同一个位置、同一个理由：
+    // 它是在工作区档里点出来的，而那一档随时可能因为换页而不在组合里 ——
+    // 弹窗挂在外层，就不会在「刚点完、页面正在切」的那一帧消失。
+    //
+    // 弹窗只负责**说清后果**：确认之后交给 openOutletDestination 送去决策页，
+    // 真正的动作（message / sha / token / 预检）都在那边（§3.6 ③）。
+    outletFlow.pending?.let { outlet ->
+        GitOutletDialog(
+            outlet = outlet,
+            onConfirm = {
+                openOutletDestination(outlet)
+                outletFlow.settle()
+            },
+            onDismiss = { outletFlow.settle() },
         )
     }
 
@@ -1262,6 +1589,46 @@ private sealed interface RepoRoute : PageLevel {
         override val depth: Int get() = 2
     }
 
+    // ── 四个写出口的五个目的地（`git-mode-design.md` §3.6） ──
+    //
+    // 全是第 2 层：它们都从工作区档的一枚胶囊进来（面板 = 第 1 层的那一档），
+    // 返回时该落回面板，而不是把整个仓库页也退掉。身份页压在最上面（见路由顺序）。
+
+    /** 提交（`CommitMode.LOCAL_REPO`）：整个工作区一起提交。 */
+    data object OutletCommit : RepoRoute {
+        override val depth: Int get() = 2
+    }
+
+    /** 第一次提交前的身份页。信息本身由宿主的 `outletIdentityMessage` 带着。 */
+    data object OutletIdentity : RepoRoute {
+        override val depth: Int get() = 2
+    }
+
+    /** 撤销最近一次提交（未推送 amend / soft / hard · 已推送 revert）。 */
+    data object OutletUndo : RepoRoute {
+        override val depth: Int get() = 2
+    }
+
+    /** 上游设置（首次 push）。 */
+    data object OutletUpstream : RepoRoute {
+        override val depth: Int get() = 2
+    }
+
+    /** 回退 Git 化（保留 `.git` / 移除 `.git` / 删除整个仓库）。 */
+    data object OutletRollback : RepoRoute {
+        override val depth: Int get() = 2
+    }
+
+    /**
+     * 「删除整个仓库」的收尾页（回退的选项 ②）。
+     *
+     * 带上 `unpushed`：这一页存在的理由就是先把「会丢哪几条提交」摊开（与设置那条路同形）。
+     * 远端统计（`stats`）不在路由里 —— 它要一次额外的网络请求，代码页这边先不取。
+     */
+    data class OutletDeleteWarn(val unpushed: List<UnpushedCommit>) : RepoRoute {
+        override val depth: Int get() = 2
+    }
+
     data class ReleaseDetail(val release: ReleaseItem) : RepoRoute {
         override val depth: Int get() = 1
     }
@@ -1326,7 +1693,10 @@ private fun CodePageGitPanel(
     branches: List<String>,
     defaultBranch: String,
     refreshTick: Int,
-    initialStage: GitPanelStage = GitPanelStage.Collapsed,
+    // 档位由调用方持有（§8 阶段 2 剩余 ③）：面板自己 `remember` 的话，进出决策页
+    // （那一支离开组合）会把它丢掉，用户回来看到的是收起的球
+    stage: GitPanelStage,
+    onStageChange: (GitPanelStage) -> Unit,
     modeLabel: String?,
     onPickMode: () -> Unit,
     onOpenBranchManage: () -> Unit,
@@ -1339,8 +1709,11 @@ private fun CodePageGitPanel(
     onMerge: (() -> Unit)? = null,
     onResumeMerge: (() -> Unit)? = null,
     onAbortMerge: (() -> Unit)? = null,
+    onCommit: (() -> Unit)? = null,
+    onUndo: (() -> Unit)? = null,
+    onUpstream: (() -> Unit)? = null,
+    onRollback: (() -> Unit)? = null,
 ) {
-    var stage by remember { mutableStateOf(initialStage) }
     val localGit = rememberLocalRepoGitState(repo, refreshTick)
     val otherBranch = branches.firstOrNull { it != defaultBranch }
     // 「加深历史」（提交图档底部的出口）：长任务在**这里**跑（任务中心 + 进度弹窗），
@@ -1362,7 +1735,7 @@ private fun CodePageGitPanel(
             "Git 工作台 ▸ 返回退档 ${gitPanelStageLogName(stage)} → ${gitPanelStageLogName(next)}",
             GIT_WORKBENCH_LOG_TAG,
         )
-        stage = next
+        onStageChange(next)
     }
 
     val actions = listOf(
@@ -1413,7 +1786,7 @@ private fun CodePageGitPanel(
             // 这一条进的是**视图档**（面板内换框，不收起面板）—— keepOpen 的第一个用户
             keepOpen = true,
         ) {
-            stage = GitPanelStage.View(GitPanelKind.Workspace)
+            onStageChange(GitPanelStage.View(GitPanelKind.Workspace))
         },
         GitBubbleAction(
             key = "refresh",
@@ -1426,11 +1799,11 @@ private fun CodePageGitPanel(
     GitBubblePanel(
         actions = actions,
         stage = stage,
-        onStageChange = { stage = it },
+        onStageChange = onStageChange,
         view = { kind ->
             GitPanelViewHost(
                 kind = kind,
-                onSelect = { stage = GitPanelStage.View(it) },
+                onSelect = { onStageChange(GitPanelStage.View(it)) },
                 git = localGit,
                 refreshTick = refreshTick,
                 host = host,
@@ -1446,6 +1819,11 @@ private fun CodePageGitPanel(
                 onMerge = onMerge,
                 onResumeMerge = onResumeMerge,
                 onAbortMerge = onAbortMerge,
+                // 四个写出口（§3.6）：null 时面板不画那枚胶囊 —— 本页四个都接
+                onCommit = onCommit,
+                onUndo = onUndo,
+                onUpstream = onUpstream,
+                onRollback = onRollback,
             )
         },
         title = localGit.summary(),

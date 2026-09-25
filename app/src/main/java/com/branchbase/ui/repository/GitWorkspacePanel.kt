@@ -73,6 +73,11 @@ private val PANEL_WIDTH = 268.dp
  * @param onResumeMerge 去**冲突详情页**（合并中状态条的「继续」）。null = 不画那枚胶囊
  * @param onAbortMerge 放弃合并（合并中状态条的「放弃」）。**跑动作的是宿主** ——
  *   面板这一族源码里不许出现任何 git 写方法（`GitWorkbenchWiringTest` 扫全表）
+ * @param onCommit 「提交…」出口（§3.6 的四个写出口之一）。**null = 这个宿主没有这个出口 → 不画那枚胶囊**。
+ *   点它只是打开宿主的「后果弹窗」，真正的提交在决策页上
+ * @param onUndo 「撤销…」出口（撤销最近一次提交，改动不凭空消失）
+ * @param onUpstream 「上游…」出口（给当前分支设上游）
+ * @param onRollback 「回退 Git 化…」出口（退回未纳管；与「撤销」是两回事，文案不共用）
  * @param filePath 「文件历史」档要看哪个文件：文件页传正在看的那个路径，代码页传 null
  *   （那时这一档如实说明去哪看，而不是显示一个空列表）
  */
@@ -95,6 +100,10 @@ fun GitPanelViewHost(
     onMerge: (() -> Unit)? = null,
     onResumeMerge: (() -> Unit)? = null,
     onAbortMerge: (() -> Unit)? = null,
+    onCommit: (() -> Unit)? = null,
+    onUndo: (() -> Unit)? = null,
+    onUpstream: (() -> Unit)? = null,
+    onRollback: (() -> Unit)? = null,
     filePath: String? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -133,6 +142,10 @@ fun GitPanelViewHost(
                         onMerge = onMerge,
                         onResumeMerge = onResumeMerge,
                         onAbortMerge = onAbortMerge,
+                        onCommit = onCommit,
+                        onUndo = onUndo,
+                        onUpstream = onUpstream,
+                        onRollback = onRollback,
                     )
                     GitPanelKind.Graph -> CommitGraphPanel(
                         host = host,
@@ -197,9 +210,14 @@ internal fun PanelEmptyArea(modifier: Modifier = Modifier, content: @Composable 
  * 取整之后四档各自是一个稳定的「工作台尺寸」——
  * 面板不再因为「取数回来了」而改变大小（§3.5），代价是内容很短时会留白：
  * 留白是**稳定**的，撑高是**跳动**的，这次返工选前者。
+ *
+ * 工作区档 1.1.3 起 280 → **340**：底部从「两枚胶囊 + 一句预告」变成最多**八枚**胶囊
+ * （四个写出口 + 刷新 / 同步 / 分支管理 / 合并分支），英文标签更长、`FlowRow` 会多折出一两行；
+ * 盒子不肯长高就会被 `clipToBounds` **静默裁掉**（§3.6 的验收条目）。
+ * 改动文件清单的 `heightIn(max = 148.dp)` 没动：那是列表自己的滚动上限，与盒子无关。
  */
 internal fun panelViewAreaHeight(kind: GitPanelKind): Dp = when (kind) {
-    GitPanelKind.Workspace -> 280.dp
+    GitPanelKind.Workspace -> 340.dp
     GitPanelKind.Graph -> 330.dp
     GitPanelKind.Refs -> 280.dp
     GitPanelKind.FileHistory -> 260.dp
@@ -252,13 +270,18 @@ private fun PanelAreaSkeleton(kind: GitPanelKind) {
  *
  * 未落地的档仍然可点 —— 点进去是一句「按阶段接入」的说明，**不是死按钮**；
  * 视觉上靠标签右侧的「待接入」小字与弱化文字色区分（禁用必须给出路，与设置页同一口径）。
+ *
+ * 用 [FlowRow] 而不是 `Row`：面板宽 268dp、可用 248dp，而英文四档（Working tree /
+ * Commit graph / Refs / File history）连内边距约 273dp —— `Row` 里最后一枚只分到 ~30dp，
+ * 安卓会把 `File history` 在**词内**折成 `File`/`hist`/`ory` 三行（1.1.3 英文真机截图暴露）。
+ * 换成 FlowRow：英文折成两行、中文仍是一行，多出来的高度只影响这一条标签。
  */
 @Composable
 private fun GitPanelTabs(current: GitPanelKind, onSelect: (GitPanelKind) -> Unit) {
-    Row(
+    FlowRow(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         GitPanelKind.entries.forEach { k ->
             val selected = k == current
@@ -312,10 +335,21 @@ private fun GitPanelTabs(current: GitPanelKind, onSelect: (GitPanelKind) -> Unit
  * 「面板内直接执行（安全）/ 走决策页（有后果）」这条分档见 `git-mode-design.md` §6.1，
  * 执法者是 `GitWorkbenchWiringTest`（面板源码里不许出现 git 写操作）。
  *
+ * 1.1.3 起多了四个写出口（§3.6）：**提交 / 撤销 / 上游 / 回退 Git 化**。它们跟上面同理 ——
+ * 这一档只画胶囊，点下去是宿主打开「后果弹窗」（弹窗也住在宿主侧：`GitOutletFlow.kt` 只管
+ * 弹窗的样子与四处文案，跑动作的仍然是宿主页面）。**所以这里依然一个 git 写方法都没有。**
+ *
+ * 「撤销」与「回退 Git 化」必须给两句话：前者退一笔提交（历史仍纳管），
+ * 后者退出纳管（可能连 `.git` 一起删）—— 文案不共用是 §3.6 的硬约束。
+ *
  * @param onOpenDiff 打开某个改动文件的**本地 diff**（null = 这个宿主没有这个出口 → 行不可点）
  * @param onMerge 去合并决策页（null = 这个宿主没有这个出口 → **不画那枚胶囊**）
  * @param onResumeMerge 去冲突详情页（合并中才有意义；null = 不画）
  * @param onAbortMerge 放弃合并 —— **面板只给出口，跑它的是宿主**（见 `GitWorkbenchWiringTest`）
+ * @param onCommit 提交出口（null = 不画）。置灰口径见下面的 `FlowRow`
+ * @param onUndo 撤销出口（null = 不画）
+ * @param onUpstream 上游出口（null = 不画）
+ * @param onRollback 回退 Git 化出口（null = 不画）
  */
 @Composable
 fun GitWorkspaceBody(
@@ -327,6 +361,10 @@ fun GitWorkspaceBody(
     onMerge: (() -> Unit)? = null,
     onResumeMerge: (() -> Unit)? = null,
     onAbortMerge: (() -> Unit)? = null,
+    onCommit: (() -> Unit)? = null,
+    onUndo: (() -> Unit)? = null,
+    onUpstream: (() -> Unit)? = null,
+    onRollback: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxWidth()) {
@@ -453,13 +491,33 @@ fun GitWorkspaceBody(
 
         Spacer(Modifier.height(8.dp))
 
-        // ── 底：两个现在就真的能用的动作 + 一句实话 ──
+        // ── 底：能用的动作（安全的两枚 + 四个「有后果但仍在面板里起步」的出口） ──
         // 用 FlowRow 而不是 Row：英文标签长得多（"Local branch sync" / "Branch management"），
         // 三枚挤一行会超出 268dp 的面板宽度**被裁掉**（Row 不换行，也不报错）
+        //
+        // 置灰口径：四个写出口都要求**本地仓库在**（`!git.exists` 时点它必然跌进「未拉取到本地」）；
+        // 「提交」另加两条 —— 工作区得有改动、且不能正处在合并中（合并中要先把这次合并收尾，
+        // 否则提交会把 MERGE_HEAD 一起带进去）。上游出口不额外限制：它的用处正是「还没设上游」。
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+            onCommit?.let {
+                PanelChip(
+                    stringResource(R.string.action_commit),
+                    enabled = git.exists && git.dirty.isNotEmpty() && !git.merging,
+                    onClick = it,
+                )
+            }
+            onUndo?.let {
+                PanelChip(stringResource(R.string.action_undo), enabled = git.exists, onClick = it)
+            }
+            onUpstream?.let {
+                PanelChip(stringResource(R.string.nav_upstream), enabled = git.exists, onClick = it)
+            }
+            onRollback?.let {
+                PanelChip(stringResource(R.string.nav_revert_gitify), enabled = git.exists, onClick = it)
+            }
             PanelChip(stringResource(R.string.action_refresh), enabled = true, onClick = onRefresh)
             PanelChip(stringResource(R.string.nav_local_branch_sync), enabled = git.exists, onClick = onOpenSync)
             onOpenBranches?.let {
@@ -474,30 +532,28 @@ fun GitWorkspaceBody(
                 )
             }
         }
-        Text(
-            stringResource(R.string.note_git_views_pending),
-            fontSize = 10.sp,
-            color = Primer.TextTertiary,
-            lineHeight = 13.sp,
-            modifier = Modifier.padding(top = 6.dp),
-        )
     }
 }
 
-/** 面板里的一个小胶囊按钮（面板内不用 Material 的 TextButton：它的最小高度会把面板撑肿）。 */
+/**
+ * 面板里的一个小胶囊按钮（面板内不用 Material 的 TextButton：它的最小高度会把面板撑肿）。
+ *
+ * 1.1.3 起密度再收一档（10/6 → 9/5、11.5sp → 11sp、圆角 9 → 8）：工作区档底部从两枚胶囊
+ * 变成最多八枚，省下的这几 dp × 行数正好换回一行 `FlowRow`。
+ */
 @Composable
 internal fun PanelChip(label: String, enabled: Boolean, onClick: () -> Unit) {
     val bg = if (enabled) Primer.Gray150 else Primer.Gray100
     val fg = if (enabled) Primer.TextPrimary else Primer.TextTertiary
     Row(
         Modifier
-            .clip(RoundedCornerShape(9.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(bg)
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .padding(horizontal = 9.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, fontSize = 11.5.sp, fontWeight = FontWeight.Medium, color = fg)
+        Text(label, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = fg)
     }
 }
 

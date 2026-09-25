@@ -56,17 +56,26 @@ import com.branchbase.ui.theme.rememberPressFeedback
 import com.branchbase.ui.theme.Primer
 
 /**
- * Git 悬浮球该不该出现：**只有「本地仓库（Git）」模式**。
+ * Git 工具气泡球该不该出现。两条**都必须成立**，少一条都会出问题：
  *
- * 这个球管的全是本地仓库的事 —— 工作树改动数、领先 / 落后、本地分支同步、
- * 以及「把改动落到本地 git」的提交入口。另外两种模式（单文件 / 多文件）直接调远端
- * API 提交，本地根本没有工作树：球挂在那里只会白挡正文，并且给出
- * 「本地仓库未拉取」这类与当前模式无关的动作。
+ * ① **模式**：只有「本地仓库（Git）」模式。这个球管的全是本地仓库的事 —— 工作树改动数、
+ *    领先 / 落后、本地分支同步，以及「把改动落到本地 git」的提交入口。另外两种模式
+ *    （单文件 / 多文件）直接调远端 API 提交，本地根本没有工作树：球挂在那里只会白挡正文，
+ *    并且给出「本地仓库未拉取」这类与当前模式无关的动作。
+ * ② **账号与仓库的关系**（2026-09-26 补充规则）：**非团队、非协同、非仓库管理员**身份的账号，
+ *    在相应的仓库下不得显示这枚球。判定即 [RepoRelation.canWrite]：账号仓库（owner）或
+ *    `permissions.push` —— 受邀协作、组织成员、团队授予的写权限都体现在同一个 `push` 上。
+ *    球里的每一个动作（提交 / 撤销 / 上游 / 回退 / 分支 / 合并 / 本地分支同步）都要写权限，
+ *    只读的外人点下去只会得到一句失败。`relation == null`（仓库信息还没到）时**保守不显示**，
+ *    与 `parseRepoInfo` 的「`permissions` 缺失即视为无写权限」同一口径。
  *
- * 抽成纯函数是为了能单测三种模式的判定（真机上要看「切模式后球有没有立刻消失」，
- * 光靠肉眼回归很容易漏），调用点只做 `if (showGitBubble(mode))`。
+ * 抽成纯函数是为了能单测（真机上要看「切模式 / 换仓库后球有没有立刻消失」，
+ * 光靠肉眼回归很容易漏）。两条规则收进**同一个**函数的两个参数，是为了没法规避：
+ * 调用点少传一个就编不过，不会出现「代码页改了、文件页忘了」这种一半生效
+ * （用户此前报的正是这种不一致）。
  */
-internal fun showGitBubble(mode: CommitMode?): Boolean = mode == CommitMode.LOCAL_REPO
+internal fun showGitBubble(mode: CommitMode?, relation: RepoRelation?): Boolean =
+    mode == CommitMode.LOCAL_REPO && relation?.canWrite == true
 
 /**
  * Git 气泡按钮面板中的一个操作。

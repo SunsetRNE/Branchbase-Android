@@ -212,6 +212,7 @@
     <string name="label_preview">预览</string>
     <string name="toast_code_copied">代码已复制</string>
     <string name="nav_code">代码</string>
+    <string name="nav_up_one_level">上一层</string>
     <string name="action_push_branch">推送 %1$s</string>
     <string name="action_switch_and_pull">切换并拉取</string>
     <string name="state_nothing_to_sync">没有需要同步的分支</string>
@@ -452,7 +453,13 @@
     <string name="state_refs_tag_lightweight">轻量</string>
     <string name="state_workspace_clean">工作区干净 · 没有未提交改动</string>
     <string name="state_no_upstream_short">未设置上游</string>
-    <string name="note_git_views_pending">提交 / 撤销 / 上游 / 回退入口按阶段接入。</string>
+    <string name="note_outlet_commit">把工作区的改动交给「提交更改」页：写提交信息，然后落成当前分支上的一笔提交。还没填过提交身份的话，中间会先停一页补身份。</string>
+    <string name="note_outlet_undo">撤销最近一次提交：未推送时可选 amend / soft / hard，已推送时只走 revert。改动与历史怎么变，下一页里逐条写清。</string>
+    <string name="note_outlet_upstream">给当前分支设一个上游：填远端地址并推送一次。设好之后「本地分支同步」才知道该和谁对齐。</string>
+    <string name="note_outlet_rollback">把整个本地仓库退回未纳管状态（就像这台设备上没 clone 过它）：保留 .git（推荐）/ 移除 .git / 删除整个仓库。历史与远端都不动 —— 只想退掉一笔提交，用「撤销」。</string>
+    <string name="action_outlet_continue">继续</string>
+    <string name="note_commit_local_repo_scope">本地仓库（Git）模式：工作区的全部改动会一起提交（引擎先把整个工作区加入索引），所以这里不按文件勾选。</string>
+    <string name="note_fork_entry_settings">这一步要建一个 fork —— 到「设置 → 本地仓库」里的 fork 流程走完再回来设上游。</string>
     <string name="note_git_view_unavailable">这一档视图还没落地 —— 按设计稿的阶段计划接入（见 docs/specs/git-mode-design.md §8）。</string>
     <string name="note_proxy_scope">仅作用于本地仓库的 clone / pull / push。</string>
     <string name="note_delete_local_branch">只删除本地分支，不影响远端；未合并的提交会丢失。</string>
@@ -549,6 +556,7 @@
     <string name="warning_secrets_detected">本次提交内容命中 %1$s 处疑似密钥特征。提交后内容将随仓库历史永久公开，即使后续删除仍可被恢复。</string>
     <string name="label_author_name_required">作者名称（必填）</string>
     <string name="label_changed_files_scope">变更文件（勾选本次提交范围）</string>
+    <string name="label_changed_files_local">变更文件（本次提交会全部带上）</string>
     <string name="note_use_once">不落盘，下次提交时重新询问。</string>
     <string name="note_no_commit_mode">⚠ 未选择提交模式 · 提交时将询问。确定后固化到本地配置，可随时在设置中更改。</string>
     <string name="label_repo_mode">%1$s · %2$s</string>

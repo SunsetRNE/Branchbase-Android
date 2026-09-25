@@ -997,8 +997,6 @@ private sealed interface LocalPage {
     data class Identity(val name: String, val message: String) : LocalPage
     /** 本地分支管理（列表 / 切换 / 新建 / 删除） */
     data class Branches(val name: String) : LocalPage
-    /** 本地 ↔ 远端分支同步（fetch + 按分支推送/拉取/建跟踪） */
-    data class Sync(val name: String) : LocalPage
 }
 
 /** 一次「拉取仓库」的现场：弹窗显示谁、失败重试要重放什么。 */
@@ -1477,16 +1475,6 @@ fun LocalRepoScreen(
             )
             return
         }
-        is LocalPage.Sync -> {
-            com.branchbase.ui.repository.LocalBranchSyncScreen(
-                dir = dirOf(p.name),
-                repoName = p.name,
-                token = token,
-                onBack = { page = LocalPage.List },
-                onChanged = { repos = listLocalRepos(repoRoot) },
-            )
-            return
-        }
         is LocalPage.List -> Unit
     }
 
@@ -1619,8 +1607,11 @@ fun LocalRepoScreen(
                         name = name,
                         branch = branchOf(name),
                         onOpen = { enterRepo(name) },
+                        // 「同步」这一枚已经下线：面板里的「同步」出口进的是**同一个** LocalBranchSyncScreen，
+                        // 设置里再留一个入口只是同一件事两处摆着（§5 的过渡期下线顺序 ①）。
+                        // 「分支」这一枚**暂时留着**：本地分支的删除（RustBridge.deleteBranchLocal）全仓库
+                        // 只有 BranchesScreen 这一个落点，等它有了新家再跟着删（§5 ① 的例外，已记进文档）。
                         onBranches = { page = LocalPage.Branches(name) },
-                        onSync = { page = LocalPage.Sync(name) },
                         onPull = { doPull(name) },
                         onPush = { doPush(name) },
                         onCommit = { doStageCommit(name) },
@@ -1766,7 +1757,6 @@ private fun LocalRepoRow(
     branch: String,
     onOpen: () -> Unit,
     onBranches: () -> Unit,
-    onSync: () -> Unit,
     onPull: () -> Unit,
     onPush: () -> Unit,
     onCommit: () -> Unit,
@@ -1808,7 +1798,6 @@ private fun LocalRepoRow(
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             Text(stringResource(R.string.action_update), fontSize = 12.sp, color = Primer.Blue500, modifier = Modifier.clickable { onPull() })
             Text(stringResource(R.string.action_push), fontSize = 12.sp, color = Primer.Blue500, modifier = Modifier.clickable { onPush() })
-            Text(stringResource(R.string.nav_branch_sync), fontSize = 12.sp, color = Primer.Blue500, modifier = Modifier.clickable { onSync() })
             Text(stringResource(R.string.action_commit), fontSize = 12.sp, color = Primer.Green500, modifier = Modifier.clickable { onCommit() })
             Text(stringResource(R.string.action_undo), fontSize = 12.sp, color = Primer.TextSecondary, modifier = Modifier.clickable { onUndo() })
         }

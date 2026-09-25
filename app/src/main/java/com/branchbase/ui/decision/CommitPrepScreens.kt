@@ -78,6 +78,11 @@ internal fun StageCommitScreen(
     var feedback by remember { mutableStateOf<String?>(null) }
 
     val selectedCount = checks.count { it }
+    // 本地仓库（Git）模式的口径是「整个工作区一起提交」（core `commit_repo`：先 add_all(".") 再
+    // update_all(".")），勾选在这一档决定不了任何事情 —— 留一排可点的勾选框就成了
+    // 「取消了勾选、提交照样带上」这种静默失效。所以这一档把清单降级成**信息**：
+    // 勾选只属于多文件合并模式（单文件模式 files 为空，本来也不勾）。
+    val localRepo = mode == CommitMode.LOCAL_REPO
 
     fun toggleCheck(i: Int) {
         checks = checks.toMutableList().also { it[i] = !it[i] }
@@ -85,9 +90,9 @@ internal fun StageCommitScreen(
 
     fun attemptCommit() {
         if (mode == null) { showModePicker = true; return }
-        if (selectedCount == 0) { feedback = context.getString(R.string.error_tick_files_first); return }
+        if (!localRepo && selectedCount == 0) { feedback = context.getString(R.string.error_tick_files_first); return }
         if (message.isBlank()) { feedback = context.getString(R.string.error_commit_message_required); return }
-        val selected = files.filterIndexed { i, _ -> checks[i] }.map { it.path }
+        val selected = if (localRepo) files.map { it.path } else files.filterIndexed { i, _ -> checks[i] }.map { it.path }
         onCommit(message, selected)
     }
 
@@ -112,13 +117,17 @@ internal fun StageCommitScreen(
         }
 
         if (files.isNotEmpty()) {
-            FactCard(stringResource(R.string.label_changed_files_scope)) {
+            FactCard(
+                stringResource(
+                    if (localRepo) R.string.label_changed_files_local else R.string.label_changed_files_scope,
+                ),
+            ) {
                 Column {
                     files.forEachIndexed { i, f ->
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .clickable { toggleCheck(i) }
+                                .then(if (localRepo) Modifier else Modifier.clickable { toggleCheck(i) })
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -138,12 +147,22 @@ internal fun StageCommitScreen(
                             if (f.size.isNotBlank()) Text(f.size, fontSize = 11.sp, color = Primer.TextTertiary)
                         }
                     }
-                    Text(
-                        stringResource(R.string.label_selected_files, selectedCount, files.size),
-                        fontSize = 12.sp,
-                        color = if (selectedCount > 0) Primer.Green500 else Primer.TextTertiary,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    )
+                    if (localRepo) {
+                        Text(
+                            stringResource(R.string.note_commit_local_repo_scope),
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                            color = Primer.TextTertiary,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    } else {
+                        Text(
+                            stringResource(R.string.label_selected_files, selectedCount, files.size),
+                            fontSize = 12.sp,
+                            color = if (selectedCount > 0) Primer.Green500 else Primer.TextTertiary,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
                 }
             }
         } else {

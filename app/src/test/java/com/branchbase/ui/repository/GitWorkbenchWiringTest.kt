@@ -386,4 +386,81 @@ class GitWorkbenchWiringTest {
         assertTrue("合并页要支持预选参数", page.contains("initialPick: String?"))
         assertTrue("预选的分支不在清单里时要补一条（引擎会自己 fetch）", page.contains("preferred"))
     }
+
+    @Test
+    fun `四个写出口：两个宿主都接、弹窗在外层、动作只在宿主侧`() {
+        // §3.6：工作区档新增四枚胶囊（提交 / 撤销 / 上游 / 回退 Git 化）。三条口径各自
+        // 只在真机上看得出来，写错都不会红：
+        //   ① 出口回调各宿主各传各的 —— 只接一边 = 「代码页能提交、文件页不能」（同类不一致报过）；
+        //   ② 后果弹窗必须渲染在**外层**：它是在工作台里点出来的，而那一档随时可能不在组合里；
+        //   ③ 真正跑动作的是宿主（`GitOutletFlow.kt` 的运行器 + 四个既有决策页），
+        //      面板这一族依然一个 git 写方法都没有（上面那条测试扫的就是它）。
+        val hosts = listOf(
+            "src/main/java/com/branchbase/ui/repository/RepositoryScreen.kt" to "代码页",
+            "src/main/java/com/branchbase/ui/repository/RepositoryFileViewer.kt" to "文件页",
+        )
+        for (outlet in listOf("onCommit =", "onUndo =", "onUpstream =", "onRollback =")) {
+            val missing = hosts.filter { (path, _) -> !source(path).contains(outlet) }
+            assertEquals("这两个宿主都必须给面板接上 $outlet 出口：$missing", emptyList<Pair<String, String>>(), missing)
+        }
+        // 四条路都要真的落到**既有**决策页：少一条的表现是「确认了后果，然后什么都不发生」
+        val destinations = listOf(
+            "StageCommitScreen(", "UndoCommitScreen(", "UpstreamSetupScreen(", "GitifyRollbackScreen(",
+        )
+        for ((path, name) in hosts) {
+            val text = source(path)
+            assertTrue("$name 必须渲染后果弹窗", text.contains("GitOutletDialog("))
+            assertTrue("$name 的弹窗要由宿主持有的 outletFlow 驱动", text.contains("outletFlow.pending?.let"))
+            val missing = destinations.filter { !text.contains(it) }
+            assertEquals("$name 还缺这些目的地页面：$missing", emptyList<String>(), missing)
+        }
+        // 弹窗与运行器都不许住进面板：面板只画胶囊（「有后果」不等于「面板自己动手」）
+        val panelText = panelSources.joinToString("\n") { source(it) }
+        assertTrue("后果弹窗不许住进面板（面板随时可能不在组合里）", !panelText.contains("GitOutletDialog("))
+        assertTrue("面板不许自己跑提交", !panelText.contains("runLocalRepoCommit("))
+    }
+
+    @Test
+    fun `撤销与回退的说明不共用（D-l）`() {
+        // 两枚胶囊近义、后果完全不同：撤销退一笔提交（历史仍然纳管），
+        // 回退是**退出纳管**（可能连 .git 一起删）。文案共用（或只有一个 key）的表现是
+        // 「用户照着撤销的说明点了回退」—— 只有真机上读一遍才发现。
+        val flow = source("src/main/java/com/branchbase/ui/repository/GitOutletFlow.kt")
+        assertTrue(
+            "四个出口各查各的说明文案",
+            flow.contains("note_outlet_commit") && flow.contains("note_outlet_undo") &&
+                flow.contains("note_outlet_upstream") && flow.contains("note_outlet_rollback"),
+        )
+        val strings = source("src/main/res/values/strings.xml")
+        val undo = strings.substringAfter("name=\"note_outlet_undo\">").substringBefore("</string>")
+        val rollback = strings.substringAfter("name=\"note_outlet_rollback\">").substringBefore("</string>")
+        assertTrue("撤销的说明不能为空", undo.isNotBlank())
+        assertTrue("回退的说明不能为空", rollback.isNotBlank())
+        assertTrue("撤销与回退的说明不能是同一句话（D-l）", undo != rollback)
+    }
+
+    @Test
+    fun `本地仓库档的提交不提供按文件勾选`() {
+        // 引擎口径：`commit_repo` 先 `add_all(["."])` 再 `update_all(["."])` ——
+        // 整个工作区一起提交。给这一档画勾选框的表现是「取消了勾选、提交照样带上」的**静默失效**：
+        // 用户以为排除了某个文件，实际没有。所以这一档的清单只作展示。
+        val prep = source("src/main/java/com/branchbase/ui/decision/CommitPrepScreens.kt")
+        assertTrue("提交页要有本地仓库档的分支", prep.contains("CommitMode.LOCAL_REPO"))
+        assertTrue("本地仓库档不许拿「一个都没勾」拦提交", prep.contains("if (!localRepo && selectedCount == 0)"))
+        assertTrue("本地仓库档的文件行不许可点（勾选无意义）", prep.contains("localRepo"))
+        // 反过来：引擎那边确实是整树加入索引 —— 钉子留在改口径的那一天
+        val engine = source("../core/src/git/mod.rs")
+        assertTrue("引擎 commit_repo 是整树提交（面板/页面文案都是照这个写的）", engine.contains("add_all([\".\"]"))
+    }
+
+    @Test
+    fun `面板档位住在页面级（进出决策页不丢）`() {
+        // §8 阶段 2 剩余 ③：面板长在 PageSwitcher 的 Tab 分支里，进决策页时那一支离开组合。
+        // 档位若在面板内部 `remember`，用户从「提交…」回来看到的是收起的球 —— 这条路
+        // 正是这一版新接的四个出口，走一遍就撞上，但只有真机才看得见（单测不会红）。
+        val repo = source("src/main/java/com/branchbase/ui/repository/RepositoryScreen.kt")
+        assertTrue("代码页的面板档位要由页面持有", repo.contains("var gitPanelStage by remember {"))
+        assertTrue("面板要拿到页面持有的那一份档位", repo.contains("stage = gitPanelStage,"))
+        assertTrue("面板不许自己 remember 档位（那一支随时会离开组合）", !repo.contains("var stage by remember {"))
+    }
 }

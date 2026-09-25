@@ -378,7 +378,36 @@ fun parseWorkflows(json: String): List<WorkflowItem> = runCatching {
     }
 }.getOrDefault(emptyList())
 
-/** 解析 GET /repos/{o}/{r}/contents/{path} 数组（文件树） */
+/**
+ * 仓库文件列表的**展示顺序**（对齐 GitHub 网页版那一列，2026-09-26 用户拍板）。
+ *
+ * 三条规则，按优先级：
+ * 1. **文件夹优先、文件其次**；
+ * 2. 同类型内 **`.` 开头的排最前**（对齐性规则：`.github` / `.gitignore` 永远在最上面）；
+ * 3. 其余按名字 **A→Z**（大小写敏感，见下）。
+ *
+ * 为什么名字用**大小写敏感的字节序**、而不是 `lowercase()` 再比：GitHub 的列表就是这么排的
+ * （实测 `rust-lang/rust` 根目录 —— 目录 `.github` `LICENSES` `compiler` `library` `src` `tests`；
+ * 文件 `.clang-format` … `AGENTS.md` … `INSTALL.md` … `README.md` … `yarn.lock`，大写在前）。
+ * 而 **GitHub contents API 返回的是混着的纯名字序**（`.clang-format` `.github` `.gitignore`
+ * `AGENTS.md` `LICENSES` `compiler` …，目录不提前）—— 所以要「对齐 GitHub」，渲染前必须自己排一次。
+ *
+ * `symlink` / `submodule` 归到**文件**侧：与点击行为一致（只有 `type == "dir"` 才会进目录）。
+ */
+fun sortFileTree(items: List<FileTreeItem>): List<FileTreeItem> = items.sortedWith(
+    compareBy(
+        { if (it.type == "dir") 0 else 1 },
+        { if (it.name.startsWith(".")) 0 else 1 },
+        { it.name },
+    ),
+)
+
+/**
+ * 解析 GET /repos/{o}/{r}/contents/{path} 数组（文件树）。
+ *
+ * 解析出来**就已经是** [sortFileTree] 的 GitHub 顺序 —— 排序只有这一个真源：
+ * 缓存直出与回源两条路径都经过这里，渲染层不再各排一遍（否则两条路径会排出两种顺序）。
+ */
 fun parseFileTree(json: String): List<FileTreeItem> = runCatching {
     val arr = JSONArray(json)
     (0 until arr.length()).map { i ->
@@ -389,7 +418,7 @@ fun parseFileTree(json: String): List<FileTreeItem> = runCatching {
             size = o.optLong("size"),
         )
     }
-}.getOrDefault(emptyList())
+}.getOrDefault(emptyList()).let(::sortFileTree)
 
 /** 解析 stargazers / subscribers 数组（用户列表） */
 fun parseUsers(json: String): List<UserItem> = runCatching {
@@ -428,6 +457,15 @@ fun parseFileContent(json: String): String = runCatching {
 
 /** 拼接文件树路径 */
 fun joinPath(parent: String, name: String): String = if (parent.isEmpty()) name else "$parent/$name"
+
+/**
+ * 上一层目录（纯函数，便于单测）：`"core/src"` → `"core"`，已经在根目录时 → `""`。
+ *
+ * 与 [joinPath] 是一对：进目录用它、退目录用这个，免得退回时各写一段 `substringBeforeLast`，
+ * 少一处就多一条「退到 `/` 或空段」的线上 bug。
+ */
+fun parentPath(path: String): String =
+    path.split("/").filter { it.isNotBlank() }.dropLast(1).joinToString("/")
 
 /** URL 编码路径（逐段编码，保留 '/' 分隔；空格编码为 `%20` 而非 `+`，路径里 `+` 是字面加号） */
 fun encodePath(path: String): String = path.split("/").joinToString("/") {

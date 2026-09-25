@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.1.2**）
-与 §三 `versionCode` 流水（129 → **207**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.1.3**）
+与 §三 `versionCode` 流水（129 → **209**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,114 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.1.2 → 1.0.22）
+## 二、`versionName` 流水（1.1.3 → 1.0.22）
+
+### 1.1.3
+
+**阶段 2 剩余：Git 面板的四个写出口 + 「后果弹窗」，决策页宿主扩到代码页与文件页。**
+
+这一版把「面板只读」这条边界按 D-l 改成了 **面板只画胶囊、宿主持有弹窗与运行器**：
+有后果的动作不再一律跳页，而是在面板里先给一枚「后果弹窗」，需要选择或输入时才进决策页。
+
+① **四个写出口**（`GitWorkspacePanel.kt` 的工作区档底部，与既有胶囊同一种 `PanelChip`）：
+   `提交…`（`action_commit`）/ `撤销提交…`（`action_undo`）/ `上游…`（`nav_upstream`）/
+   `回退 Git 化…`（`nav_revert_gitify`）。置灰口径 `!git.exists`，提交另加
+   `git.dirty.isNotEmpty() && !git.merging`（空改动点「提交」只会得到一句「没有可提交的改动」）。
+   新文件 `GitOutletFlow.kt` 装着这一族的共用件：`GitOutlet` 枚举、四个出口各自的说明文案
+   （`note_outlet_commit` / `_undo` / `_upstream` / `_rollback` —— **撤销与回退不共用一句话**，
+   前者退一笔提交、后者连 `.git` 一起撤）、`GitOutletFlowState` / `GitOutletDialog`、
+   `commitIdentityReady()` 与运行器 `runLocalRepoCommit()`。
+   为什么不在弹窗里就执行完：提交要 message、上游要 token、身份没填过还要补一页 ——
+   把决策页掏空搬进 268dp 的浮层等于重写一遍；所以「快捷」的落法是**一步进到已预填好的决策页**
+   （`repoName` / `repoDir` / `token` 由宿主直接给）。
+
+② **两个宿主各接一次**：代码页 `RepositoryScreen.kt` 新增五条 `RepoRoute`
+   （`OutletCommit` / `OutletIdentity` / `OutletUndo` / `OutletUpstream` / `OutletRollback`
+   + `OutletDeleteWarn(unpushed)`，深度 2），文件页 `RepositoryFileViewer.kt` 的 `FilePage`
+   同样加五支；`leavePage` 的穷尽 `when` 同步加分支（漏一个的表现是「返回时跳掉一层」，
+   网页登录页漏过一版）。**回退也给代码页**：`GitifyRollbackScreen` 的「删除整个本地仓库」
+   这条出路在两个宿主里都能走完（删除页 `DeleteRepoWarningScreen` 收尾）。
+   身份页的返回**落回提交页**（用户是在补身份的路上被打断的，`outletIdentityMessage` 里存着
+   已经写好的提交信息）。
+
+③ **面板档位上提**（阶段 2 剩余 ③）：`stage` 从 `CodePageGitPanel` 内部搬到 `RepositoryScreen`
+   页面级。面板长在 `PageSwitcher` 的 Tab 分支里，进决策页时那一支离开组合 —— 档位放在面板
+   内部 `remember` 的话，用户从「提交…」回来看到的是收起的球。文件页本来就是这么做的。
+
+④ **密度与占位**：工作区档内容区 **280dp → 340dp**（`panelViewAreaHeight(Workspace)`；
+   八枚胶囊 + 英文标签会多折一两行，盒子不长高会被 `clipToBounds()` **静默裁掉** ——
+   不报错、不崩溃、单测也不会红）；`PanelChip` 再收一档（内边距 10/6 → 9/5、字号 11.5 → 11sp、
+   圆角 9 → 8dp）；删掉 `note_git_views_pending`（三处：zh/en 定义 + 工作区档末尾那行提示）。
+
+⑤ **本地仓库档的提交不再给勾选框**：引擎 `commit_repo` 先 `add_all(["."])` 再 `update_all(["."])`
+   ——**整个工作区一起提交**。画勾选框只会得到「取消了勾选、提交照样带上」的静默失效，
+   所以这一档的清单只作展示（页面用 `label_changed_files_local`「本次提交会全部带上」说明）。
+
+⑥ **设置列表按序下线（§5 的 ①）**：「同步」这一枚删掉了 —— 面板的「同步」出口进的是**同一个**
+   `LocalBranchSyncScreen`，同一件事摆两处；「分支」这一枚**暂时留着**：本地分支的删除
+   （`RustBridge.deleteBranchLocal`）全仓库只有设置页那个 `BranchesScreen` 一个落点，
+   现在删入口会真丢一个能力（已记进 §5 的例外，等它有了新家再跟删）。②提交/撤销/上游/回退
+   与 ③推送按拍板的顺序等这四个出口的设备验收。
+
+⑦ **代码页文件树：返回上一层**（用户报的旧账，「点击任意项目文件夹，没有返回上一层文件夹的功能设计」）。
+   根因是设计性的：目录层级 `path` 之前 `remember` 在 `RepositoryCodeContent` 内部 ——
+   返回键根本看不到这一层，于是 `core/src` 按返回**直接跳出整个仓库页**；能回上一层的只有面包屑上
+   那截 24dp 宽的蓝字（`core` 只占 738→833px），看起来只是标题。顺带修掉同一处的第二个漏洞：
+   打开文件会切到全屏文件页、Tab 那一支离开组合，**目录层级被静默重置回根**（返回后回到仓库根）。
+   现在按 `NAVIGATION-NOTES.md` 规则 2 收口：目录状态上提到 `RepositoryScreen` 页面级（`codePath`）、
+   纯函数 `codeFolderBackTarget(page, tabRoute, path)`（放 `RepositoryScreen.kt`，`parentPath` 放
+   `RepositoryModels.kt` 的 `joinPath` 旁）+ `CodeFolderBackTest` 8 例；`PageBackHandler` 与左上角返回箭头
+   **共用同一个 `folderUp`**，列表首行还多了一行整行可点的「上一层」—— 不再要求用户去点标题那截蓝字。
+   它的渲染是**文件管理器那套 `..`**（`Icons.Filled.Folder` + `PARENT_ENTRY_NAME = ".."`，
+   与目录行同高同边距；a11y 标签 `nav_up_one_level`「上一层」/「Up one level」兜底
+   —— 屏幕阅读器不会念成「点 点」）：用户拍板把原先的「上箭头 + 一层」文案换掉，理由是
+   **`..` 在这一列里本来就长得像一枚目录项**，不用先认一个只在这里出现的图标；文案则是因为
+   这一列其余行都是**名字**，混进一句说明会打断扫读。
+
+**同一轮的界面修账**：Git 面板的分档标签条 `GitPanelTabs` 从 `Row` 换成 `FlowRow`。
+   268dp 的面板可用宽度只有 248dp，英文四档（`Working tree`/`Commit graph`/`Refs`/`File history`）
+   连内边距约 273dp，`Row` 下最后一枚只分到 ~30dp，安卓把 `File history` 在**词内**折成
+   `File`/`hist`/`ory` 三行（1.1.3 英文真机截图暴露）。`FlowRow` 下英文折两行、中文仍是一行，
+   多出来的高度只影响这一条标签（面板外壳是 wrap-content，不会被 `clipToBounds()` 裁掉）。
+
+⑧ **Git 工具气泡球按账号与仓库的关系门控**（2026-09-26 补充规则）：**非团队、非协同、非仓库管理员**
+   身份的账号，在相应的仓库下**不显示这枚球**。球里的每一个动作（提交 / 撤销 / 上游 / 回退 / 分支 /
+   合并 / 本地分支同步）都要写权限，只读的外人点下去只会得到一句失败 —— 而这枚球本身就把「这里能做
+   版本管理」当成前提告诉用户。判定 = `RepoRelation.canWrite`（账号仓库 owner 或 `permissions.push`；
+   受邀协作、组织成员、团队授予的写权限都体现在同一个 `push` 上），**复用** `repoRelationOf`，
+   与星标 / 发布页的写权限同一套口径 —— 不新造第二套判定。仓库信息还没到时（`repoInfo` 为 null、
+   `canPush` 默认 false）按「无写权限」**保守不显示**，与 `parseRepoInfo` 的既有口径一致。
+   实现上把**模式门控与账号门控收进同一个纯函数** `showGitBubble(mode, relation)`（原先只有一个
+   `mode` 参数）：调用点少传一个参数就编不过，文件页 `FileViewerScreen` 的 `gitBallRelation`
+   也**不给默认值** —— 「代码页改了、文件页忘了」这种一半生效此前正是被用户抓出来的。规格回写
+   D-o（[`git-mode-design.md`](git-mode-design.md) §1 第 4 条 / §3.4 / §6.1 / §9）。
+
+⑨ **代码页文件树的排序对齐 GitHub 网页版**（2026-09-26 用户拍板）：**文件夹优先、文件其次**；
+   同类型内 **`.` 开头的排最前**（对齐性规则）；其余按名字 **A→Z**（大小写敏感、字节序 ——
+   GitHub 就是大写在前）。这条**只能在客户端排**：GitHub contents API 返回的是混着的纯名字序
+   （实测 `rust-lang/rust` 根目录：`.clang-format` `.github` `.gitignore` `AGENTS.md` `LICENSES`
+   `compiler` …，目录不提前），只有网页版那一列才是目录全在前。排错不会报错、只有真机上肉眼
+   能看出来，所以规则收进纯函数 `sortFileTree` 并由 `parseFileTree` 收口（**一个真源**：缓存直出与
+   回源两条路径都经过它，渲染层不许再排一遍，否则两条路径会排出两种顺序）；`symlink` / `submodule`
+   归**文件**侧（与点击行为一致）。同时按惯例做了**日志插桩**（新锚点 `代码页文件树`：每次列目录记
+   项数、目录数与前 6 项名字 —— 顺序是「只看得见」的那类改动，设备上 grep 一条就能验收）与
+   **源码级回归钉子** `FileTreeOrderTest`（11 例）。规格回写
+   [`features-design.md`](features-design.md) §3 仓库浏览。
+
+验证：`:app:testDebugUnitTest` 943 → **969** 例（`GitWorkbenchWiringTest` +4：四个出口两宿主都接、
+弹窗在外层、面板内不含 `GitOutletDialog(`/`runLocalRepoCommit(`；撤销与回退的文案不共用；
+本地仓库档不拿「一个都没勾」拦提交 + 引擎 `add_all(["."])` 钉子；面板档位住在页面级。
+`CodeFolderBackTest` +8：`parentPath` 边界与 `joinPath` 互逆、`codeFolderBackTarget` 四象限、
+两条返回路径同源与首行 `..` 入口（文件夹图标 + `..` + a11y 标签）的源码钉子、标签条不再用 `Row` 容器。
+`GitBubbleModeTest` 7 例：两种模式 × 四种关系（OWN/COLLABORATOR 显示、FOREIGN/NOT_COLLABORATOR/null
+不显示）、判定实现原文、宿主必须算并传关系态、文件页参数无默认值、「只有这两个调用点」。
+`FileTreeOrderTest` 11 例：文件夹优先 / 点开头最前（且不越过目录）/ A→Z / 大小写字节序 /
+符号与子模块归文件侧 / 等价键稳定 / 解析出来即排好 / 空目录与坏 JSON / 排序只有一个真源 /
+渲染层不自己排 / 插桩锚点与顺序入日志）· `assembleDebug` ·
+`check-i18n --min-coverage 100`（新增 9 条、删 1 条；⑧⑨ 不新增字面量）。规格回写：
+[`git-mode-design.md`](git-mode-design.md) §3.6（状态块）、§5（① 的实际执行与例外）、
+§8 阶段 2 行；[`NAVIGATION-NOTES.md`](NAVIGATION-NOTES.md) §三 坑表 +2 行、§五 自检 +2 条；
+[`features-design.md`](features-design.md) §3（⑨ 的排序规则）。
 
 ### 1.1.2
 
@@ -2846,7 +2953,7 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（207 → 129）
+## 三、`versionCode` 流水（209 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
@@ -2858,6 +2965,20 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 > - **129**：主题彻底收敛（A+B+C 全量收角色 + 两道源码级钉子）（一次提交，故 +1）
 > - **142**：慢帧守望（帧级定位）+ 日志追加写修复 + 设置行图标居中（一次发布，故 +1）
 > - **146**：设置页账户卡头像改走统一 Avatar（真实图标 + 圆形裁切）+ 账号头像地址回落会话（一次提交，故 +1）
+
+- **209**：代码页文件树补上「返回上一层」—— 目录状态上提到页面级（`RepositoryScreen.codePath`）+
+`codeFolderBackTarget` / `parentPath` 纯函数 + 列表首行 `..` 入口（文件夹图标 + `..`，
+a11y 标签 `nav_up_one_level`），返回键与左上角箭头同源；顺带把 Git 面板分档标签条 `Row`
+换成 `FlowRow`（英文 `File history` 词内折三行）+ `CodeFolderBackTest` 8 例；Git 工具气泡球补上
+账号门控（非团队 / 非协同 / 非仓库管理员在该仓库下不显示，`showGitBubble(mode, relation)` +
+`GitBubbleModeTest` 7 例，D-o）；文件树排序对齐 GitHub 网页版（文件夹优先 / `.` 开头最前 / A→Z，
+真源 `sortFileTree` + 日志插桩锚点 `代码页文件树` + `FileTreeOrderTest` 11 例）（969 例）（一次提交，故 +1）
+
+- **208**：阶段 2 剩余 —— Git 面板四枚写出口（提交/撤销/上游/回退 Git 化）+ 「后果弹窗」
+（`GitOutletFlow.kt`）+ 决策页宿主扩到代码页五支与文件页五支（含删仓出路）+ 面板档位上提到页面级
++ 工作区档 280→340dp、`PanelChip` 收紧、删 `note_git_views_pending` + 本地仓库档的提交不再给勾选框
+（引擎整树 `add_all(["."])`）+ 设置列表删「同步」入口（「分支」按 §5 例外保留）；
+`GitWorkbenchWiringTest` +4 例（947 例）（一次提交，故 +1）
 
 - **207**：弹窗与面板的占位返工 —— 立刻现身（浮层不用 120ms 延迟）+ 内容区固定高 +
 `LoadState` 三态判定；顺带修掉提交图「先白取一次 REST」（`LocalRepoGitState.loaded`）

@@ -123,6 +123,18 @@
 列表 / 详情 / README 渲染 / 语言统计 / 贡献者 / 分支同步（**服务端合并**，入口收在 `⋮` 气泡，见
 `docs/specs/prototypes/` 与 `screens-design.md`）。
 
+- **代码页文件树的排序对齐 GitHub 网页版**（2026-09-26 用户拍板）：**文件夹优先、文件其次**；
+  同类型内 **`.` 开头的排最前**（对齐性规则：`.github` / `.gitignore` 永远在最上面）；其余按名字
+  **A→Z**（大小写敏感、字节序 —— GitHub 就是大写在前：`AGENTS.md` 在 `bootstrap.toml` 之前）。
+  **必须在客户端排**：GitHub contents API 返回的是**混着的纯名字序**（实测 `rust-lang/rust` 根目录：
+  `.clang-format` `.github` `.gitignore` `AGENTS.md` `LICENSES` `compiler` …，目录不提前），
+  只有网页版那一列才是「目录全在前 → 文件按名字」。
+  **一个真源**：`sortFileTree`（`ui/repository/RepositoryModels.kt`），由 `parseFileTree` 收口 ——
+  缓存直出与回源两条路径都经过它，渲染层不许再排一遍（否则两条路径会排出两种顺序）。
+  `symlink` / `submodule` 归**文件**侧（与点击行为一致：只有 `type == "dir"` 才进目录）。
+  钉子 `FileTreeOrderTest`（11 例：三条规则 + 解析即排好 + 「只有一个真源」+ 插桩）；
+  插桩锚点 `代码页文件树`（每次列目录记项数、目录数与前 6 项名字 —— 顺序只看得见，
+  设备上 grep 这一条就能验收）。
 - **README 渲染**：WebView 高度 = 整篇内容高度，滚动交给外层原生列表；
   页面级持有者让 WebView 活过 LazyColumn 的回收（`ui/repository/ReadmeWebView.kt`）。
 - **WebView 复用有身份**：`readmeDocKey(html, host, owner, repo, …)`（`ReadmeWebView.kt:410`）——

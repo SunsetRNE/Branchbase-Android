@@ -67,16 +67,21 @@ ensure_aapt2_arm64() {
     command_exists patchelf || apt-get install -y --no-install-recommends patchelf
 
     local tmp; tmp=$(mktemp -d)
-    trap 'rm -rf "$tmp"' RETURN
+    # ${tmp:-} 是必需的：RETURN 陷阱也会在 main 返回时触发，那时局部变量已出作用域，
+    # set -u 会把脚本整体打成 exit 1（前面所有步骤其实都已成功）。
+    trap 'rm -rf "${tmp:-}"' RETURN
     curl -sL -o "$tmp/Packages" "$TERMUX_BASE/dists/stable/main/binary-aarch64/Packages"
 
     # aapt2 及其运行时依赖（soname 见 Packages 的 Depends）
     local want="aapt2 abseil-cpp libprotobuf fmt libc++ libexpat libpng libzopfli zlib"
     local pkg fn
     for pkg in $want; do
-      fn=$(awk -v RS='' -v p="$pkg" '
-        $0 ~ "^Package: " p "$" { for (i=1;i<=NF;i++) if ($i ~ /^Filename: /) { sub(/^Filename: /,"",$i); print $i } }' \
-        "$tmp/Packages" | head -1)
+      # 逐行扫描（不要用 RS='' 的段落模式：空 RS 下 ^/$ 锚点不按段重置，
+      # `$i ~ /^Filename: /` 里的空格也永远匹配不到字段，两条都会让这里恒空）。
+      fn=$(awk -v p="$pkg" '
+        /^Package: / { cur=$2 }
+        cur == p && /^Filename: / { print $2; exit }' \
+        "$tmp/Packages")
       [ -n "$fn" ] || { log "找不到 Termux 包：$pkg"; continue; }
       curl -sL -o "$tmp/$pkg.deb" "$TERMUX_BASE/$fn"
       dpkg-deb -x "$tmp/$pkg.deb" "$tmp/x" 2>/dev/null || true
