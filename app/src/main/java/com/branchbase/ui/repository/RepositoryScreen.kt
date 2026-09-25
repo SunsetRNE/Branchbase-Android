@@ -922,6 +922,9 @@ fun RepositoryScreen(
                                 if (page == RepoPage.Code && showGitBubble(mode)) {
                                     CodePageGitPanel(
                                         repo = repo,
+                                        owner = owner,
+                                        host = sessionInfo(sessionJson).first,
+                                        token = sessionInfo(sessionJson).second,
                                         branches = branches.map { it.name },
                                         defaultBranch = branch ?: branches.firstOrNull()?.name ?: "main",
                                         refreshTick = refreshTick,
@@ -1141,6 +1144,9 @@ private sealed interface RepoRoute : PageLevel {
 @Composable
 private fun CodePageGitPanel(
     repo: String,
+    owner: String,
+    host: String,
+    token: String,
     branches: List<String>,
     defaultBranch: String,
     refreshTick: Int,
@@ -1223,14 +1229,17 @@ private fun CodePageGitPanel(
         stage = stage,
         onStageChange = { stage = it },
         view = { kind ->
-            when (kind) {
-                GitPanelKind.Workspace -> GitWorkspacePanel(
-                    git = localGit,
-                    onRefresh = onRefresh,
-                    onOpenSync = onOpenLocalSync,
-                )
-                else -> GitPanelViewPlaceholder(kind)
-            }
+            GitPanelViewHost(
+                kind = kind,
+                onSelect = { stage = GitPanelStage.View(it) },
+                git = localGit,
+                host = host,
+                token = token,
+                owner = owner,
+                repo = repo,
+                onRefresh = onRefresh,
+                onOpenSync = onOpenLocalSync,
+            )
         },
         title = localGit.summary(),
         handleBadge = when {

@@ -707,14 +707,17 @@ fun FileViewerScreen(
                 stage = gitPanelStage,
                 onStageChange = { gitPanelStage = it },
                 view = { kind ->
-                    when (kind) {
-                        GitPanelKind.Workspace -> GitWorkspacePanel(
-                            git = localGit,
-                            onRefresh = { gitTick++ },
-                            onOpenSync = onOpenLocalSync,
-                        )
-                        else -> GitPanelViewPlaceholder(kind)
-                    }
+                    GitPanelViewHost(
+                        kind = kind,
+                        onSelect = { gitPanelStage = GitPanelStage.View(it) },
+                        git = localGit,
+                        host = host,
+                        token = token,
+                        owner = owner,
+                        repo = repo,
+                        onRefresh = { gitTick++ },
+                        onOpenSync = onOpenLocalSync,
+                    )
                 },
                 title = localGit.summary(),
                 // 顶部停靠：编辑态的底部是「提交信息 + 按钮」，面板停右上角避免遮挡

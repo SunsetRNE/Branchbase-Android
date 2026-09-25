@@ -407,6 +407,13 @@
     <string name="label_git_bundle">Git bundle</string>
     <string name="label_git_workspace">Working tree</string>
     <string name="label_git_graph">Commit graph</string>
+    <string name="state_git_view_pending">Soon</string>
+    <string name="state_graph_empty">No commits on this branch yet</string>
+    <string name="label_graph_truncated">Loaded %1$s · earlier history not loaded</string>
+    <string name="label_graph_all_loaded">All %1$s loaded</string>
+    <string name="label_working_tree_node">Working tree · %1$s changes</string>
+    <string name="state_working_tree_uncommitted">Uncommitted (above HEAD)</string>
+    <string name="error_graph_load_failed">Failed to load the commit graph: %1$s</string>
     <string name="label_git_refs">Refs</string>
     <string name="label_git_file_history">File history</string>
     <string name="state_workspace_clean">Working tree is clean — nothing uncommitted</string>

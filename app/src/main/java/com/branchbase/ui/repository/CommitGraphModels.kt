@@ -1,0 +1,233 @@
+package com.branchbase.ui.repository
+
+import org.json.JSONArray
+import org.json.JSONObject
+
+/**
+ * 提交图的数据模型与**泳道布局**（纯逻辑，可 JVM 单测）。
+ *
+ * 真源与取舍见 [`git-mode-design.md`](../../../../../../docs/specs/git-mode-design.md)
+ * §4.1（数据与分页）/ §4.2（泳道布局）：
+ * 布局**预先算好**（每行的泳道与线段），绘制期只按行画自己那几条线 ——
+ * 一屏百行时这是「能滑动」与「滑动掉帧」的分界。
+ */
+
+/** 引用标注的种类（HEAD / 本地分支 / 远端分支 / tag / 上游）。 */
+enum class RefKind { HEAD, LOCAL_BRANCH, REMOTE_BRANCH, TAG, UPSTREAM }
+
+/** 挂在某个提交上的一条引用。 */
+data class CommitRef(val name: String, val kind: RefKind)
+
+/** 图上的一条提交（已解析 `parents` 与引用标注）。 */
+data class GraphCommit(
+    val fullSha: String,
+    val parents: List<String>,
+    val subject: String,
+    val author: String,
+    val date: String,
+    val refs: List<CommitRef> = emptyList(),
+) {
+    /** 短 sha（列表左侧那一列）。 */
+    val shortSha: String get() = fullSha.take(7)
+}
+
+/** 图上的一条边（本行要画的线段）。 */
+data class GraphEdge(
+    val fromLane: Int,
+    val toLane: Int,
+    /** 起点是不是本行的节点（false = 只是「穿过」本行）。 */
+    val fromNode: Boolean,
+    /** 终点是不是本行的节点（合并的第二父会指向更下方的某一行的节点之外的位置）。 */
+    val toNode: Boolean,
+    /** 父提交不在已加载窗口里 —— 画成终止符，**不许画成断头线**。 */
+    val dangling: Boolean = false,
+)
+
+/** 一条提交在图上占的一行（几何已预计算）。 */
+data class GraphCommitRow(
+    val commit: GraphCommit,
+    /** 节点所在泳道。 */
+    val lane: Int,
+    /** 本行泳道总数（决定 gutter 宽度上限）。 */
+    val laneCount: Int,
+    val edges: List<GraphEdge>,
+    /** 该提交的父不在已加载窗口里（分页截断 / 更早历史未加载）。 */
+    val dangling: Boolean,
+)
+
+/**
+ * 图上的一行：**未提交的工作区虚节点**，或一条真实提交。
+ *
+ * 虚节点是产品拍板「画」（方案 A）：它在 HEAD 之上，没有 sha、不是 git 对象 ——
+ * 所以**所有以 sha 为键的交互都不适用于它**（详情 / 复制 / 对比 / 回滚），
+ * 点它只能进「工作区」档。
+ */
+sealed interface GraphRow {
+    val laneCount: Int
+
+    data class WorkingTree(val dirtyCount: Int) : GraphRow {
+        override val laneCount: Int get() = 1
+    }
+
+    data class Commit(val row: GraphCommitRow) : GraphRow {
+        override val laneCount: Int get() = row.laneCount
+    }
+}
+
+/**
+ * 解析 `GET /repos/{o}/{r}/commits`（**保留 `parents`**）。
+ *
+ * 为什么另起一个解析函数而不是改 `parseCommits`：那个的 `CommitItem` 只服务「提交列表」，
+ * 改成带 `parents` 会牵动列表页与它们的单测；图是另一件事，**各解析各的**（版本树设计稿 §2 的口径）。
+ *
+ * 解析失败返回空列表 —— 与 `parseCommits` 一致：调用方按「空列表 = 没有提交 / 解析不出来」渲染，
+ * 不在这里抛。
+ */
+fun parseGraphCommits(json: String?): List<GraphCommit> {
+    if (json.isNullOrBlank()) return emptyList()
+    return runCatching {
+        val arr = JSONArray(json)
+        (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            val commit = o.optJSONObject("commit") ?: JSONObject()
+            val sha = o.optString("sha")
+            if (sha.isBlank()) return@mapNotNull null
+            val parents = commit.optJSONArray("parents")?.let { ps ->
+                (0 until ps.length()).mapNotNull { k ->
+                    ps.optJSONObject(k)?.optString("sha")?.takeIf { it.isNotBlank() }
+                }
+            }.orEmpty()
+            GraphCommit(
+                fullSha = sha,
+                parents = parents,
+                subject = commit.optString("message").lineSequence().firstOrNull().orEmpty(),
+                author = commit.optJSONObject("author")?.optString("name")
+                    ?: o.optJSONObject("author")?.optString("login").orEmpty(),
+                date = commit.optJSONObject("author")?.optString("date").orEmpty(),
+            )
+        }
+    }.getOrDefault(emptyList())
+}
+
+/**
+ * 泳道布局（经典 swimlane）：**一条泳道 = 一个「还在等谁出现」的父提交**。
+ *
+ * 规则（`git-version-tree-design.md` §6）：
+ * - 每条提交认领「正等它的那条泳道」，没有就开一条；
+ * - **第一父继承当前泳道**（历史继续往下走），额外父各占一条（取最左的空位）；
+ * - 一条泳道等到的 sha 一直没出现 → 它在下行**穿过**（不能断，否则线会莫名消失）；
+ * - 父不在窗口里 → `dangling`（画终止符）；
+ * - 纯函数、幂等：同输入同输出（列表增删才会重算）。
+ */
+object CommitGraphLayout {
+
+    /**
+     * @param commits 已按「新的在前」排好的提交（REST `/commits` 的顺序）
+     * @param workingTreeDirty 工作区改动数；> 0 时在最上方插一行**虚节点**（HEAD 之上），null / 0 不插
+     */
+    fun layout(commits: List<GraphCommit>, workingTreeDirty: Int? = null): List<GraphRow> {
+        val rows = mutableListOf<GraphRow>()
+        if (workingTreeDirty != null && workingTreeDirty > 0) {
+            rows += GraphRow.WorkingTree(workingTreeDirty)
+        }
+        if (commits.isEmpty()) return rows
+
+        val shas = commits.map { it.fullSha }.toHashSet()
+        // 每条泳道正在等的 sha（null = 空位，可被复用）
+        val lanes = mutableListOf<String?>()
+
+        commits.forEach { commit ->
+            // 0) 先把上一行空出来的泳道**压实**：泳道是个列表，空位留在中间会让后面的节点
+            //    永远往右偏（真机上看着就是「分支莫名其妙跳到右边」）。位移本身要画成斜线，
+            //    否则那根线在行与行之间会断掉 —— 位移记在本行（线从上一行的旧位置斜进新位置）。
+            val shifts = compact(lanes)
+
+            // 1) 认领泳道：已经有泳道在等它（取最左），否则用最左空位 / 新开一条
+            var lane = lanes.indexOfFirst { it == commit.fullSha }
+            if (lane < 0) {
+                lane = lanes.indexOfFirst { it == null }
+                if (lane < 0) {
+                    lanes += null
+                    lane = lanes.lastIndex
+                }
+            }
+
+            val edges = mutableListOf<GraphEdge>()
+            shifts.forEach { (from, to) -> edges += GraphEdge(from, to, fromNode = false, toNode = false) }
+            // 穿过本行的线：别的泳道在等别的提交
+            lanes.indices.filter { it != lane && lanes[it] != null }.forEach { l ->
+                edges += GraphEdge(fromLane = l, toLane = l, fromNode = false, toNode = false)
+            }
+
+            // 2) 父提交落位：第一父继承本泳道（除非已有泳道在等它，那就并过去）；额外父各占一条
+            val parentLanes = mutableListOf<Int>()
+            commit.parents.forEachIndexed { idx, parent ->
+                val waiting = lanes.indexOfFirst { it == parent }
+                when {
+                    waiting >= 0 -> parentLanes += waiting
+                    idx == 0 -> {
+                        lanes[lane] = parent
+                        parentLanes += lane
+                    }
+                    else -> {
+                        var free = lanes.indexOfFirst { it == null }
+                        if (free < 0) {
+                            lanes += null
+                            free = lanes.lastIndex
+                        }
+                        lanes[free] = parent
+                        parentLanes += free
+                    }
+                }
+            }
+
+            val dangling = commit.parents.isNotEmpty() && commit.parents.none { it in shas }
+            // 3) 本泳道的去向：根提交到此为止；没有父接在本泳道上（第一父并去了别处）也要释放
+            if (commit.parents.isEmpty() || parentLanes.none { it == lane }) {
+                lanes[lane] = null
+            }
+            parentLanes.forEachIndexed { idx, l ->
+                edges += GraphEdge(
+                    fromLane = lane,
+                    toLane = l,
+                    fromNode = true,
+                    toNode = false,
+                    dangling = dangling && idx == 0,
+                )
+            }
+
+            while (lanes.isNotEmpty() && lanes.last() == null) lanes.removeAt(lanes.lastIndex)
+
+            rows += GraphRow.Commit(
+                GraphCommitRow(
+                    commit = commit,
+                    lane = lane,
+                    laneCount = maxOf(lanes.size, lane + 1, 1),
+                    edges = edges,
+                    dangling = dangling,
+                ),
+            )
+        }
+        return rows
+    }
+
+    /**
+     * 把泳道列表里的空位去掉（保序），返回**移动过的泳道**：`(旧下标, 新下标)`。
+     *
+     * 为什么要压实：泳道是「谁在等谁」的列表，空位留在中间只会让后面的线一直往右漂；
+     * 又为什么要把位移返回出去：压实发生在两行之间，不把这个位移画成本行的斜线，
+     * 那根线就会在行边界上断开（真机上表现为「线画到一半没了」）。
+     */
+    private fun compact(lanes: MutableList<String?>): List<Pair<Int, Int>> {
+        val shifts = mutableListOf<Pair<Int, Int>>()
+        var write = 0
+        for (read in lanes.indices) {
+            val sha = lanes[read] ?: continue
+            if (read != write) shifts += read to write
+            lanes[write] = sha
+            write++
+        }
+        while (lanes.size > write) lanes.removeAt(lanes.lastIndex)
+        return shifts
+    }
+}

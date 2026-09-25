@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -29,54 +30,122 @@ import androidx.compose.ui.unit.sp
 import com.branchbase.R
 import com.branchbase.ui.theme.Primer
 
+/** 面板视图的统一宽度：气泡贴着屏幕角落，再宽就顶到正文了。 */
+private val PANEL_WIDTH = 268.dp
+
 /**
- * Git 工作台 —— **「工作区」档**（[GitPanelKind.Workspace]）。
+ * 面板视图档的宿主：**容器 + 标签条 + 内容**。
  *
- * ## 这一档是什么（以及不是什么）
+ * 有哪几档、哪一档能用，由 [GitPanelKind] 说了算（`available`）；未落地的档**不装死** ——
+ * 标签上标「待接入」，点进去是一句如实的说明（[GitPanelViewPlaceholder]），
+ * 而不是一个点了没反应的入口（这条是本仓库的既有口径）。
  *
- * 它是「HEAD 之上还没提交的那一层」：`repo_status.dirty` 的文件清单 + 当前分支 / 领先落后 / 上游。
- * 数据与徽标**同源**（[LocalRepoGitState]，一次 `repo_status`）—— 面板上下的数字必须一致，
- * 各读一份是这个仓库已经踩过的坑（消息页显示模式两个入口各持一份 `remember`）。
- *
- * **不是**提交页：提交要走暂存勾选（P0-2 决策页）与身份检查（P0-3），
- * 那些入口按阶段接入（[`git-mode-design.md`](../../../../../../docs/specs/git-mode-design.md) §9），
- * 这里只如实说明，不放一个点了会跳到别处的假按钮。
- *
- * ## 尺寸
- *
- * 面板自己带 `heightIn(max = 220.dp)` 上限并在内部滚动：气泡面板贴着屏幕角落，
- * 让它随仓库大小长到半屏高会把底下的正文顶没（动效规格见 §3.4，
- * 尺寸变化由外层 `animateContentSize` 接管，这里只给上限）。
+ * 档与档之间是**同层切换** → `PanelSwitcher` 走 fade-through（不位移，见
+ * [`git-mode-design.md`](../../../../../../docs/specs/git-mode-design.md) §3.4）。
  */
 @Composable
-fun GitWorkspacePanel(
+fun GitPanelViewHost(
+    kind: GitPanelKind,
+    onSelect: (GitPanelKind) -> Unit,
     git: LocalRepoGitState,
+    host: String,
+    token: String,
+    owner: String,
+    repo: String,
     onRefresh: () -> Unit,
     onOpenSync: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
         modifier
-            .width(268.dp)
+            .width(PANEL_WIDTH)
             .clip(RoundedCornerShape(16.dp))
             .background(Primer.BackgroundPrimary)
             .border(1.dp, Primer.Border, RoundedCornerShape(16.dp))
-            .padding(12.dp),
+            .padding(10.dp),
     ) {
-        // ── 头：分支 + 领先 / 落后 + 工作区改动数（数字全部来自同一份快照） ──
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                stringResource(R.string.label_git_workspace),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Primer.TextPrimary,
+        GitPanelTabs(current = kind, onSelect = onSelect)
+        Spacer(Modifier.height(8.dp))
+        when (kind) {
+            GitPanelKind.Workspace -> GitWorkspaceBody(git = git, onRefresh = onRefresh, onOpenSync = onOpenSync)
+            GitPanelKind.Graph -> CommitGraphPanel(
+                host = host,
+                token = token,
+                owner = owner,
+                repo = repo,
+                branch = git.branch,
+                dirtyCount = git.dirtyCount,
+                onOpenWorkspace = { onSelect(GitPanelKind.Workspace) },
+                onOpenSync = onOpenSync,
             )
-            Spacer(Modifier.width(8.dp))
+            else -> GitPanelViewPlaceholder(kind)
+        }
+    }
+}
+
+/**
+ * 分档标签条（工作区 / 提交图 / 引用树 / 文件历史）。
+ *
+ * 未落地的档仍然可点 —— 点进去是一句「按阶段接入」的说明，**不是死按钮**；
+ * 视觉上靠标签右侧的「待接入」小字与弱化文字色区分（禁用必须给出路，与设置页同一口径）。
+ */
+@Composable
+private fun GitPanelTabs(current: GitPanelKind, onSelect: (GitPanelKind) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        GitPanelKind.entries.forEach { k ->
+            val selected = k == current
+            val fg = when {
+                selected -> Color.White
+                k.available -> Primer.TextSecondary
+                else -> Primer.TextTertiary
+            }
+            Row(
+                Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (selected) Primer.Blue500 else Primer.Gray100)
+                    .clickable { onSelect(k) }
+                    .padding(horizontal = 7.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(gitPanelKindLabel(k), fontSize = 10.5.sp, fontWeight = FontWeight.Medium, color = fg)
+                if (!k.available) {
+                    Spacer(Modifier.width(3.dp))
+                    Text(stringResource(R.string.state_git_view_pending), fontSize = 8.5.sp, color = fg)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Git 工作台 —— **「工作区」档**（[GitPanelKind.Workspace]）的正文。
+ *
+ * 它是「HEAD 之上还没提交的那一层」：`repo_status.dirty` 的文件清单 + 当前分支 / 领先落后 / 上游。
+ * 数据与徽标**同源**（[LocalRepoGitState]，一次 `repo_status`）—— 面板上下的数字必须一致，
+ * 各读一份是这个仓库已经踩过的坑（消息页显示模式两个入口各持一份 `remember`）。
+ *
+ * **不是**提交页：提交要走暂存勾选（P0-2 决策页）与身份检查（P0-3），那些入口按阶段接入，
+ * 这里只如实说明，不放一个点了会跳到别处的假按钮。
+ */
+@Composable
+fun GitWorkspaceBody(
+    git: LocalRepoGitState,
+    onRefresh: () -> Unit,
+    onOpenSync: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier.fillMaxWidth()) {
+        // ── 头：分支 + 领先 / 落后（数字全部来自同一份快照） ──
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 git.branch.ifBlank { "—" },
                 fontSize = 11.5.sp,
                 fontFamily = FontFamily.Monospace,
-                color = Primer.TextSecondary,
+                color = Primer.TextPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
@@ -192,31 +261,23 @@ private fun PanelChip(label: String, enabled: Boolean, onClick: () -> Unit) {
 }
 
 /**
- * **本档还没落地**时占位（[GitPanelKind.available] = false）。
+ * **本档还没落地**时的说明（[GitPanelKind.available] = false）。
  *
- * 为什么要有它：视图枚举里那三档（提交图 / 引用树 / 文件历史）按阶段接入，
- * 而面板必须**现在就**能安全渲染任一档 —— 不放一个「点了没反应」的入口，
- * 也不假装它已经能用（这条是本仓库的既有口径：禁用必须给出路）。
+ * 为什么要有它：视图枚举里那几档按阶段接入，而面板必须**现在就**能安全渲染任一档 ——
+ * 不放一个「点了没反应」的入口，也不假装它已经能用。
  */
 @Composable
 fun GitPanelViewPlaceholder(kind: GitPanelKind, modifier: Modifier = Modifier) {
-    Column(
-        modifier
-            .width(268.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(Primer.BackgroundPrimary)
-            .border(1.dp, Primer.Border, RoundedCornerShape(16.dp))
-            .padding(12.dp),
-    ) {
+    Column(modifier.fillMaxWidth()) {
         Text(
             gitPanelKindLabel(kind),
-            fontSize = 13.sp,
+            fontSize = 12.5.sp,
             fontWeight = FontWeight.SemiBold,
             color = Primer.TextPrimary,
         )
         Text(
             stringResource(R.string.note_git_view_unavailable),
-            fontSize = 11.5.sp,
+            fontSize = 11.sp,
             color = Primer.TextTertiary,
             lineHeight = 15.sp,
             modifier = Modifier.padding(top = 4.dp),
@@ -224,7 +285,7 @@ fun GitPanelViewPlaceholder(kind: GitPanelKind, modifier: Modifier = Modifier) {
     }
 }
 
-/** 各档的中文名（面板内标题与占位共用一份，别在两处各写一遍）。 */
+/** 各档的名字（标签条与占位共用一份，别在两处各写一遍）。 */
 @Composable
 internal fun gitPanelKindLabel(kind: GitPanelKind): String = when (kind) {
     GitPanelKind.Workspace -> stringResource(R.string.label_git_workspace)

@@ -29,7 +29,12 @@ sealed interface GitPanelStage {
     data class View(val kind: GitPanelKind) : GitPanelStage
 }
 
-/** 工作台视图的种类。**`available = false` 的档不许渲染成可点**（点了没反应的入口比没有更坏）。 */
+/**
+ * 工作台视图的种类。
+ *
+ * **`available = false` 的档不装死也不装活**：标签上标「待接入」，点进去是一句如实的说明
+ * （`GitPanelViewPlaceholder`）—— 既不放一个点了没反应的入口，也不假装它已经能用。
+ */
 enum class GitPanelKind(
     /**
      * 这一档是否已落地。

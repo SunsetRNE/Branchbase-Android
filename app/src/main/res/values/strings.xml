@@ -412,6 +412,13 @@
     <string name="label_git_bundle">Git 配置包</string>
     <string name="label_git_workspace">工作区</string>
     <string name="label_git_graph">提交图</string>
+    <string name="state_git_view_pending">待接入</string>
+    <string name="state_graph_empty">这个分支还没有提交</string>
+    <string name="label_graph_truncated">已加载 %1$s 条 · 更早历史未加载</string>
+    <string name="label_graph_all_loaded">已加载全部 %1$s 条</string>
+    <string name="label_working_tree_node">工作区 · %1$s 处改动</string>
+    <string name="state_working_tree_uncommitted">未提交（HEAD 之上）</string>
+    <string name="error_graph_load_failed">提交图加载失败：%1$s</string>
     <string name="label_git_refs">引用树</string>
     <string name="label_git_file_history">文件历史</string>
     <string name="state_workspace_clean">工作区干净 · 没有未提交改动</string>

@@ -65,6 +65,16 @@ object Primer {
     val Orange500: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.warning
     val Purple500: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.done
 
+    /**
+     * 提交图（DAG）的泳道配色：**按泳道下标取模**取色。
+     *
+     * 复用现有语义色而不是新造色值（`ThemeConvergenceTest` 只允许 `ui/theme/` 里出现颜色，
+     * 而新造一组「图谱专用色」等于给主题加第二套色板）。相邻泳道颜色差异足够大，
+     * 浅色 / 深色下都由色板自己保证对比度。
+     */
+    val GraphLanes: List<Color> @Composable @ReadOnlyComposable
+        get() = listOf(Blue500, Green500, Orange500, Purple500, Red500, Link)
+
     // ── 语义色 ──
     /** 页面底。 */
     val BackgroundPrimary: Color @Composable @ReadOnlyComposable get() = LocalPrimerPalette.current.canvas
