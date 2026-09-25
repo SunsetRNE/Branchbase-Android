@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只留格式契约 + 写法样板（3 个经典示例）；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.98**）
-与 §三 `versionCode` 流水（129 → **200**）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.99**）
+与 §三 `versionCode` 流水（129 → **201**）。
 
 ---
 
@@ -25,7 +25,52 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.98 → 1.0.22）
+## 二、`versionName` 流水（1.0.99 → 1.0.22）
+
+### 1.0.99
+
+**Git 模式：本地 diff 页落地 —— 工作区改动清单与提交图的提交行都能点开看「改了什么」
+（`diff_worktree` / `diff_commit` 的消费者）+ 引擎修掉「未跟踪文件没有内容」**。
+
+① **为什么是「新开一个只读页」而不是给文件查看器加「本地工作树」来源**（D-k，§11.6 的选型）：
+
+- 1.0.96 那次「点一行 → 打开那个文件」失败的原因是**目的地错**：查看器读的是
+  `GET /repos/{o}/{r}/contents/{path}`（远端），而清单列的是本地改动；
+- 给查看器加本地来源当然也能修，但那意味着在一个已经背着编辑态 / 草稿 / 草稿基准 sha /
+  离线冲突检测 / 三种提交模式的页面上，再回答一遍「本地来源下这些还成不成立」——
+  `PageCache` 的键是 `(owner, repo, path, ref)`、策略是「直出过期数据 + 写操作后失效」，
+  本地内容随时在变，混进同一套键会让「提交后必须看到新内容」失真；
+- 而用户点开脏文件想问的是**「我改了什么」**：diff 一句话回答，原文得自己记得远端长什么样。
+  所以走一条独立的只读路：两个数据源输出同一套结构，共用一页与同一份渲染
+  （引擎侧 `render_diff` 本来就是共用的）。
+
+② **本地 diff 页**（`LocalDiffScreen` / `LocalDiffModels`）：两个入口 —— 工作区档的改动行
+（`diff_worktree`，**只留点开的那一个文件**）与提交图档的提交行（`diff_commit`）。
+态齐全：加载 / 失败可重试 / 没有改动 / 截断 / 单文件没有可显示的差异（二进制）——
+空白页面在这里是最坏的结果（分不清「没有改动」与「没读出来」）。渲染抽了共享的
+`DiffLineRow`（`DiffLines.kt`）：它原本是 `BranchCompareScreen` 的私有函数，
+同一个东西两处各画一遍的下场是样式漂。
+
+③ **引擎侧一个真问题（靠现场取证才发现）**：`diff_worktree` 的 `files` 里**有**未跟踪文件
+（状态 A），但 patch 里**没有它的那一段** —— libgit2 默认只列 delta、不给内容
+（`GIT_DIFF_SHOW_UNTRACKED_CONTENT` 未置位）。后果有两层：① 「新增一个文件」是脏工作区里
+最常见的一种，点开就是一片空白；② 更危险的是「按下标对齐」会把**上一个文件的差异画到它名下**
+（取证时 files=[bin.dat, mod.txt, new.txt]、patch 只有 mod.txt 一段）。
+现在 `show_untracked_content(true)`，并新增 cargo 测试
+`diff_worktree_未跟踪文件带内容且两段按下标对齐` 钉住不变量。Kotlin 侧再加一道保险：
+两段数量对不上时**不按下标配**（宁可全都不画，不把 A 的差异画到 B 名下）。
+
+④ **两个坑记在这里**：单测的 fixture 是**由引擎真跑出来再抄回来的**（不是手写「我以为它会吐什么」）——
+上面第 ③ 条就是这么发现的；二进制文件的那一段没有 hunk（只有一句 `Binary files … differ`），
+直接丢给 `parseUnifiedDiff` 会画出一行**假的行号 + 英文提示**，所以判据是「有没有 hunk」而不是
+「patch 是否为空」。另外 LazyColumn 的行 key 必须带**文件身份**：两个文件的 hunk 头可能逐字相同
+（都是 `@@ -1,2 +1,2 @@`），撞 key 是直接崩、不是画错。
+
+验证：`cargo test` 89 → **90** 例（新增「未跟踪文件带内容且两段按下标对齐」）·
+`:app:testDebugUnitTest` 882 → **895** 例（新增 `LocalDiffModelsTest` 12 例、
+`GitWorkbenchWiringTest` +1 例「diff 出口两个宿主都要接」、
+`SystemBarInsetsTest` 登记新全屏页）· `assembleDebug` 通过 · 重建 `.so` ·
+`check-i18n --min-coverage 100`（新增 7 条中英资源）。versionCode 200 → 201（一次提交 +1）。
 
 ### 1.0.98
 
@@ -2483,11 +2528,16 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（200 → 129）
+## 三、`versionCode` 流水（201 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **201**：本地 diff 页（工作区改动行 / 提交图提交行 → `diff_worktree` / `diff_commit`）
++ 引擎 `show_untracked_content`（未跟踪文件带内容 + 两段按下标对齐的 cargo 钉子）
++ 共享 `DiffLineRow`（从 BranchCompareScreen 抽出）+ 新全屏页登记
++ `LocalDiffModelsTest` 12 例、`GitWorkbenchWiringTest` +1 例（一次提交，故 +1）
 
 - **200**：Git 模式阶段 4（前半）—— 引擎 `fetch_deepen`（unshallow，复用 clone 的进度 / 取消通道）
 + JNI 导出 + 重建 `.so` + 提交图**双来源**（本地 `log_graph` 优先、浅克隆排除、REST 兜底 + 分页键分家）

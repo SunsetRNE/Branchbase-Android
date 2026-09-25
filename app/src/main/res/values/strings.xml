@@ -418,6 +418,13 @@
     <string name="error_graph_both_failed">本地与远端都读不到</string>
     <string name="toast_history_deepened">本地历史已加深</string>
     <string name="label_deepen_task_title">加深 %1$s 的历史</string>
+    <string name="label_local_diff_worktree">工作区改动</string>
+    <string name="label_local_diff_file">改动：%1$s</string>
+    <string name="label_local_diff_commit">提交 %1$s</string>
+    <string name="state_local_diff_empty">工作区没有改动</string>
+    <string name="state_local_diff_file_empty">这个文件现在没有改动了</string>
+    <string name="note_local_diff_truncated">改动过大，只显示了一部分（引擎按 200 KB 截断）</string>
+    <string name="note_local_diff_no_patch">二进制文件，或只有模式 / 重命名变化 —— 没有可显示的文本差异</string>
     <string name="label_git_graph">提交图</string>
     <string name="state_git_view_pending">待接入</string>
     <string name="state_graph_empty">这个分支还没有提交</string>

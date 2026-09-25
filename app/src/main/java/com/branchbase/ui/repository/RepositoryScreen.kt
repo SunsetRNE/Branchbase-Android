@@ -228,6 +228,10 @@ fun RepositoryScreen(
     // 分支管理 / 分支对比 / 本地分支同步（全屏页）
     var showBranchManage by remember { mutableStateOf(false) }
     var comparePair by remember { mutableStateOf<Pair<String, String>?>(null) }
+
+    // 本地 diff 页的目标（1.0.99）：`path` = 工作区某个改动文件，`sha` = 提交图里某条提交。
+    // 直接复用路由类型当状态：路由是由它推出来的，两处各写一份字段迟早会漂
+    var diffTarget by remember { mutableStateOf<RepoRoute.LocalDiff?>(null) }
     var showLocalSync by remember { mutableStateOf(false) }
     // 提交模式（代码页气泡面板直接切换，不必再进「设置」）
     var showCommitMode by remember { mutableStateOf(false) }
@@ -461,6 +465,7 @@ fun RepositoryScreen(
         showBranchSync -> RepoRoute.BranchSync
         showBranchManage -> RepoRoute.BranchManage
         comparePair != null -> RepoRoute.BranchCompare(comparePair!!)
+        diffTarget != null -> diffTarget!!
         showLocalSync -> RepoRoute.LocalSync
         peoplePage != null -> RepoRoute.People(peoplePage!!)
         filePage != null -> RepoRoute.File(filePage!!)
@@ -571,6 +576,7 @@ fun RepositoryScreen(
                     RepoRoute.WebLogin -> showWebLogin = false
                     RepoRoute.PatInput -> showPatInput = false
                     is RepoRoute.BranchCompare -> comparePair = null
+                    is RepoRoute.LocalDiff -> diffTarget = null
                     is RepoRoute.ReleaseDetail -> releaseDetail = null
                     is RepoRoute.ReleaseEdit -> showReleaseEdit = false
                     is RepoRoute.People -> peoplePage = null
@@ -676,6 +682,16 @@ fun RepositoryScreen(
                             token = sessionToken,
                             onBack = { showLocalSync = false },
                             onChanged = { refreshTick++ },
+                        )
+                    }
+
+                    // 本地 diff 页（全屏）：工作区改动 / 单条提交，共用同一页
+                    is RepoRoute.LocalDiff -> {
+                        LocalDiffScreen(
+                            repoDir = localRepoDir(context, repo),
+                            path = r.path,
+                            commitSha = r.sha,
+                            onBack = { diffTarget = null },
                         )
                     }
 
@@ -965,10 +981,12 @@ fun RepositoryScreen(
                                         onOpenCompare = { b, h -> comparePair = b to h },
                                         onOpenLocalSync = { showLocalSync = true },
                                         onRefresh = { refreshTick++ },
-                                        // 面板里的出口：分支管理（有后果的动作在那边走决策流程）。
-                                        // 「点开某个改动文件」**没接** —— 查看器只读远端内容，
-                                        // 点开会看到没改过的那一份（见 GitWorkspaceBody 的注释）
+                                        // 面板里的出口：分支管理（有后果的动作在那边走决策流程）、
+                                        // 加深历史（长任务）、以及两个**只读**的 diff 入口 ——
+                                        // 改动清单的一行 → 那个文件的本地 diff；提交图的一行 → 那次提交的 diff
                                         onOpenBranches = { showBranchManage = true },
+                                        onOpenDiff = { path -> diffTarget = RepoRoute.LocalDiff(path = path) },
+                                        onOpenCommitDiff = { sha -> diffTarget = RepoRoute.LocalDiff(sha = sha) },
                                     )
                                 }
                             }
@@ -1121,6 +1139,17 @@ private sealed interface RepoRoute : PageLevel {
         override val depth: Int get() = 1
     }
 
+    /**
+     * 本地 diff 页（`diff_worktree` / `diff_commit`）。
+     *
+     * 两个字段互斥：`path` 从工作区档的改动清单进来（看那个文件相对 HEAD 改了什么），
+     * `sha` 从提交图的一条提交进来（看这次提交改了什么）。同一个页面、同一份渲染 ——
+     * 引擎那两条接口的输出结构本来就是同一套（`{patch, files, truncated}`）。
+     */
+    data class LocalDiff(val path: String? = null, val sha: String? = null) : RepoRoute {
+        override val depth: Int get() = 1
+    }
+
     data class ReleaseDetail(val release: ReleaseItem) : RepoRoute {
         override val depth: Int get() = 1
     }
@@ -1193,6 +1222,8 @@ private fun CodePageGitPanel(
     onOpenLocalSync: () -> Unit,
     onRefresh: () -> Unit,
     onOpenBranches: (() -> Unit)? = null,
+    onOpenDiff: ((String) -> Unit)? = null,
+    onOpenCommitDiff: ((String) -> Unit)? = null,
 ) {
     var stage by remember { mutableStateOf(initialStage) }
     val localGit = rememberLocalRepoGitState(repo, refreshTick)
@@ -1295,6 +1326,8 @@ private fun CodePageGitPanel(
                 onOpenSync = onOpenLocalSync,
                 onOpenBranches = onOpenBranches,
                 onDeepen = deepen::start,
+                onOpenDiff = onOpenDiff,
+                onOpenCommitDiff = onOpenCommitDiff,
             )
         },
         title = localGit.summary(),

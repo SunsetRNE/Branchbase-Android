@@ -57,6 +57,7 @@ class SystemBarInsetsTest {
         "src/main/java/com/branchbase/ui/repository/WorkflowDispatchScreen.kt",
         "src/main/java/com/branchbase/ui/repository/ReleaseScreens.kt",
         "src/main/java/com/branchbase/ui/repository/BranchCompareScreen.kt",
+        "src/main/java/com/branchbase/ui/repository/LocalDiffScreen.kt",
         "src/main/java/com/branchbase/ui/repository/BranchManageScreen.kt",
         "src/main/java/com/branchbase/ui/repository/BranchSyncScreen.kt",
         "src/main/java/com/branchbase/ui/repository/LocalBranchSyncScreen.kt",

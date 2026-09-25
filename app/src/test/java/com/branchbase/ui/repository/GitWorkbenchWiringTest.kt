@@ -34,7 +34,7 @@ class GitWorkbenchWiringTest {
         return file.readText()
     }
 
-    /** 面板这一族的源码（含状态模型与两个数据档）。 */
+    /** 面板这一族的源码（含状态模型与两个数据档）。**只给出口、不自己取数**。 */
     private val panelSources = listOf(
         "src/main/java/com/branchbase/ui/repository/GitBubblePanel.kt",
         "src/main/java/com/branchbase/ui/repository/GitPanelStage.kt",
@@ -42,6 +42,17 @@ class GitWorkbenchWiringTest {
         "src/main/java/com/branchbase/ui/repository/GitRefsPanel.kt",
         "src/main/java/com/branchbase/ui/repository/GitRefsModels.kt",
         "src/main/java/com/branchbase/ui/repository/CommitGraphPanel.kt",
+    )
+
+    /**
+     * 与面板同族、但**允许自己取数**的只读页面/模型（本地 diff）。
+     *
+     * 它们和面板一起接受「零 git 写操作」的扫描（都是只读界面），但不接受
+     * 「不许自己取 diff」那条 —— 取 diff 正是那个页面存在的理由。
+     */
+    private val readOnlyPageSources = listOf(
+        "src/main/java/com/branchbase/ui/repository/LocalDiffModels.kt",
+        "src/main/java/com/branchbase/ui/repository/LocalDiffScreen.kt",
     )
 
     @Test
@@ -55,7 +66,7 @@ class GitWorkbenchWiringTest {
             // 加深也是「落到仓库上的一次网络写」：面板只给出口（onDeepen），跑它的是宿主
             "gitFetchDeepen",
         )
-        val offenders = panelSources.flatMap { path ->
+        val offenders = (panelSources + readOnlyPageSources).flatMap { path ->
             val text = source(path)
             writes.filter { text.contains("RustBridge.$it(") }.map { "$path → $it" }
         }
@@ -145,6 +156,43 @@ class GitWorkbenchWiringTest {
             "面板这一族只给出口、不自己跑加深（长任务要落任务中心 + 进度弹窗，见 §10）：$offenders",
             emptyList<String>(),
             offenders,
+        )
+    }
+
+    @Test
+    fun `diff 出口两个宿主都要接`() {
+        // 与 onOpenBranches / onDeepen 同一条口径：出口回调各宿主各传各的，只接一边的表现是
+        // 「代码页的改动清单点得开、文件页点不开」（用户报过同类不一致：Git 球门控那次）。
+        // 两个入口都要接：工作区档的一行（diff_worktree）与提交图的一行（diff_commit）
+        val hosts = listOf(
+            "src/main/java/com/branchbase/ui/repository/RepositoryScreen.kt" to "代码页",
+            "src/main/java/com/branchbase/ui/repository/RepositoryFileViewer.kt" to "文件页",
+        )
+        val missingWorktree = hosts.filter { (path, _) -> !source(path).contains("onOpenDiff =") }
+        assertEquals(
+            "这两个宿主都必须给面板接上「看改动文件的本地 diff」出口：$missingWorktree",
+            emptyList<Pair<String, String>>(),
+            missingWorktree,
+        )
+        val missingCommit = hosts.filter { (path, _) -> !source(path).contains("onOpenCommitDiff =") }
+        assertEquals(
+            "这两个宿主都必须给面板接上「看某条提交的本地 diff」出口：$missingCommit",
+            emptyList<Pair<String, String>>(),
+            missingCommit,
+        )
+
+        // 面板这一族仍然不许自己调引擎：diff 是**只读**动作，但它同样属于宿主的出口体系
+        val offenders = panelSources.filter {
+            val text = source(it)
+            text.contains("gitDiffWorktree(") || text.contains("gitDiffCommit(")
+        }
+        assertEquals("面板只给出口，不自己取 diff（两个宿主各接一次）：$offenders", emptyList<String>(), offenders)
+
+        // 反过来：取数的**就是**那个页面 —— 别哪天把这一句「优化」掉了，页面会变成一张空表
+        val screen = source("src/main/java/com/branchbase/ui/repository/LocalDiffScreen.kt")
+        assertTrue(
+            "本地 diff 页必须自己按入口取数（工作区 / 某个提交）",
+            screen.contains("RustBridge.gitDiffWorktree(") && screen.contains("RustBridge.gitDiffCommit("),
         )
     }
 

@@ -738,6 +738,9 @@ fun FileViewerScreen(
                         onOpenBranches = onOpenBranchManage,
                         // 加深出口：真正的长任务在本页跑（与代码页同一份运行器）
                         onDeepen = deepen::start,
+                        // 只读的 diff 出口：改动清单一行 / 提交图一行
+                        onOpenDiff = { p -> page = FilePage.LocalDiff(path = p) },
+                        onOpenCommitDiff = { sha -> page = FilePage.LocalDiff(sha = sha) },
                     )
                 },
                 title = localGit.summary(),
@@ -759,6 +762,16 @@ fun FileViewerScreen(
 
     // ── 决策页分发（覆盖主界面，处理完回主流程） ──
     when (val p = page) {
+        // 本地 diff 页（只读）：与本页的编辑 / 草稿 / 提交完全无关，看完就回
+        is FilePage.LocalDiff -> {
+            LocalDiffScreen(
+                repoDir = localRepoDir(context, repo),
+                path = p.path,
+                commitSha = p.sha,
+                onBack = { page = FilePage.None },
+            )
+            return
+        }
         is FilePage.Sensitive -> {
             SensitiveWarningScreen(
                 hits = p.hits,
@@ -904,6 +917,14 @@ private sealed interface FilePage {
     data class Draft(val drafts: List<DraftInfo>) : FilePage
     /** 离线冲突：本地草稿基于的远端 sha 已变化 */
     data class Conflict(val local: String, val remote: String) : FilePage
+
+    /**
+     * 本地 diff（`LocalDiffScreen`）：`path` = 工作区某个改动文件，`sha` = 提交图里某条提交。
+     *
+     * 与代码页同一个页面、同一条路由语义（`RepoRoute.LocalDiff`）—— 两边行为一致，
+     * 不会出现「从代码页点开是这个、从文件页点开是那个」。
+     */
+    data class LocalDiff(val path: String? = null, val sha: String? = null) : FilePage
 }
 
 /** 解析行号锚点（如 "L12-L34"、"L12"）为闭区间 [start..end]，非法返回 null。 */

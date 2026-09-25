@@ -57,6 +57,8 @@ private val PANEL_WIDTH = 268.dp
  * @param onDeepen 加深克隆（unshallow）的出口。**null = 不画那枚胶囊**；
  *   真正的长任务由宿主跑（任务中心 + 进度弹窗），面板这一族源码里**不许**出现写操作
  *   （见 `GitWorkbenchWiringTest`）
+ * @param onOpenDiff 看某个改动文件的**本地 diff**（工作区档的行）。null = 行不可点
+ * @param onOpenCommitDiff 看某条提交的**本地 diff**（提交图档的行）。null = 行不可点
  */
 @Composable
 fun GitPanelViewHost(
@@ -72,6 +74,8 @@ fun GitPanelViewHost(
     onOpenSync: () -> Unit,
     onOpenBranches: (() -> Unit)? = null,
     onDeepen: (() -> Unit)? = null,
+    onOpenDiff: ((String) -> Unit)? = null,
+    onOpenCommitDiff: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -92,6 +96,7 @@ fun GitPanelViewHost(
                 onRefresh = onRefresh,
                 onOpenSync = onOpenSync,
                 onOpenBranches = onOpenBranches,
+                onOpenDiff = onOpenDiff,
             )
             GitPanelKind.Graph -> CommitGraphPanel(
                 host = host,
@@ -106,6 +111,7 @@ fun GitPanelViewHost(
                 onOpenWorkspace = { onSelect(GitPanelKind.Workspace) },
                 onOpenSync = onOpenSync,
                 onDeepen = onDeepen,
+                onOpenCommitDiff = onOpenCommitDiff,
             )
             GitPanelKind.Refs -> GitRefsPanel(
                 repoDir = repoDir,
@@ -168,19 +174,24 @@ private fun GitPanelTabs(current: GitPanelKind, onSelect: (GitPanelKind) -> Unit
  * **不是**提交页：提交要走暂存勾选（P0-2 决策页）与身份检查（P0-3），那些入口按阶段接入，
  * 这里只如实说明，不放一个点了会跳到别处的假按钮。
  *
- * ## 改动清单为什么**不可点**（1.0.96 试过又退回）
+ * ## 改动清单点开看 **diff**（1.0.99 起可点）
  *
- * 一度接过「点一行 → 打开那个文件」，写完才发现**目的地是错的**：文件查看器读的是
- * `GET /repos/{o}/{r}/contents/{path}`（**远端**，见 `RepositoryFileViewer.kt:190`），
- * 而这一档列的是**本地改动** —— 点开看到的是没改过的那一份，比点不动更坏。
- * 要让它成立，得先给查看器一个「本地工作树」来源（或等阶段 3 的 `diff_worktree` 落地后点开看 diff），
- * 已登记进设计稿 §3.2。**不做「点开看到另一份内容」的入口**是这一档的硬约束。
+ * 1.0.96 一度接过「点一行 → 打开那个文件」，写完才发现**目的地是错的**：文件查看器读的是
+ * `GET /repos/{o}/{r}/contents/{path}`（**远端**，见 `RepositoryFileViewer.kt:199`），
+ * 而这一档列的是**本地改动** —— 点开看到的是没改过的那一份，比点不动更坏，于是退回并登记。
+ *
+ * 现在的落点是**本地 diff 页**（`LocalDiffScreen`：`diff_worktree` 的输出，
+ * 见 [`git-mode-design.md`](../../../../../../docs/specs/git-mode-design.md) §11.6 的选型）：
+ * 点一行看的就是那个文件相对 HEAD 改了什么。这一档的硬约束没变 ——
+ * **不做「点开看到另一份内容」的入口**，所以这里只在宿主给了 `onOpenDiff` 时才让行可点。
  *
  * ## 有后果的动作都只是**出口**
  *
  * 分支管理（切 / 建 / 删）与同步都不在这一档里执行，只把用户送到既有页面 ——
  * 「面板内直接执行（安全）/ 走决策页（有后果）」这条分档见 `git-mode-design.md` §6.1，
  * 执法者是 `GitWorkbenchWiringTest`（面板源码里不许出现 git 写操作）。
+ *
+ * @param onOpenDiff 打开某个改动文件的**本地 diff**（null = 这个宿主没有这个出口 → 行不可点）
  */
 @Composable
 fun GitWorkspaceBody(
@@ -188,6 +199,7 @@ fun GitWorkspaceBody(
     onRefresh: () -> Unit,
     onOpenSync: () -> Unit,
     onOpenBranches: (() -> Unit)? = null,
+    onOpenDiff: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxWidth()) {
@@ -255,7 +267,17 @@ fun GitWorkspaceBody(
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 items(git.dirty, key = { it.path }) { f ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            // 没有出口就不让行可点：画一个「按下去有反馈、结果什么都没发生」的行
+                            // 比不让点更坏（本仓库的既有口径）
+                            .then(
+                                if (onOpenDiff != null) Modifier.clickable { onOpenDiff(f.path) }
+                                else Modifier,
+                            ),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Text(
                             f.status.take(1),
                             fontSize = 10.5.sp,

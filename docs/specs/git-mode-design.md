@@ -56,14 +56,15 @@
 | 引擎 `log_graph` / `list_tags` / `log_file` / `diff_worktree` / `diff_commit` | **已落地 1.0.97**（阶段 3 只读接口 + 重建 `.so`） | `core/src/git/mod.rs` · `core/src/bridge/jni.rs` · `RustBridge.kt` |
 | 提交图**双来源**（本地 `log_graph` 优先 / REST 兜底）+ 浅克隆择源 + 「加深历史」出口 | **已落地 1.0.98**（阶段 4 前半） | `CommitGraphModels.kt` · `CommitGraphPanel.kt` · `LocalRepoDeepen.kt` |
 | 引擎 `fetch_deepen`（unshallow，复用 clone 的进度/取消通道） | **已落地 1.0.98**（重建 `.so`，`cargo test` 89 例） | `core/src/git/mod.rs` · `core/src/bridge/jni.rs` · `RustBridge.kt` |
-| 这三条本地接口的**其余消费者**（工作区本地 diff / 文件历史档） | 待落地（阶段 3 剩余 + 阶段 4 剩余） | — |
+| **本地 diff 页**（工作区改动行 / 提交图提交行 → `diff_worktree` / `diff_commit`） | **已落地 1.0.99** | `ui/repository/LocalDiffScreen.kt` · `LocalDiffModels.kt` · `DiffLines.kt` |
+| 这三条本地接口的**其余消费者**（文件历史档） | 待落地（阶段 4 剩余） | — |
 | 引擎 `merge_*` / `analyze_conflicts` 等 | 待落地（阶段 5） | `core/src/git/mod.rs` |
 
-**已落地的验证口径**：`:app:testDebugUnitTest`（882 例；其中 `GitPanelStageTest` 9 例、
-`GitRefsModelsTest` 5 例、`RepoDeepLinkTest` 4 例、`GitWorkbenchWiringTest` 7 例、
-`CommitGraphLayoutTest` 11 例、`CommitGraphSourceTest` 11 例、
+**已落地的验证口径**：`:app:testDebugUnitTest`（895 例；其中 `GitPanelStageTest` 9 例、
+`GitRefsModelsTest` 5 例、`RepoDeepLinkTest` 4 例、`GitWorkbenchWiringTest` 8 例、
+`CommitGraphLayoutTest` 11 例、`CommitGraphSourceTest` 11 例、`LocalDiffModelsTest` 12 例、
 `PageTransitionsTest` 面板过渡与「三个切换器都下发 `LocalPageActive`」、
-`LogAnchorsTest` 盯锚点表）· `cargo test` 89 例 · `assembleDebug` · `check-i18n --min-coverage 100`。
+`LogAnchorsTest` 盯锚点表）· `cargo test` 90 例 · `assembleDebug` · `check-i18n --min-coverage 100`。
 
 **1.0.95 收口时修掉的三处「文档说已落地、代码说没落地」**（都不是新功能，是账没对上）：
 ① 阶段 1 把「提交图」渲染接上了，`GitPanelKind.Graph.available` 却留在 `false` ——
@@ -93,7 +94,7 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
 | 档 | 内容 | 数据源 | 状态 |
 |---|---|---|---|
 | **工作区** | 分支 / 领先落后 / 上游 / 改动文件清单 / 刷新 / 同步 | `LocalRepoGitState`（一次 `repo_status`，与徽标同源） | 已落地 |
-| **提交图** | 泳道 DAG + **未提交虚节点** + 分页脚注 | **本地 `log_graph`**（本地仓库存在且**不是浅克隆**时，离线、看得见未推送的提交）；否则 REST `/commits?sha=&per_page=100`（**保留 `parents`**）兜底 | 已落地（1.0.94 REST 版 → **1.0.98 换成本地优先**） |
+| **提交图** | 泳道 DAG + **未提交虚节点** + 分页脚注 + 点一行看这条提交的本地 diff（1.0.99） | **本地 `log_graph`**（本地仓库存在且**不是浅克隆**时，离线、看得见未推送的提交）；否则 REST `/commits?sha=&per_page=100`（**保留 `parents`**）兜底 | 已落地（1.0.94 REST 版 → **1.0.98 换成本地优先**） |
 | **引用树** | 本地 / 远端分支、上游、领先落后；tag（annotated 带说明与作者，轻量只有名字） | `local_branches` · `remote_branches` · `list_tags`（本地仓库，离线可读） | 已落地（阶段 2 + tags 阶段 3，**只读**） |
 | **文件历史** | 该文件的提交序列 | **本地优先**（`log_file`，已加深时）/ REST `/commits?path=` 兜底 | 待落地（阶段 4） |
 
@@ -102,11 +103,18 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
 **落地了必须同步把 `available` 翻成 `true`**：提交图那格漏翻过一次，标签条一直标「待接入」、
 点进去却是一张能用的图（`GitPanelStageTest` 现在有一条源码级钉子对着宿主源码查这件事）。
 
-**改动清单为什么不可点**（1.0.96 试过又退回）：一度接过「点一行 → 打开那个文件」，
-写完才发现**目的地是错的** —— 文件查看器读的是 `GET /repos/{o}/{r}/contents/{path}`（**远端**，
-`RepositoryFileViewer.kt:190`），而这一档列的是**本地改动**：点开看到的是没改过的那一份。
-要让它成立得先给查看器一个「本地工作树」来源，或点开看 **diff**（`diff_worktree` 已于 1.0.97 落地，
-落点还没定：面板 268dp 塞不下，见 §11.6）。**不做「点开看到另一份内容」的入口**是这一档的硬约束。
+**改动清单点开看 diff**（1.0.99）：点一行 → **本地 diff 页**（`LocalDiffScreen`，
+`diff_worktree` 的输出，只留那个文件）。历史记在这里，免得下次再走一遍 ——
+1.0.96 一度接过「点一行 → 打开那个文件」，写完才发现**目的地是错的**：文件查看器读的是
+`GET /repos/{o}/{r}/contents/{path}`（**远端**），而这一档列的是**本地改动**，
+点开看到的是没改过的那一份（比点不动更坏），于是退回并登记。
+
+落点选型见 §6.1 的 D-k：**新开一个只读的全屏 diff 页**，而不是给查看器加「本地工作树」来源 ——
+后者要在一个已经背着编辑态 / 草稿 / 冲突检测 / 三种提交模式的页面上，再回答一遍
+「本地来源下这些还成不成立」（缓存键、草稿基准 sha、提交后失效都会跟着变）；
+而用户点开脏文件想问的是「我改了什么」，diff 直接回答。
+
+**不做「点开看到另一份内容」的入口**仍是这一档的硬约束：宿主没给出口时，行**不可点**。
 
 面板里的**写操作恒为零**：提交 / 撤销 / 上游 / 回退都要落决策页，而决策页今天的宿主是
 「设置 → 本地仓库」与文件页，把它们的宿主扩到仓库页是阶段 2 的剩余项
@@ -232,6 +240,7 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
 | D-g | **允许 merge，不做 rebase** | §6.4；D11 措辞随之修正 |
 | D-h | **冲突交互 = 冲突弹窗（出现即预解析）→ 详情对比页** | §6.4 |
 | D-i | **不另建图谱缓存**（Room / JSON 都否掉）：本地仓库对象库就是缓存 | §6.3 |
+| D-k | **改动清单 / 提交行的落点 = 独立只读的「本地 diff 页」**（不给文件查看器加「本地工作树」来源）| §3.2 / §11.6；1.0.99 |
 | D-j | **「引用树」档只读**：分支的切换 / 新建 / 删除不搬进浮层（有后果 → 决策页），落点是既有的分支管理 / 本地分支同步；这一档只回答「有哪些引用、我在哪、哪些只在远端」 | §2 / §3.2（1.0.95） |
 
 ### 6.2 已废弃 / 已被取代（**不要再捡回来**）
@@ -313,8 +322,8 @@ merge_branch ─► outcome == "conflict"
 | **1** | 「提交图」档（REST + 泳道布局）+ 虚节点 + 分档标签条 | **已落地 1.0.94** |
 | **2** | 「引用树」档（`local_branches` / `remote_branches` / tags 占位）+ `RepoDeepLink.openGitPanel`（含设置列表「进入」）+ 出口收口与日志/回归插桩（1.0.96） | **部分落地 1.0.95 / 1.0.96**；面板内执行有后果的动作（要把决策页宿主扩到仓库页）+ 设置列表动作下线**待做** |
 | **3** | `log_graph` / `list_tags` / `log_file` / `diff_worktree` / `diff_commit`（重建 `.so`） | **引擎 + JNI + 门面已落地 1.0.97**（`cargo test` 86 例） |
-| **3'** | 这三个接口的**消费者**：引用树 tags ✅ / 提交图换本地来源 ✅ / 工作区档的本地 diff | tags **已落地 1.0.97**；提交图本地来源 **已落地 1.0.98**；工作区本地 diff 待做 |
-| **4** | `fetch_deepen`（任务中心 + 进度）+ 「文件历史」档（本地优先 + REST 兜底）+ 离线图谱（LocalSource 优先、未推送段） | **前半已落地 1.0.98**：`fetch_deepen` 全链路 + 提交图**双来源**（浅克隆排除、加深后翻回本地）；「文件历史」档与未推送段的画法待做 |
+| **3'** | 这三个接口的**消费者**：引用树 tags ✅ / 提交图换本地来源 ✅ / 工作区档的本地 diff ✅（并顺带把 `diff_commit` 接上：提交图点一行看这次提交的 diff） | **全部落地**：tags 1.0.97 · 提交图本地来源 1.0.98 · 本地 diff 页 1.0.99 |
+| **4** | `fetch_deepen`（任务中心 + 进度）+ 「文件历史」档（本地优先 + REST 兜底）+ 离线图谱（LocalSource 优先、未推送段） | `fetch_deepen` 与双来源 **已落地 1.0.98**；**「文件历史」档（`log_file` 的消费者）与未推送段的画法待做** |
 | **5** | 本地合并（D-g）+ 冲突弹窗 / 预解析 / 详情对比页（D-h）+ PR 冲突的「拉到本地解决」 | 待做 |
 | **6** | 设置 → 本地仓库「管理」页（按仓库看占用 / 清理）+ 列表重绘（§5 的登记项） | 待做 |
 
@@ -343,6 +352,10 @@ merge_branch ─► outcome == "conflict"
 
 - 提交图属于**绘制型**风险：几何**必须预计算**（§4.2），绘制期只画本行线段；
   `LazyColumn` 带 `key = fullSha`；gutter 固定宽；
+- 本地 diff 页的差异行**拉平成一个 `LazyColumn`**（文件头 / 差异行 / 二进制说明都是它的直接 item）：
+  嵌套「每个文件一个 `Column`」会让 `LazyColumn` 一次性组合完那个文件的几千行 ——
+  它只懒加载**直接** item。行的 `key` 必须带**文件身份**：两个文件的 hunk 头可能逐字相同
+  （都是 `@@ -1,2 +1,2 @@`），撞 key 是直接崩，不是画错；
 - 首帧：解析与布局走 `Dispatchers.IO`，先骨架后内容（`PlaceholderSwap`，不许 `Crossfade`）；
 - 长任务（加深克隆 / 合并 / push）一律走 `TaskStore` + 进度弹窗（1.0.90 那套），不许出现第二种「转圈」。
   **加深已按这条落地（1.0.98）**：任务种类 `TaskKind.DEEPEN`、弹窗复用 clone 那只（只换标题）、
@@ -354,6 +367,8 @@ merge_branch ─► outcome == "conflict"
 
 ## 11. 未决问题
 
+> 编号**不再变动**：已解决的条目留在原位并标注「已解决」，免得别处的 `§11.x` 引用失效。
+
 1. 提交图所在的那一档面板算不算 `PageLevel.heavyFirstFrame`（判据：基线 ≥3 条慢帧且主段是
    「动画」或「绘制」）—— 用 perfBeta 基线判，别凭感觉标；
 2. 「管理」页的粒度：只显示占用 + 删除，还是也给「收缩历史 / 清理孤儿对象」这类动作
@@ -363,11 +378,12 @@ merge_branch ─► outcome == "conflict"
 4. 显式 stash 要不要做（隐式 stash 已明确不做）：不做的话「脏工作区切分支被拒」的出路只有「放弃改动」；
 5. **导出仓库**（zip / 分享给桌面端）要不要做 —— 1.0.92 只把「复制路径到桌面端」的文案删掉了，
    **没有出路**与「有出路但要新建能力」是两件事；
-6. **改动清单点开看什么**（1.0.96 登记）：今天点不开（查看器只有远端来源，点开会看到没改过的那一份）；
-   要成立得二选一 —— 给查看器加「本地工作树」来源，或点开看 diff。
-   **前置条件已具备（1.0.97 的 `diff_worktree` / 1.0.98 的加深）**，但 diff 的**落点**还没定：
-   面板只有 268dp 宽，塞不下 diff，所以要么新开一个全屏对比页（登记进 §9 的 `fullScreenPages` +
-   `PageBackHandler`），要么先把查看器的「本地工作树」来源做出来 —— 那是阶段 3' 的剩余项；
+6. ~~**改动清单点开看什么**~~ **已解决（1.0.99）**：选了「新开一个只读的全屏 diff 页」
+   （D-k / §3.2）。登记进 `SystemBarInsetsTest.fullScreenPages`；返回由两个宿主各自的规则消化
+   （仓库页走 `leavePage`，文件页走它已有的 `page != FilePage.None` 分支）。
+   查看器的「本地工作树」来源**不做**：它的成本在编辑 / 草稿 / 冲突那一整套机制上，
+   而收益（看原文）答的不是用户的问题（看差异）。**剩下的**是「提交详情 / 对比 / 回滚」那一族 ——
+   它们仍然没有落点，见 §4.3 对虚节点的说明；
 7. **从个人页子页进仓库页再返回，落点是个人页主页、不是原来那个子页**（1.0.95 的「进入」会走到它）：
    个人页的子页状态是普通 `remember`，`PageSwitcher` 切走时旧页被销毁；现有的 `pendingSubPage`
    寄存点只覆盖「冷启动 / 整屏接管后重建」。要么把它做成通用机制（任何子页都寄存），

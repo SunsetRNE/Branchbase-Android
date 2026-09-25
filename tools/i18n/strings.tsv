@@ -1276,3 +1276,10 @@ $count 个只在远端	%1$s remote-only	label_refs_remote_only_count
 本地历史已加深	Local history deepened	toast_history_deepened
 加深 $name 的历史	Deepen history of %1$s	label_deepen_task_title
 本地与远端都读不到	could not read locally or remotely	error_graph_both_failed
+工作区改动	Working tree changes	label_local_diff_worktree
+改动：$path	Changes: %1$s	label_local_diff_file
+提交 $sha	Commit %1$s	label_local_diff_commit
+工作区没有改动	No changes in the working tree	state_local_diff_empty
+这个文件现在没有改动了	This file has no changes now	state_local_diff_file_empty
+改动过大，只显示了一部分（引擎按 200 KB 截断）	The diff is large; only part of it is shown (truncated at 200 KB)	note_local_diff_truncated
+二进制文件，或只有模式 / 重命名变化 —— 没有可显示的文本差异	Binary file, or mode-only / rename change — no text diff to show	note_local_diff_no_patch

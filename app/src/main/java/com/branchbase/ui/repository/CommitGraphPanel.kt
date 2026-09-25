@@ -71,6 +71,12 @@ import kotlinx.coroutines.withContext
  * 本地读不出来（引擎不可用 / 目录被删）时**退回 REST**：图还能看，但日志里留一条 warn ——
  * 否则事后只看到「来源=本地」，没人知道它其实失败过。
  *
+ * ## 点一行看什么
+ *
+ * 提交行 → **本地 diff**（`diff_commit`，1.0.99 起）：只读动作，与工作区档的改动行同一个落点
+ * （`LocalDiffScreen`）。虚节点**没有 sha**，所以它仍然只进「工作区」档 ——
+ * 以 sha 为键的交互对它一律不成立。
+ *
  * ## 虚节点（方案 A）
  *
  * 工作区有改动时，HEAD **之上**多一行「工作区 · N 处改动」：虚线圆圈 + 不走泳道实线、
@@ -91,6 +97,7 @@ fun CommitGraphPanel(
     onOpenWorkspace: () -> Unit,
     onOpenSync: () -> Unit,
     onDeepen: (() -> Unit)? = null,
+    onOpenCommitDiff: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var commits by remember { mutableStateOf<List<GraphCommit>>(emptyList()) }
@@ -230,7 +237,11 @@ fun CommitGraphPanel(
             ) { row ->
                 when (row) {
                     is GraphRow.WorkingTree -> WorkingTreeRow(row.dirtyCount, onOpenWorkspace)
-                    is GraphRow.Commit -> CommitRow(row.row)
+                    is GraphRow.Commit -> CommitRow(
+                        row = row.row,
+                        // 没有出口就不让行可点（与工作区档同一条口径）
+                        onClick = onOpenCommitDiff?.let { open -> { open(row.row.commit.fullSha) } },
+                    )
                 }
             }
         }
@@ -348,15 +359,23 @@ private fun WorkingTreeRow(dirtyCount: Int, onClick: () -> Unit) {
     }
 }
 
-/** 一条提交：gutter 画泳道 + 右侧内容（短 sha · 标题 · 作者/时间）。 */
+/**
+ * 一条提交：gutter 画泳道 + 右侧内容（短 sha · 标题 · 作者/时间）。
+ *
+ * 点它 → 这条提交的**本地 diff**（`diff_commit`，[onClick] 为 null 时不可点）。
+ * 这是**只读**动作，所以留在面板的出口体系里，不需要走决策页。
+ */
 @Composable
-private fun CommitRow(row: GraphCommitRow) {
+private fun CommitRow(row: GraphCommitRow, onClick: (() -> Unit)? = null) {
     // 颜色必须在**组合期**取好再传进绘制 lambda：`Primer.XXX` 是 @Composable getter，
     // 绘制 lambda 不是组合上下文（ContributionWall 那一轮的教训）。
     val lanes = Primer.GraphLanes
     val panelBg = Primer.BackgroundPrimary
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Canvas(

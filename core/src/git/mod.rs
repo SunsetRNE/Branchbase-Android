@@ -1503,6 +1503,11 @@ pub fn log_file(dir: &str, path: &str, limit: usize, skip: usize) -> Result<Stri
 ///
 /// 输出：`{ patch, files: [{ path, status, additions, deletions }], truncated }`
 ///
+/// **两份数据按同一次 diff 的同序生成**：`files[i]` 来自第 i 个 delta，
+/// `patch` 里的第 i 段（以 `diff --git` 开头）也来自第 i 个 delta —— 上层因此可以按**下标**对齐，
+/// 不必去解析路径（路径里有空格 / 中文时，解析 header 的写法很脆）。这条不变量由
+/// `diff_worktree_未跟踪文件带内容且两段按下标对齐` 钉着。
+///
 /// - `patch`：unified diff 文本（直接给 UI 渲染 / 给编辑器做冲突高亮）；
 /// - `status`：`A` / `D` / `M` / `R`（与 `repo_status` 的 dirty 同一套字母）；
 /// - `truncated`：patch 超过 [`DIFF_PATCH_LIMIT`] 字节被截断。**必须如实告诉上层** ——
@@ -1514,6 +1519,11 @@ pub fn diff_worktree(dir: &str) -> Result<String> {
     let mut opts = DiffOptions::new();
     opts.include_untracked(true);
     opts.recurse_untracked_dirs(true);
+    // **未跟踪文件必须带内容**：默认情况下 libgit2 只把未跟踪文件列进 `deltas`、
+    // 不给它的 patch（`GIT_DIFF_SHOW_UNTRACKED_CONTENT` 未置位），于是「新增一个文件」
+    // —— 脏工作区里最常见的一种 —— 在面板上会点开一片空白（真机上表现为「点开没有差异」）。
+    // 置位之后：`files` 的 additions 是真的行数，`patch` 里也能看到它的内容（同样是 + 行）。
+    opts.show_untracked_content(true);
     opts.context_lines(3);
     // **必须显式给 HEAD 树**：`diff_tree_to_workdir_with_index(None, …)` 的 old 侧是**空树**，
     // 于是「改过的已跟踪文件」会被报成 Untracked/新增（真机上表现为「改动清单说这是新文件」）。
@@ -2348,6 +2358,54 @@ mod tests {
         };
         assert_eq!(status_of("fresh.txt").as_deref(), Some("A"));
         assert_eq!(status_of("a.txt").as_deref(), Some("M"), "已跟踪的改动文件必须是 M");
+    }
+
+    /// 未跟踪文件**必须带内容**，而且 `files` 与 `patch` 两段要能**按下标对齐**。
+    ///
+    /// 这条钉的是界面赖以成立的两件事：
+    /// 1. 默认情况下 libgit2 只把未跟踪文件列进 `files`、patch 里没有它 —— 「新增一个文件」
+    ///    在面板上点开就是一片空白（`show_untracked_content(true)` 之前的行为）；
+    /// 2. 「第 i 个文件对应 patch 里的第 i 段」这条不变量：上层按**下标**对齐（不解析路径，
+    ///    路径里有空格 / 中文时解析 header 很脆），一旦不成立，界面会把 A 文件的差异画到 B 名下。
+    #[test]
+    fn diff_worktree_未跟踪文件带内容且两段按下标对齐() {
+        let (dir, repo) = temp_repo("diff-untracked");
+        commit_file(&repo, "keep.txt", "one\n", "初始", "Alice");
+        commit_file(&repo, "mod.txt", "aaa\nbbb\nccc\n", "加 mod", "Alice");
+        // 工作区：改一行（已跟踪）+ 新文件（未跟踪）+ 一个二进制文件（未跟踪）
+        std::fs::write(dir.join("mod.txt"), "aaa\nBBB\nccc\nddd\n").unwrap();
+        std::fs::write(dir.join("new.txt"), "全新的\n").unwrap();
+        std::fs::write(dir.join("bin.dat"), [0u8, 1, 2, 3, 0, 255]).unwrap();
+
+        let json = diff_worktree(dir.to_str().unwrap()).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let files = v["files"].as_array().unwrap();
+        assert_eq!(files.len(), 3, "三个改动都要列出来：{json}");
+
+        // ① 未跟踪的新文件：内容以 + 行进 patch，统计也是真的行数
+        let patch = v["patch"].as_str().unwrap();
+        assert!(patch.contains("+全新的"), "未跟踪文件的内容必须进 patch：{patch}");
+        let new_file = files.iter().find(|f| f["path"] == "new.txt").unwrap();
+        assert_eq!(new_file["additions"], 1);
+        assert_eq!(new_file["status"], "A");
+
+        // ② 二进制文件：有自己的那一段（内容是「Binary files … differ」），但**没有 hunk**
+        let bin_file = files.iter().find(|f| f["path"] == "bin.dat").unwrap();
+        assert_eq!(bin_file["status"], "A");
+        let sections: Vec<&str> = patch.split("diff --git ").skip(1).collect();
+        assert_eq!(
+            sections.len(),
+            files.len(),
+            "patch 段数必须与 files 条数一致（上层按下标对齐）：{patch}"
+        );
+        let bin_section = sections
+            .iter()
+            .find(|s| s.contains("b/bin.dat"))
+            .expect("二进制文件也要有自己的一段");
+        assert!(
+            !bin_section.contains("@@ "),
+            "二进制段不该有 hunk（界面据此显示「没有可显示的文本差异」而不是把这句话当代码行）：{bin_section}"
+        );
     }
 
     #[test]

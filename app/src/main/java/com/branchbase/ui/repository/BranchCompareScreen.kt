@@ -398,6 +398,7 @@ private fun FileDiffBlock(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             } else {
+                // 渲染走共享的 DiffLineRow（DiffLines.kt）：本地 diff 页画的是同一份东西
                 val lines = remember(file.patch) { parseUnifiedDiff(file.patch) }
                 val shown = if (showAll) lines else lines.take(SNIPPET_PREVIEW_LINES)
                 Column(Modifier.fillMaxWidth().background(Primer.Gray100)) {
@@ -429,54 +430,6 @@ private fun FileDiffBlock(
     }
 }
 
-/** 单行 diff：行号列 + 前缀列 + 代码（增/删底色对齐网页端）。 */
-@Composable
-private fun DiffLineRow(line: DiffLine) {
-    if (line.kind == DiffLineKind.Hunk) {
-        Text(
-            line.text,
-            fontSize = 10.5.sp,
-            fontFamily = FontFamily.Monospace,
-            color = Primer.TextTertiary,
-            modifier = Modifier.fillMaxWidth().background(Primer.Gray150).padding(horizontal = 16.dp, vertical = 4.dp),
-        )
-        return
-    }
-    val bg = when (line.kind) {
-        DiffLineKind.Add -> Primer.SuccessSurface
-        DiffLineKind.Remove -> Primer.DangerSurface
-        else -> Color.Transparent
-    }
-    val prefix = when (line.kind) {
-        DiffLineKind.Add -> "+"
-        DiffLineKind.Remove -> "-"
-        else -> " "
-    }
-    Row(Modifier.fillMaxWidth().background(bg)) {
-        Text(
-            line.oldLine?.toString().orEmpty(),
-            fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = Primer.TextTertiary,
-            textAlign = TextAlign.End,
-            modifier = Modifier.width(30.dp).padding(end = 4.dp),
-        )
-        Text(
-            line.newLine?.toString().orEmpty(),
-            fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = Primer.TextTertiary,
-            textAlign = TextAlign.End,
-            modifier = Modifier.width(30.dp).padding(end = 6.dp),
-        )
-        Text(
-            prefix,
-            fontSize = 11.5.sp, fontFamily = FontFamily.Monospace, color = Primer.TextTertiary,
-            modifier = Modifier.width(12.dp),
-        )
-        Text(
-            line.text.ifEmpty { " " },
-            fontSize = 11.5.sp, fontFamily = FontFamily.Monospace, color = Primer.TextPrimary,
-            modifier = Modifier.weight(1f).padding(end = 8.dp),
-        )
-    }
-}
 
 @Composable
 private fun StatusTag(file: CompareFile) {

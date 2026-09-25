@@ -413,6 +413,13 @@
     <string name="error_graph_both_failed">could not read locally or remotely</string>
     <string name="toast_history_deepened">Local history deepened</string>
     <string name="label_deepen_task_title">Deepen history of %1$s</string>
+    <string name="label_local_diff_worktree">Working tree changes</string>
+    <string name="label_local_diff_file">Changes: %1$s</string>
+    <string name="label_local_diff_commit">Commit %1$s</string>
+    <string name="state_local_diff_empty">No changes in the working tree</string>
+    <string name="state_local_diff_file_empty">This file has no changes now</string>
+    <string name="note_local_diff_truncated">The diff is large; only part of it is shown (truncated at 200 KB)</string>
+    <string name="note_local_diff_no_patch">Binary file, or mode-only / rename change — no text diff to show</string>
     <string name="label_git_graph">Commit graph</string>
     <string name="state_git_view_pending">Soon</string>
     <string name="state_graph_empty">No commits on this branch yet</string>
