@@ -1257,7 +1257,8 @@ $count 个只在远端	%1$s remote-only	label_refs_remote_only_count
 还没有远端跟踪引用 —— 在「同步」里取一次远端。	No remote-tracking refs yet — fetch once in Sync.	state_refs_remote_empty
 这个仓库还没有任何引用。	This repo has no refs yet.	state_refs_empty
 读取引用失败：仓库不存在或引擎不可用。	Failed to read refs: repo missing or engine unavailable.	error_refs_load_failed
-标签（tag）按阶段 3 接入 —— 本地 list_tags 还没落地。	Tags arrive in phase 3 — the local list_tags API is not in yet.	note_git_refs_tags_pending
+还没有 tag。	No tags yet.	state_refs_tags_empty
+轻量	Lightweight	state_refs_tag_lightweight
 工作区干净 · 没有未提交改动	Working tree is clean — nothing uncommitted	state_workspace_clean
 未设置上游	No upstream	state_no_upstream_short
 提交 / 推送 / 合并入口按阶段接入。	Commit, push and merge entry points arrive in later phases.	note_git_views_pending

@@ -209,6 +209,18 @@ object RustBridge {
 
     private external fun nativeDiscardAllChanges(dir: String): String
 
+    // ── 工作台的本地读接口（阶段 3：全部只读） ──
+
+    private external fun nativeGitLogGraph(dir: String, limit: Int, skip: Int): String
+
+    private external fun nativeGitListTags(dir: String): String
+
+    private external fun nativeGitLogFile(dir: String, path: String, limit: Int, skip: Int): String
+
+    private external fun nativeGitDiffWorktree(dir: String): String
+
+    private external fun nativeGitDiffCommit(dir: String, sha: String): String
+
     private external fun nativeLatestReleaseSignature(host: String, token: String, owner: String, repo: String): String
 
     private external fun nativeRepoSignature(host: String, token: String, owner: String, repo: String): String
@@ -932,6 +944,44 @@ object RustBridge {
     /** 远端分支清单（JSON 数组：name / local / has_local / ahead / behind）。 */
     suspend fun remoteBranches(dir: String): String? = withContext(Dispatchers.IO) {
         runCatching { nativeRemoteBranches(dir).takeIf { it.isNotBlank() && !it.startsWith("ERROR:") } }.getOrNull()
+    }
+
+    /**
+     * 提交图（本地）：JSON 数组（新的在前，带 `parents`）。null = 读不到。
+     *
+     * 与 REST 那份**同字段不同形状**：本地是扁平的 `{sha, parents, subject, author, date}`，
+     * 由 `parseLocalGraphCommits` 解析 —— 不假装成 GitHub 的响应体，省掉一层无意义的嵌套。
+     * 空仓库返回 `[]`（不是 null）：「还没有提交」是正常状态，界面要说的是这句，不是「读取失败」。
+     */
+    suspend fun gitLogGraph(dir: String, limit: Int = 100, skip: Int = 0): String? =
+        withContext(Dispatchers.IO) {
+            runCatching { nativeGitLogGraph(dir, limit, skip).takeIf { !it.startsWith("ERROR:") } }.getOrNull()
+        }
+
+    /** tag 清单（本地，D-f 全字段）。null = 读不到（仓库不存在 / 引擎不可用）。 */
+    suspend fun gitListTags(dir: String): String? = withContext(Dispatchers.IO) {
+        runCatching { nativeGitListTags(dir).takeIf { it.isNotBlank() && !it.startsWith("ERROR:") } }.getOrNull()
+    }
+
+    /** 文件历史（本地）：JSON 数组（新的在前）。null = 读不到。 */
+    suspend fun gitLogFile(dir: String, path: String, limit: Int = 50, skip: Int = 0): String? =
+        withContext(Dispatchers.IO) {
+            runCatching { nativeGitLogFile(dir, path, limit, skip).takeIf { !it.startsWith("ERROR:") } }.getOrNull()
+        }
+
+    /**
+     * 工作区 diff（相对 HEAD）：JSON `{ patch, files, truncated }`。
+     *
+     * `truncated = true` 表示 patch 超过上限被截断 —— **上层必须如实显示**，
+     * 悄悄少画几行会让人以为「改动就这么点」。
+     */
+    suspend fun gitDiffWorktree(dir: String): String? = withContext(Dispatchers.IO) {
+        runCatching { nativeGitDiffWorktree(dir).takeIf { !it.startsWith("ERROR:") } }.getOrNull()
+    }
+
+    /** 某个提交相对第一父的 diff（根提交与空树比）：同 [gitDiffWorktree] 的结构。 */
+    suspend fun gitDiffCommit(dir: String, sha: String): String? = withContext(Dispatchers.IO) {
+        runCatching { nativeGitDiffCommit(dir, sha).takeIf { !it.startsWith("ERROR:") } }.getOrNull()
     }
 
     /** 切换本地分支（safe checkout）。null = 成功；其他 = 失败原因（含冲突提示）。 */

@@ -1,6 +1,7 @@
 package com.branchbase.ui.repository
 
 import com.branchbase.core.RustBridge
+import org.json.JSONArray
 
 /**
  * 「引用树」档（[GitPanelKind.Refs]）的视图模型。
@@ -13,11 +14,12 @@ import com.branchbase.core.RustBridge
 internal data class GitRefsView(
     val locals: List<GitRefRow>,
     val remotes: List<GitRemoteRefRow>,
+    val tags: List<GitTagRow> = emptyList(),
 ) {
     /** 远端有、本地没有的分支数（「只在远端」的提示要用它，别在 UI 里再数一遍）。 */
     val remoteOnly: Int get() = remotes.count { !it.hasLocal }
 
-    val isEmpty: Boolean get() = locals.isEmpty() && remotes.isEmpty()
+    val isEmpty: Boolean get() = locals.isEmpty() && remotes.isEmpty() && tags.isEmpty()
 }
 
 /** 一行本地分支。 */
@@ -31,6 +33,27 @@ internal data class GitRefRow(
     /** 有没有上游。**false 时不许画成「已同步」** —— 没配上游与「推完了」是两件事。 */
     val tracked: Boolean,
 )
+
+/**
+ * 一行 tag（D-f：**取全字段**，非 annotated 的那几项**留空、不填假值**）。
+ *
+ * [annotated] 决定这一行怎么显示：annotated tag 能点开看说明与打 tag 的人；
+ * 轻量 tag 只有名字与提交 —— 给它编一个 tagger 等于在界面上撒谎，
+ * 所以 [tagger]/[message] 为空时界面**不画**那两行，而不是画「未知」。
+ */
+internal data class GitTagRow(
+    val name: String,
+    val sha: String,
+    val annotated: Boolean,
+    val targetSha: String,
+    val taggerName: String,
+    val taggerEmail: String,
+    val taggerTime: String,
+    val message: String,
+) {
+    /** 说明的首行（tag 消息常常是多行，列表里只放第一行）。 */
+    val subject: String get() = message.lineSequence().firstOrNull()?.trim().orEmpty()
+}
 
 /** 一行远端跟踪引用（`name` 已去掉 `origin/` 前缀）。 */
 internal data class GitRemoteRefRow(
@@ -66,6 +89,7 @@ internal fun refSyncBadge(ahead: Int, behind: Int): String? = when {
 internal fun refsViewOf(
     locals: List<LocalBranchInfo>,
     remotes: List<RemoteBranchInfo>,
+    tags: List<GitTagRow> = emptyList(),
 ): GitRefsView = GitRefsView(
     locals = locals
         .sortedByDescending { it.isHead }
@@ -85,6 +109,8 @@ internal fun refsViewOf(
             badge = refSyncBadge(r.ahead, r.behind),
         )
     },
+    // 引擎已按名字排好；这里保持原序（tag 没有「当前」这种要置顶的东西）
+    tags = tags,
 )
 
 /**
@@ -92,9 +118,48 @@ internal fun refsViewOf(
  *
  * `null` = 读不到（仓库不存在 / 引擎不可用）—— 调用方据此显示失败态，
  * **不要**折成空列表：空列表是有意义的另一件事（仓库里真的没有引用）。
+ *
+ * tags 走阶段 3 的本地 `list_tags`（D-f 全字段）：**不再用 REST `/tags` 顶替** ——
+ * 那份给不了 annotated 的 tagger / 时间 / 说明，两套口径混用迟早要拆两遍。
  */
 internal suspend fun loadGitRefsView(repoDir: String): GitRefsView? {
     val localsJson = RustBridge.localBranches(repoDir) ?: return null
     val remotesJson = RustBridge.remoteBranches(repoDir) ?: return null
-    return refsViewOf(parseLocalBranchInfos(localsJson), parseRemoteBranchInfos(remotesJson))
+    val tagsJson = RustBridge.gitListTags(repoDir) ?: return null
+    return refsViewOf(
+        parseLocalBranchInfos(localsJson),
+        parseRemoteBranchInfos(remotesJson),
+        parseLocalTags(tagsJson),
+    )
+}
+
+/**
+ * 解析本地 `list_tags` 的输出（扁平 native JSON）。
+ *
+ * 容错口径与其它解析一致：解析不出来返回空列表，不抛 —— 面板按「没有 tag」渲染。
+ * 但**字段缺失不编值**：`annotated=false` 的条目即使带了 tagger 也按「没有」处理，
+ * 免得把引擎的一处 bug 变成界面上的一句假话。
+ */
+internal fun parseLocalTags(json: String?): List<GitTagRow> {
+    if (json.isNullOrBlank()) return emptyList()
+    return runCatching {
+        val arr = JSONArray(json)
+        (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            val name = o.optString("name")
+            if (name.isBlank()) return@mapNotNull null
+            val annotated = o.optBoolean("annotated", false)
+            val tagger = if (annotated) o.optJSONObject("tagger") else null
+            GitTagRow(
+                name = name,
+                sha = o.optString("sha"),
+                annotated = annotated,
+                targetSha = o.optString("target_sha"),
+                taggerName = tagger?.optString("name").orEmpty(),
+                taggerEmail = tagger?.optString("email").orEmpty(),
+                taggerTime = tagger?.optString("time").orEmpty(),
+                message = if (annotated) o.optString("message") else "",
+            )
+        }
+    }.getOrDefault(emptyList())
 }

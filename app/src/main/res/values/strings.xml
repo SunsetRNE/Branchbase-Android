@@ -430,7 +430,8 @@
     <string name="state_refs_remote_empty">还没有远端跟踪引用 —— 在「同步」里取一次远端。</string>
     <string name="state_refs_empty">这个仓库还没有任何引用。</string>
     <string name="error_refs_load_failed">读取引用失败：仓库不存在或引擎不可用。</string>
-    <string name="note_git_refs_tags_pending">标签（tag）按阶段 3 接入 —— 本地 list_tags 还没落地。</string>
+    <string name="state_refs_tags_empty">还没有 tag。</string>
+    <string name="state_refs_tag_lightweight">轻量</string>
     <string name="state_workspace_clean">工作区干净 · 没有未提交改动</string>
     <string name="state_no_upstream_short">未设置上游</string>
     <string name="note_git_views_pending">提交 / 推送 / 合并入口按阶段接入。</string>

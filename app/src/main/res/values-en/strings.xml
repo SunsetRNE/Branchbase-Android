@@ -425,7 +425,8 @@
     <string name="state_refs_remote_empty">No remote-tracking refs yet — fetch once in Sync.</string>
     <string name="state_refs_empty">This repo has no refs yet.</string>
     <string name="error_refs_load_failed">Failed to read refs: repo missing or engine unavailable.</string>
-    <string name="note_git_refs_tags_pending">Tags arrive in phase 3 — the local list_tags API is not in yet.</string>
+    <string name="state_refs_tags_empty">No tags yet.</string>
+    <string name="state_refs_tag_lightweight">Lightweight</string>
     <string name="state_workspace_clean">Working tree is clean — nothing uncommitted</string>
     <string name="state_no_upstream_short">No upstream</string>
     <string name="note_git_views_pending">Commit, push and merge entry points arrive in later phases.</string>

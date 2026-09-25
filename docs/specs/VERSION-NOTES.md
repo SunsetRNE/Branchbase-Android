@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只留格式契约 + 写法样板（3 个经典示例）；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.96**）
-与 §三 `versionCode` 流水（129 → **198**）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.97**）
+与 §三 `versionCode` 流水（129 → **199**）。
 
 ---
 
@@ -25,7 +25,46 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.96 → 1.0.22）
+## 二、`versionName` 流水（1.0.97 → 1.0.22）
+
+### 1.0.97
+
+**Git 模式阶段 3（引擎那半）：五个本地只读接口 `log_graph` / `list_tags` / `log_file` /
+`diff_worktree` / `diff_commit` 落地（含 JNI 导出与 `.so` 重建）+ 引用树档接上 tag**。
+
+① **引擎**（`core/src/git/mod.rs`，五条全是只读：不 fetch、不写工作区、不动 ref）：
+
+- `log_graph(dir, limit, skip)`：`TOPOLOGICAL | TIME` 排序的 revwalk（泳道布局假定「父都在子下方」，
+  纯时间序在时钟回拨的仓库上不成立）+ `parents` 一定带上（缺了图就退化成一条直线）；
+- `list_tags(dir)`：**D-f 全字段** —— annotated 给 `tagger{name,email,time}` 与说明，
+  `sha` 是 tag 对象、`target_sha` 是被指的提交；**轻量 tag 的 `tagger` 为 null、说明为空串**
+  （给它编一个作者等于在界面上撒谎）；
+- `log_file(dir, path, limit, skip)`：libgit2 没有 `log -- path`，只能 revwalk +
+  `diff_tree_to_tree`（带 pathspec）逐个提交比对；命中 `limit` 就停，**但没碰过该路径的提交仍要继续走**
+  （历史是链式的，提前退出会漏掉更早的那次改动）；根提交用「树里有没有这个路径」判定；
+- `diff_worktree(dir)` / `diff_commit(dir, sha)`：同一套输出 `{patch, files, truncated}`，
+  上层因此可以共用一份渲染。patch 超 200 KB 截断并**如实置 `truncated`**（悄悄截断会让人以为
+  「改动就这么点」），按**字符边界**截断（diff 里有中文时按字节切会切出半个字符）；
+- 自己写了一个 `commit_time_iso`（含 Howard Hinnant 的 `civil_from_days`）：只为时间格式引一个
+  日期库不值当 —— 这个仓库已经在为 vendored openssl / libgit2 付交叉编译的代价。输出与 REST 那份
+  `author.date` 同形，UI 侧不用分辨数据来自哪边。
+
+② **接口链**：`jni.rs` 五个导出（`nativeGitLogGraph` / `nativeGitListTags` / `nativeGitLogFile` /
+`nativeGitDiffWorktree` / `nativeGitDiffCommit`）→ `RustBridge` 五个 `suspend` 门面 →
+`JniSignatureTest` 逐参数对账 → **重建 `.so`**（`core/build-android.sh`，12 分钟；`nm -D` 已确认五个符号导出）。
+
+③ **引用树档接上 tag**（这个接口的第一个消费者）：annotated 显示说明首行、轻量 tag 右侧标「轻量」并
+**不画 tagger / 说明**；没有 tag 时写「还没有 tag」而不是留空区。tag 行**不可点** ——
+点开能去哪今天并不存在，画个可点的样子就是假入口。占位串
+`note_git_refs_tags_pending` 与它的中英资源、`strings.tsv` 行一并删掉（不留死资源）。
+
+**一个坑记在这里**：`diff_tree_to_workdir_with_index(None, …)` 的 old 侧是**空树**，
+于是「改过的已跟踪文件」会被报成 Untracked/新增 —— 必须显式传 HEAD 树才等价于 `git diff HEAD`。
+单测直接钉了这个现场（同一个 diff 里：新文件 `A`、已跟踪改动 `M`）。
+
+验证：`cargo test` 86 例（新增 8 例，含建临时仓库跑真 libgit2 的那几条）· `:app:testDebugUnitTest`
+866 → 869 例（`GitRefsModelsTest` 新增 tag 解析 3 例）· `assembleDebug` 通过 ·
+`check-i18n --min-coverage 100`（删 1 条占位、新增 2 条）。versionCode 198 → 199（一次提交 +1）。
 
 ### 1.0.96
 
@@ -2389,11 +2428,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（198 → 129）
+## 三、`versionCode` 流水（199 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **199**：Git 模式阶段 3（引擎那半）—— 五个本地只读接口（`log_graph` / `list_tags` / `log_file` /
+`diff_worktree` / `diff_commit`）+ JNI 导出 + 重建 `.so`（`nm -D` 确认符号）+ 引用树档接上 tag
+（annotated 全字段、轻量留空不编值）+ 删掉「按阶段接入」占位串（一次提交，故 +1）
 
 - **198**：Git 工作台接线收口（两档接上分支管理出口 + 胶囊行改 FlowRow、设置列表加统筹说明；
 「改动清单点开看文件」试过又退回并登记 —— 查看器只有远端来源）

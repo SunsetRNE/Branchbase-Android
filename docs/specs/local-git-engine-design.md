@@ -42,7 +42,7 @@
 | 浅 clone（`depth(1)`） | 减体积；代价是不能查历史（见 §7） | `:37`（`fo.remote_callbacks(callbacks).depth(1); // 浅 clone，减体积`） |
 | 与 REST 通道**不共用连接池** | 两条通道的凭据与生命周期不同（Git 走 HTTPS+token，REST 走 reqwest 客户端） | [`reachability-design.md`](reachability-design.md) §五 |
 
-## 3. 稳定接口（`core/src/git/mod.rs` 的 20 个 `pub fn`）
+## 3. 稳定接口（`core/src/git/mod.rs` 的 27 个 `pub fn`）
 
 > 「稳定」= 函数名、参数含义、返回约定是**对外条款**（表中行号只作定位参考，会随文件演进漂），改签名要同时改 JNI 与 Kotlin 门面，
 > 并重建 `.so`（见 [`BUILD-NOTES.md`](BUILD-NOTES.md) §四）。
@@ -59,11 +59,16 @@
 | 撤销 / 丢弃 | `discard_all_changes:433` | 恢复已跟踪文件 + 删除未跟踪文件；**只在用户确认后调用** |
 | 证书 / 代理 | `init_ssl_certs:924` · `set_git_proxy:979` | `init_ssl_certs` 全局生效一次；`set_git_proxy` 写全局 gitconfig 的 `[http] proxy`（空串 = 清除） |
 | 决策页面支持 | `repo_status` · `reset_soft` · `reset_hard_to_remote` · `amend_message` · `revert_commit` · `push_set_upstream` · `scan_sensitive`（同一段注释之下，按名字找） | 条款写在 [`decision-pages-design.md`](decision-pages-design.md) §6，本文不重复 |
+| **工作台本地读接口**（阶段 3，**全部只读**） | `log_graph` · `list_tags` · `log_file` · `diff_worktree` · `diff_commit`（同一段注释之下） | 输出是**扁平 native JSON**（不是 GitHub REST 那份嵌套结构）；分页一律 `limit` / `skip`；空仓库给 `[]` 而不是报错。`list_tags` 按 D-f 取全字段、轻量 tag **留空不编值**；`diff_*` 的 `patch` 超 200 KB 截断并置 `truncated` |
 
 JNI 侧对应导出（`core/src/bridge/jni.rs`）：`nativeGitClone`、`nativeGitPull`、`nativeGitCommit`、
 `nativeGitPush`、`nativeGitStatus`、`nativeGitResetSoft`、`nativeGitResetHardRemote`、
 `nativeGitAmend`、`nativeGitRevert`、`nativeGitPushSetUpstream`、`nativeGitInitSsl`、
+`nativeLocalBranches` / `nativeRemoteBranches` / `nativeFetchRemote` / `nativeCheckoutBranch` /
+`nativeCreateBranchLocal` / `nativeDeleteBranchLocal` / `nativeDiscardAllChanges`、
+`nativeGitLogGraph` / `nativeGitListTags` / `nativeGitLogFile` / `nativeGitDiffWorktree` / `nativeGitDiffCommit`、
 以及进度用的 `nativeGitCloneProgress` / `nativeGitCloneCancel`（见 §4.1）。
+**每一对 `external fun` ↔ JNI 导出都由 `JniSignatureTest` 逐参数、逐类型钉着**（参数表写错编译期查不出来）。
 
 ### 3.1 clone 进度与取消（两条只读接口 + 一份快照）
 

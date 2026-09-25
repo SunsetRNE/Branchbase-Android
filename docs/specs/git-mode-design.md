@@ -42,7 +42,7 @@
 | 分档标签条（未落地的档标「待接入」，点进去是如实说明） | **已落地 1.0.94** | 同上（`GitPanelViewHost`） |
 | 「提交图」档（REST 数据 + 泳道布局 + 分页脚注） | **已落地 1.0.94** | `ui/repository/CommitGraphPanel.kt` · `CommitGraphModels.kt` |
 | 未提交**虚节点**（方案 A） | **已落地 1.0.94** | 同上（`GraphRow.WorkingTree`） |
-| 「引用树」档（本地 / 远端分支 + 上游 + 领先落后；tags 占位） | **已落地 1.0.95** | `ui/repository/GitRefsPanel.kt` · `GitRefsModels.kt` |
+| 「引用树」档（本地 / 远端分支 + 上游 + 领先落后 + **tag**） | **已落地 1.0.95 / tags 1.0.97** | `ui/repository/GitRefsPanel.kt` · `GitRefsModels.kt` |
 | 标签条的可用态（工作区 / 提交图 / 引用树 ✅ · 文件历史 ⏳） | **已落地 1.0.95** | `GitPanelStage.kt` 的 `available` + 源码级钉子（提交图那格是 1.0.94 的漏改，本轮修正） |
 | 设置列表「进入」→ 代码页 + 面板开到视图档 | **已落地 1.0.95** | `RepoDeepLink.openGitPanel`（`RepositoryScreen.kt`）· `ui/profile/SubPageScreens.kt` |
 | 面板的**出口收口**：分支管理接进两档（工作区 / 引用树）；面板里的**写操作恒为零** | **已落地 1.0.96** | `GitPanelViewHost` 的可选回调（null = 该宿主没这个出口 → 不画那枚胶囊）；胶囊行走 `FlowRow`（英文标签更长，`Row` 会裁掉） |
@@ -53,7 +53,9 @@
 | 面板内**执行**有后果的动作（提交 / 撤销 / 上游 / 回退）—— 要把决策页的宿主扩到仓库页 | 待落地（阶段 2 剩余） | — |
 | 危险动作收口（全部落决策页）+ 设置列表行内动作下线 | **部分**：面板内写操作已归零（1.0.96），行内动作仍在（§5 过渡期） | — |
 | 本地合并 + 冲突解决 | 待落地（阶段 5） | — |
-| 引擎 `log_graph` / `list_tags` / `log_file` / `diff_*` / `merge_*` | 待落地（阶段 3–5） | `core/src/git/mod.rs` |
+| 引擎 `log_graph` / `list_tags` / `log_file` / `diff_worktree` / `diff_commit` | **已落地 1.0.97**（阶段 3 只读接口 + 重建 `.so`） | `core/src/git/mod.rs` · `core/src/bridge/jni.rs` · `RustBridge.kt` |
+| 这三条本地接口的**其余消费者**（提交图换本地来源 / 工作区本地 diff / 文件历史档） | 待落地（阶段 3 剩余 + 阶段 4） | — |
+| 引擎 `fetch_deepen` / `merge_*` / `analyze_conflicts` 等 | 待落地（阶段 4–5） | `core/src/git/mod.rs` |
 
 **已落地的验证口径**：`:app:testDebugUnitTest`（866 例；其中 `GitPanelStageTest` 9 例、
 `GitRefsModelsTest` 5 例、`RepoDeepLinkTest` 4 例、`GitWorkbenchWiringTest` 5 例、
@@ -89,7 +91,7 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
 |---|---|---|---|
 | **工作区** | 分支 / 领先落后 / 上游 / 改动文件清单 / 刷新 / 同步 | `LocalRepoGitState`（一次 `repo_status`，与徽标同源） | 已落地 |
 | **提交图** | 泳道 DAG + **未提交虚节点** + 分页脚注 | REST `/commits?sha=&per_page=100`（**保留 `parents`**）；阶段 3 起本地 `log_graph` | 已落地（REST 版） |
-| **引用树** | 本地 / 远端分支、上游、领先落后；tag 占位 | `local_branches` · `remote_branches`（本地仓库，离线可读）；`list_tags` 待阶段 3 | 已落地（阶段 2，**只读**） |
+| **引用树** | 本地 / 远端分支、上游、领先落后；tag（annotated 带说明与作者，轻量只有名字） | `local_branches` · `remote_branches` · `list_tags`（本地仓库，离线可读） | 已落地（阶段 2 + tags 阶段 3，**只读**） |
 | **文件历史** | 该文件的提交序列 | **本地优先**（`log_file`，已加深时）/ REST `/commits?path=` 兜底 | 待落地（阶段 4） |
 
 未落地的档在标签条上标「**待接入**」，点进去是一句如实的说明 —— **不是死按钮**，
@@ -154,7 +156,9 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
 - **REST 版（当前）**：`GET /repos/{o}/{r}/commits?sha={branch}&per_page=100`，
   响应里**本来就带 `parents`** —— 图的解析独立成 `parseGraphCommits`（`CommitGraphModels.kt`），
   **不去动**提交列表那份 `parseCommits`（两者用途不同，混改会牵动列表页与它的单测）；
-- **本地版（阶段 3）**：新增 `log_graph(dir, limit, skip)`，浅克隆下先 `fetch_deepen`；
+- **本地版（阶段 3）**：`log_graph(dir, limit, skip)` **已落地**（1.0.97，扁平 native JSON、带 `parents`）——
+  但面板**还没换过去**：换来源要同时改分页（本地按 `skip` 续取，REST 按最老 sha 续取）与刷新键，
+  留到下一轮一起做；浅克隆缺历史时先 `fetch_deepen`（阶段 4）；
 - **不设上限（已拍板）**：head 全取、「加载更早」不限次数；**但分页照旧**，
   且列表尾部必须如实写「已加载 N 条 · 更早历史未加载」——**不许把截断画成历史的尽头**。
 
@@ -262,16 +266,21 @@ merge_branch ─► outcome == "conflict"
 **现有**（[`local-git-engine-design.md`](local-git-engine-design.md) §3）：clone / pull(FF) / push / commit /
 分支增删切 / 撤销丢弃 / `repo_status` / `scan_sensitive` / 证书与代理 / clone 进度与取消。
 
-**待新增**（每条都要：`mod.rs` → `jni.rs` 导出 → `RustBridge` wrapper（`null` = 成功）→
-`JniSignatureTest` → **重建 `.so`** → `cargo test`）：
+**阶段 3 已新增**（1.0.97 落地，五条都走完了 `mod.rs` → `jni.rs` 导出 → `RustBridge` wrapper →
+`JniSignatureTest` → **重建 `.so`** → `cargo test` 这条链）：
+
+| # | 接口 | 用途 | 状态 |
+|---|---|---|---|
+| 1 | `log_graph(dir, limit, skip)` | 本地提交图（浅克隆先加深） | **已落地**（消费者待接） |
+| 2 | `list_tags(dir)` | 引用树：`{name, sha, annotated, target_sha, tagger{name,email,time}, message}` | **已落地**（引用树档已在用） |
+| 3 | `log_file(dir, path, limit, skip)` | 文件历史（本地优先） | **已落地**（文件历史档待阶段 4） |
+| 5 | `diff_worktree(dir)` · `diff_commit(dir, sha)` | 工作区 / 提交的本地 diff（`{patch, files, truncated}`） | **已落地**（UI 待接） |
+
+**仍待新增**：
 
 | # | 接口 | 用途 | 阶段 |
 |---|---|---|---|
-| 1 | `log_graph(dir, limit, skip)` | 本地提交图（浅克隆先加深） | 3 |
-| 2 | `list_tags(dir)` | 引用树：`{name, sha, annotated, target_sha?, tagger{name,email,time}?, message?}` | 3 |
-| 3 | `log_file(dir, path, limit, skip)` | 文件历史（本地优先） | 4 |
 | 4 | `fetch_deepen(dir, depth, token)` | 加深克隆（长任务走任务中心） | 4 |
-| 5 | `diff_worktree(dir)` · `diff_commit(dir, sha)` | 工作区 / 提交的本地 diff | 3 |
 | 6 | `merge_branch(dir, branch, token)` | 三方合并（不改写历史） | 5 |
 | 7 | `analyze_conflicts(dir)` · `conflict_files(dir)` · `resolve_conflict(dir, path, side)` · `write_resolved(...)` · `merge_continue(...)` · `merge_abort(dir)` | 预解析 + 逐文件解决 + 收尾 | 5 |
 
@@ -284,7 +293,8 @@ merge_branch ─► outcome == "conflict"
 | **0** | 面板三档 + `PanelSwitcher` + 「工作区」档 | **已落地 1.0.93** |
 | **1** | 「提交图」档（REST + 泳道布局）+ 虚节点 + 分档标签条 | **已落地 1.0.94** |
 | **2** | 「引用树」档（`local_branches` / `remote_branches` / tags 占位）+ `RepoDeepLink.openGitPanel`（含设置列表「进入」）+ 出口收口与日志/回归插桩（1.0.96） | **部分落地 1.0.95 / 1.0.96**；面板内执行有后果的动作（要把决策页宿主扩到仓库页）+ 设置列表动作下线**待做** |
-| **3** | `log_graph` / `list_tags` / `log_file` / `diff_worktree` / `diff_commit`（重建 `.so`）+ 工作区档的本地 diff + 提交图的本地来源 | 待做 |
+| **3** | `log_graph` / `list_tags` / `log_file` / `diff_worktree` / `diff_commit`（重建 `.so`） | **引擎 + JNI + 门面已落地 1.0.97**（`cargo test` 86 例） |
+| **3'** | 这三个接口的**消费者**：引用树 tags ✅ / 提交图换本地来源 / 工作区档的本地 diff | tags **已落地 1.0.97**；其余待做 |
 | **4** | `fetch_deepen`（任务中心 + 进度）+ 「文件历史」档（本地优先 + REST 兜底）+ 离线图谱（LocalSource 优先、未推送段） | 待做 |
 | **5** | 本地合并（D-g）+ 冲突弹窗 / 预解析 / 详情对比页（D-h）+ PR 冲突的「拉到本地解决」 | 待做 |
 | **6** | 设置 → 本地仓库「管理」页（按仓库看占用 / 清理）+ 列表重绘（§5 的登记项） | 待做 |
@@ -303,7 +313,7 @@ merge_branch ─► outcome == "conflict"
 | 新字符串 | `tools/i18n/strings.tsv` → `extract.py --apply`（CI 硬门禁 `--min-coverage 100`） |
 | 面板里多一个**出口**（去决策页 / 管理页的入口） | `GitPanelViewHost` 加**可选**回调（null = 这个宿主没这个出口 → **不画那枚胶囊**），两个宿主各接一次；`GitWorkbenchWiringTest` 盯着别只接一边 |
 | 新日志锚点 | `ui/log/Logging.kt` 的 `LOG_ANCHORS`（导出包的 `report.md` 会带上这张表）+ tag 常量与该表的字面量必须一致（`LogAnchorsTest`）+ 关键入口逐个钉（`GitWorkbenchWiringTest`） |
-| 新 JNI 函数 | `JniSignatureTest.kt` + 重建 `.so` |
+| 新 JNI 函数 | `JniSignatureTest.kt`（逐参数、逐类型对账，参数表写错编译期查不出来）+ **重建 `.so`**（`core/build-android.sh`，约 12 分钟）+ `cargo test` |
 | 新版本 | [`VERSION-NOTES.md`](VERSION-NOTES.md) §二/§三 → 最后改 `version.properties` |
 | 引擎边界变化（merge） | [`local-git-engine-design.md`](local-git-engine-design.md) §1/§5/§7 |
 | 本文档 | [`../README.md`](../README.md) §五 索引行 |

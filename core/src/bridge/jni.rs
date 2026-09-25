@@ -1085,6 +1085,81 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeLocalBranches<'
     into_jstring(&mut env, result)
 }
 
+/// 提交图（本地）：JSON 数组（新的在前）[{ sha, parents, subject, author, date }]
+/// 参数：dir, limit, skip
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitLogGraph<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+    limit: jint,
+    skip: jint,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let result: crate::error::Result<String> =
+        crate::git::log_graph(&dir, limit.max(0) as usize, skip.max(0) as usize);
+    into_jstring(&mut env, result)
+}
+
+/// tag 清单（本地，D-f 全字段）：JSON 数组 [{ name, sha, annotated, target_sha, tagger, message }]
+/// 参数：dir
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitListTags<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let result: crate::error::Result<String> = crate::git::list_tags(&dir);
+    into_jstring(&mut env, result)
+}
+
+/// 文件历史（本地）：JSON 数组（新的在前）[{ sha, subject, author, date }]
+/// 参数：dir, path, limit, skip
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitLogFile<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+    path: JString<'local>,
+    limit: jint,
+    skip: jint,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let path = jstr(&mut env, &path);
+    let result: crate::error::Result<String> =
+        crate::git::log_file(&dir, &path, limit.max(0) as usize, skip.max(0) as usize);
+    into_jstring(&mut env, result)
+}
+
+/// 工作区 diff（相对 HEAD）：JSON { patch, files, truncated }
+/// 参数：dir
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitDiffWorktree<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let result: crate::error::Result<String> = crate::git::diff_worktree(&dir);
+    into_jstring(&mut env, result)
+}
+
+/// 某个提交相对第一父的 diff：JSON { patch, files, truncated }
+/// 参数：dir, sha
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitDiffCommit<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+    sha: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let sha = jstr(&mut env, &sha);
+    let result: crate::error::Result<String> = crate::git::diff_commit(&dir, &sha);
+    into_jstring(&mut env, result)
+}
+
 /// 只刷新远端跟踪引用（fetch，不合并、不动工作区；返回空串=成功）
 /// 参数：dir, token(可空), prune(是否顺带清理远端已删除的跟踪引用)
 #[no_mangle]

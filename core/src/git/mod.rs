@@ -1217,6 +1217,375 @@ fn map_push_error(msg: &str) -> CoreError {
     }
 }
 
+// ── 工作台的本地读接口（阶段 3：提交图 / 引用树 / 文件历史 / 本地 diff） ──
+//
+// 这一组全是**只读**：不 fetch、不写工作区、不动 ref。它们存在的理由只有一个 ——
+// 仓库已经在本地（本地优先），工作台的这三档没必要再去打 REST：离线可读、不消耗 API 限额、
+// 也不受「默认分支」这种服务端口径影响（`GET /contents/{path}` 就不带 ref，
+// 于是「默认分支不是 main」的仓库会串内容）。
+//
+// 输出一律是**扁平的 native JSON**（不是 GitHub REST 那份嵌套结构）：这是我们自己的接口，
+// 没必要模仿别人的响应体；Kotlin 侧各有各的解析（REST 一份、本地一份，见 CommitGraphModels.kt）。
+
+/// 提交图的本地来源（对齐 `git-mode-design.md` §4.1「本地版（阶段 3）」）。
+///
+/// 输出 JSON 数组（**新的在前**）：
+/// `[{ sha, parents: [sha…], subject, author, date }]`
+///
+/// - `limit` / `skip`：分页。不设上限是产品决策（head 全取、「加载更早」不限次数），
+///   但**一次调用只取一页** —— 调用方按 `skip += limit` 续取，尾部如实写「已加载 N 条」；
+/// - `parents` 一定要带上：泳道布局靠它，缺了只能画成一条直线（图就废了）；
+/// - 空仓库（没有 HEAD）**不是错误**：返回空数组。上层据此显示「这个分支还没有提交」，
+///   而不是红字报错 —— 「没有提交」是正常状态，不是失败。
+pub fn log_graph(dir: &str, limit: usize, skip: usize) -> Result<String> {
+    use git2::{Repository, Sort};
+
+    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let mut out: Vec<serde_json::Value> = Vec::new();
+
+    // 空仓库 / detached 且无提交：head() 会失败，这不是「错了」
+    let Ok(head) = repo.head() else {
+        return Ok(json!(out).to_string());
+    };
+    let Ok(head_commit) = head.peel_to_commit() else {
+        return Ok(json!(out).to_string());
+    };
+
+    let mut walk = repo.revwalk().map_err(|e| CoreError::Other(format!("创建 revwalk 失败: {e}")))?;
+    // TOPOLOGICAL：父在子之后出现（图从上往下画的前提）。**不要**加 SORT_TIME 之外的排序：
+    // 泳道布局假定「一条提交的所有父都在它下方」，时间序在时钟回拨的仓库上不保证这一点。
+    walk.set_sorting(Sort::TOPOLOGICAL | Sort::TIME)
+        .map_err(|e| CoreError::Other(format!("设置 revwalk 排序失败: {e}")))?;
+    walk.push(head_commit.id())
+        .map_err(|e| CoreError::Other(format!("revwalk push_head 失败: {e}")))?;
+
+    for oid in walk.skip(skip).take(limit) {
+        let oid = oid.map_err(|e| CoreError::Other(format!("revwalk 迭代失败: {e}")))?;
+        let commit = repo
+            .find_commit(oid)
+            .map_err(|e| CoreError::Other(format!("读取提交失败: {e}")))?;
+        let parents: Vec<String> = commit.parent_ids().map(|p| p.to_string()).collect();
+        out.push(json!({
+            "sha": commit.id().to_string(),
+            "parents": parents,
+            "subject": commit.summary().unwrap_or(""),
+            "author": commit.author().name().unwrap_or("").to_string(),
+            "date": commit_time_iso(commit.author().when()),
+        }));
+    }
+
+    Ok(json!(out).to_string())
+}
+
+/// tag 清单（对齐 D-f：**取全字段**）。
+///
+/// 输出 JSON 数组：`[{ name, sha, annotated, target_sha, tagger, message }]`
+///
+/// - `annotated = true`：`sha` 是 **tag 对象**的 id，`target_sha` 是它指向的提交；
+///   `tagger` = `{ name, email, time }`（time 是 ISO 8601 本地偏移串），`message` = 说明；
+/// - `annotated = false`（轻量 tag）：`sha` 就是提交 id，`target_sha` 与它相同，
+///   **`tagger = null`、`message` 为空串** —— D-f 要求「非 annotated 留空、不填假值」：
+///   给轻量 tag 编一个 tagger 等于在界面上撒谎；
+/// - 按名字排序（与 `local_branches` 的「当前分支置顶」不同：tag 没有「当前」）。
+pub fn list_tags(dir: &str) -> Result<String> {
+    use git2::Repository;
+
+    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let names = repo
+        .tag_names(None)
+        .map_err(|e| CoreError::Other(format!("读取 tag 失败: {e}")))?;
+
+    let mut out: Vec<serde_json::Value> = Vec::new();
+    for name in names.iter().flatten() {
+        let Ok(reference) = repo.find_reference(&format!("refs/tags/{name}")) else {
+            continue;
+        };
+        let target = reference.target();
+        // 指向 tag 对象 = annotated；直接指向提交 = 轻量
+        let annotated = target
+            .and_then(|oid| repo.find_tag(oid).ok())
+            .is_some();
+        let (sha, target_sha, tagger, message) = if annotated {
+            let oid = target.unwrap();
+            let tag = repo
+                .find_tag(oid)
+                .map_err(|e| CoreError::Other(format!("读取 tag 对象失败: {e}")))?;
+            let peeled = tag.target_id().to_string();
+            let t = tag.tagger();
+            let tagger = t.map(|sig| {
+                json!({
+                    "name": sig.name().unwrap_or(""),
+                    "email": sig.email().unwrap_or(""),
+                    "time": commit_time_iso(sig.when()),
+                })
+            });
+            (oid.to_string(), peeled, tagger, tag.message().unwrap_or("").to_string())
+        } else {
+            // 轻量 tag：sha 就是提交；没有 tagger / 说明，留空
+            let peeled = reference
+                .peel_to_commit()
+                .map(|c| c.id().to_string())
+                .unwrap_or_else(|_| target.map(|o| o.to_string()).unwrap_or_default());
+            (peeled.clone(), peeled, None, String::new())
+        };
+        out.push(json!({
+            "name": name,
+            "sha": sha,
+            "annotated": annotated,
+            "target_sha": target_sha,
+            "tagger": tagger,
+            "message": message,
+        }));
+    }
+    out.sort_by(|a, b| {
+        a.get("name").and_then(|v| v.as_str()).unwrap_or("")
+            .cmp(b.get("name").and_then(|v| v.as_str()).unwrap_or(""))
+    });
+    Ok(json!(out).to_string())
+}
+
+/// 某个文件的提交历史（本地优先，REST 兜底的那一条路里的「本地」）。
+///
+/// 输出 JSON 数组（新的在前）：`[{ sha, subject, author, date }]` —— 与 [log_graph] 同字段，
+/// 少一个 `parents`（文件历史不画图）。
+///
+/// 走 revwalk + `diff_tree_to_tree` 逐个提交比对：libgit2 没有 `log -- path` 的直接接口，
+/// 只能自己走。代价是「越深的仓库越慢」，所以：
+/// - 命中 `limit` 就停（上层按「加载更早」续取，不一次翻遍全史）；
+/// - **一发现这个提交没碰过该路径就跳过，但仍要继续走**（历史是链式的，不能提前退出）。
+pub fn log_file(dir: &str, path: &str, limit: usize, skip: usize) -> Result<String> {
+    use git2::{DiffOptions, Repository, Sort};
+
+    if path.trim().is_empty() {
+        return Err(CoreError::Other("文件路径不能为空".into()));
+    }
+    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let mut out: Vec<serde_json::Value> = Vec::new();
+
+    let head = repo.head().map_err(|e| CoreError::Other(format!("读取 HEAD 失败: {e}")))?;
+    let head_commit = head
+        .peel_to_commit()
+        .map_err(|e| CoreError::Other(format!("解析 HEAD 提交失败: {e}")))?;
+
+    let mut walk = repo.revwalk().map_err(|e| CoreError::Other(format!("创建 revwalk 失败: {e}")))?;
+    walk.set_sorting(Sort::TOPOLOGICAL | Sort::TIME)
+        .map_err(|e| CoreError::Other(format!("设置 revwalk 排序失败: {e}")))?;
+    walk.push(head_commit.id())
+        .map_err(|e| CoreError::Other(format!("revwalk push_head 失败: {e}")))?;
+
+    let mut matched = 0usize;
+    let mut opts = DiffOptions::new();
+    opts.pathspec(path);
+    for oid in walk {
+        if out.len() >= limit {
+            break;
+        }
+        let oid = oid.map_err(|e| CoreError::Other(format!("revwalk 迭代失败: {e}")))?;
+        let commit = repo
+            .find_commit(oid)
+            .map_err(|e| CoreError::Other(format!("读取提交失败: {e}")))?;
+        let tree = commit.tree().map_err(|e| CoreError::Other(format!("读取提交树失败: {e}")))?;
+        let parent_tree = match commit.parent(0) {
+            Ok(parent) => Some(
+                parent
+                    .tree()
+                    .map_err(|e| CoreError::Other(format!("读取父提交树失败: {e}")))?,
+            ),
+            Err(_) => None,
+        };
+        let diff = repo
+            .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut opts))
+            .map_err(|e| CoreError::Other(format!("比较提交树失败: {e}")))?;
+        // 根提交（没有父）只要该路径在树里就算碰过；其余看 diff 有没有这个路径
+        let touched = if parent_tree.is_none() {
+            tree.get_path(std::path::Path::new(path)).is_ok()
+        } else {
+            diff.deltas().len() > 0
+        };
+        if !touched {
+            continue;
+        }
+        matched += 1;
+        if matched <= skip {
+            continue;
+        }
+        out.push(json!({
+            "sha": commit.id().to_string(),
+            "subject": commit.summary().unwrap_or(""),
+            "author": commit.author().name().unwrap_or("").to_string(),
+            "date": commit_time_iso(commit.author().when()),
+        }));
+    }
+
+    Ok(json!(out).to_string())
+}
+
+/// 工作区相对 HEAD 的本地 diff（未提交改动）。
+///
+/// 输出：`{ patch, files: [{ path, status, additions, deletions }], truncated }`
+///
+/// - `patch`：unified diff 文本（直接给 UI 渲染 / 给编辑器做冲突高亮）；
+/// - `status`：`A` / `D` / `M` / `R`（与 `repo_status` 的 dirty 同一套字母）；
+/// - `truncated`：patch 超过 [`DIFF_PATCH_LIMIT`] 字节被截断。**必须如实告诉上层** ——
+///   悄悄截断会让人以为「改动就这么点」。
+pub fn diff_worktree(dir: &str) -> Result<String> {
+    use git2::{DiffOptions, Repository};
+
+    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let mut opts = DiffOptions::new();
+    opts.include_untracked(true);
+    opts.recurse_untracked_dirs(true);
+    opts.context_lines(3);
+    // **必须显式给 HEAD 树**：`diff_tree_to_workdir_with_index(None, …)` 的 old 侧是**空树**，
+    // 于是「改过的已跟踪文件」会被报成 Untracked/新增（真机上表现为「改动清单说这是新文件」）。
+    // 给了树才等价于 `git diff HEAD`（暂存 + 未暂存一起看）。
+    // 空仓库（没有 HEAD）保持 None —— 那时「全是新增」本来就是对的。
+    let head_tree = repo.head().ok().and_then(|h| h.peel_to_tree().ok());
+    let diff = repo
+        .diff_tree_to_workdir_with_index(head_tree.as_ref(), Some(&mut opts))
+        .map_err(|e| CoreError::Other(format!("计算工作区 diff 失败: {e}")))?;
+    render_diff(&diff)
+}
+
+/// 某个提交相对其第一父的本地 diff（根提交与空树比）。
+///
+/// 与 [diff_worktree] 同一套输出结构 —— 上层因此可以**共用一份渲染**，
+/// 不必为「看工作区」和「看某个提交」写两套。
+pub fn diff_commit(dir: &str, sha: &str) -> Result<String> {
+    use git2::{DiffOptions, Repository};
+
+    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let oid = git2::Oid::from_str(sha.trim())
+        .map_err(|e| CoreError::Other(format!("无效的提交 sha: {e}")))?;
+    let commit = repo
+        .find_commit(oid)
+        .map_err(|e| CoreError::Other(format!("找不到提交: {e}")))?;
+    let tree = commit.tree().map_err(|e| CoreError::Other(format!("读取提交树失败: {e}")))?;
+    let parent_tree = match commit.parent(0) {
+        Ok(parent) => Some(
+            parent
+                .tree()
+                .map_err(|e| CoreError::Other(format!("读取父提交树失败: {e}")))?,
+        ),
+        Err(_) => None,
+    };
+    let mut opts = DiffOptions::new();
+    opts.context_lines(3);
+    let diff = repo
+        .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut opts))
+        .map_err(|e| CoreError::Other(format!("比较提交树失败: {e}")))?;
+    render_diff(&diff)
+}
+
+/// patch 文本的上限（字节）。
+///
+/// 一个几百 KB 的 diff 走 JNI 回来会挤占主线程与内存，而用户真正会看的是前几屏 ——
+/// 所以这里**截断并且如实标记**（[render_diff] 的 `truncated`），不静默丢内容。
+const DIFF_PATCH_LIMIT: usize = 200 * 1024;
+
+/// 把 `git2::Diff` 渲染成统一结构（[diff_worktree] 与 [diff_commit] 共用）。
+fn render_diff(diff: &git2::Diff<'_>) -> Result<String> {
+    use git2::DiffFormat;
+
+    let mut patch = String::new();
+    diff.print(DiffFormat::Patch, |_delta, _hunk, line| {
+        // 行首那个字符是 diff 的语义（+ / - / 空格 / \），一个字都不能丢
+        let origin = line.origin();
+        if matches!(origin, '+' | '-' | ' ') {
+            patch.push(origin);
+        }
+        patch.push_str(&String::from_utf8_lossy(line.content()));
+        true
+    })
+    .map_err(|e| CoreError::Other(format!("渲染 diff 失败: {e}")))?;
+
+    let truncated = patch.len() > DIFF_PATCH_LIMIT;
+    if truncated {
+        // 按字符边界截断（diff 里有中文时按字节切会把一个字符切成两半）
+        let mut cut = DIFF_PATCH_LIMIT;
+        while cut > 0 && !patch.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        patch.truncate(cut);
+    }
+
+    // 逐文件的增删行数（走 hunk 统计，不重跑 diff）
+    let mut files: Vec<serde_json::Value> = Vec::new();
+    for (idx, delta) in diff.deltas().enumerate() {
+        let path = delta
+            .new_file()
+            .path()
+            .or_else(|| delta.old_file().path())
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let status = match delta.status() {
+            git2::Delta::Added | git2::Delta::Untracked => "A",
+            git2::Delta::Deleted => "D",
+            git2::Delta::Renamed => "R",
+            _ => "M",
+        };
+        // 第 idx 个 delta ↔ 第 idx 个 patch（顺序一致，别用 files.len() 隐式对齐）
+        let (additions, deletions) = match git2::Patch::from_diff(diff, idx) {
+            Ok(Some(patch)) => match patch.line_stats() {
+                Ok((_, add, del)) => (add, del),
+                Err(_) => (0, 0),
+            },
+            _ => (0, 0),
+        };
+        files.push(json!({
+            "path": path,
+            "status": status,
+            "additions": additions,
+            "deletions": deletions,
+        }));
+    }
+
+    Ok(json!({
+        "patch": patch,
+        "files": files,
+        "truncated": truncated,
+    })
+    .to_string())
+}
+
+/// 把 git 时间（秒 + 时区偏移）写成 ISO 8601 本地偏移串。
+///
+/// 为什么不用 `chrono`：为一个时间格式再引一个依赖不值当，而 git2 给的偏移本身就是
+/// 「分钟数」，手算一次比引依赖清楚。输出形如 `2026-09-25T04:41:23+08:00` ——
+/// 与 REST 那份 `author.date` 同形，UI 侧因此不用分辨数据来自哪边。
+fn commit_time_iso(time: git2::Time) -> String {
+    let offset_min = time.offset_minutes();
+    let secs = time.seconds() + (offset_min as i64) * 60;
+    let days = secs.div_euclid(86_400);
+    let rem = secs.rem_euclid(86_400);
+    let (h, mi, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+    let (y, m, d) = civil_from_days(days);
+    let sign = if offset_min < 0 { '-' } else { '+' };
+    let abs = offset_min.abs();
+    format!(
+        "{y:04}-{m:02}-{d:02}T{h:02}:{mi:02}:{s:02}{sign}{:02}:{:02}",
+        abs / 60,
+        abs % 60
+    )
+}
+
+/// 天数（1970-01-01 起）→ 公历年月日（Howard Hinnant 的 `civil_from_days`）。
+///
+/// 自己算是为了**不引 chrono**：这个换算只有 6 行、有单测钉着，
+/// 而多一个日期库就多一份交叉编译负担（这个仓库已经在为 vendored openssl / libgit2 付代价）。
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as i64; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32; // [1, 12]
+    (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
 #[cfg(test)]
 mod tests {
     // 注：CI（build-core.yml）会把失败关键行以 annotation 输出，便于无日志下载权限时定位。
@@ -1676,5 +2045,200 @@ mod tests {
         request_cancel();
         assert!(cancelled());
         CANCEL_REQUESTED.store(false, Ordering::SeqCst);
+    }
+
+    // ───────────────────── 阶段 3：本地读接口 ─────────────────────
+    //
+    // 这一组会真的建仓库（临时目录 + git2 直接提交），因为它们的价值全在「libgit2 到底
+    // 吐出了什么」—— 纯函数测不出来：revwalk 的排序、轻量 tag 与 annotated tag 的区别、
+    // diff 的行首字符，任何一条写错都只会在真机上表现成「面板空着」或「点开是错的」。
+
+    /// 建一个临时仓库（目录名带测试名，避免并行跑时互相踩）。
+    fn temp_repo(name: &str) -> (std::path::PathBuf, git2::Repository) {
+        let dir = std::env::temp_dir().join(format!("bb-git-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let repo = git2::Repository::init(&dir).unwrap();
+        (dir, repo)
+    }
+
+    /// 写文件 + 暂存 + 提交，返回新提交的 id（parent = 当前 HEAD，没有就提交根提交）。
+    fn commit_file(
+        repo: &git2::Repository,
+        file: &str,
+        content: &str,
+        message: &str,
+        author: &str,
+    ) -> git2::Oid {
+        std::fs::write(repo.workdir().unwrap().join(file), content).unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(std::path::Path::new(file)).unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let sig = git2::Signature::now(author, &format!("{author}@example.com")).unwrap();
+        let parent = repo.head().ok().and_then(|h| h.peel_to_commit().ok());
+        let parents: Vec<&git2::Commit> = parent.iter().collect();
+        repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &parents).unwrap()
+    }
+
+    #[test]
+    fn log_graph_新的在前且带_parents() {
+        let (dir, repo) = temp_repo("log-graph");
+        let first = commit_file(&repo, "a.txt", "one\n", "第一个提交", "Alice");
+        let second = commit_file(&repo, "a.txt", "two\n", "第二个提交", "Bob");
+
+        let json = log_graph(dir.to_str().unwrap(), 10, 0).unwrap();
+        let arr: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["sha"], second.to_string());
+        assert_eq!(arr[0]["subject"], "第二个提交");
+        assert_eq!(arr[0]["author"], "Bob");
+        // 图靠 parents 画泳道：第一个提交是根，没有父
+        assert_eq!(arr[0]["parents"][0], first.to_string());
+        assert_eq!(arr[1]["sha"], first.to_string());
+        assert_eq!(arr[1]["parents"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn log_graph_分页与空仓库() {
+        let (dir, repo) = temp_repo("log-graph-page");
+        for i in 0..3 {
+            commit_file(&repo, "a.txt", &format!("{i}\n"), &format!("c{i}"), "Alice");
+        }
+        let page1 = log_graph(dir.to_str().unwrap(), 2, 0).unwrap();
+        let page2 = log_graph(dir.to_str().unwrap(), 2, 2).unwrap();
+        let a1: Vec<serde_json::Value> = serde_json::from_str(&page1).unwrap();
+        let a2: Vec<serde_json::Value> = serde_json::from_str(&page2).unwrap();
+        assert_eq!(a1.len(), 2);
+        assert_eq!(a2.len(), 1);
+        assert_ne!(a1[0]["sha"], a2[0]["sha"], "第二页不能重复第一页");
+
+        // 空仓库：没有 HEAD 也要给空数组，而不是报错（「还没有提交」是正常状态）
+        let empty = temp_repo("log-graph-empty");
+        let json = log_graph(empty.0.to_str().unwrap(), 10, 0).unwrap();
+        assert_eq!(json, "[]");
+    }
+
+    #[test]
+    fn list_tags_annotated_全字段_轻量留空() {
+        let (_dir, repo) = temp_repo("list-tags");
+        let oid = commit_file(&repo, "a.txt", "one\n", "带 tag 的提交", "Alice");
+        let object = repo.find_object(oid, None).unwrap();
+        let sig = git2::Signature::now("Tagger", "tagger@example.com").unwrap();
+        repo.tag("v1.0", &object, &sig, "第一个版本\n", false).unwrap();
+        repo.tag_lightweight("nightly", &object, false).unwrap();
+
+        let dir = repo.workdir().unwrap().to_str().unwrap().to_string();
+        let json = list_tags(&dir).unwrap();
+        let arr: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+        assert_eq!(arr.len(), 2);
+        // 按名字排序：nightly < v1.0
+        assert_eq!(arr[0]["name"], "nightly");
+        // 轻量 tag：**不填假值** —— tagger 为 null、说明为空串
+        assert_eq!(arr[0]["annotated"], false);
+        assert_eq!(arr[0]["sha"], oid.to_string());
+        assert_eq!(arr[0]["target_sha"], oid.to_string());
+        assert!(arr[0]["tagger"].is_null());
+        assert_eq!(arr[0]["message"], "");
+        // annotated：sha 是 tag 对象、target_sha 是被指的提交、tagger 与说明都在
+        assert_eq!(arr[1]["annotated"], true);
+        assert_eq!(arr[1]["target_sha"], oid.to_string());
+        assert_ne!(arr[1]["sha"], oid.to_string());
+        assert_eq!(arr[1]["tagger"]["name"], "Tagger");
+        assert_eq!(arr[1]["tagger"]["email"], "tagger@example.com");
+        assert!(arr[1]["tagger"]["time"].as_str().unwrap().contains('T'));
+        assert!(arr[1]["message"].as_str().unwrap().contains("第一个版本"));
+    }
+
+    #[test]
+    fn log_file_只列碰过该路径的提交() {
+        let (dir, repo) = temp_repo("log-file");
+        let only_a = commit_file(&repo, "a.txt", "one\n", "改 a", "Alice");
+        commit_file(&repo, "b.txt", "bee\n", "加 b", "Alice");
+        let again_a = commit_file(&repo, "a.txt", "two\n", "再改 a", "Bob");
+
+        let json = log_file(dir.to_str().unwrap(), "a.txt", 10, 0).unwrap();
+        let arr: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+        let shas: Vec<&str> = arr.iter().map(|v| v["sha"].as_str().unwrap()).collect();
+        assert_eq!(shas, vec![again_a.to_string().as_str(), only_a.to_string().as_str()]);
+        assert_eq!(arr[0]["author"], "Bob");
+        // 不碰 b.txt 的那个提交必须被跳过（碰过的才留下）
+        assert!(arr.iter().all(|v| v["subject"] != "加 b"));
+
+        // 路径为空是**调用错误**（不是「没有历史」），要报出来
+        assert!(log_file(dir.to_str().unwrap(), "  ", 10, 0).is_err());
+    }
+
+    #[test]
+    fn diff_worktree_带行首语义与逐文件统计() {
+        let (dir, repo) = temp_repo("diff-worktree");
+        commit_file(&repo, "a.txt", "one\ntwo\n", "初次提交", "Alice");
+        std::fs::write(dir.join("a.txt"), "one\nTWO\nthree\n").unwrap();
+
+        let json = diff_worktree(dir.to_str().unwrap()).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["truncated"], false);
+        assert_eq!(v["files"][0]["path"], "a.txt");
+        assert_eq!(v["files"][0]["status"], "M");
+        let patch = v["patch"].as_str().unwrap();
+        // 行首字符是 diff 的语义，丢了 UI 就分不出加行与删行
+        assert!(patch.contains("-two"), "patch 少了删除行：{patch}");
+        assert!(patch.contains("+TWO"), "patch 少了新增行：{patch}");
+        assert!(v["files"][0]["additions"].as_i64().unwrap() >= 1);
+        assert!(v["files"][0]["deletions"].as_i64().unwrap() >= 1);
+
+        // 未跟踪的新文件：算 A（新增），而且**不能**把已跟踪文件也报成 A ——
+        // 这一条正是 `diff_tree_to_workdir_with_index(None, …)` 那个坑的现场
+        std::fs::write(dir.join("fresh.txt"), "brand new\n").unwrap();
+        let json = diff_worktree(dir.to_str().unwrap()).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let files = v["files"].as_array().unwrap();
+        let status_of = |name: &str| {
+            files
+                .iter()
+                .find(|f| f["path"] == name)
+                .map(|f| f["status"].as_str().unwrap().to_string())
+        };
+        assert_eq!(status_of("fresh.txt").as_deref(), Some("A"));
+        assert_eq!(status_of("a.txt").as_deref(), Some("M"), "已跟踪的改动文件必须是 M");
+    }
+
+    #[test]
+    fn diff_commit_拿父提交比_根提交也不报错() {
+        let (dir, repo) = temp_repo("diff-commit");
+        let root = commit_file(&repo, "a.txt", "one\n", "根提交", "Alice");
+        let second = commit_file(&repo, "a.txt", "one\ntwo\n", "加一行", "Alice");
+
+        let json = diff_commit(dir.to_str().unwrap(), &second.to_string()).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(v["patch"].as_str().unwrap().contains("+two"));
+
+        // 根提交没有父：与空树比，不能报错（否则「第一个提交」永远点不开）
+        let json = diff_commit(dir.to_str().unwrap(), &root.to_string()).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(v["patch"].as_str().unwrap().contains("+one"));
+
+        // sha 写错：明确报「无效 / 找不到」，不要静默给空 diff
+        assert!(diff_commit(dir.to_str().unwrap(), "not-a-sha").is_err());
+    }
+
+    #[test]
+    fn commit_time_iso_按本地偏移渲染() {
+        // 2026-09-25T04:41:23+08:00 = 1789... 直接用构造值验算更清楚：
+        // 取 1970-01-01T00:00:00 与 UTC 偏移
+        assert_eq!(commit_time_iso(git2::Time::new(0, 0)), "1970-01-01T00:00:00+00:00");
+        // 同一时刻、+08:00：钟面要往前推 8 小时
+        assert_eq!(commit_time_iso(git2::Time::new(0, 480)), "1970-01-01T08:00:00+08:00");
+        // 负偏移（西半球）不能把符号吞掉
+        assert_eq!(commit_time_iso(git2::Time::new(0, -300)), "1969-12-31T19:00:00-05:00");
+    }
+
+    #[test]
+    fn civil_from_days_对几个已知日期() {
+        assert_eq!(civil_from_days(0), (1970, 1, 1));
+        assert_eq!(civil_from_days(19_723), (2024, 1, 1));
+        // 闰日：2024-02-29 是 1970 起的第 19782 天
+        assert_eq!(civil_from_days(19_782), (2024, 2, 29));
     }
 }

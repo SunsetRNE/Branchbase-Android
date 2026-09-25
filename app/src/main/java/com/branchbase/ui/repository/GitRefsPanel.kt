@@ -58,11 +58,12 @@ import kotlinx.coroutines.withContext
  * **一个可点分支行都不放**：点了没反应的行比没有这一档更坏，而把危险动作直接搬进
  * 268dp 的浮层里则是把「误触」变成默认路径。面板底部只给两个真能用的出口（刷新 / 同步）。
  *
- * ## tags 为什么是空的
+ * ## tags：阶段 3 起走本地 `list_tags`
  *
- * 本地 `list_tags` 是阶段 3 的引擎新增项。这一档**不用 REST 的 `/tags` 顶替** ——
- * 那会立刻出现第二个数据源与第二套字段口径（D-f 要求 annotated 的 tagger / 时间 / 说明，
- * REST 那份给不了），阶段 3 落地时还得拆两遍。所以标签区如实写「按阶段接入」。
+ * 一开始这一区是占位（引擎没有这个接口）。当时**没有**用 REST 的 `/tags` 顶替 ——
+ * 那份给不了 annotated 的 tagger / 时间 / 说明（D-f 的口径），两套混用迟早要拆两遍。
+ * 现在本地接口落地了：annotated tag 显示说明首行 + 打 tag 的人；
+ * **轻量 tag 只有名字与提交** —— 不画「未知作者」这种编出来的字段。
  *
  * ## 只读，但**不是死胡同**
  *
@@ -196,16 +197,21 @@ fun GitRefsPanel(
             }
 
             item(key = "tags-header") {
-                RefSectionHeader(stringResource(R.string.label_tag), null)
+                RefSectionHeader(stringResource(R.string.label_tag), refs.tags.size)
             }
-            item(key = "tags-pending") {
-                Text(
-                    stringResource(R.string.note_git_refs_tags_pending),
-                    fontSize = 10.5.sp,
-                    color = Primer.TextTertiary,
-                    lineHeight = 14.sp,
-                    modifier = Modifier.padding(top = 2.dp, bottom = 2.dp),
-                )
+            if (refs.tags.isEmpty()) {
+                item(key = "tags-empty") {
+                    // 没有 tag 是**正常状态**（新仓库就是这样），说清楚而不是画一个空区
+                    Text(
+                        stringResource(R.string.state_refs_tags_empty),
+                        fontSize = 10.5.sp,
+                        color = Primer.TextTertiary,
+                        lineHeight = 14.sp,
+                        modifier = Modifier.padding(vertical = 3.dp),
+                    )
+                }
+            } else {
+                items(refs.tags, key = { "tag:${it.name}" }) { TagRow(it) }
             }
         }
 
@@ -264,6 +270,46 @@ private fun LocalRefRow(row: GitRefRow) {
         row.badge?.let {
             Spacer(Modifier.width(4.dp))
             Text(it, fontSize = 10.sp, color = Primer.TextTertiary)
+        }
+    }
+}
+
+/**
+ * tag 行：名字 + 「轻量」标记 + 说明首行。
+ *
+ * 轻量 tag 与 annotated tag 在界面上必须**一眼可分**：前者只有名字与提交（没有 tagger / 说明），
+ * 后者多一条说明。**不给轻量 tag 编作者**（D-f），也不给这一行挂点击 ——
+ * 这一档是清单，点开能去哪今天并不存在，画个可点的样子只会是假入口。
+ */
+@Composable
+private fun TagRow(row: GitTagRow) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                row.name,
+                fontSize = 11.5.sp,
+                fontFamily = FontFamily.Monospace,
+                color = Primer.TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (!row.annotated) {
+                RefChip(stringResource(R.string.state_refs_tag_lightweight), Primer.TextTertiary)
+            }
+        }
+        if (row.subject.isNotBlank()) {
+            Text(
+                row.subject,
+                fontSize = 10.sp,
+                color = Primer.TextTertiary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

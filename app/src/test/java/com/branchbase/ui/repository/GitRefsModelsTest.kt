@@ -83,6 +83,57 @@ class GitRefsModelsTest {
     }
 
     @Test
+    fun `tag 解析：annotated 带全字段，轻量留空不编值`() {
+        // 引擎（list_tags）的输出形状：扁平 native JSON
+        val json = """[
+          {"name":"nightly","sha":"aaa","annotated":false,"target_sha":"aaa","tagger":null,"message":""},
+          {"name":"v1.0","sha":"tagobj","annotated":true,"target_sha":"bbb",
+           "tagger":{"name":"Tagger","email":"t@example.com","time":"2026-09-25T04:41:23+08:00"},
+           "message":"第一个版本\n第二行"}
+        ]"""
+        val tags = parseLocalTags(json)
+        assertEquals(listOf("nightly", "v1.0"), tags.map { it.name })
+        val light = tags[0]
+        assertFalse(light.annotated)
+        assertEquals("aaa", light.targetSha)
+        assertEquals("轻量 tag 没有 tagger —— 不许编一个", "", light.taggerName)
+        assertEquals("", light.message)
+
+        val annotated = tags[1]
+        assertTrue(annotated.annotated)
+        assertEquals("tagobj", annotated.sha)
+        assertEquals("bbb", annotated.targetSha)
+        assertEquals("Tagger", annotated.taggerName)
+        assertEquals("t@example.com", annotated.taggerEmail)
+        assertTrue(annotated.taggerTime.contains('T'))
+        // 列表里只放说明首行
+        assertEquals("第一个版本", annotated.subject)
+    }
+
+    @Test
+    fun `tag 解析容错：坏 JSON 与缺字段都退化成空或默认值`() {
+        assertEquals(emptyList<GitTagRow>(), parseLocalTags(null))
+        assertEquals(emptyList<GitTagRow>(), parseLocalTags("不是 JSON"))
+        assertEquals(emptyList<GitTagRow>(), parseLocalTags("[{\"name\":\"\"}]"))
+        // annotated 为 true 但 tagger 缺失：按「没有」处理（不崩、也不编值）
+        val rows = parseLocalTags("""[{"name":"v9","sha":"x","annotated":true,"target_sha":"y","message":"m"}]""")
+        assertEquals(1, rows.size)
+        assertEquals("", rows[0].taggerName)
+        assertEquals("m", rows[0].message)
+    }
+
+    @Test
+    fun `只有 tag 的仓库不算空`() {
+        val view = refsViewOf(
+            locals = emptyList(),
+            remotes = emptyList(),
+            tags = parseLocalTags("""[{"name":"v1","sha":"a","annotated":false,"target_sha":"a"}]"""),
+        )
+        assertFalse("有 tag 就不能显示「这个仓库还没有任何引用」", view.isEmpty)
+        assertEquals(1, view.tags.size)
+    }
+
+    @Test
     fun `两份列表都空才是空`() {
         assertTrue(refsViewOf(emptyList(), emptyList()).isEmpty)
         assertFalse(refsViewOf(listOf(local("main")), emptyList()).isEmpty)
