@@ -418,7 +418,7 @@ private fun CommitRow(row: GraphCommitRow, onClick: (() -> Unit)? = null) {
         }
         Column(Modifier.weight(1f).padding(start = 4.dp)) {
             Text(
-                row.commit.subject.ifBlank { "（无提交信息）" },
+                row.commit.subject.ifBlank { stringResource(R.string.state_commit_no_subject) },
                 fontSize = 12.sp,
                 color = Primer.TextPrimary,
                 maxLines = 1,

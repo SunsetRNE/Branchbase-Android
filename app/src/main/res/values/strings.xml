@@ -425,6 +425,11 @@
     <string name="state_local_diff_file_empty">这个文件现在没有改动了</string>
     <string name="note_local_diff_truncated">改动过大，只显示了一部分（引擎按 200 KB 截断）</string>
     <string name="note_local_diff_no_patch">二进制文件，或只有模式 / 重命名变化 —— 没有可显示的文本差异</string>
+    <string name="state_commit_no_subject">（无提交信息）</string>
+    <string name="state_file_history_empty">这个文件还没有提交历史</string>
+    <string name="error_file_history_load_failed">文件历史加载失败：%1$s</string>
+    <string name="note_file_history_needs_file">文件历史要在一个文件里看 —— 从代码页点开一个文件，那里的 Git 球能看到它的历史。</string>
+    <string name="note_file_history_remote">本地是浅克隆，这里显示的是远端历史 · 加深后可离线查看，并点开每一条改动</string>
     <string name="label_git_graph">提交图</string>
     <string name="state_git_view_pending">待接入</string>
     <string name="state_graph_empty">这个分支还没有提交</string>

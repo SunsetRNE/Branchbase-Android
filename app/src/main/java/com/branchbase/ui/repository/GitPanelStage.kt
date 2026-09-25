@@ -48,7 +48,7 @@ enum class GitPanelKind(
     /**
      * 这一档是否已落地。
      *
-     * 阶段 0 → 工作区；阶段 1 → 提交图；阶段 2 → 引用树；文件历史留到阶段 4
+     * 阶段 0 → 工作区；阶段 1 → 提交图；阶段 2 → 引用树；阶段 4 → 文件历史
      * （[`git-mode-design.md`](../../../../../../docs/specs/git-mode-design.md) §8）。
      * 用枚举而不是「按阶段删代码」：列表与测试都能跟着它走，落地时只改这一处。
      *
@@ -61,7 +61,7 @@ enum class GitPanelKind(
     Workspace(available = true),
     Graph(available = true),
     Refs(available = true),
-    FileHistory(available = false),
+    FileHistory(available = true),
 }
 
 /**

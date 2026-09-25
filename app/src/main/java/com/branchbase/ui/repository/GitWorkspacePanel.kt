@@ -58,7 +58,9 @@ private val PANEL_WIDTH = 268.dp
  *   真正的长任务由宿主跑（任务中心 + 进度弹窗），面板这一族源码里**不许**出现写操作
  *   （见 `GitWorkbenchWiringTest`）
  * @param onOpenDiff 看某个改动文件的**本地 diff**（工作区档的行）。null = 行不可点
- * @param onOpenCommitDiff 看某条提交的**本地 diff**（提交图档的行）。null = 行不可点
+ * @param onOpenCommitDiff 看某条提交的**本地 diff**（提交图 / 文件历史档的行）。null = 行不可点
+ * @param filePath 「文件历史」档要看哪个文件：文件页传正在看的那个路径，代码页传 null
+ *   （那时这一档如实说明去哪看，而不是显示一个空列表）
  */
 @Composable
 fun GitPanelViewHost(
@@ -76,6 +78,7 @@ fun GitPanelViewHost(
     onDeepen: (() -> Unit)? = null,
     onOpenDiff: ((String) -> Unit)? = null,
     onOpenCommitDiff: ((String) -> Unit)? = null,
+    filePath: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -113,6 +116,20 @@ fun GitPanelViewHost(
                 onDeepen = onDeepen,
                 onOpenCommitDiff = onOpenCommitDiff,
             )
+            GitPanelKind.FileHistory -> GitFileHistoryPanel(
+                host = host,
+                token = token,
+                owner = owner,
+                repo = repo,
+                branch = git.branch,
+                repoDir = repoDir,
+                localRepoExists = git.exists,
+                // 代码页没有「当前文件」：null 时这一档如实说明去哪看（面板里不显示空列表）
+                filePath = filePath,
+                refreshTick = refreshTick,
+                onOpenCommitDiff = onOpenCommitDiff,
+                onDeepen = onDeepen,
+            )
             GitPanelKind.Refs -> GitRefsPanel(
                 repoDir = repoDir,
                 localRepoExists = git.exists,
@@ -121,7 +138,6 @@ fun GitPanelViewHost(
                 onOpenSync = onOpenSync,
                 onOpenBranches = onOpenBranches,
             )
-            else -> GitPanelViewPlaceholder(kind)
         }
     }
 }

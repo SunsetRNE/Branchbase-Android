@@ -42,6 +42,8 @@ class GitWorkbenchWiringTest {
         "src/main/java/com/branchbase/ui/repository/GitRefsPanel.kt",
         "src/main/java/com/branchbase/ui/repository/GitRefsModels.kt",
         "src/main/java/com/branchbase/ui/repository/CommitGraphPanel.kt",
+        "src/main/java/com/branchbase/ui/repository/GitFileHistoryPanel.kt",
+        "src/main/java/com/branchbase/ui/repository/FileHistoryModels.kt",
     )
 
     /**
@@ -194,6 +196,27 @@ class GitWorkbenchWiringTest {
             "本地 diff 页必须自己按入口取数（工作区 / 某个提交）",
             screen.contains("RustBridge.gitDiffWorktree(") && screen.contains("RustBridge.gitDiffCommit("),
         )
+    }
+
+    @Test
+    fun `文件历史档：文件页必须把当前文件传进去`() {
+        // 这一档要一个文件路径。文件页有（正在看的那个），代码页没有（如实说明去哪看）。
+        // 漏传的表现是「在文件页打开文件历史，它却说请去文件里看」——而这一页就是那个文件页，
+        // 只有真机上点一次才看得出来，所以钉在源码上
+        val viewer = source("src/main/java/com/branchbase/ui/repository/RepositoryFileViewer.kt")
+        assertTrue(
+            "文件页必须把正在看的文件路径传给面板（否则文件历史档退化成一句「去文件里看」）",
+            viewer.contains("filePath = path,"),
+        )
+        val host = source("src/main/java/com/branchbase/ui/repository/GitWorkspacePanel.kt")
+        assertTrue(
+            "宿主必须真的渲染文件历史档（available=true 与渲染是同一件事，见 GitPanelStageTest）",
+            host.contains("GitPanelKind.FileHistory -> GitFileHistoryPanel("),
+        )
+        val panel = source("src/main/java/com/branchbase/ui/repository/GitFileHistoryPanel.kt")
+        assertTrue("文件历史取数成功要留痕（带来源）", panel.contains("文件历史 ▸") && panel.contains("Logger.net("))
+        assertTrue("取数失败要留一条 warn", panel.contains("Logger.warn("))
+        assertTrue("本地失败要退回 REST 并留痕", panel.contains("退回 REST"))
     }
 
     @Test

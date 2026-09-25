@@ -420,6 +420,11 @@
     <string name="state_local_diff_file_empty">This file has no changes now</string>
     <string name="note_local_diff_truncated">The diff is large; only part of it is shown (truncated at 200 KB)</string>
     <string name="note_local_diff_no_patch">Binary file, or mode-only / rename change — no text diff to show</string>
+    <string name="state_commit_no_subject">(no commit message)</string>
+    <string name="state_file_history_empty">No commits for this file yet</string>
+    <string name="error_file_history_load_failed">Failed to load file history: %1$s</string>
+    <string name="note_file_history_needs_file">File history needs a file — open one from the code page and the Git bubble there shows its history.</string>
+    <string name="note_file_history_remote">The local clone is shallow, so this is the remote history — deepen it to browse offline and open each change</string>
     <string name="label_git_graph">Commit graph</string>
     <string name="state_git_view_pending">Soon</string>
     <string name="state_graph_empty">No commits on this branch yet</string>

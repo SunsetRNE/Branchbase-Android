@@ -2,7 +2,6 @@ package com.branchbase.ui.repository
 
 import java.io.File
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -65,14 +64,21 @@ class GitPanelStageTest {
     }
 
     @Test
-    fun `已落地的档才标可用：工作区 提交图 引用树可用，文件历史待接入`() {
+    fun `已落地的档才标可用：四个档全部落地`() {
         // 这条钉子的前身写的是「阶段 0 只有工作区档可用」—— 阶段 1 把「提交图」接上之后
         // 没人来改它，于是它一直替那个**错的**状态站岗：标签条标着「待接入」、
         // 点进去却是一张能用的图。现在改成按「真的接上了没有」表态（见下一条源码级钉子）。
         assertTrue("工作区：阶段 0", GitPanelKind.Workspace.available)
         assertTrue("提交图：阶段 1", GitPanelKind.Graph.available)
         assertTrue("引用树：阶段 2", GitPanelKind.Refs.available)
-        assertFalse("文件历史按阶段 4 接入", GitPanelKind.FileHistory.available)
+        assertTrue("文件历史：阶段 4（1.0.100）", GitPanelKind.FileHistory.available)
+        // 「待接入」这条通路现在没有用户了（四个档都落地），但机制留着：
+        // 下一个档（提交详情 / 管理页之类）照样靠它标「待接入」而不是装死
+        assertEquals(
+            "没有任何档是待接入了 —— 标签条上那句「待接入」目前在界面上不会出现",
+            0,
+            GitPanelKind.entries.count { !it.available },
+        )
     }
 
     @Test

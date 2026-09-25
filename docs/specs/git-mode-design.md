@@ -43,12 +43,12 @@
 | 「提交图」档（REST 数据 + 泳道布局 + 分页脚注） | **已落地 1.0.94** | `ui/repository/CommitGraphPanel.kt` · `CommitGraphModels.kt` |
 | 未提交**虚节点**（方案 A） | **已落地 1.0.94** | 同上（`GraphRow.WorkingTree`） |
 | 「引用树」档（本地 / 远端分支 + 上游 + 领先落后 + **tag**） | **已落地 1.0.95 / tags 1.0.97** | `ui/repository/GitRefsPanel.kt` · `GitRefsModels.kt` |
-| 标签条的可用态（工作区 / 提交图 / 引用树 ✅ · 文件历史 ⏳） | **已落地 1.0.95** | `GitPanelStage.kt` 的 `available` + 源码级钉子（提交图那格是 1.0.94 的漏改，本轮修正） |
+| 标签条的可用态（**四个档全 ✅**，1.0.100 起） | **已落地 1.0.95**（文件历史 1.0.100 补齐） | `GitPanelStage.kt` 的 `available` + 源码级钉子（提交图那格是 1.0.94 的漏改） |
 | 设置列表「进入」→ 代码页 + 面板开到视图档 | **已落地 1.0.95** | `RepoDeepLink.openGitPanel`（`RepositoryScreen.kt`）· `ui/profile/SubPageScreens.kt` |
 | 面板的**出口收口**：分支管理接进两档（工作区 / 引用树）；面板里的**写操作恒为零** | **已落地 1.0.96** | `GitPanelViewHost` 的可选回调（null = 该宿主没这个出口 → 不画那枚胶囊）；胶囊行走 `FlowRow`（英文标签更长，`Row` 会裁掉） |
 | 日志插桩（锚点 `Git工作台`：动作 / 档位 / 返回退档 / 两条进入 / 各档取数） | **已落地 1.0.96** | `ui/log/Logging.kt` 的 `LOG_ANCHORS` + `GitPanelStage.kt` 的 tag 常量 |
 | 接线与插桩的**源码级钉子**（`GitWorkbenchWiringTest` 5 例） | **已落地 1.0.96** | `app/src/test/java/.../GitWorkbenchWiringTest.kt` |
-| 文件历史档 | 待落地（阶段 4） | — |
+| 「文件历史」档（本地 `log_file` 优先 / REST `?path=` 兜底；行可点开看这次提交的 diff） | **已落地 1.0.100**（阶段 4） | `ui/repository/GitFileHistoryPanel.kt` · `FileHistoryModels.kt` |
 | 设置列表「管理」页 / 列表重绘 | 待落地（阶段 6 / 后续问题） | — |
 | 面板内**执行**有后果的动作（提交 / 撤销 / 上游 / 回退）—— 要把决策页的宿主扩到仓库页 | 待落地（阶段 2 剩余） | — |
 | 危险动作收口（全部落决策页）+ 设置列表行内动作下线 | **部分**：面板内写操作已归零（1.0.96），行内动作仍在（§5 过渡期） | — |
@@ -57,12 +57,13 @@
 | 提交图**双来源**（本地 `log_graph` 优先 / REST 兜底）+ 浅克隆择源 + 「加深历史」出口 | **已落地 1.0.98**（阶段 4 前半） | `CommitGraphModels.kt` · `CommitGraphPanel.kt` · `LocalRepoDeepen.kt` |
 | 引擎 `fetch_deepen`（unshallow，复用 clone 的进度/取消通道） | **已落地 1.0.98**（重建 `.so`，`cargo test` 89 例） | `core/src/git/mod.rs` · `core/src/bridge/jni.rs` · `RustBridge.kt` |
 | **本地 diff 页**（工作区改动行 / 提交图提交行 → `diff_worktree` / `diff_commit`） | **已落地 1.0.99** | `ui/repository/LocalDiffScreen.kt` · `LocalDiffModels.kt` · `DiffLines.kt` |
-| 这三条本地接口的**其余消费者**（文件历史档） | 待落地（阶段 4 剩余） | — |
+| 这三条本地接口的消费者 | **全部接上**（tags 引用树 ✅ / 提交图 ✅ / 工作区 diff ✅ / 文件历史 ✅） | — |
 | 引擎 `merge_*` / `analyze_conflicts` 等 | 待落地（阶段 5） | `core/src/git/mod.rs` |
 
-**已落地的验证口径**：`:app:testDebugUnitTest`（895 例；其中 `GitPanelStageTest` 9 例、
-`GitRefsModelsTest` 5 例、`RepoDeepLinkTest` 4 例、`GitWorkbenchWiringTest` 8 例、
+**已落地的验证口径**：`:app:testDebugUnitTest`（905 例；其中 `GitPanelStageTest` 9 例、
+`GitRefsModelsTest` 5 例、`RepoDeepLinkTest` 4 例、`GitWorkbenchWiringTest` 9 例、
 `CommitGraphLayoutTest` 11 例、`CommitGraphSourceTest` 11 例、`LocalDiffModelsTest` 12 例、
+`FileHistoryModelsTest` 9 例、
 `PageTransitionsTest` 面板过渡与「三个切换器都下发 `LocalPageActive`」、
 `LogAnchorsTest` 盯锚点表）· `cargo test` 90 例 · `assembleDebug` · `check-i18n --min-coverage 100`。
 
@@ -96,10 +97,11 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
 | **工作区** | 分支 / 领先落后 / 上游 / 改动文件清单 / 刷新 / 同步 | `LocalRepoGitState`（一次 `repo_status`，与徽标同源） | 已落地 |
 | **提交图** | 泳道 DAG + **未提交虚节点** + 分页脚注 + 点一行看这条提交的本地 diff（1.0.99） | **本地 `log_graph`**（本地仓库存在且**不是浅克隆**时，离线、看得见未推送的提交）；否则 REST `/commits?sha=&per_page=100`（**保留 `parents`**）兜底 | 已落地（1.0.94 REST 版 → **1.0.98 换成本地优先**） |
 | **引用树** | 本地 / 远端分支、上游、领先落后；tag（annotated 带说明与作者，轻量只有名字） | `local_branches` · `remote_branches` · `list_tags`（本地仓库，离线可读） | 已落地（阶段 2 + tags 阶段 3，**只读**） |
-| **文件历史** | 该文件的提交序列 | **本地优先**（`log_file`，已加深时）/ REST `/commits?path=` 兜底 | 待落地（阶段 4） |
+| **文件历史** | 该文件的提交序列（**只列真的碰过这个路径的提交**）+ 点一行看这次提交的 diff | **本地优先**（`log_file`，非浅克隆时）/ REST `/commits?path=` 兜底 | 已落地（1.0.100，阶段 4） |
 
-未落地的档在标签条上标「**待接入**」，点进去是一句如实的说明 —— **不是死按钮**，
-也不假装能用（`available = false` 只影响样式与文案，不影响可达性）。
+**四个档都已落地（1.0.100）**，所以标签条上那句「待接入」目前在界面上不会出现 ——
+但机制留着（`available = false` 只影响样式与文案、不影响可达性）：下一个档（提交详情 / 管理页之类）
+照样靠它标「待接入」并给一句如实的说明，而不是装死。
 **落地了必须同步把 `available` 翻成 `true`**：提交图那格漏翻过一次，标签条一直标「待接入」、
 点进去却是一张能用的图（`GitPanelStageTest` 现在有一条源码级钉子对着宿主源码查这件事）。
 
@@ -235,7 +237,7 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
 | D-b | **设置列表只做统筹**，动作迁进面板 | §5 |
 | D-c | **未提交虚节点画（方案 A）** | §4.3 |
 | D-d | **提交图不设上限**（head 全取、加载更早不限次数），以「尾部如实说明」为代价 | §4.1 |
-| D-e | **文件历史本地优先**（`log_file`），REST 兜底；未加深时给「加深克隆」入口 | §3.2 |
+| D-e | **文件历史本地优先**（`log_file`），REST 兜底；未加深时给「加深克隆」入口 | §3.2；**已落地 1.0.100**（浅克隆时的加深入口与提交图档共用同一个运行器） |
 | D-f | **tag 取全字段**（`name` + `sha` + annotated 的 tagger / 时间 / 说明；非 annotated 留空、不填假值） | §7 |
 | D-g | **允许 merge，不做 rebase** | §6.4；D11 措辞随之修正 |
 | D-h | **冲突交互 = 冲突弹窗（出现即预解析）→ 详情对比页** | §6.4 |
@@ -296,7 +298,7 @@ merge_branch ─► outcome == "conflict"
 |---|---|---|---|
 | 1 | `log_graph(dir, limit, skip)` | 本地提交图（浅克隆先加深） | **已落地**（消费者待接） |
 | 2 | `list_tags(dir)` | 引用树：`{name, sha, annotated, target_sha, tagger{name,email,time}, message}` | **已落地**（引用树档已在用） |
-| 3 | `log_file(dir, path, limit, skip)` | 文件历史（本地优先） | **已落地**（文件历史档待阶段 4） |
+| 3 | `log_file(dir, path, limit, skip)` | 文件历史（本地优先） | **已落地**（文件历史档 1.0.100 已在用；分页按**命中数**，见 `FileHistoryModelsTest` 的取证） |
 | 5 | `diff_worktree(dir)` · `diff_commit(dir, sha)` | 工作区 / 提交的本地 diff（`{patch, files, truncated}`） | **已落地**（UI 待接） |
 
 **阶段 4 已新增**（1.0.98 落地，同上五步链）：
@@ -323,7 +325,7 @@ merge_branch ─► outcome == "conflict"
 | **2** | 「引用树」档（`local_branches` / `remote_branches` / tags 占位）+ `RepoDeepLink.openGitPanel`（含设置列表「进入」）+ 出口收口与日志/回归插桩（1.0.96） | **部分落地 1.0.95 / 1.0.96**；面板内执行有后果的动作（要把决策页宿主扩到仓库页）+ 设置列表动作下线**待做** |
 | **3** | `log_graph` / `list_tags` / `log_file` / `diff_worktree` / `diff_commit`（重建 `.so`） | **引擎 + JNI + 门面已落地 1.0.97**（`cargo test` 86 例） |
 | **3'** | 这三个接口的**消费者**：引用树 tags ✅ / 提交图换本地来源 ✅ / 工作区档的本地 diff ✅（并顺带把 `diff_commit` 接上：提交图点一行看这次提交的 diff） | **全部落地**：tags 1.0.97 · 提交图本地来源 1.0.98 · 本地 diff 页 1.0.99 |
-| **4** | `fetch_deepen`（任务中心 + 进度）+ 「文件历史」档（本地优先 + REST 兜底）+ 离线图谱（LocalSource 优先、未推送段） | `fetch_deepen` 与双来源 **已落地 1.0.98**；**「文件历史」档（`log_file` 的消费者）与未推送段的画法待做** |
+| **4** | `fetch_deepen`（任务中心 + 进度）+ 「文件历史」档（本地优先 + REST 兜底）+ 离线图谱（LocalSource 优先、未推送段） | `fetch_deepen` 与双来源 **已落地 1.0.98**、「文件历史」档 **已落地 1.0.100**；**只剩「未推送段」的画法**（本地来源下未推送的提交今天已经画在图上，但**没有和已推送的区分**） |
 | **5** | 本地合并（D-g）+ 冲突弹窗 / 预解析 / 详情对比页（D-h）+ PR 冲突的「拉到本地解决」 | 待做 |
 | **6** | 设置 → 本地仓库「管理」页（按仓库看占用 / 清理）+ 列表重绘（§5 的登记项） | 待做 |
 

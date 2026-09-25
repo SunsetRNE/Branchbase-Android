@@ -738,9 +738,12 @@ fun FileViewerScreen(
                         onOpenBranches = onOpenBranchManage,
                         // 加深出口：真正的长任务在本页跑（与代码页同一份运行器）
                         onDeepen = deepen::start,
-                        // 只读的 diff 出口：改动清单一行 / 提交图一行
+                        // 只读的 diff 出口：改动清单一行 / 提交图一行 / 文件历史一行
                         onOpenDiff = { p -> page = FilePage.LocalDiff(path = p) },
                         onOpenCommitDiff = { sha -> page = FilePage.LocalDiff(sha = sha) },
+                        // 「文件历史」档要看的就是正在看的这个文件 ——
+                        // 漏了它这一档会退化成「请去文件里看」，而这一页**就是**那个文件页
+                        filePath = path,
                     )
                 },
                 title = localGit.summary(),
