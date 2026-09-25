@@ -26,7 +26,7 @@
 
 | 不做 | 为什么 | 证据 |
 |---|---|---|
-| 不 merge / rebase | 已推送历史不改写；分叉只给「分叉决策页」，由用户选 | `core/src/git/mod.rs:761`「不改写历史，对齐 D11 边界」 |
+| 不 rebase / 不强推（**merge 允许**） | 已推送历史不改写；merge 只**新增**提交，所以放行（D11 拆分，1.0.102 落地）。分叉仍由用户在决策页选 | `core/src/git/mod.rs` 的 `merge_branch`「不改写历史，对齐 D-g」；`revert_commit:1050` |
 | 不隐式 stash | 脏工作区切分支时宁可**拒绝**，也不替用户藏改动 | `:348`、`:432`「不做任何隐式丢弃」；UI 侧 `LocalBranchSyncScreen.kt:340` 明说「不会隐式 stash」 |
 | 不自动切分支去拉取 | 落后的非当前分支交给用户逐个「切换并拉取」 | `ui/repository/LocalBranchSyncModels.kt:110` |
 | 不碰 `main`/`master` 的删除 | 引擎层拒绝删除当前分支，保护性置灰由 UI 做 | `:413`「当前分支拒绝；调用方另外把 main/master 置灰」 |
@@ -42,7 +42,7 @@
 | 浅 clone（`depth(1)`） | 减体积；代价是本地只有 HEAD 一条提交 —— 要查历史得先 `fetch_deepen`（见 §3 与 §7.1） | `:37`（`fo.remote_callbacks(callbacks).depth(1); // 浅 clone，减体积`） |
 | 与 REST 通道**不共用连接池** | 两条通道的凭据与生命周期不同（Git 走 HTTPS+token，REST 走 reqwest 客户端） | [`reachability-design.md`](reachability-design.md) §五 |
 
-## 3. 稳定接口（`core/src/git/mod.rs` 的 28 个 `pub fn`）
+## 3. 稳定接口（`core/src/git/mod.rs` 的 35 个 `pub fn`）
 
 > 「稳定」= 函数名、参数含义、返回约定是**对外条款**（表中行号只作定位参考，会随文件演进漂），改签名要同时改 JNI 与 Kotlin 门面，
 > 并重建 `.so`（见 [`BUILD-NOTES.md`](BUILD-NOTES.md) §四）。
@@ -60,6 +60,7 @@
 | 证书 / 代理 | `init_ssl_certs:924` · `set_git_proxy:979` | `init_ssl_certs` 全局生效一次；`set_git_proxy` 写全局 gitconfig 的 `[http] proxy`（空串 = 清除） |
 | 决策页面支持 | `repo_status` · `reset_soft` · `reset_hard_to_remote` · `amend_message` · `revert_commit` · `push_set_upstream` · `scan_sensitive`（同一段注释之下，按名字找） | 条款写在 [`decision-pages-design.md`](decision-pages-design.md) §6，本文不重复 |
 | **工作台本地读接口**（阶段 3，**全部只读**） | `log_graph` · `list_tags` · `log_file` · `diff_worktree` · `diff_commit`（同一段注释之下） | 输出是**扁平 native JSON**（不是 GitHub REST 那份嵌套结构）；分页一律 `limit` / `skip`；空仓库给 `[]` 而不是报错。`log_graph` 逐条带 `unpushed`（**HEAD 可达、上游不可达**，与 `repo_status` 的 `ahead` 同口径；没有上游时一条都不标 —— 见 `unpushed_oids`）；`list_tags` 按 D-f 取全字段、轻量 tag **留空不编值**；`diff_*` 的 `patch` 超 200 KB 截断并置 `truncated`；`diff_worktree` 里**未跟踪文件也带内容**（`show_untracked_content`：不给内容的话，「新增一个文件」点开就是一片空白），且 `files[i]` 与 patch 的第 i 段**同序**——上层按下标对齐，不解析路径 |
+| **本地合并与冲突解决**（阶段 5，1.0.102；只有 `merge_state` / `analyze_conflicts` 只读） | `merge_branch(dir, branch, token, author_name, author_email)` · `merge_state(dir)` · `analyze_conflicts(dir)` · `resolve_conflict(dir, path, side)` · `write_resolved(dir, path, content)` · `merge_continue(dir, message, author_name, author_email)` · `merge_abort(dir)` | **只新增提交，不改写历史**（D11 拆分后的 D-g）。`merge_branch` 四条出口：`up_to_date` / `fast_forward`（不产生提交）/ `merged`（落**两父**提交）/ `conflict`（**不是错误**：仓库停在合并中，返回未解决的冲突清单）；目标分支本地没有时引擎自己 `fetch` 一次。三条前置：浅克隆（`is_shallow()`）/ 已在合并中 / 工作区脏 —— 都提前拒绝并给出路。`resolve_conflict` 的「用某一侧」读的是**索引三方条目**，不是带冲突标记的工作区那份；`merge_abort` 敢 hard reset 正因为入口要求了工作区干净。`repo_status` 另加只增字段 `merging` |
 | **加深克隆**（阶段 4） | `fetch_deepen(dir, depth, token)` | `depth <= 0` = 全量，内部发 `i32::MAX`（与 `git fetch --unshallow` 同一条路；libgit2 也拿 `INT_MAX` 当「不要浅边界」的哨兵）；`depth > 0` = 加深到该条数。**只动对象与 `refs/remotes/origin/*`**：不改工作区、不动本地提交 —— 因此是安全动作，但可能是长任务（进度/取消复用 clone 那一条通道，见 §3.1）。浅克隆里 `.git/shallow` 由 libgit2 在浅边界归零时删掉（`fetch.c:65` + `repository.c` 的 `shallow_roots_write`）—— UI 正是靠它把提交图翻回本地来源 |
 
 JNI 侧对应导出（`core/src/bridge/jni.rs`）：`nativeGitClone`、`nativeGitPull`、`nativeGitCommit`、
@@ -68,7 +69,8 @@ JNI 侧对应导出（`core/src/bridge/jni.rs`）：`nativeGitClone`、`nativeGi
 `nativeLocalBranches` / `nativeRemoteBranches` / `nativeFetchRemote` / `nativeCheckoutBranch` /
 `nativeCreateBranchLocal` / `nativeDeleteBranchLocal` / `nativeDiscardAllChanges`、
 `nativeGitLogGraph` / `nativeGitListTags` / `nativeGitLogFile` / `nativeGitDiffWorktree` / `nativeGitDiffCommit`、
-`nativeGitFetchDeepen`、
+`nativeGitFetchDeepen`、`nativeGitMerge` / `nativeGitMergeState` / `nativeGitAnalyzeConflicts` /
+`nativeGitResolveConflict` / `nativeGitWriteResolved` / `nativeGitMergeContinue` / `nativeGitMergeAbort`、
 以及进度用的 `nativeGitCloneProgress` / `nativeGitCloneCancel`（见 §4.1）。
 **每一对 `external fun` ↔ JNI 导出都由 `JniSignatureTest` 逐参数、逐类型钉着**（参数表写错编译期查不出来）。
 
@@ -165,7 +167,7 @@ ext4（容器里 `/tmp`）与 `/sdcard/Download`（**同一个 FUSE、另一棵�
 |---|---|---|
 | **D3** | 草稿隔离目录：编辑草稿落在 `files/edit/...`，与正式文件分开 | `ui/decision/CommitPrepScreens.kt:376`、`ui/repository/RepositoryFileViewer.kt:121` |
 | **D10** | 「Git 化」是提交模式③（本地仓库）下的子开关 | `ui/decision/SyncDecisionScreens.kt:238` |
-| **D11** | **不改写已推送历史**：不做 merge/rebase，已推送的提交只能 revert | `SyncDecisionScreens.kt:101,490`、`core/src/git/mod.rs:761`。**已拍板待实现（2026-09）**：拆开 merge 与 rebase —— merge 只新增提交、不改写历史，**允许**；仍禁 rebase / amend 已推送 / 强推。落地时改本行措辞与分叉页文案（见 [`git-mode-design.md`](git-mode-design.md) §6.4 的 D-g） |
+| **D11** | **不改写已推送历史**。2026-09 拆分并落地：**merge 允许**（只新增提交、已有 sha 一字不变，`merge_branch`）；**仍禁** rebase / amend 已推送 / 强推，已推送的提交只能 revert | `SyncDecisionScreens.kt:101,490`、`core/src/git/mod.rs` 的 `merge_branch` / `revert_commit`。条款见 [`git-mode-design.md`](git-mode-design.md) §6.4 的 D-g；**UI 那半（分叉页文案由两条变三条）待做** |
 
 > 这三个编号原本登记在丢失的 `docs/code-editing-collaboration-thinking.md` 里，现在只剩代码里的裸引用 ——
 > 本表就是它们的登记处；再出现新的 `Dxx` 请加到这里。

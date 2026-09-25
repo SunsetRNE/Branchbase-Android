@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只留格式契约 + 写法样板（3 个经典示例）；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.101**）
-与 §三 `versionCode` 流水（129 → **203**）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.102**）
+与 §三 `versionCode` 流水（129 → **204**）。
 
 ---
 
@@ -25,7 +25,62 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.101 → 1.0.22）
+## 二、`versionName` 流水（1.0.102 → 1.0.22）
+
+### 1.0.102
+
+**Git 模式阶段 5（引擎那半）：本地合并与冲突解决 —— 七条接口 + JNI + 重建 `.so`。**
+
+① **D11 的拆分从这一版起是真的**：「不改写已推送历史」原来被写成「不做 merge / rebase」，
+   而 merge 只**新增**提交、已有 sha 一字不变 —— 禁止它从来没有技术理由（D-g）。
+   现在 `merge_branch` 允许 merge，rebase / amend 已推送 / 强推仍然禁止。
+
+② **七条接口**（都走完 `mod.rs` → `jni.rs` 导出 → `RustBridge` wrapper → `JniSignatureTest` →
+   **重建 `.so`** → `cargo test` 这条链）：
+
+| 接口 | 干什么 | 关键约定 |
+|---|---|---|
+| `merge_branch(dir, branch, token, name, email)` | 三方合并 | 四条出口 `up_to_date` / `fast_forward`（**不产生提交**）/ `merged`（落**两父**提交）/ `conflict` |
+| `merge_state(dir)` | 当前合并状态（只读） | `merging` / 待提交信息 / `MERGE_HEAD` / **还没解决**的冲突清单 |
+| `analyze_conflicts(dir)` | 预解析（**只读、不落盘**） | 逐文件 `kind` / 三方 sha 与大小 / ours ↔ theirs 的 patch |
+| `resolve_conflict(dir, path, side)` · `write_resolved(dir, path, content)` | 逐文件解决 | 内容取自**索引三方条目**，不是带标记的工作区那份 |
+| `merge_continue(dir, message, name, email)` · `merge_abort(dir)` | 收尾 | 两父提交并清状态 / hard reset 回合并前 |
+
+③ **冲突不是错误**：`merge_branch` 把「有冲突」如实报成 `outcome = "conflict"` 并返回未解决的清单，
+   仓库停在合并中（MERGE_HEAD 在，由 libgit2 自己写）。压成 `Err` 的话上层只剩一句「失败」，
+   而这时仓库**确实**在合并中 —— 用户要的是「哪几个文件、现在能做什么」。
+   与之配套：`repo_status` 多一个**只增**字段 `merging`（面板据此给「继续 / 放弃」，
+   而不是让用户对着一堆 `<<<<<<<` 猜发生了什么）。
+
+④ **三条前置 + 一条路径收口**（每条都对应一次真机上会看到的坏结果）：
+   - **浅克隆拒绝合并**：没有共同祖先，libgit2 只会回一句英文 —— 现在提前拦住并写作「先加深历史」
+     （风险 ③ 的对策，`is_shallow()`）；
+   - **已在合并中拒绝叠加**：MERGE_HEAD 被覆盖后「放弃合并」会回到错的地方；
+   - **工作区脏拒绝合并**：`merge_abort` 是一次 hard reset，敢这么做正因为入口要求了工作区干净
+     （否则那一下会连用户自己的改动一起抹掉 —— 正是 D11 不许发生的事）；
+   - **`write_resolved` 的路径来自上层字符串**：绝对路径 / `..` / `.git` 一律拒绝，否则一个 `../`
+     就能写到仓库外面去。
+
+⑤ **目标分支只在远端时引擎自己拉一次**：PR 冲突「拉到本地解决」那条路上，目标分支往往本地从未有过
+   （别人的分支 / PR 的 head）。让上层先手动 fetch 是把一件事拆两步，而两步之间用户会看到
+   「找不到分支」这种中间态错误。
+
+⑥ **顺带收掉三处重复**：网络回调（证书 + PAT，其中**凭证类型**那三行是踩过坑的）从四处抄一遍
+   收成 `net_callbacks` 一份；fetch 的 refspec 收成 `fetch_origin`；patch 的截断规则
+   （上限 200 KB、按字符边界切）收成 `truncate_patch` —— 冲突预解析也要渲染 patch，
+   第二份截断逻辑就是「两处上限迟早有一处漏改，而表现都是内容少了一截、界面却说这就是全部」。
+
+**边界（登记，UI 那半做）**：分叉页文案由两条变三条（合并 / 保留 / 放弃）；
+用户改过合并信息时，提交前对 `message` 跑 `scan_sensitive`（与普通提交同一条口径，不是第二套规则）；
+详情对比页是**新全屏页** → `SystemBarInsetsTest.fullScreenPages` 登记。
+
+验证：`cargo test` 92 → **105** 例（13 条：快进不产生提交、干净合并两父且第一父是「合到哪」、
+已包含是 up_to_date、冲突停在合并中并列出文件、`analyze_conflicts` 只读且给三方与 patch、
+用某一侧解决后索引不再冲突、`merge_continue` 两父并清状态、空信息用 `MERGE_MSG`、
+`merge_abort` 回到合并前、工作区脏拒绝且**不覆盖**、浅克隆拒绝并指出去哪加深、
+目标分支只在远端时自己拉一次、手工内容与越界路径拒绝）· 重建 `.so` ·
+`:app:testDebugUnitTest` **909** 例（本轮无 UI 改动；`JniSignatureTest` 自动覆盖新增的 7 对原生函数，
+现共 104 对）· `assembleDebug` · `check-i18n --min-coverage 100`（无新资源）。
 
 ### 1.0.101
 
@@ -2600,11 +2655,17 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（203 → 129）
+## 三、`versionCode` 流水（204 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
+
+- **204**：Git 模式阶段 5（引擎那半）—— 合并与冲突七条接口（`merge_branch` / `merge_state` /
+`analyze_conflicts` / `resolve_conflict` / `write_resolved` / `merge_continue` / `merge_abort`）
++ JNI 导出 + 重建 `.so` + `repo_status` 只增 `merging` + 三条前置（浅克隆 / 已在合并中 / 工作区脏）
+与路径收口 + 网络回调 / fetch refspec / patch 截断三处收成一份
++ cargo +13 例（一次提交，故 +1）
 
 - **203**：提交图的「未推送段」（引擎 `log_graph` 逐条带 `unpushed`，与 `repo_status` 的 `ahead`
 同口径、没有上游一条都不标 + 重建 `.so`；行尾「未推送」小字 + 只数这一屏的脚注；REST 来源不标）

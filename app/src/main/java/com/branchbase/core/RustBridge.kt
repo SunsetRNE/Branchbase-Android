@@ -223,6 +223,33 @@ object RustBridge {
 
     private external fun nativeGitDiffCommit(dir: String, sha: String): String
 
+    // ── 本地合并与冲突解决（阶段 5：D-g 允许 merge / D-h 冲突流程） ──
+
+    private external fun nativeGitMerge(
+        dir: String,
+        branch: String,
+        token: String,
+        authorName: String,
+        authorEmail: String
+    ): String
+
+    private external fun nativeGitMergeState(dir: String): String
+
+    private external fun nativeGitAnalyzeConflicts(dir: String): String
+
+    private external fun nativeGitResolveConflict(dir: String, path: String, side: String): String
+
+    private external fun nativeGitWriteResolved(dir: String, path: String, content: String): String
+
+    private external fun nativeGitMergeContinue(
+        dir: String,
+        message: String,
+        authorName: String,
+        authorEmail: String
+    ): String
+
+    private external fun nativeGitMergeAbort(dir: String): String
+
     private external fun nativeLatestReleaseSignature(host: String, token: String, owner: String, repo: String): String
 
     private external fun nativeRepoSignature(host: String, token: String, owner: String, repo: String): String
@@ -1002,6 +1029,86 @@ object RustBridge {
     /** 某个提交相对第一父的 diff（根提交与空树比）：同 [gitDiffWorktree] 的结构。 */
     suspend fun gitDiffCommit(dir: String, sha: String): String? = withContext(Dispatchers.IO) {
         runCatching { nativeGitDiffCommit(dir, sha).takeIf { !it.startsWith("ERROR:") } }.getOrNull()
+    }
+
+    // ── 本地合并与冲突解决（阶段 5：D-g 允许 merge / D-h 冲突流程） ──
+
+    /**
+     * 合并一个分支到当前分支。返回**引擎原始输出**：成功是 JSON
+     * （`{ outcome, branch, head_sha, message, conflicts }`），失败是 `"ERROR: 原因"`。
+     *
+     * ## 这一组为什么不吞 `ERROR:` 前缀
+     *
+     * 合并的失败原因（工作区脏 / 浅克隆 / 上一次合并没结束 / 找不到分支）**是界面必须如实显示的
+     * 一句话**，压成 `null` 就只剩「失败」两个字，而每一种原因的出路都不同。
+     * 调用方用 [engineErrorOrNull] 取原因（与 `gitPullDetailed` 的 nff 三态同一思路，
+     * 只是这里的三态在 JSON 的 `outcome` 里）。
+     *
+     * `outcome = "conflict"` **不是失败**：仓库停在合并中，`conflicts` 是还没解决的文件。
+     */
+    suspend fun gitMerge(
+        dir: String,
+        branch: String,
+        token: String = "",
+        authorName: String,
+        authorEmail: String,
+    ): String = withContext(Dispatchers.IO) {
+        runCatching { nativeGitMerge(dir, branch, token, authorName, authorEmail) }
+            .getOrElse { "ERROR: $ENGINE_UNAVAILABLE" }
+    }
+
+    /**
+     * 当前合并状态（只读）：JSON `{ merging, branch, head_sha, merge_head_sha, message, conflicts }`。
+     * null = 读不到（仓库不存在 / 引擎不可用）。
+     */
+    suspend fun gitMergeState(dir: String): String? = withContext(Dispatchers.IO) {
+        runCatching { nativeGitMergeState(dir).takeIf { !it.startsWith("ERROR:") } }.getOrNull()
+    }
+
+    /**
+     * 预解析冲突（**只读、不落盘**）：JSON `{ files: [...], truncated }`。
+     *
+     * 触发点是冲突弹窗出现那一刻 —— 所以它不许有副作用：用户还没点任何按钮，
+     * 仓库不该有任何变化（引擎侧有 cargo 钉子对着工作区内容查这件事）。
+     */
+    suspend fun gitAnalyzeConflicts(dir: String): String? = withContext(Dispatchers.IO) {
+        runCatching { nativeGitAnalyzeConflicts(dir).takeIf { !it.startsWith("ERROR:") } }.getOrNull()
+    }
+
+    /** 用某一侧解决一个冲突文件（`side` = `"ours"` / `"theirs"`）。null = 成功；其他 = 原因。 */
+    suspend fun gitResolveConflict(dir: String, path: String, side: String): String? =
+        withContext(Dispatchers.IO) {
+            runCatching { engineErrorOrNull(nativeGitResolveConflict(dir, path, side)) }
+                .getOrElse { ENGINE_UNAVAILABLE }
+        }
+
+    /** 手工解决一个冲突文件（写入内容并登记索引）。null = 成功；其他 = 原因。 */
+    suspend fun gitWriteResolved(dir: String, path: String, content: String): String? =
+        withContext(Dispatchers.IO) {
+            runCatching { engineErrorOrNull(nativeGitWriteResolved(dir, path, content)) }
+                .getOrElse { ENGINE_UNAVAILABLE }
+        }
+
+    /**
+     * 提交合并：把解决完的索引落成两父合并提交并清掉合并状态。
+     *
+     * 返回值与 [gitMerge] 同一约定：成功是新提交 sha，失败是 `"ERROR: 原因"`
+     * （「还有 N 个文件没解决」这类原因要原样到界面上）。
+     * `message` 为空 = 用 `.git/MERGE_MSG`（合并提交必须有信息）。
+     */
+    suspend fun gitMergeContinue(
+        dir: String,
+        message: String = "",
+        authorName: String,
+        authorEmail: String,
+    ): String = withContext(Dispatchers.IO) {
+        runCatching { nativeGitMergeContinue(dir, message, authorName, authorEmail) }
+            .getOrElse { "ERROR: $ENGINE_UNAVAILABLE" }
+    }
+
+    /** 放弃合并：回到合并前（hard reset 到 HEAD）。null = 成功；其他 = 原因。 */
+    suspend fun gitMergeAbort(dir: String): String? = withContext(Dispatchers.IO) {
+        runCatching { engineErrorOrNull(nativeGitMergeAbort(dir)) }.getOrElse { ENGINE_UNAVAILABLE }
     }
 
     /** 切换本地分支（safe checkout）。null = 成功；其他 = 失败原因（含冲突提示）。 */

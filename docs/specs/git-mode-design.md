@@ -7,8 +7,8 @@
 > **谁该读**：改 `ui/repository/`（Git 气泡 / 仓库页 / 文件页）、`ui/profile/SubPageScreens.kt`
 > （本地仓库页）、`ui/decision/`（决策页）、`core/src/git/`（引擎）的人。
 >
-> **状态：进行中**（不再是「草稿 · 未落地」）：阶段 0 与阶段 1 已落地并在 Beta 上跑（1.0.93 / 1.0.94），
-> 其余阶段见 §8。本文里凡标「待落地」的，**都没写代码**。
+> **状态：进行中**（不再是「草稿 · 未落地」）：阶段 0–4 已落地（1.0.93 → 1.0.101），
+> 阶段 5 落了**引擎那半**（1.0.102），其余见 §8。本文里凡标「待落地」的，**都没写代码**。
 >
 > **真源**：`core/src/git/mod.rs`（引擎）· [`local-git-engine-design.md`](local-git-engine-design.md)
 > §3/§4/§7 · [`decision-pages-design.md`](decision-pages-design.md) §1/§2/§3 ·
@@ -53,20 +53,21 @@
 | 设置列表「管理」页 / 列表重绘 | 待落地（阶段 6 / 后续问题） | — |
 | 面板内**执行**有后果的动作（提交 / 撤销 / 上游 / 回退）—— 要把决策页的宿主扩到仓库页 | 待落地（阶段 2 剩余） | — |
 | 危险动作收口（全部落决策页）+ 设置列表行内动作下线 | **部分**：面板内写操作已归零（1.0.96），行内动作仍在（§5 过渡期） | — |
-| 本地合并 + 冲突解决 | 待落地（阶段 5） | — |
+| 本地合并 + 冲突解决 | **引擎那半已落地 1.0.102**（`merge_branch` / `merge_state` / `analyze_conflicts` / `resolve_conflict` / `write_resolved` / `merge_continue` / `merge_abort` + JNI + 重建 `.so`）；**UI 那半待落地**（冲突弹窗 / 详情对比页 / 分叉页第三条出口） | `core/src/git/mod.rs` · `core/src/bridge/jni.rs` · `RustBridge.kt` |
 | 引擎 `log_graph` / `list_tags` / `log_file` / `diff_worktree` / `diff_commit` | **已落地 1.0.97**（阶段 3 只读接口 + 重建 `.so`） | `core/src/git/mod.rs` · `core/src/bridge/jni.rs` · `RustBridge.kt` |
 | 提交图**双来源**（本地 `log_graph` 优先 / REST 兜底）+ 浅克隆择源 + 「加深历史」出口 | **已落地 1.0.98**（阶段 4 前半） | `CommitGraphModels.kt` · `CommitGraphPanel.kt` · `LocalRepoDeepen.kt` |
 | 引擎 `fetch_deepen`（unshallow，复用 clone 的进度/取消通道） | **已落地 1.0.98**（重建 `.so`，`cargo test` 89 例） | `core/src/git/mod.rs` · `core/src/bridge/jni.rs` · `RustBridge.kt` |
 | **本地 diff 页**（工作区改动行 / 提交图提交行 → `diff_worktree` / `diff_commit`） | **已落地 1.0.99** | `ui/repository/LocalDiffScreen.kt` · `LocalDiffModels.kt` · `DiffLines.kt` |
 | 这三条本地接口的消费者 | **全部接上**（tags 引用树 ✅ / 提交图 ✅ / 工作区 diff ✅ / 文件历史 ✅） | — |
-| 引擎 `merge_*` / `analyze_conflicts` 等 | 待落地（阶段 5） | `core/src/git/mod.rs` |
+| 引擎的**合并与冲突**一组（七条） | **已落地 1.0.102**（阶段 5 引擎那半；`repo_status` 另加 `merging` 只增字段） | `core/src/git/mod.rs` · `core/src/bridge/jni.rs` · `RustBridge.kt` |
 
 **已落地的验证口径**：`:app:testDebugUnitTest`（909 例；其中 `GitPanelStageTest` 9 例、
 `GitRefsModelsTest` 5 例、`RepoDeepLinkTest` 4 例、`GitWorkbenchWiringTest` 10 例、
 `CommitGraphLayoutTest` 11 例、`CommitGraphSourceTest` 14 例、`LocalDiffModelsTest` 12 例、
 `FileHistoryModelsTest` 9 例、
 `PageTransitionsTest` 面板过渡与「三个切换器都下发 `LocalPageActive`」、
-`LogAnchorsTest` 盯锚点表）· `cargo test` 92 例 · `assembleDebug` · `check-i18n --min-coverage 100`。
+`LogAnchorsTest` 盯锚点表 · `JniSignatureTest` 逐参数对账全部 104 对原生函数）·
+`cargo test` 105 例 · `assembleDebug` · `check-i18n --min-coverage 100`。
 
 **1.0.95 收口时修掉的三处「文档说已落地、代码说没落地」**（都不是新功能，是账没对上）：
 ① 阶段 1 把「提交图」渲染接上了，`GitPanelKind.Graph.available` 却留在 `false` ——
@@ -299,6 +300,19 @@ merge_branch ─► outcome == "conflict"
   进面板要能「继续 / 放弃」；② 合并提交信息的敏感扫描口径要说清；③ 浅克隆没有共同祖先 →
   merge 必然晚于 `fetch_deepen`；④ 详情对比页是**新全屏页** → 登记见 §9。
 
+**1.0.102（引擎那半）落下去之后，这四条风险各自落到哪**：
+
+| 风险 | 对策（已在引擎里） | 还差什么（UI 那半） |
+|---|---|---|
+| ① 合并到一半被杀 | `repo_status` 多一个只增字段 `merging`（MERGE_HEAD 在）；`merge_state` 给出当前冲突清单 / 待提交信息 / `MERGE_HEAD`；`merge_continue` / `merge_abort` 两条出路都只依赖仓库自身状态，**不依赖内存里的列表** | 面板读到 `merging = true` 时的那个状态：说清「还剩几个文件」+ 给「继续 / 放弃」两枚出口 |
+| ② 敏感扫描 | `merge_continue` 的 `message` 为空时用 `.git/MERGE_MSG`，**引擎自己生成的信息不含任何用户输入** | 用户改过信息时，提交前对 `message` 跑 `scan_sensitive`（与普通提交同一条口径，不是第二套规则） |
+| ③ 浅克隆没有共同祖先 | `merge_branch` 在 `repo.is_shallow()` 时**提前拒绝**并指出去哪加深（真机上 libgit2 只会回一句英文） | 把「先加深历史」那枚出口接到冲突/合并的入口上（加深运行器已经有了，1.0.98） |
+| ④ 详情对比页是新全屏页 | — | `SystemBarInsetsTest.fullScreenPages` 登记 + 只走 `PageBackHandler` |
+
+另有一条**引擎侧的硬约束**（UI 那半必须照它设计）：`merge_branch` 要求**工作区干净**，
+`merge_abort` 才敢用 hard reset 回到合并前。所以入口上要先把「有未提交改动」如实说出来，
+而不是让用户点下去再看到一句拒绝。
+
 ---
 
 ## 7. 引擎接口（现有 + 待新增）
@@ -322,12 +336,25 @@ merge_branch ─► outcome == "conflict"
 |---|---|---|---|
 | 4 | `fetch_deepen(dir, depth, token)` | 加深克隆（unshallow）：`depth <= 0` = 全量（内部发 `i32::MAX`，与 `git fetch --unshallow` 同一条路）；只动对象与远端跟踪引用，**不改工作区、不动本地提交**；进度/取消复用 clone 那一条通道 | **已落地**（提交图档的「加深历史」在用） |
 
-**仍待新增**：
+**阶段 5 已新增**（1.0.102 落地，**引擎那半**；同一条五步链）：
 
-| # | 接口 | 用途 | 阶段 |
+| # | 接口 | 用途 | 状态 |
 |---|---|---|---|
-| 6 | `merge_branch(dir, branch, token)` | 三方合并（不改写历史） | 5 |
-| 7 | `analyze_conflicts(dir)` · `conflict_files(dir)` · `resolve_conflict(dir, path, side)` · `write_resolved(...)` · `merge_continue(...)` · `merge_abort(dir)` | 预解析 + 逐文件解决 + 收尾 | 5 |
+| 6 | `merge_branch(dir, branch, token, author_name, author_email)` | 三方合并（不改写历史）；四条出口 `up_to_date` / `fast_forward` / `merged` / `conflict`。目标分支本地没有时**引擎自己 fetch 一次**（PR 冲突「拉到本地解决」那条路）。浅克隆 / 已在合并中 / 工作区脏 → 提前拒绝并给出路 | **已落地**（UI 那半待接） |
+| 7 | `merge_state(dir)` | 当前合并状态：`merging` / 待提交信息 / `MERGE_HEAD` / **还没解决**的冲突清单 | **已落地**（「合并到一半被杀」之后唯一的入口） |
+| 8 | `analyze_conflicts(dir)` | 预解析（**只读、不落盘**）：逐文件 `kind` / 三方 sha 与大小 / **ours ↔ theirs 的 patch**（冲突块就是它的 hunk） | **已落地**（UI 那半待接） |
+| 9 | `resolve_conflict(dir, path, side)` · `write_resolved(dir, path, content)` | 逐文件解决：用某一侧 / 手工内容 → 写工作区 + 登记索引 | **已落地**（UI 那半待接） |
+| 10 | `merge_continue(dir, message, name, email)` · `merge_abort(dir)` | 收尾：落**两父**合并提交并清状态 / 回到合并前 | **已落地**（UI 那半待接） |
+
+**设计稿里被改掉的一处**：原表写的 `merge_branch(dir, branch, token)` 与 `conflict_files(dir)` 都变了 ——
+前者多两个作者参数（干净合并**当场落提交**，身份必须由 App 给，理由同 `commit_repo`）；
+后者**没有单独存在**：`merge_state` 已经把「当前状态 + 冲突清单」一次答完，
+再来一条只报清单的接口就是两个入口问同一件事。
+
+**下一阶段（阶段 5 的 UI 那半，待做）**：
+冲突弹窗（N 个文件 · 分支 · 后果，出现即预解析）→ 详情对比页（复用 `BranchDiff` 的渲染 / `:editor` 手工）
+→ 「提交合并」/「放弃合并」；面板在 `merging = true` 时的「继续 / 放弃」状态；
+分叉页文案由两条变三条（合并 / 保留 / 放弃）。
 
 ---
 
@@ -341,7 +368,7 @@ merge_branch ─► outcome == "conflict"
 | **3** | `log_graph` / `list_tags` / `log_file` / `diff_worktree` / `diff_commit`（重建 `.so`） | **引擎 + JNI + 门面已落地 1.0.97**（`cargo test` 86 例） |
 | **3'** | 这三个接口的**消费者**：引用树 tags ✅ / 提交图换本地来源 ✅ / 工作区档的本地 diff ✅（并顺带把 `diff_commit` 接上：提交图点一行看这次提交的 diff） | **全部落地**：tags 1.0.97 · 提交图本地来源 1.0.98 · 本地 diff 页 1.0.99 |
 | **4** | `fetch_deepen`（任务中心 + 进度）+ 「文件历史」档（本地优先 + REST 兜底）+ 离线图谱（LocalSource 优先、未推送段） | **全部落地**：`fetch_deepen` 与双来源 1.0.98 · 「文件历史」档 1.0.100 · 未推送段 1.0.101（本地来源下逐条标出来，与工作区档的 `ahead` 同口径） |
-| **5** | 本地合并（D-g）+ 冲突弹窗 / 预解析 / 详情对比页（D-h）+ PR 冲突的「拉到本地解决」 | 待做 |
+| **5** | 本地合并（D-g）+ 冲突弹窗 / 预解析 / 详情对比页（D-h）+ PR 冲突的「拉到本地解决」 | **部分落地 1.0.102**：引擎七条接口（`merge_branch` / `merge_state` / `analyze_conflicts` / `resolve_conflict` / `write_resolved` / `merge_continue` / `merge_abort`）+ JNI + 重建 `.so` + `cargo test` 105 例；**UI 那半待做**（弹窗 / 详情对比页 / 面板「继续 · 放弃」/ 分叉页第三条出口） |
 | **6** | 设置 → 本地仓库「管理」页（按仓库看占用 / 清理）+ 列表重绘（§5 的登记项） | 待做 |
 
 ---

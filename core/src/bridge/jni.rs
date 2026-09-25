@@ -1179,6 +1179,133 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitDiffCommit<'
     into_jstring(&mut env, result)
 }
 
+// ── 本地合并与冲突解决（阶段 5：D-g / D-h） ──
+//
+// 七条里只有 `merge_state` / `analyze_conflicts` 是只读的，其余都动仓库 ——
+// 但都不改写已有提交（D-g）。冲突**不是错误**：`merge_branch` 把 outcome=conflict 连同
+// 冲突清单一起正常返回，仓库停在合并中，由上层引导「解决 → 提交合并 / 放弃合并」。
+
+/// 合并一个分支到当前分支（三方合并；不改写历史）。
+/// 返回 JSON：{ outcome: up_to_date|fast_forward|merged|conflict, branch, head_sha, message, conflicts }
+/// 参数：dir, branch, token(可空), author_name, author_email
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitMerge<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+    branch: JString<'local>,
+    token: JString<'local>,
+    author_name: JString<'local>,
+    author_email: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let branch = jstr(&mut env, &branch);
+    let token = jstr(&mut env, &token);
+    let author_name = jstr(&mut env, &author_name);
+    let author_email = jstr(&mut env, &author_email);
+    let token_opt = if token.is_empty() { None } else { Some(token.as_str()) };
+
+    let result: crate::error::Result<String> =
+        crate::git::merge_branch(&dir, &branch, token_opt, &author_name, &author_email);
+    into_jstring(&mut env, result)
+}
+
+/// 当前合并状态（只读）：JSON { merging, branch, head_sha, merge_head_sha, message, conflicts }
+/// 参数：dir
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitMergeState<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let result: crate::error::Result<String> = crate::git::merge_state(&dir);
+    into_jstring(&mut env, result)
+}
+
+/// 预解析冲突（只读、不落盘）：JSON { files: [{ path, kind, binary, ours_sha, theirs_sha,
+/// base_sha, ours_size, theirs_size, base_size, patch, truncated }], truncated }
+/// 参数：dir
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitAnalyzeConflicts<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let result: crate::error::Result<String> = crate::git::analyze_conflicts(&dir);
+    into_jstring(&mut env, result)
+}
+
+/// 用某一侧解决一个冲突文件（side = "ours" / "theirs"；返回空串=成功）
+/// 参数：dir, path, side
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitResolveConflict<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+    path: JString<'local>,
+    side: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let path = jstr(&mut env, &path);
+    let side = jstr(&mut env, &side);
+    let result: crate::error::Result<String> =
+        crate::git::resolve_conflict(&dir, &path, &side).map(|_| String::new());
+    into_jstring(&mut env, result)
+}
+
+/// 手工解决一个冲突文件（写入内容并登记索引；返回空串=成功）
+/// 参数：dir, path, content
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitWriteResolved<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+    path: JString<'local>,
+    content: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let path = jstr(&mut env, &path);
+    let content = jstr(&mut env, &content);
+    let result: crate::error::Result<String> =
+        crate::git::write_resolved(&dir, &path, &content).map(|_| String::new());
+    into_jstring(&mut env, result)
+}
+
+/// 提交合并（落两父提交并清掉合并状态）；返回新提交 sha
+/// 参数：dir, message(空 = 用 MERGE_MSG), author_name, author_email
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitMergeContinue<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+    message: JString<'local>,
+    author_name: JString<'local>,
+    author_email: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let message = jstr(&mut env, &message);
+    let author_name = jstr(&mut env, &author_name);
+    let author_email = jstr(&mut env, &author_email);
+    let result: crate::error::Result<String> =
+        crate::git::merge_continue(&dir, &message, &author_name, &author_email);
+    into_jstring(&mut env, result)
+}
+
+/// 放弃合并（回到合并前；返回空串=成功）
+/// 参数：dir
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeGitMergeAbort<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    dir: JString<'local>,
+) -> jstring {
+    let dir = jstr(&mut env, &dir);
+    let result: crate::error::Result<String> = crate::git::merge_abort(&dir).map(|_| String::new());
+    into_jstring(&mut env, result)
+}
+
 /// 只刷新远端跟踪引用（fetch，不合并、不动工作区；返回空串=成功）
 /// 参数：dir, token(可空), prune(是否顺带清理远端已删除的跟踪引用)
 #[no_mangle]

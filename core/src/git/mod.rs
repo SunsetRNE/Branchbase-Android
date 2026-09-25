@@ -227,31 +227,15 @@ fn remove_tree(dir: &std::path::Path) -> usize {
 
 /// pull：fetch origin 并 fast-forward 当前分支到远端。
 pub fn pull_repo(dir: &str, token: Option<&str>) -> Result<()> {
-    use git2::{FetchOptions, RemoteCallbacks, Repository};
+    use git2::Repository;
 
     let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+
+    let mut fo = git2::FetchOptions::new();
+    fo.remote_callbacks(net_callbacks(token));
     let mut remote = repo
         .find_remote("origin")
         .map_err(|e| CoreError::Other(format!("找不到 origin: {e}")))?;
-
-    let mut callbacks = RemoteCallbacks::new();
-    callbacks.certificate_check(check_cert);
-    if let Some(tk) = token {
-        let tk = tk.to_string();
-        callbacks.credentials(move |_url, username, allowed| {
-            let user = username.unwrap_or("x-access-token");
-            // 按 libgit2 请求的类型作答：先给 USERNAME，再给账密。
-            // 旧实现忽略 allowed、无条件返回 userpass，某些 URL/服务器组合下会被
-            // 判为「不支持的凭证类型」而失败（pull 能用、push 报错这类不对称现象）。
-            if allowed.contains(git2::CredentialType::USERNAME) {
-                return git2::Cred::username(user);
-            }
-            git2::Cred::userpass_plaintext(user, &tk)
-        });
-    }
-
-    let mut fo = FetchOptions::new();
-    fo.remote_callbacks(callbacks);
     remote
         .fetch(&["refs/heads/*:refs/remotes/origin/*"], Some(&mut fo), None)
         .map_err(|e| CoreError::Other(format!("fetch 失败: {e}")))?;
@@ -404,33 +388,10 @@ pub fn local_branches(dir: &str) -> Result<String> {
 ///
 /// - `prune = true`：顺带删除远端已不存在的跟踪引用（`FetchPrune::On`）。
 pub fn fetch_remote(dir: &str, token: Option<&str>, prune: bool) -> Result<()> {
-    use git2::{FetchOptions, FetchPrune, RemoteCallbacks, Repository};
+    use git2::Repository;
 
     let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
-    let mut remote = repo
-        .find_remote("origin")
-        .map_err(|e| CoreError::Other(format!("找不到 origin: {e}")))?;
-
-    let mut callbacks = RemoteCallbacks::new();
-    callbacks.certificate_check(check_cert);
-    if let Some(tk) = token {
-        let tk = tk.to_string();
-        callbacks.credentials(move |_url, username, allowed| {
-            let user = username.unwrap_or("x-access-token");
-            if allowed.contains(git2::CredentialType::USERNAME) {
-                return git2::Cred::username(user);
-            }
-            git2::Cred::userpass_plaintext(user, &tk)
-        });
-    }
-
-    let mut fo = FetchOptions::new();
-    fo.remote_callbacks(callbacks);
-    fo.prune(if prune { FetchPrune::On } else { FetchPrune::Off });
-    remote
-        .fetch(&["refs/heads/*:refs/remotes/origin/*"], Some(&mut fo), None)
-        .map_err(|e| CoreError::Other(format!("fetch 失败: {e}")))?;
-    Ok(())
+    fetch_origin(&repo, token, prune)
 }
 
 /// 加深克隆（unshallow / deepen）：把远端历史取到本地。
@@ -700,31 +661,15 @@ pub fn discard_all_changes(dir: &str) -> Result<()> {
 
 /// 本地 git push：推送到 origin
 pub fn push_repo(dir: &str, token: Option<&str>, branch: &str) -> Result<()> {
-    use git2::{PushOptions, RemoteCallbacks, Repository};
+    use git2::{PushOptions, Repository};
 
     let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
     let mut remote = repo
         .find_remote("origin")
         .map_err(|e| CoreError::Other(format!("找不到 origin: {e}")))?;
 
-    let mut callbacks = RemoteCallbacks::new();
-    callbacks.certificate_check(check_cert);
-    if let Some(tk) = token {
-        let tk = tk.to_string();
-        callbacks.credentials(move |_url, username, allowed| {
-            let user = username.unwrap_or("x-access-token");
-            // 按 libgit2 请求的类型作答：先给 USERNAME，再给账密。
-            // 旧实现忽略 allowed、无条件返回 userpass，某些 URL/服务器组合下会被
-            // 判为「不支持的凭证类型」而失败（pull 能用、push 报错这类不对称现象）。
-            if allowed.contains(git2::CredentialType::USERNAME) {
-                return git2::Cred::username(user);
-            }
-            git2::Cred::userpass_plaintext(user, &tk)
-        });
-    }
-
     let mut opts = PushOptions::new();
-    opts.remote_callbacks(callbacks);
+    opts.remote_callbacks(net_callbacks(token));
     let refspec = format!("refs/heads/{branch}:refs/heads/{branch}");
     remote
         .push(&[&refspec], Some(&mut opts))
@@ -838,6 +783,51 @@ fn check_cert(
 // ── 决策页面支持 API（对齐 docs/specs/decision-pages-design.md §6） ──
 
 use serde_json::json;
+
+/// 网络回调：证书校验 + 可选 PAT。clone / pull / fetch / push 与**合并前的那次补拉**共用一份。
+///
+/// 抽出来是因为它此前在四处各写了一遍（`pull_repo` / `fetch_remote` / `push_repo` / clone），
+/// 而其中**凭证类型**那三行是踩过坑的：旧实现忽略 `allowed`、无条件返回账密，
+/// 某些服务器组合下被判成「不支持的凭证类型」——表现是「pull 能用、push 报错」这种不对称现象。
+/// 一处写对、四处在用，才不会下次再有人只修好其中一处。
+fn net_callbacks(token: Option<&str>) -> git2::RemoteCallbacks<'static> {
+    let mut callbacks = git2::RemoteCallbacks::new();
+    callbacks.certificate_check(check_cert);
+    if let Some(tk) = token {
+        let tk = tk.to_string();
+        callbacks.credentials(move |_url, username, allowed| {
+            let user = username.unwrap_or("x-access-token");
+            // 按 libgit2 请求的类型作答：先给 USERNAME，再给账密
+            if allowed.contains(git2::CredentialType::USERNAME) {
+                return git2::Cred::username(user);
+            }
+            git2::Cred::userpass_plaintext(user, &tk)
+        });
+    }
+    callbacks
+}
+
+/// fetch `origin` 的**全部本地分支**到 `refs/remotes/origin/*`（不合并、不动工作区）。
+///
+/// [fetch_remote]（决策页的「先看清再决定」原语）与合并前的那次补拉共用这一份 ——
+/// refspec 写歪（少了 `refs/heads/*` 那半）的表现是「远端分支列表永远只有一条」，
+/// 而它看着像服务端的事。
+fn fetch_origin(repo: &git2::Repository, token: Option<&str>, prune: bool) -> Result<()> {
+    let mut remote = repo
+        .find_remote("origin")
+        .map_err(|e| CoreError::Other(format!("找不到 origin: {e}")))?;
+    let mut fo = git2::FetchOptions::new();
+    fo.remote_callbacks(net_callbacks(token));
+    fo.prune(if prune {
+        git2::FetchPrune::On
+    } else {
+        git2::FetchPrune::Off
+    });
+    remote
+        .fetch(&["refs/heads/*:refs/remotes/origin/*"], Some(&mut fo), None)
+        .map_err(|e| CoreError::Other(format!("fetch 失败: {e}")))?;
+    Ok(())
+}
 
 /// 仓库状态（JSON）：branch / ahead / behind / has_upstream / remote_url / dirty / unpushed
 /// **+ has_parent / head_sha / has_remote_ref**。
@@ -957,7 +947,10 @@ pub fn repo_status(dir: &str) -> Result<String> {
         // 只增字段（老键名与类型保持不变，Kotlin 侧 parseGitStatus 缺省即退化）
         "has_parent": has_parent,
         "head_sha": head_sha,
-        "has_remote_ref": has_remote_ref
+        "has_remote_ref": has_remote_ref,
+        // 合并中（MERGE_HEAD 在）：面板据此给「继续 / 放弃」而不是让用户看着一堆冲突标记
+        // 猜发生了什么（`git-mode-design.md` §6.4 风险 ①）。细节走 `merge_state`
+        "merging": repo.state() == git2::RepositoryState::Merge
     })
     .to_string())
 }
@@ -1296,6 +1289,672 @@ fn map_push_error(msg: &str) -> CoreError {
     }
 }
 
+// ── 本地合并与冲突解决（阶段 5：D-g 允许 merge / D-h 冲突流程） ──
+//
+// 这一组里**只有 `analyze_conflicts` / `merge_state` 是只读的**，其余都动仓库 ——
+// 但全部遵守 D-g 的边界：**只新增提交，不改写历史**（rebase / amend 已推送 / 强推仍禁）。
+//
+// 冲突**不是错误**：`merge_branch` 把「有冲突」如实报成 `outcome = "conflict"`，
+// 仓库停在合并中（MERGE_HEAD 在），由上层引导「逐个解决 → 提交合并 / 放弃合并」。
+// 把它做成 `Err` 的话，上层只剩一句「失败」，而这时仓库**确实**处在合并中 ——
+// 用户要的信息是「哪几个文件、现在能做什么」，不是「失败了」。
+//
+// 前置条件三条（都在 `merge_branch` 里挡住，且都给出路）：
+// ① **浅克隆不给合并**：没有共同祖先，libgit2 只会回一句英文（风险 ③）；
+// ② **已经在合并中不给叠加**：MERGE_HEAD 被覆盖后，「放弃合并」会回到错的地方；
+// ③ **工作区必须干净**：合并会把对方的内容写进工作区，而「放弃合并」是一次 hard reset ——
+//    脏工作区下那一下会连用户自己的改动一起抹掉，正是 D11 不许发生的事。
+
+/// 合并 `branch` 到当前分支（三方合并；D-g：允许 merge，不改写已有提交）。
+///
+/// 输出 JSON：`{ outcome, branch, head_sha, message, conflicts: [path…] }`
+///
+/// - `outcome` 四态：`up_to_date`（已经包含对方）/ `fast_forward`（只有一个方向有提交，
+///   直接快进，**不产生合并提交**）/ `merged`（干净合并，落了**两父**合并提交）/
+///   `conflict`（有冲突，仓库停在合并中，`conflicts` 是还没解决的文件清单）；
+/// - `head_sha`：合并后的 HEAD；`conflict` 时是**合并前**的 HEAD（此时还没提交）；
+/// - `message`：本次（或待提交的）合并信息，默认 `Merge branch 'x' into y`。
+///   干净合并用它；有冲突时它会写进 `.git/MERGE_MSG`，[merge_continue] 没给信息时也用它；
+/// - `token`：只在「目标分支本地没有」时才用到 —— 那时先 `fetch origin` 再找（见下）。
+///
+/// ## 为什么需要 `author_name` / `author_email`
+///
+/// 与 [`commit_repo`] 同一条理由：干净合并**当场落一个提交**，而 App 的身份来自账号，
+/// 不是 `.gitconfig`（引擎从不写全局身份）。签名缺失时 libgit2 只会报
+/// 「config value 'user.name' was not found」——那是用户看不懂的一句英文。
+pub fn merge_branch(
+    dir: &str,
+    branch: &str,
+    token: Option<&str>,
+    author_name: &str,
+    author_email: &str,
+) -> Result<String> {
+    use git2::{Repository, RepositoryState};
+
+    let branch = branch.trim();
+    if branch.is_empty() {
+        return Err(CoreError::Other("合并需要一个分支名".into()));
+    }
+    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+
+    if repo.is_shallow() {
+        return Err(CoreError::Other(
+            "本地是浅克隆，没有共同祖先，合并不了。先「加深历史」把完整历史拉到本地。".into(),
+        ));
+    }
+    if repo.state() == RepositoryState::Merge {
+        return Err(CoreError::Other(
+            "上一次合并还没结束：先解决冲突并「提交合并」，或者「放弃合并」。".into(),
+        ));
+    }
+    if worktree_dirty(&repo)? {
+        return Err(CoreError::Other("工作区有未提交改动，无法合并".into()));
+    }
+
+    let head_commit = repo
+        .head()
+        .map_err(|e| CoreError::Other(format!("读取 HEAD 失败: {e}")))?
+        .peel_to_commit()
+        .map_err(|e| CoreError::Other(format!("解析 HEAD 提交失败: {e}")))?;
+    let into = {
+        let name = head_branch_name(&repo);
+        if name.is_empty() {
+            "HEAD".to_string()
+        } else {
+            name
+        }
+    };
+    let message = format!("Merge branch '{branch}' into {into}");
+
+    let target = resolve_merge_target(&repo, branch, token)?;
+    let (analysis, _) = repo
+        .merge_analysis(&[&target])
+        .map_err(|e| CoreError::Other(format!("merge 分析失败: {e}")))?;
+
+    if analysis.is_up_to_date() {
+        return Ok(json!({
+            "outcome": "up_to_date",
+            "branch": branch,
+            "head_sha": head_commit.id().to_string(),
+            "message": "",
+            "conflicts": [],
+        })
+        .to_string());
+    }
+
+    // ── 快进：直接把当前分支指到对方（不产生提交，历史一字不改） ──
+    if analysis.is_fast_forward() {
+        let target_commit = repo
+            .find_commit(target.id())
+            .map_err(|e| CoreError::Other(format!("找不到目标提交: {e}")))?;
+        // **先检出、再改 ref**（与 git 同序）：检出用的是默认的 safe 语义 ——
+        // 工作区有东西会被覆盖时它报错退出，而不是把用户的内容盖掉
+        repo.checkout_tree(target_commit.as_object(), None)
+            .map_err(|e| CoreError::Other(format!("检出目标分支失败: {e}")))?;
+        let head_ref = repo.head().map_err(|e| CoreError::Other(format!("读取 HEAD 失败: {e}")))?;
+        let head_name = head_ref
+            .name()
+            .ok_or_else(|| CoreError::Other("无法获取分支 ref 名".into()))?
+            .to_string();
+        repo.find_reference(&head_name)
+            .map_err(|e| CoreError::Other(format!("读取分支 ref 失败: {e}")))?
+            .set_target(target.id(), "merge: fast-forward")
+            .map_err(|e| CoreError::Other(format!("快进失败: {e}")))?;
+        repo.set_head(&head_name)
+            .map_err(|e| CoreError::Other(format!("set_head 失败: {e}")))?;
+        return Ok(json!({
+            "outcome": "fast_forward",
+            "branch": branch,
+            "head_sha": target.id().to_string(),
+            "message": "",
+            "conflicts": [],
+        })
+        .to_string());
+    }
+
+    if !analysis.is_normal() {
+        // NONE：两边没有共同祖先（本地历史与对方是两条无关的根）。
+        // 报清楚，不假装能合 —— 用户能做的判断（是不是拉错仓库了）只有看到这句才做得了
+        return Err(CoreError::Other(format!(
+            "合并不了：当前分支与本地的 {branch} 没有共同祖先（不是同一条历史）。"
+        )));
+    }
+
+    // ── 普通三方合并：libgit2 把结果写进索引与工作区（冲突文件带标记） ──
+    repo.merge(&[&target], None, None)
+        .map_err(|e| CoreError::Other(format!("合并失败: {e}")))?;
+
+    let mut index = repo
+        .index()
+        .map_err(|e| CoreError::Other(format!("读取索引失败: {e}")))?;
+    if index.has_conflicts() {
+        let conflicts = conflict_entries(&mut index)?;
+        // 冲突时把 `message` 换成 **MERGE_MSG 那一句**：它才是 [merge_continue] 不给信息时
+        // 真正会落进提交的信息。这里若回显引擎自己拼的那句，界面显示的与最终提交的就会是两句话
+        let message = std::fs::read_to_string(repo.path().join("MERGE_MSG"))
+            .map(|m| m.trim_end().to_string())
+            .ok()
+            .filter(|m| !m.is_empty())
+            .unwrap_or(message);
+        // libgit2 在有冲突时自己会写 MERGE_HEAD / MERGE_MSG（`merge.c` 的 write_merge_head），
+        // 所以这里不再手写一遍状态文件 —— 重复写只会让两处口径有机会分家
+        let paths: Vec<String> = conflicts
+            .iter()
+            .map(|c| c["path"].as_str().unwrap_or_default().to_string())
+            .collect();
+        return Ok(json!({
+            "outcome": "conflict",
+            "branch": branch,
+            "head_sha": head_commit.id().to_string(),
+            "message": message,
+            "conflicts": paths,
+        })
+        .to_string());
+    }
+
+    let id = commit_merge(&repo, &message, author_name, author_email, target.id())?;
+    Ok(json!({
+        "outcome": "merged",
+        "branch": branch,
+        "head_sha": id.to_string(),
+        "message": message,
+        "conflicts": [],
+    })
+    .to_string())
+}
+
+/// 当前的合并状态（只读）：`{ merging, branch, head_sha, merge_head_sha, message, conflicts }`。
+///
+/// 供两处用：合并弹窗/详情页的事实区，以及**「合并到一半被杀」之后重新进面板**
+/// （`git-mode-design.md` §6.4 风险 ①）—— 那时上层手上没有任何列表，
+/// 只有这里能告诉它「仓库正停在合并中、还剩哪几个文件」。
+///
+/// `conflicts` 是**当前还没解决**的文件（`[{path, kind}]`）。已解决的那些**不落盘、也不重算**：
+/// 引擎不留「合并开始时有哪些冲突」的额外状态（那是上层在合并那一刻就拿到的东西）——
+/// 多存一份就多一份会与索引分家的账。
+pub fn merge_state(dir: &str) -> Result<String> {
+    use git2::{Repository, RepositoryState};
+
+    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let mut index = repo
+        .index()
+        .map_err(|e| CoreError::Other(format!("读取索引失败: {e}")))?;
+    let conflicts = conflict_entries(&mut index)?;
+    let head_sha = repo
+        .head()
+        .ok()
+        .and_then(|h| h.target())
+        .map(|o| o.to_string())
+        .unwrap_or_default();
+    Ok(json!({
+        "merging": repo.state() == RepositoryState::Merge,
+        "branch": head_branch_name(&repo),
+        "head_sha": head_sha,
+        "merge_head_sha": merge_head_oid(&repo).map(|o| o.to_string()).unwrap_or_default(),
+        "message": std::fs::read_to_string(repo.path().join("MERGE_MSG"))
+            .map(|m| m.trim_end().to_string())
+            .unwrap_or_default(),
+        "conflicts": conflicts,
+    })
+    .to_string())
+}
+
+/// **预解析**冲突（只读、不落盘）：每个冲突文件的 kind、三方 blob 与 `ours ↔ theirs` 的 patch。
+///
+/// 触发点是**冲突弹窗出现那一刻**（`git-mode-design.md` §6.4 的 D-h），不是用户点进详情页时 ——
+/// 所以它是纯本地读：不动索引、不动工作区、不写任何文件（`analyze_conflicts_只读且不动工作区` 钉着）。
+///
+/// 输出：`{ files: [{ path, kind, binary, ours_sha, theirs_sha, base_sha, ours_size,
+/// theirs_size, base_size, patch, truncated }], truncated }`
+///
+/// - **冲突块就是 patch 里的 hunk**：不再单独算一套「冲突块」—— `ours ↔ theirs` 之间变了的
+///   那几段正是要人做决定的地方，两处各算一份只会出现两套互相矛盾的范围；
+/// - `binary = true` 时 `patch` 为空（libgit2 不给二进制内容），三方 size 照给 ——
+///   上层据此说「二进制文件，请选一边」，而不是画一个空 diff；
+/// - 某一侧 `*_sha` 为空 = **那一侧删了这个文件**（`kind` 已经说明是哪一侧）；
+/// - 没有进行中的合并时**报错**而不是给空数组：空数组会被读成「没有冲突」，
+///   而真相是「现在没有合并这回事」——两者要做的事完全不同。
+pub fn analyze_conflicts(dir: &str) -> Result<String> {
+    use git2::{DiffOptions, Repository};
+
+    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    require_merging(&repo)?;
+
+    let entries = conflicted_blob_entries(&repo)?;
+    let mut files: Vec<serde_json::Value> = Vec::new();
+    let mut any_truncated = false;
+    for e in &entries {
+        let old = e.ours.map(|oid| repo.find_blob(oid)).transpose().ok().flatten();
+        let new = e.theirs.map(|oid| repo.find_blob(oid)).transpose().ok().flatten();
+        let binary = old.as_ref().map(|b| b.is_binary()).unwrap_or(false)
+            || new.as_ref().map(|b| b.is_binary()).unwrap_or(false);
+        let mut opts = DiffOptions::new();
+        opts.context_lines(3);
+        // 冲突块的渲染走 `Patch`（blob ↔ blob，某一侧被删就是与空内容比）：
+        // 这条路才拿得到「文件头 + hunk」，与 diff_worktree / diff_commit 的 patch 同一种读法，
+        // 上层那份 unified diff 解析器（`BranchDiff.kt` 的 parseUnifiedDiff）直接就能吃
+        let patch = if binary {
+            (String::new(), false)
+        } else {
+            let p = std::path::Path::new(e.path.as_str());
+            let mut rendered = match (old.as_ref(), new.as_ref()) {
+                (Some(o), Some(n)) => git2::Patch::from_blobs(o, Some(p), n, Some(p), Some(&mut opts)),
+                // 对方删了这个文件：新侧是空内容 —— 画出来就是「这些行都没了」
+                (Some(o), None) => git2::Patch::from_blob_and_buffer(o, Some(p), b"", Some(p), Some(&mut opts)),
+                // 我们这边删了它：旧侧是空内容 —— 画出来是「对方加了这些行」
+                (None, Some(n)) => git2::Patch::from_buffers(b"", Some(p), n.content(), Some(p), Some(&mut opts)),
+                // 三方都缺的冲突不存在（libgit2 保证至少一方在）
+                (None, None) => continue,
+            }
+            .map_err(|err| CoreError::Other(format!("计算冲突文件的差异失败: {err}")))?;
+            patch_to_text(&mut rendered)?
+        };
+        any_truncated |= patch.1;
+        files.push(json!({
+            "path": e.path,
+            "kind": e.kind,
+            "binary": binary,
+            "ours_sha": e.ours.map(|o| o.to_string()).unwrap_or_default(),
+            "theirs_sha": e.theirs.map(|o| o.to_string()).unwrap_or_default(),
+            "base_sha": e.base.map(|o| o.to_string()).unwrap_or_default(),
+            "ours_size": old.as_ref().map(|b| b.size()).unwrap_or(0),
+            "theirs_size": new.as_ref().map(|b| b.size()).unwrap_or(0),
+            "base_size": e.base.and_then(|oid| repo.find_blob(oid).ok()).map(|b| b.size()).unwrap_or(0),
+            "patch": patch.0,
+            "truncated": patch.1,
+        }));
+    }
+    Ok(json!({ "files": files, "truncated": any_truncated }).to_string())
+}
+
+/// 用**某一侧**的内容解决一个冲突文件（`side` = `"ours"` / `"theirs"`），并把它记进索引。
+///
+/// - 内容从**索引的三方条目**取，不从工作区读：工作区那一份此刻是带 `<<<<<<<` 标记的，
+///   拿它当「我方」等于把冲突标记当成用户的内容提交上去；
+/// - 那一侧**没有内容**（对方删了这个文件）= 解决成「删除」：删工作区文件 + 从索引移除；
+/// - 只接受**当前正在冲突**的路径：不在冲突清单里就报错，而不是悄悄覆盖一个已经解决的文件
+///   （真机上那就是「点一下把手工解决的结果冲掉了」，而且没有任何提示）。
+pub fn resolve_conflict(dir: &str, path: &str, side: &str) -> Result<()> {
+    use git2::Repository;
+
+    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    require_merging(&repo)?;
+    let rel = safe_rel_path(path)?;
+    let wanted = match side {
+        "ours" => Side::Ours,
+        "theirs" => Side::Theirs,
+        other => return Err(CoreError::Other(format!("未知的一侧: {other}（只认 ours / theirs）"))),
+    };
+    let entries = conflicted_blob_entries(&repo)?;
+    let entry = entries
+        .iter()
+        .find(|e| e.path == rel)
+        .ok_or_else(|| CoreError::Other(format!("{rel} 现在不在冲突清单里")))?;
+
+    let oid = match wanted {
+        Side::Ours => entry.ours,
+        Side::Theirs => entry.theirs,
+    };
+    let mut index = repo
+        .index()
+        .map_err(|e| CoreError::Other(format!("读取索引失败: {e}")))?;
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| CoreError::Other("这个仓库没有工作区".into()))?
+        .to_path_buf();
+    match oid {
+        Some(oid) => {
+            let blob = repo
+                .find_blob(oid)
+                .map_err(|e| CoreError::Other(format!("读取内容失败: {e}")))?;
+            let target = workdir.join(&rel);
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| CoreError::Other(format!("创建目录失败: {e}")))?;
+            }
+            std::fs::write(&target, blob.content())
+                .map_err(|e| CoreError::Other(format!("写入文件失败: {e}")))?;
+            // `add_path` 会把该路径的三方条目换成普通条目（libgit2 的 `git_index_add_bypath`
+            // 就会清掉冲突）—— 这正是「标记已解决」那一步
+            index
+                .add_path(std::path::Path::new(&rel))
+                .map_err(|e| CoreError::Other(format!("登记索引失败: {e}")))?;
+        }
+        None => {
+            // 这一侧没有内容 = 这一侧删了它：解决成删除
+            let _ = std::fs::remove_file(workdir.join(&rel));
+            index
+                .remove_path(std::path::Path::new(&rel))
+                .map_err(|e| CoreError::Other(format!("从索引移除失败: {e}")))?;
+        }
+    }
+    index.write().map_err(|e| CoreError::Other(format!("写索引失败: {e}")))?;
+    Ok(())
+}
+
+/// 手工解决一个冲突文件：写入用户（或编辑器）给的内容，并把它记进索引。
+///
+/// 与 [`resolve_conflict`] 同一条口径：必须是**当前正在冲突**的路径（否则报错），
+/// 写的是仓库相对路径（绝对路径 / `..` / `.git` 一律拒绝，见 [`safe_rel_path`]）。
+pub fn write_resolved(dir: &str, path: &str, content: &str) -> Result<()> {
+    use git2::Repository;
+
+    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    require_merging(&repo)?;
+    let rel = safe_rel_path(path)?;
+    let entries = conflicted_blob_entries(&repo)?;
+    if !entries.iter().any(|e| e.path == rel) {
+        return Err(CoreError::Other(format!("{rel} 现在不在冲突清单里")));
+    }
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| CoreError::Other("这个仓库没有工作区".into()))?
+        .to_path_buf();
+    let target = workdir.join(&rel);
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| CoreError::Other(format!("创建目录失败: {e}")))?;
+    }
+    std::fs::write(&target, content).map_err(|e| CoreError::Other(format!("写入文件失败: {e}")))?;
+    let mut index = repo
+        .index()
+        .map_err(|e| CoreError::Other(format!("读取索引失败: {e}")))?;
+    index
+        .add_path(std::path::Path::new(&rel))
+        .map_err(|e| CoreError::Other(format!("登记索引失败: {e}")))?;
+    index.write().map_err(|e| CoreError::Other(format!("写索引失败: {e}")))?;
+    Ok(())
+}
+
+/// 收尾：把解决完的索引落成**两父合并提交**，并清掉合并状态。返回新提交 sha。
+///
+/// - 还有没解决的文件时**报错并给出条数**（不是「失败」两个字：用户需要知道还差几个）；
+/// - `message` 为空时用 `.git/MERGE_MSG`（libgit2 合并时写下的默认信息），
+///   仍然为空才退回 `Merge branch` 那句 —— 合并提交**必须**有信息，空信息在日志里是一行空白；
+/// - **敏感信息扫描口径与普通提交一致**：由上层在调用前对 `message` 跑 [`scan_sensitive`]
+///   （引擎不替上层决定要不要拦），引擎自己生成的默认信息不含任何用户输入。
+pub fn merge_continue(
+    dir: &str,
+    message: &str,
+    author_name: &str,
+    author_email: &str,
+) -> Result<String> {
+    use git2::Repository;
+
+    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    require_merging(&repo)?;
+    let mut index = repo
+        .index()
+        .map_err(|e| CoreError::Other(format!("读取索引失败: {e}")))?;
+    if index.has_conflicts() {
+        let left = conflict_entries(&mut index)?.len();
+        return Err(CoreError::Other(format!(
+            "还有 {left} 个文件没解决，先解决完再提交合并"
+        )));
+    }
+    let merge_head = merge_head_oid(&repo).ok_or_else(|| {
+        CoreError::Other("仓库里没有 MERGE_HEAD —— 这次合并不完整，请「放弃合并」后重来".into())
+    })?;
+    let msg = if message.trim().is_empty() {
+        let from_state = std::fs::read_to_string(repo.path().join("MERGE_MSG"))
+            .map(|m| m.trim().to_string())
+            .unwrap_or_default();
+        if from_state.is_empty() {
+            format!("Merge commit (MRG_HEAD {})", &merge_head.to_string()[..7])
+        } else {
+            from_state
+        }
+    } else {
+        message.to_string()
+    };
+    let id = commit_merge(&repo, &msg, author_name, author_email, merge_head)?;
+    Ok(id.to_string())
+}
+
+/// 放弃合并：**回到合并前**，一次 hard reset（D-h 的「任何时候 → 放弃合并」）。
+///
+/// 为什么敢 hard reset：合并的前置条件里就有「工作区必须干净」——
+/// 所以此刻工作区里那些改动**全部**是这次合并产生的（冲突标记、对方带过来的内容），
+/// reset 掉它们就是把仓库还原成合并前那一刻，不会碰用户自己的东西。
+///
+/// 顺序是**先清状态、再 reset**：反过来做的话，reset 到 HEAD 之后 MERGE_HEAD 还在，
+/// 仓库就停在「合并中、但工作区是合并前的」这种自相矛盾的状态里（面板会一直问「继续还是放弃」）。
+pub fn merge_abort(dir: &str) -> Result<()> {
+    use git2::{Repository, ResetType};
+
+    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    require_merging(&repo)?;
+    let head = repo
+        .head()
+        .map_err(|e| CoreError::Other(format!("读取 HEAD 失败: {e}")))?
+        .peel_to_commit()
+        .map_err(|e| CoreError::Other(format!("解析 HEAD 提交失败: {e}")))?;
+    repo.cleanup_state()
+        .map_err(|e| CoreError::Other(format!("清理合并状态失败: {e}")))?;
+    repo.reset(head.as_object(), ResetType::Hard, None)
+        .map_err(|e| CoreError::Other(format!("回到合并前失败: {e}")))?;
+    Ok(())
+}
+
+/// 冲突的一侧（[`resolve_conflict`] 的选择）。
+enum Side {
+    Ours,
+    Theirs,
+}
+
+/// 一个冲突文件的三方 blob 与类型（[`conflict_entries`] 的瘦身版，供预解析与解决用）。
+struct ConflictBlobs {
+    path: String,
+    kind: &'static str,
+    base: Option<git2::Oid>,
+    ours: Option<git2::Oid>,
+    theirs: Option<git2::Oid>,
+}
+
+/// 当前索引里的冲突（按路径稳定排序）。
+///
+/// `kind` 是**粗粒度但如实**的分类：三方条目里谁缺了就是谁删了它，
+/// 祖先缺失 = 双方各自新增（add/add）。细分到 git 那套 `UU/AA/DU/UD` 需要比对树，
+/// 而 UI 要回答的问题只有一个 ——「这个文件该看着哪两侧做决定」，所以不细分。
+fn conflict_blobs(index: &mut git2::Index) -> Result<Vec<ConflictBlobs>> {
+    let mut out: Vec<ConflictBlobs> = Vec::new();
+    let conflicts = index
+        .conflicts()
+        .map_err(|e| CoreError::Other(format!("读取冲突列表失败: {e}")))?;
+    for c in conflicts {
+        let c = c.map_err(|e| CoreError::Other(format!("读取冲突项失败: {e}")))?;
+        let pick = |e: &Option<git2::IndexEntry>| -> Option<(String, git2::Oid)> {
+            e.as_ref().map(|e| {
+                (String::from_utf8_lossy(&e.path).to_string(), e.id)
+            })
+        };
+        // 三方至少有一方在（libgit2 的保证），路径从任一方取
+        let path = pick(&c.our)
+            .or_else(|| pick(&c.their))
+            .or_else(|| pick(&c.ancestor))
+            .map(|(p, _)| p)
+            .unwrap_or_default();
+        if path.is_empty() {
+            continue;
+        }
+        let kind = if c.ancestor.is_none() {
+            "both_added"
+        } else if c.our.is_none() {
+            "deleted_by_us"
+        } else if c.their.is_none() {
+            "deleted_by_them"
+        } else {
+            "both_modified"
+        };
+        out.push(ConflictBlobs {
+            path,
+            kind,
+            base: c.ancestor.map(|e| e.id),
+            ours: c.our.map(|e| e.id),
+            theirs: c.their.map(|e| e.id),
+        });
+    }
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(out)
+}
+
+/// 冲突清单（`[{path, kind}]`，按路径排序）—— 清单顺序要稳：
+/// 它是按行渲染的列表，顺序抖一下用户就要重新找位置（与 `repo_status` 的 dirty 同一条口径）。
+fn conflict_entries(index: &mut git2::Index) -> Result<Vec<serde_json::Value>> {
+    Ok(conflict_blobs(index)?
+        .into_iter()
+        .map(|c| json!({ "path": c.path, "kind": c.kind }))
+        .collect())
+}
+
+/// 冲突文件的三方 blob（[`resolve_conflict`] / [`analyze_conflicts`] 用）。
+fn conflicted_blob_entries(repo: &git2::Repository) -> Result<Vec<ConflictBlobs>> {
+    let mut index = repo
+        .index()
+        .map_err(|e| CoreError::Other(format!("读取索引失败: {e}")))?;
+    conflict_blobs(&mut index)
+}
+
+/// 合并状态的统一前置检查：不在合并中就报错（**不**静默当成空操作）。
+fn require_merging(repo: &git2::Repository) -> Result<()> {
+    if repo.state() != git2::RepositoryState::Merge {
+        return Err(CoreError::Other("当前没有进行中的合并".into()));
+    }
+    Ok(())
+}
+
+/// `MERGE_HEAD` 指向的提交（不在合并中 → None）。
+///
+/// 读引用而不是读文件：`MERGE_HEAD` 是 libgit2 认的伪引用（`refdb_fs` 顶层就处理它），
+/// 手撕 `.git/MERGE_HEAD` 只会多一份「文件格式」的知识要维护。
+fn merge_head_oid(repo: &git2::Repository) -> Option<git2::Oid> {
+    repo.find_reference("MERGE_HEAD").ok().and_then(|r| r.target())
+}
+
+/// 工作区是否有**未提交改动**（不含未跟踪文件，与 `revert_commit` 同一条口径）。
+fn worktree_dirty(repo: &git2::Repository) -> Result<bool> {
+    let mut opts = git2::StatusOptions::new();
+    opts.include_untracked(false);
+    let statuses = repo
+        .statuses(Some(&mut opts))
+        .map_err(|e| CoreError::Other(format!("读取工作区状态失败: {e}")))?;
+    Ok(!statuses.is_empty())
+}
+
+/// 合并的目标提交：先本地分支 → 再 `origin` 的远端跟踪分支 → 都没有就用 token 拉一次再找。
+///
+/// 第三条是「PR 冲突拉到本地解决」那条路：目标分支往往**只在远端**（别人的分支 / PR 的 head），
+/// 本地从来没有过。让上层先手动 fetch 再合并是把一件事拆成两步，而两步之间
+/// 用户会看到「找不到分支」这种中间态错误。
+fn resolve_merge_target<'r>(
+    repo: &'r git2::Repository,
+    branch: &str,
+    token: Option<&str>,
+) -> Result<git2::AnnotatedCommit<'r>> {
+    let local = format!("refs/heads/{branch}");
+    if let Ok(reference) = repo.find_reference(&local) {
+        return repo
+            .reference_to_annotated_commit(&reference)
+            .map_err(|e| CoreError::Other(format!("解析分支 {branch} 失败: {e}")));
+    }
+    let remote_ref = format!("refs/remotes/origin/{branch}");
+    if let Ok(reference) = repo.find_reference(&remote_ref) {
+        return repo
+            .reference_to_annotated_commit(&reference)
+            .map_err(|e| CoreError::Other(format!("解析远端分支 origin/{branch} 失败: {e}")));
+    }
+    if repo.find_remote("origin").is_ok() {
+        fetch_origin(repo, token, false)?;
+        if let Ok(reference) = repo.find_reference(&remote_ref) {
+            return repo
+                .reference_to_annotated_commit(&reference)
+                .map_err(|e| CoreError::Other(format!("解析远端分支 origin/{branch} 失败: {e}")));
+        }
+    }
+    Err(CoreError::Other(format!(
+        "找不到分支 {branch}（本地与 origin 上都没有）"
+    )))
+}
+
+/// 落一个**两父**合并提交并清掉合并状态（干净合并与 [`merge_continue`] 共用）。
+///
+/// 两个父的顺序是 `[HEAD, 对方]`：第一父是「合到哪」、第二父是「合了谁」——
+/// 反过来的话 `git log --first-parent` 看到的是一场相反的合并，而提交图也会把泳道画歪。
+fn commit_merge(
+    repo: &git2::Repository,
+    message: &str,
+    author_name: &str,
+    author_email: &str,
+    other: git2::Oid,
+) -> Result<git2::Oid> {
+    use git2::Signature;
+
+    let mut index = repo
+        .index()
+        .map_err(|e| CoreError::Other(format!("读取索引失败: {e}")))?;
+    let tree_id = index
+        .write_tree()
+        .map_err(|e| CoreError::Other(format!("写树失败: {e}")))?;
+    let tree = repo
+        .find_tree(tree_id)
+        .map_err(|e| CoreError::Other(format!("找树失败: {e}")))?;
+    let head = repo
+        .head()
+        .map_err(|e| CoreError::Other(format!("读取 HEAD 失败: {e}")))?
+        .peel_to_commit()
+        .map_err(|e| CoreError::Other(format!("解析 HEAD 提交失败: {e}")))?;
+    let other = repo
+        .find_commit(other)
+        .map_err(|e| CoreError::Other(format!("找不到待合并提交: {e}")))?;
+    let sig = Signature::now(author_name, author_email)
+        .map_err(|e| CoreError::Other(format!("签名失败: {e}")))?;
+    let id = repo
+        .commit(
+            Some("HEAD"),
+            &sig,
+            &sig,
+            message,
+            &tree,
+            &[&head, &other],
+        )
+        .map_err(|e| CoreError::Other(format!("提交合并失败: {e}")))?;
+    // 提交成功之后才清状态：先清后提交的话，提交失败就只剩一个「没有 MERGE_HEAD 的合并中仓库」，
+    // 那时「继续」已经不可能（找不到第二个父），用户唯一的出路是放弃
+    repo.cleanup_state()
+        .map_err(|e| CoreError::Other(format!("清理合并状态失败: {e}")))?;
+    Ok(id)
+}
+
+/// 仓库相对路径的收口：拒绝空、绝对路径、`..`、以及 `.git` 下的任何东西。
+///
+/// 冲突路径来自索引（本来就是我们自己写的），但 [`write_resolved`] 的路径来自**上层传来的字符串**——
+/// 少了这道检查，一个 `../` 就能让它写到仓库外面去。
+fn safe_rel_path(path: &str) -> Result<String> {
+    let trimmed = path.trim().trim_start_matches("./");
+    if trimmed.is_empty() {
+        return Err(CoreError::Other("文件路径不能为空".into()));
+    }
+    let p = std::path::Path::new(trimmed);
+    if p.is_absolute() {
+        return Err(CoreError::Other(format!("只接受仓库内的相对路径: {path}")));
+    }
+    for comp in p.components() {
+        match comp {
+            std::path::Component::Normal(name) => {
+                if name == ".git" {
+                    return Err(CoreError::Other("不允许写到 .git 里".into()));
+                }
+            }
+            _ => {
+                return Err(CoreError::Other(format!(
+                    "路径里不允许出现 .. 或根: {path}"
+                )))
+            }
+        }
+    }
+    Ok(p.to_string_lossy().replace('\\', "/"))
+}
+
 // ── 工作台的本地读接口（阶段 3：提交图 / 引用树 / 文件历史 / 本地 diff） ──
 //
 // 这一组全是**只读**：不 fetch、不写工作区、不动 ref。它们存在的理由只有一个 ——
@@ -1622,29 +2281,7 @@ const DIFF_PATCH_LIMIT: usize = 200 * 1024;
 
 /// 把 `git2::Diff` 渲染成统一结构（[diff_worktree] 与 [diff_commit] 共用）。
 fn render_diff(diff: &git2::Diff<'_>) -> Result<String> {
-    use git2::DiffFormat;
-
-    let mut patch = String::new();
-    diff.print(DiffFormat::Patch, |_delta, _hunk, line| {
-        // 行首那个字符是 diff 的语义（+ / - / 空格 / \），一个字都不能丢
-        let origin = line.origin();
-        if matches!(origin, '+' | '-' | ' ') {
-            patch.push(origin);
-        }
-        patch.push_str(&String::from_utf8_lossy(line.content()));
-        true
-    })
-    .map_err(|e| CoreError::Other(format!("渲染 diff 失败: {e}")))?;
-
-    let truncated = patch.len() > DIFF_PATCH_LIMIT;
-    if truncated {
-        // 按字符边界截断（diff 里有中文时按字节切会把一个字符切成两半）
-        let mut cut = DIFF_PATCH_LIMIT;
-        while cut > 0 && !patch.is_char_boundary(cut) {
-            cut -= 1;
-        }
-        patch.truncate(cut);
-    }
+    let (patch, truncated) = render_patch(diff)?;
 
     // 逐文件的增删行数（走 hunk 统计，不重跑 diff）
     let mut files: Vec<serde_json::Value> = Vec::new();
@@ -1683,6 +2320,55 @@ fn render_diff(diff: &git2::Diff<'_>) -> Result<String> {
         "truncated": truncated,
     })
     .to_string())
+}
+
+/// 把 diff 渲染成 patch 文本，返回 `(patch, truncated)`。
+///
+/// 截断上限与「按字符边界切」的规矩只在这里写一遍：[render_diff]（工作区 / 提交的 diff）
+/// 与 [analyze_conflicts]（冲突文件的 ours ↔ theirs）都要它，两处各写一份的话，
+/// 上限或切法迟早有一处漏改 —— 而它们的表现都是「内容少了一截，界面却说这就是全部」。
+fn render_patch(diff: &git2::Diff<'_>) -> Result<(String, bool)> {
+    use git2::DiffFormat;
+
+    let mut patch = String::new();
+    diff.print(DiffFormat::Patch, |_delta, _hunk, line| {
+        // 行首那个字符是 diff 的语义（+ / - / 空格 / \），一个字都不能丢
+        let origin = line.origin();
+        if matches!(origin, '+' | '-' | ' ') {
+            patch.push(origin);
+        }
+        patch.push_str(&String::from_utf8_lossy(line.content()));
+        true
+    })
+    .map_err(|e| CoreError::Other(format!("渲染 diff 失败: {e}")))?;
+
+    Ok(truncate_patch(patch))
+}
+
+/// 把一个 `Patch`（blob ↔ blob）渲染成同一种 patch 文本。冲突预解析用这条 ——
+/// 它拿得到文件头与 hunk，正是 unified diff 解析器要吃的东西。
+fn patch_to_text(patch: &mut git2::Patch<'_>) -> Result<(String, bool)> {
+    let buf = patch
+        .to_buf()
+        .map_err(|e| CoreError::Other(format!("渲染 diff 失败: {e}")))?;
+    Ok(truncate_patch(String::from_utf8_lossy(buf.as_ref()).to_string()))
+}
+
+/// patch 文本的超限截断：超过 [`DIFF_PATCH_LIMIT`] 就截，并**如实返回** `truncated`。
+///
+/// 只有这一处写「上限是多少、怎么切」：[render_diff] 那条路与冲突预解析那条路都从这里过，
+/// 两处各写一份的话，上限或切法迟早有一处漏改，而表现都是「内容少了一截，界面却说这是全部」。
+fn truncate_patch(mut patch: String) -> (String, bool) {
+    let truncated = patch.len() > DIFF_PATCH_LIMIT;
+    if truncated {
+        // 按字符边界截断（diff 里有中文时按字节切会把一个字符切成两半）
+        let mut cut = DIFF_PATCH_LIMIT;
+        while cut > 0 && !patch.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        patch.truncate(cut);
+    }
+    (patch, truncated)
 }
 
 /// 把 git 时间（秒 + 时区偏移）写成 ISO 8601 本地偏移串。
@@ -2555,5 +3241,378 @@ mod tests {
         assert_eq!(civil_from_days(19_723), (2024, 1, 1));
         // 闰日：2024-02-29 是 1970 起的第 19782 天
         assert_eq!(civil_from_days(19_782), (2024, 2, 29));
+    }
+
+    // ───────────────────── 阶段 5：本地合并与冲突解决 ─────────────────────
+    //
+    // 这一组全是「libgit2 到底怎么动索引 / 工作区 / ref」的取证。merge 的四条出口
+    // （已包含 / 快进 / 干净合并 / 冲突）在界面上长得都很像，只有把仓库真的建出来，
+    // 才分得清「快进没产生提交」与「产生了提交但内容一样」这类区别；
+    // 而「放弃合并」是不是真的回到合并前，也只有比对工作区内容才算数。
+
+    /// 切分支（工作区跟着走）。测试里的强制检出：工作区脏了就直接覆盖，不在这里造第二套保护。
+    fn switch_to(repo: &git2::Repository, name: &str) {
+        let ref_name = format!("refs/heads/{name}");
+        repo.set_head(&ref_name).unwrap();
+        repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force()))
+            .unwrap();
+    }
+
+    /// 当前分支名（libgit2 认 `init.defaultBranch`，测试里**不许**写死 main / master）。
+    fn current_branch(repo: &git2::Repository) -> String {
+        repo.head().unwrap().shorthand().unwrap().to_string()
+    }
+
+    /// 在当前 HEAD 上开一条新分支并切过去。
+    fn branch_here(repo: &git2::Repository, name: &str) {
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        repo.branch(name, &head, false).unwrap();
+        switch_to(repo, name);
+    }
+
+    fn read(dir: &std::path::Path, file: &str) -> String {
+        std::fs::read_to_string(dir.join(file)).unwrap()
+    }
+
+    /// 调一次 `merge_branch` 并把 JSON 解出来（作者身份固定，测试不关心它）。
+    fn merge(dir: &std::path::Path, branch: &str) -> serde_json::Value {
+        let json = merge_branch(dir.to_str().unwrap(), branch, None, "合并者", "merge@example.com")
+            .unwrap();
+        serde_json::from_str(&json).unwrap()
+    }
+
+    /// 造一个「双方都改了同一个文件」的冲突仓库，返回 (目录, 主分支名, 我方内容, 对方内容)。
+    fn conflict_repo(name: &str) -> (std::path::PathBuf, git2::Repository, String) {
+        let (dir, repo) = temp_repo(name);
+        commit_file(&repo, "a.txt", "base\n", "基线", "Alice");
+        let main_branch = current_branch(&repo);
+        branch_here(&repo, "feature");
+        commit_file(&repo, "a.txt", "theirs\n", "对方改", "Bob");
+        switch_to(&repo, &main_branch);
+        commit_file(&repo, "a.txt", "ours\n", "我方改", "Alice");
+        (dir, repo, main_branch)
+    }
+
+    #[test]
+    fn merge_快进不产生合并提交() {
+        let (dir, repo) = temp_repo("merge-ff");
+        commit_file(&repo, "a.txt", "one\n", "基线", "Alice");
+        let main_branch = current_branch(&repo);
+        branch_here(&repo, "feature");
+        let tip = commit_file(&repo, "a.txt", "two\n", "feature 的提交", "Bob");
+        switch_to(&repo, &main_branch);
+
+        let out = merge(&dir, "feature");
+        assert_eq!(out["outcome"], "fast_forward");
+        assert_eq!(out["head_sha"], tip.to_string());
+        // HEAD 就是对方那个提交本身：**没有**多出合并提交（这是「快进」与「合并提交」的分界）
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        assert_eq!(head.id(), tip);
+        assert_eq!(head.parent_count(), 1);
+        assert_eq!(read(&dir, "a.txt"), "two\n", "工作区要跟上");
+        assert_eq!(repo.state(), git2::RepositoryState::Clean);
+    }
+
+    #[test]
+    fn merge_干净合并落一个两父提交() {
+        let (dir, repo) = temp_repo("merge-clean");
+        commit_file(&repo, "a.txt", "one\n", "基线", "Alice");
+        let main_branch = current_branch(&repo);
+        branch_here(&repo, "feature");
+        let theirs = commit_file(&repo, "theirs.txt", "theirs\n", "对方提交", "Bob");
+        switch_to(&repo, &main_branch);
+        let ours = commit_file(&repo, "ours.txt", "ours\n", "我方提交", "Alice");
+
+        let out = merge(&dir, "feature");
+        assert_eq!(out["outcome"], "merged");
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        assert_eq!(head.parent_count(), 2, "合并提交必须是两父");
+        // 第一父是「合到哪」、第二父是「合了谁」—— 反了的话 first-parent 历史是一场相反的合并
+        assert_eq!(head.parent_id(0).unwrap(), ours);
+        assert_eq!(head.parent_id(1).unwrap(), theirs);
+        assert_eq!(out["head_sha"], head.id().to_string());
+        assert_eq!(
+            head.summary().unwrap(),
+            format!("Merge branch 'feature' into {main_branch}")
+        );
+        // 两边的文件都在，而且合并状态已清干净
+        assert!(dir.join("ours.txt").exists() && dir.join("theirs.txt").exists());
+        assert_eq!(repo.state(), git2::RepositoryState::Clean);
+        let st: serde_json::Value =
+            serde_json::from_str(&merge_state(dir.to_str().unwrap()).unwrap()).unwrap();
+        assert_eq!(st["merging"], false);
+    }
+
+    #[test]
+    fn merge_已经包含对方时是_up_to_date() {
+        let (dir, repo) = temp_repo("merge-uptodate");
+        commit_file(&repo, "a.txt", "one\n", "基线", "Alice");
+        let main_branch = current_branch(&repo);
+        branch_here(&repo, "feature");
+        let tip = commit_file(&repo, "a.txt", "two\n", "feature 的提交", "Bob");
+        switch_to(&repo, &main_branch);
+        // 先快进一次
+        assert_eq!(merge(&dir, "feature")["outcome"], "fast_forward");
+        // 再合一次：什么都别做（既不报错也别多一个提交）
+        let out = merge(&dir, "feature");
+        assert_eq!(out["outcome"], "up_to_date");
+        assert_eq!(out["head_sha"], tip.to_string());
+        assert_eq!(repo.head().unwrap().peel_to_commit().unwrap().id(), tip);
+    }
+
+    #[test]
+    fn merge_冲突时停在合并中并列出文件() {
+        let (dir, repo, main_branch) = conflict_repo("merge-conflict");
+
+        let out = merge(&dir, "feature");
+        assert_eq!(out["outcome"], "conflict", "冲突**不是错误**，是一条出口");
+        assert_eq!(out["conflicts"], serde_json::json!(["a.txt"]));
+        assert_eq!(out["head_sha"], repo.head().unwrap().target().unwrap().to_string());
+        // 仓库停在合并中：MERGE_HEAD 在（libgit2 自己写的），工作区带冲突标记
+        assert_eq!(repo.state(), git2::RepositoryState::Merge);
+        let work = read(&dir, "a.txt");
+        assert!(work.contains("<<<<<<<") && work.contains(">>>>>>>"), "工作区应带冲突标记：{work}");
+
+        // merge_state 是「合并到一半被杀」之后唯一的入口（风险 ①）
+        let st: serde_json::Value =
+            serde_json::from_str(&merge_state(dir.to_str().unwrap()).unwrap()).unwrap();
+        assert_eq!(st["merging"], true);
+        assert_eq!(st["branch"], main_branch);
+        assert_eq!(st["conflicts"][0]["path"], "a.txt");
+        assert_eq!(st["conflicts"][0]["kind"], "both_modified");
+        assert!(st["message"].as_str().unwrap().contains("Merge branch 'feature'"));
+        assert!(!st["merge_head_sha"].as_str().unwrap().is_empty(), "MERGE_HEAD 要报出来");
+
+        // repo_status 的 merging 跟着翻（面板据此给「继续 / 放弃」，而不是让用户对着标记猜）
+        let status: serde_json::Value =
+            serde_json::from_str(&repo_status(dir.to_str().unwrap()).unwrap()).unwrap();
+        assert_eq!(status["merging"], true);
+        assert_eq!(status["head_sha"], out["head_sha"]);
+
+        // 已在合并中：不许再叠一次 —— MERGE_HEAD 被覆盖后「放弃合并」会回到错的地方
+        let err = other_message(
+            merge_branch(dir.to_str().unwrap(), "feature", None, "合并者", "m@example.com")
+                .unwrap_err(),
+        );
+        assert!(err.contains("上一次合并还没结束"), "实际：{err}");
+    }
+
+    #[test]
+    fn analyze_conflicts_给出三方与差异且一个字都不落盘() {
+        let (dir, _repo, _) = conflict_repo("analyze-conflicts");
+        assert_eq!(merge(&dir, "feature")["outcome"], "conflict");
+        let before = read(&dir, "a.txt");
+
+        let v: serde_json::Value =
+            serde_json::from_str(&analyze_conflicts(dir.to_str().unwrap()).unwrap()).unwrap();
+        let f = &v["files"][0];
+        assert_eq!(f["path"], "a.txt");
+        assert_eq!(f["kind"], "both_modified");
+        assert_eq!(f["binary"], false);
+        assert_eq!(f["truncated"], false);
+        assert_eq!(v["truncated"], false);
+        // 三方 sha 与大小：上层据此说「我方 5 字节 / 对方 7 字节」
+        assert!(!f["ours_sha"].as_str().unwrap().is_empty());
+        assert!(!f["theirs_sha"].as_str().unwrap().is_empty());
+        assert!(!f["base_sha"].as_str().unwrap().is_empty());
+        assert_eq!(f["ours_size"], 5);
+        assert_eq!(f["theirs_size"], 7);
+        // 冲突块就是 ours ↔ theirs 的 hunk：行首字符是语义，丢了上层就分不出加行 / 删行
+        let patch = f["patch"].as_str().unwrap();
+        assert!(patch.contains("-ours"), "patch 少了删除行：{patch}");
+        assert!(patch.contains("+theirs"), "patch 少了新增行：{patch}");
+
+        // **只读**：工作区那份（带标记的）一个字都没动 —— 预解析在弹窗出现那一刻就跑，
+        // 它要是会写盘，用户还没点任何按钮仓库就已经变了
+        assert_eq!(before, read(&dir, "a.txt"));
+
+        // 不在合并中时**报错**，而不是给空数组（空数组会被读成「没有冲突」）
+        let (clean, _repo) = temp_repo("analyze-no-merge");
+        assert!(analyze_conflicts(clean.to_str().unwrap()).is_err());
+    }
+
+    #[test]
+    fn resolve_conflict_用我方_内容进工作区且清掉冲突() {
+        let (dir, repo, _) = conflict_repo("resolve-ours");
+        assert_eq!(merge(&dir, "feature")["outcome"], "conflict");
+
+        resolve_conflict(dir.to_str().unwrap(), "a.txt", "ours").unwrap();
+        assert_eq!(read(&dir, "a.txt"), "ours\n", "取的是索引里那一侧，不是带标记的工作区");
+        assert!(!repo.index().unwrap().has_conflicts(), "解决后该路径不该再是冲突");
+
+        let st: serde_json::Value =
+            serde_json::from_str(&merge_state(dir.to_str().unwrap()).unwrap()).unwrap();
+        assert_eq!(st["conflicts"].as_array().unwrap().len(), 0);
+        assert_eq!(st["merging"], true, "解决完不等于合并结束 —— 还要「提交合并」");
+
+        // 拼错的一侧要被拒绝：静默成默认值的话，「用对方」会变成「用我方」而没人发现
+        let err = other_message(resolve_conflict(dir.to_str().unwrap(), "a.txt", "their").unwrap_err());
+        assert!(err.contains("ours / theirs"), "实际：{err}");
+        // 已经解决过的路径也不许再「解决」一遍（那会把手工结果冲掉）
+        let err = other_message(resolve_conflict(dir.to_str().unwrap(), "a.txt", "theirs").unwrap_err());
+        assert!(err.contains("不在冲突清单里"), "实际：{err}");
+    }
+
+    #[test]
+    fn merge_continue_落两父提交并清掉合并状态() {
+        let (dir, repo, _) = conflict_repo("merge-continue");
+        assert_eq!(merge(&dir, "feature")["outcome"], "conflict");
+
+        // 还有没解决的 → 报错并给出**条数**（不是一句「失败」）
+        let err = other_message(
+            merge_continue(dir.to_str().unwrap(), "msg", "合并者", "m@example.com").unwrap_err(),
+        );
+        assert!(err.contains("还有 1 个文件没解决"), "实际：{err}");
+
+        resolve_conflict(dir.to_str().unwrap(), "a.txt", "ours").unwrap();
+        let sha = merge_continue(
+            dir.to_str().unwrap(),
+            "Merge branch 'feature' 的冲突已解决",
+            "合并者",
+            "merge@example.com",
+        )
+        .unwrap();
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        assert_eq!(head.id().to_string(), sha);
+        assert_eq!(head.parent_count(), 2);
+        assert_eq!(head.summary().unwrap(), "Merge branch 'feature' 的冲突已解决");
+        // 解决后的内容进了提交（不是带冲突标记的那一份）
+        let tree = head.tree().unwrap();
+        let entry = tree.get_name("a.txt").unwrap();
+        assert_eq!(repo.find_blob(entry.id()).unwrap().content(), b"ours\n");
+        // 状态清干净了：MERGE_HEAD 没了，merging 翻回 false
+        assert_eq!(repo.state(), git2::RepositoryState::Clean);
+        let st: serde_json::Value =
+            serde_json::from_str(&merge_state(dir.to_str().unwrap()).unwrap()).unwrap();
+        assert_eq!(st["merging"], false);
+        assert!(st["merge_head_sha"].as_str().unwrap().is_empty());
+    }
+
+    #[test]
+    fn merge_continue_不给信息时用_merge_msg() {
+        let (dir, repo, main_branch) = conflict_repo("merge-continue-msg");
+        assert_eq!(merge(&dir, "feature")["outcome"], "conflict");
+        resolve_conflict(dir.to_str().unwrap(), "a.txt", "theirs").unwrap();
+        // 空信息 = 用 libgit2 写下的 MERGE_MSG（合并提交**必须**有信息：空信息在日志里是一行空白）
+        merge_continue(dir.to_str().unwrap(), "   ", "合并者", "m@example.com").unwrap();
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        // libgit2 写下的 MERGE_MSG 是 `Merge branch 'feature'`（不带 into <branch>，
+        // 与 git 自己的行为一致）——这里钉的是「空信息时用的是它」，不是那句具体的措辞
+        assert!(
+            head.summary().unwrap().contains("Merge branch 'feature'"),
+            "实际：{:?}",
+            head.summary()
+        );
+        assert!(!main_branch.is_empty());
+        // 取的是对方那一侧
+        let tree = head.tree().unwrap();
+        let entry = tree.get_name("a.txt").unwrap();
+        assert_eq!(repo.find_blob(entry.id()).unwrap().content(), b"theirs\n");
+    }
+
+    #[test]
+    fn merge_abort_回到合并前且不留冲突标记() {
+        let (dir, repo, _) = conflict_repo("merge-abort");
+        assert_eq!(merge(&dir, "feature")["outcome"], "conflict");
+        let head_before = repo.head().unwrap().target().unwrap();
+
+        merge_abort(dir.to_str().unwrap()).unwrap();
+        assert_eq!(repo.state(), git2::RepositoryState::Clean);
+        assert_eq!(repo.head().unwrap().target().unwrap(), head_before, "HEAD 不许动");
+        assert_eq!(read(&dir, "a.txt"), "ours\n", "工作区回到合并前（我方那一份）");
+        let st: serde_json::Value =
+            serde_json::from_str(&merge_state(dir.to_str().unwrap()).unwrap()).unwrap();
+        assert_eq!(st["merging"], false);
+        assert!(st["conflicts"].as_array().unwrap().is_empty());
+        // 没有进行中的合并时：报错，而不是静默成功（静默成功会让上层以为「已经放弃了」）
+        assert!(merge_abort(dir.to_str().unwrap()).is_err());
+    }
+
+    #[test]
+    fn write_resolved_写手工内容并拒绝越界路径() {
+        let (dir, repo, _) = conflict_repo("write-resolved");
+        assert_eq!(merge(&dir, "feature")["outcome"], "conflict");
+
+        write_resolved(dir.to_str().unwrap(), "a.txt", "手工合并的结果\n").unwrap();
+        assert_eq!(read(&dir, "a.txt"), "手工合并的结果\n");
+        assert!(!repo.index().unwrap().has_conflicts());
+
+        // 路径收口：绝对路径 / `..` / `.git` 一律拒绝 —— 上层传来的字符串不能写到仓库外面去
+        for bad in ["/etc/passwd", "../outside.txt", ".git/config", "  "] {
+            assert!(
+                write_resolved(dir.to_str().unwrap(), bad, "x").is_err(),
+                "路径 {bad:?} 必须被拒绝"
+            );
+        }
+    }
+
+    #[test]
+    fn merge_工作区脏时拒绝而不是覆盖() {
+        let (dir, repo, _) = conflict_repo("merge-dirty");
+        std::fs::write(dir.join("a.txt"), "还没提交的改动\n").unwrap();
+        let err = other_message(
+            merge_branch(dir.to_str().unwrap(), "feature", None, "合并者", "m@example.com")
+                .unwrap_err(),
+        );
+        assert!(err.contains("未提交改动"), "实际：{err}");
+        // 拒绝之后工作区必须原样：合并的前置检查要是漏了，这里就是用户改动被吞掉的地方
+        assert_eq!(read(&dir, "a.txt"), "还没提交的改动\n");
+        assert_eq!(repo.state(), git2::RepositoryState::Clean);
+    }
+
+    #[test]
+    fn merge_浅克隆拒绝并指出去哪加深() {
+        let (dir, repo) = temp_repo("merge-shallow");
+        commit_file(&repo, "a.txt", "one\n", "基线", "Alice");
+        branch_here(&repo, "feature");
+        commit_file(&repo, "a.txt", "two\n", "feature 的提交", "Bob");
+        // 造出浅边界（真机上由 depth(1) clone 产生；local transport 会把全史搬过来，所以要手工写）
+        let tip = repo.head().unwrap().target().unwrap();
+        std::fs::write(dir.join(".git/shallow"), format!("{tip}\n")).unwrap();
+        assert!(repo.is_shallow(), "前置：这个仓库此刻应是浅克隆");
+
+        let err = other_message(
+            merge_branch(dir.to_str().unwrap(), "feature", None, "合并者", "m@example.com")
+                .unwrap_err(),
+        );
+        // 报的是「没有共同祖先」这件事，并给出路（加深历史）—— 风险 ③ 的对策
+        assert!(err.contains("浅克隆") && err.contains("加深"), "实际：{err}");
+    }
+
+    #[test]
+    fn merge_目标分支只在远端时引擎自己拉一次() {
+        // 远端：一个带 `from-remote` 分支的仓库（本地路径当远端 —— 与其它 clone 测试同一手法）
+        let (origin_dir, origin) = temp_repo("merge-remote-origin");
+        commit_file(&origin, "a.txt", "one\n", "基线", "Alice");
+        let origin_main = current_branch(&origin);
+        branch_here(&origin, "from-remote");
+        let tip = commit_file(&origin, "b.txt", "bee\n", "只在远端的分支", "Bob");
+        switch_to(&origin, &origin_main);
+
+        let into = std::env::temp_dir().join(format!("bb-git-merge-remote-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&into);
+        clone_repo(origin_dir.to_str().unwrap(), into.to_str().unwrap(), None, None).unwrap();
+        let repo = git2::Repository::open(&into).unwrap();
+        // 前置：本地没有这个分支。clone 会把 `refs/remotes/origin/*` 一起搬过来，
+        // 所以还要把那条远端跟踪引用删掉 —— 否则这条测试根本走不到「引擎自己拉一次」
+        // （local transport 与真机上的浅克隆不同，它连全史一起搬）
+        assert!(repo.find_reference("refs/heads/from-remote").is_err());
+        repo.find_reference("refs/remotes/origin/from-remote")
+            .unwrap()
+            .delete()
+            .unwrap();
+        assert!(repo.find_reference("refs/remotes/origin/from-remote").is_err());
+
+        let out = merge(&into, "from-remote");
+        assert_eq!(out["outcome"], "fast_forward");
+        assert_eq!(out["head_sha"], tip.to_string());
+        assert_eq!(read(&into, "b.txt"), "bee\n");
+
+        // 拉不到的分支要给可读原因，而不是一句 libgit2 的英文
+        let err = other_message(
+            merge_branch(into.to_str().unwrap(), "根本不存在", None, "合并者", "m@example.com")
+                .unwrap_err(),
+        );
+        assert!(err.contains("找不到分支"), "实际：{err}");
     }
 }
