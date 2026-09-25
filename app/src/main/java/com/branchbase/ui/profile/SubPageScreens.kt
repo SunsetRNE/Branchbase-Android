@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -81,6 +80,10 @@ import com.branchbase.ui.repository.CloneDialogState
 import com.branchbase.ui.repository.CloneProgressDialog
 import com.branchbase.ui.repository.rememberMergeFlowState
 import com.branchbase.ui.repository.runMerge
+import com.branchbase.ui.LoadState
+import com.branchbase.ui.loadStateOf
+import com.branchbase.ui.theme.SkeletonRows
+import com.branchbase.ui.theme.skeletonRowsFor
 import com.branchbase.ui.repository.clonePhaseText
 import com.branchbase.ui.theme.selectionColor
 import com.branchbase.BuildConfig
@@ -1015,6 +1018,13 @@ private data class LocalRepoFacts(val branch: String, val ownerRepo: Pair<String
  * 200ms 是「进度条看着连贯」与「不白烧电」的折中：读的是一份**进程内快照**
  * （`nativeGitCloneProgress` 不碰磁盘、不发网络），但轮询本身会唤醒 UI 线程。
  */
+// 「＋拉取仓库」弹窗的列表区：**固定高度**（≈4 行），加载中 / 空 / 有内容都是它 ——
+// 弹窗的高度因此不随取数结果变（`git-mode-design.md` §3.5）。行高 44 = 14sp 文字 + 上下 10dp。
+private val PICKER_LIST_HEIGHT = 176.dp
+private const val PICKER_LIST_HEIGHT_DP = 176
+private val PICKER_ROW_HEIGHT = 44.dp
+private const val PICKER_ROW_HEIGHT_DP = 44
+
 private const val CLONE_POLL_MS = 200L
 
 /**
@@ -1635,23 +1645,33 @@ fun LocalRepoScreen(
             ) {
                 Text(stringResource(R.string.label_choose_repo_to_clone), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
                 Spacer(Modifier.height(10.dp))
-                if (loadingRepos) {
-                    Text(stringResource(R.string.state_loading_ellipsis), fontSize = 13.sp, color = Primer.TextTertiary)
-                } else if (myRepos.isEmpty()) {
-                    Text(stringResource(R.string.state_no_repos), fontSize = 13.sp, color = Primer.TextTertiary)
-                } else {
-                    LazyColumn(Modifier.heightIn(max = 400.dp)) {
-                        items(myRepos) { repo ->
-                            Row(
-                                Modifier.fillMaxWidth()
-                                    .clickable { doClone(repo.fullName, repo.name) }
-                                    .padding(vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(repo.fullName, fontSize = 14.sp, color = Primer.TextPrimary, modifier = Modifier.weight(1f))
-                                // 我的 / 协作 / 他人：`/user/repos` 默认就包含协作与组织仓库，
-                                // 不标出来用户会以为列表里全是自己的
-                                RepoRelationBadge(repo.relation)
+                // 列表区**等高**：加载中 / 空 / 有内容都占同一个高度 ——
+                // 一行「加载中…」变成 400dp 的列表，弹窗会当着用户的面长高（占位的形状要跟内容一致）。
+                // 行高 44 = 14sp 文字 + 上下 10dp 内边距，骨架按它铺
+                Box(Modifier.fillMaxWidth().height(PICKER_LIST_HEIGHT)) {
+                    when (loadStateOf(loadingRepos, myRepos.size)) {
+                        LoadState.Loading -> SkeletonRows(
+                            rows = skeletonRowsFor(areaDp = PICKER_LIST_HEIGHT_DP, rowDp = PICKER_ROW_HEIGHT_DP),
+                            rowHeight = PICKER_ROW_HEIGHT,
+                        )
+                        LoadState.Empty -> Text(
+                            stringResource(R.string.state_no_repos),
+                            fontSize = 13.sp,
+                            color = Primer.TextTertiary,
+                        )
+                        LoadState.Ready -> LazyColumn(Modifier.fillMaxSize()) {
+                            items(myRepos) { repo ->
+                                Row(
+                                    Modifier.fillMaxWidth()
+                                        .clickable { doClone(repo.fullName, repo.name) }
+                                        .padding(vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(repo.fullName, fontSize = 14.sp, color = Primer.TextPrimary, modifier = Modifier.weight(1f))
+                                    // 我的 / 协作 / 他人：`/user/repos` 默认就包含协作与组织仓库，
+                                    // 不标出来用户会以为列表里全是自己的
+                                    RepoRelationBadge(repo.relation)
+                                }
                             }
                         }
                     }

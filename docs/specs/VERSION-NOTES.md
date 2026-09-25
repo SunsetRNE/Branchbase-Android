@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.1.1**）
-与 §三 `versionCode` 流水（129 → **206**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.1.2**）
+与 §三 `versionCode` 流水（129 → **207**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,44 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.1.1 → 1.0.22）
+## 二、`versionName` 流水（1.1.2 → 1.0.22）
+
+### 1.1.2
+
+**弹窗与面板的占位返工：不许「掉下来 → 填充 → 瞬间撑高」。**
+
+用户的原话是「预加载动画不是很好看……现有的弹窗会掉下来，然后再填充东西，然后瞬间撑高整个弹窗」。
+查下来三条根因叠在一起，都不是曲线能调的：
+
+① **延迟现身用错了地方**：`PlaceholderSwap` 的骨架延迟 120ms 是为「页面缓存秒回时别闪一块灰」设的，
+   而用户主动点开的浮层取数必然要走一次引擎或网络 —— 这 120ms 只剩一个作用：先画一块**空的**容器。
+   现在浮层传 `skeletonDelayMs = 0`，面板这一族干脆直接画 `SkeletonRows`（不再有「独立骨架」那种写法）。
+
+② **占位与内容不同高**：提交图骨架 120dp、内容能到 330dp，于是每次取数都把面板撑开一次。
+   现在**内容区固定高度**：`GitPanelViewHost.panelViewAreaHeight` 按档给（工作区 280 / 提交图 330 /
+   引用树 280 / 文件历史 260），两个弹窗各有 `PICKER_LIST_HEIGHT`(176) 与 `BRANCH_LIST_HEIGHT`(240)——
+   骨架、空态、内容、失败态**都活在这个盒子里**，取数前后面板与弹窗的尺寸一个字都不变。
+   代价写进文档：内容很短时会留白（留白稳定，撑高跳动，这次选前者）。
+
+③ **`isEmpty()` 当加载判据**：分支选择弹窗此前用 `branches.isEmpty()` 表示「加载中」——
+   一个真的没有分支的空仓库会**永远显示「加载中」**。现在三态显式化：
+   `ui/LoadState.kt` 的 `LoadState` / `loadStateOf(loading, count)`（纯函数 + 单测），
+   分支弹窗为此加了 `branchesLoaded` 标志，空仓库如实说「这个仓库还没有任何分支」。
+
+**顺带修掉一处白取数**：`LocalRepoGitState` 多了 `loaded` 字段（「这份快照读完了没有」，
+与 `exists` 是两件事）。此前首帧 `exists = false` 会被提交图档当成「没有本地副本」去择源 ——
+先按 REST 取一次、快照到了再按本地取一次，**图会闪两下**。现在 `loaded` 是闸门。
+
+**占位的形状也照实了**：骨架行数按实测高度算（`skeletonRowsFor(areaDp, rowDp, gapDp)`，
+纯函数 5 例单测），行高与真实行同源（`GRAPH_ROW_HEIGHT` / `REF_ROW_HEIGHT` / `HISTORY_ROW_HEIGHT`
+都是 internal 常量）；空态与失败态**居中**在固定内容区里 —— 靠上的一行小字会被读成「没加载出来」。
+
+验证：`:app:testDebugUnitTest` 939 → **943** 例（新增 `LoadStateTest` 3 例 + `GitWorkbenchWiringTest`
+「占位：立刻现身、与内容等高、三态分明」1 例，钉住 `panelViewAreaHeight` / `!git.loaded` /
+`loadStateOf` / 两个弹窗的等高列表区 / 不许再出现 `PlaceholderSwap(loading = true`）·
+`assembleDebug` · `check-i18n --min-coverage 100`（新增 1 条、删掉 2 条已无人用的「加载中」文案）。
+规格回写：[`git-mode-design.md`](git-mode-design.md) §3.5（新）与 §3.3 的「内容加载」行、
+[`ui-design.md`](ui-design.md) §3 元素级表 + 「浮层里的占位」一节。
 
 ### 1.1.1
 
@@ -2809,7 +2846,7 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（206 → 129）
+## 三、`versionCode` 流水（207 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
@@ -2821,6 +2858,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 > - **129**：主题彻底收敛（A+B+C 全量收角色 + 两道源码级钉子）（一次提交，故 +1）
 > - **142**：慢帧守望（帧级定位）+ 日志追加写修复 + 设置行图标居中（一次发布，故 +1）
 > - **146**：设置页账户卡头像改走统一 Avatar（真实图标 + 圆形裁切）+ 账号头像地址回落会话（一次提交，故 +1）
+
+- **207**：弹窗与面板的占位返工 —— 立刻现身（浮层不用 120ms 延迟）+ 内容区固定高 +
+`LoadState` 三态判定；顺带修掉提交图「先白取一次 REST」（`LocalRepoGitState.loaded`）
++ `SkeletonRows` / `skeletonRowsFor` 收成共用原语（5 例单测）+ 空/失败态居中
++ `LoadStateTest` 3 例、`GitWorkbenchWiringTest` +1 例；删掉 2 条无人用的「加载中」文案（一次提交，故 +1）
 
 - **206**：Git 模式阶段 5 收口 —— 分叉页第三条「合并远端」+ PR 冲突「拉到本地解决」
 + 引擎 `merge_branch` 认显式远端名 `origin/x`（裸名会解析成本地同名分支 = HEAD 自己）

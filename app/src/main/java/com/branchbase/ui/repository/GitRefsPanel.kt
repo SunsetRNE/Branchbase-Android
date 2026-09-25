@@ -4,12 +4,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,12 +34,16 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.ui.LoadState
+import com.branchbase.ui.loadStateOf
+import com.branchbase.ui.theme.SkeletonRows
+import com.branchbase.ui.theme.skeletonRowsFor
 import com.branchbase.R
 import com.branchbase.ui.log.LogCategory
 import com.branchbase.ui.log.Logger
-import com.branchbase.ui.theme.PlaceholderSwap
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -130,8 +134,15 @@ fun GitRefsPanel(
             return@Column
         }
 
-        if (loading) {
-            PlaceholderSwap(loading = true, skeleton = { RefsSkeleton() }) { }
+        if (loadStateOf(loading, view?.let { it.locals.size + it.remotes.size + it.tags.size } ?: 0) == LoadState.Loading) {
+            // 骨架立刻出现并铺满宿主的内容区（浮层不适用「延迟现身」）；行数按实测高度算
+            BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
+                SkeletonRows(
+                    rows = skeletonRowsFor(maxHeight.value.toInt(), REF_ROW_HEIGHT_DP, gapDp = 1),
+                    rowHeight = REF_ROW_HEIGHT,
+                    gap = 1.dp,
+                )
+            }
             return@Column
         }
 
@@ -150,18 +161,21 @@ fun GitRefsPanel(
 
         val refs = view
         if (refs == null || refs.isEmpty) {
-            Text(
-                stringResource(R.string.state_refs_empty),
-                fontSize = 12.sp,
-                color = Primer.TextTertiary,
-                modifier = Modifier.padding(vertical = 10.dp),
-            )
+            PanelEmptyArea(Modifier.weight(1f)) {
+                Text(
+                    stringResource(R.string.state_refs_empty),
+                    fontSize = 12.sp,
+                    color = Primer.TextTertiary,
+                    textAlign = TextAlign.Center,
+                )
+            }
             RefFooter(onRefresh, onOpenSync, onOpenBranches, syncEnabled = true)
             return@Column
         }
 
         LazyColumn(
-            Modifier.fillMaxWidth().heightIn(max = 240.dp),
+            // 取满剩余高度（宿主的内容区是固定高的，列表不再自己限高）
+            Modifier.fillMaxWidth().weight(1f),
             verticalArrangement = Arrangement.spacedBy(1.dp),
         ) {
             item(key = "local-header") {
@@ -382,18 +396,9 @@ private fun RefFooter(
     }
 }
 
-@Composable
-private fun RefsSkeleton() {
-    Column(Modifier.fillMaxWidth()) {
-        repeat(4) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 5.dp)
-                    .height(11.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Primer.Gray150),
-            )
-        }
-    }
-}
+/**
+ * 引用树一行的高度（本地 / 远端 / tag 行都是 6dp 上下内边距 + 11.5sp 等宽体）。
+ * **internal**：宿主的档级骨架按同一个行高铺。
+ */
+internal val REF_ROW_HEIGHT = 22.dp
+internal const val REF_ROW_HEIGHT_DP = 22

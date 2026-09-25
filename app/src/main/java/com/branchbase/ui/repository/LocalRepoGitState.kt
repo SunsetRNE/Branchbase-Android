@@ -39,6 +39,17 @@ data class LocalRepoGitState(
     val merging: Boolean = false,
     /** 合并中**还剩几个**冲突文件（`merging = false` 时恒为 0）。 */
     val mergeConflicts: Int = 0,
+    /**
+     * 这份快照**读完了没有**（[rememberLocalRepoGitState] 的初值是 `loaded = false`）。
+     *
+     * 为什么必须与 [exists] 分开：`exists` 是「本地有没有这个副本」这个**事实**，
+     * 而首帧的 `exists = false` 只是「还没读到」。两者混用的代价是两处真机上看得见的错：
+     * ① 面板第一帧按「未拉取到本地」渲染，几十毫秒后再跳成真实内容；
+     * ② 提交图档拿 `exists = false` 去择源 → 先按 REST 取一次（**一次多余的网络请求**），
+     *    等快照到了再按本地取一次 —— 两张图前后闪一下。
+     * 所以档内容的渲染与择源都以 `loaded` 为闸门（见 `GitPanelViewHost`）。
+     */
+    val loaded: Boolean = true,
 ) {
     /** 需要推送 / 需要拉取 / 分叉 —— 面板徽标与动作开关都用它。 */
     /** 改动文件数（徽标 / 摘要用它，免得两处各取一次长度）。 */
@@ -100,7 +111,10 @@ fun isShallowClone(repoDir: String): Boolean =
 suspend fun loadLocalRepoGitState(context: Context, repo: String): LocalRepoGitState =
     withContext(Dispatchers.IO) {
         val dir = File(localRepoDir(context, repo))
-        if (!File(dir, ".git").exists()) return@withContext LocalRepoGitState(exists = false)
+        // 「读完了，没有本地副本」也是**读完了**：loaded 与 exists 是两件事（见字段说明）
+        if (!File(dir, ".git").exists()) {
+            return@withContext LocalRepoGitState(exists = false, loaded = true)
+        }
         val status: GitStatus? = RustBridge.gitStatus(dir.absolutePath)?.let { parseGitStatus(it) }
         // 合并中才去读第二个接口：正常状态下这一条不产生任何额外调用，
         // 而合并中不读的话，面板就只能说「合并中」、说不出「还剩几个」
@@ -127,7 +141,9 @@ suspend fun loadLocalRepoGitState(context: Context, repo: String): LocalRepoGitS
 @Composable
 fun rememberLocalRepoGitState(repo: String, tick: Int = 0): LocalRepoGitState {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val state by produceState(LocalRepoGitState(exists = false), repo, tick) {
+    // 初值 `loaded = false` + `exists = false`：这一帧只说明「还没读到」，不说明「没有本地仓库」。
+    // 用它去渲染档内容或择源，就会先画错一次再改（面板跳一下 / 提交图白取一次 REST）
+    val state by produceState(LocalRepoGitState(exists = false, loaded = false), repo, tick) {
         value = loadLocalRepoGitState(context, repo)
     }
     return state

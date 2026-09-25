@@ -4,11 +4,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -22,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -30,11 +33,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.Dp
 import com.branchbase.R
 import com.branchbase.ui.theme.Primer
+import com.branchbase.ui.theme.SkeletonBar
+import com.branchbase.ui.theme.SkeletonRows
+import com.branchbase.ui.theme.skeletonRowsFor
 
 /** 面板视图的统一宽度：气泡贴着屏幕角落，再宽就顶到正文了。 */
 private val PANEL_WIDTH = 268.dp
+
+// 三个列表档的行高真源在各自的档文件里（`GRAPH_ROW_HEIGHT` / `REF_ROW_HEIGHT` /
+// `HISTORY_ROW_HEIGHT`，都是 internal）—— 档级骨架与真实行必须同高，两处各写一个数就会漂。
 
 /**
  * 面板视图档的宿主：**容器 + 标签条 + 内容**。
@@ -100,53 +110,138 @@ fun GitPanelViewHost(
     ) {
         GitPanelTabs(current = kind, onSelect = onSelect)
         Spacer(Modifier.height(8.dp))
+        // ── 内容区：**固定高度**（按档取，见 panelViewAreaHeight） ──
+        //
+        // 这是「取数前后面板高度不变」的实现点：骨架 / 空态 / 内容 / 失败**都活在这个盒子里**，
+        // 所以数据到达时变的是盒子里的东西，不是盒子本身。此前骨架只有 120dp 而内容能到 300dp+，
+        // 于是每次取数都会把整个面板撑高一次（`git-mode-design.md` §3.5 的现场）。
+        // clipToBounds：骨架行数按盒子高度算（`skeletonRowsFor`），多出来的也不许画到面板外
+        Box(Modifier.fillMaxWidth().height(panelViewAreaHeight(kind)).clipToBounds()) {
+            // 本地仓库快照还没读到时**先不出内容**：`git.loaded == false` 意味着
+            // 「还不知道有没有本地副本」，拿 `exists = false` 去渲染工作区档会先画一句
+            // 「未拉取到本地」，拿它去择源会让提交图先白取一次 REST（见 `LocalRepoGitState.loaded`）
+            if (!git.loaded) {
+                PanelAreaSkeleton(kind)
+            } else {
+                when (kind) {
+                    GitPanelKind.Workspace -> GitWorkspaceBody(
+                        git = git,
+                        onRefresh = onRefresh,
+                        onOpenSync = onOpenSync,
+                        onOpenBranches = onOpenBranches,
+                        onOpenDiff = onOpenDiff,
+                        onMerge = onMerge,
+                        onResumeMerge = onResumeMerge,
+                        onAbortMerge = onAbortMerge,
+                    )
+                    GitPanelKind.Graph -> CommitGraphPanel(
+                        host = host,
+                        token = token,
+                        owner = owner,
+                        repo = repo,
+                        branch = git.branch,
+                        repoDir = repoDir,
+                        localRepoExists = git.exists,
+                        refreshTick = refreshTick,
+                        dirtyCount = git.dirtyCount,
+                        onOpenWorkspace = { onSelect(GitPanelKind.Workspace) },
+                        onOpenSync = onOpenSync,
+                        onDeepen = onDeepen,
+                        onOpenCommitDiff = onOpenCommitDiff,
+                    )
+                    GitPanelKind.FileHistory -> GitFileHistoryPanel(
+                        host = host,
+                        token = token,
+                        owner = owner,
+                        repo = repo,
+                        branch = git.branch,
+                        repoDir = repoDir,
+                        localRepoExists = git.exists,
+                        // 代码页没有「当前文件」：null 时这一档如实说明去哪看（面板里不显示空列表）
+                        filePath = filePath,
+                        refreshTick = refreshTick,
+                        onOpenCommitDiff = onOpenCommitDiff,
+                        onDeepen = onDeepen,
+                    )
+                    GitPanelKind.Refs -> GitRefsPanel(
+                        repoDir = repoDir,
+                        localRepoExists = git.exists,
+                        refreshTick = refreshTick,
+                        onRefresh = onRefresh,
+                        onOpenSync = onOpenSync,
+                        onOpenBranches = onOpenBranches,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 档内容「没有东西可说」（空仓库 / 取数失败）时的居中区。
+ *
+ * 内容区是**固定高度**的（见 [panelViewAreaHeight]）：不居中的话，一个空仓库会在 330dp 的面板里
+ * 顶着一行小字，看起来像没加载出来。调用方传 `Modifier.weight(1f)`（吃掉其余空间），
+ * 页脚之类的固定元素仍然留在底部。
+ */
+@Composable
+internal fun PanelEmptyArea(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { content() }
+}
+
+/**
+ * 视图档内容区的高度（**按档固定**）：骨架、空态、内容、失败态都在这个尺寸里。
+ *
+ * 数值取自各档原本的内容上限 + 页脚（列表 `heightIn(max=…)` 的时代）：
+ * 提交图 260+70、引用树 240+40、文件历史 220+40、工作区约 280。
+ * 取整之后四档各自是一个稳定的「工作台尺寸」——
+ * 面板不再因为「取数回来了」而改变大小（§3.5），代价是内容很短时会留白：
+ * 留白是**稳定**的，撑高是**跳动**的，这次返工选前者。
+ */
+internal fun panelViewAreaHeight(kind: GitPanelKind): Dp = when (kind) {
+    GitPanelKind.Workspace -> 280.dp
+    GitPanelKind.Graph -> 330.dp
+    GitPanelKind.Refs -> 280.dp
+    GitPanelKind.FileHistory -> 260.dp
+}
+
+/**
+ * 「本地仓库快照还没读到」时的档级占位（一次面板打开最多出现几十毫秒）。
+ *
+ * 它按档的形状铺满内容区（工作区多两条「分支行 / 胶囊」的横条），行高与真实行同源 ——
+ * 目的是让随后的内容**填在同一个尺寸里**，而不是好看。
+ */
+@Composable
+private fun PanelAreaSkeleton(kind: GitPanelKind) {
+    // 区域高度取自 [panelViewAreaHeight] 这个真源：写死数字的话，改档高时骨架会先漂
+    val area = panelViewAreaHeight(kind).value.toInt()
+    Column(Modifier.fillMaxSize()) {
         when (kind) {
-            GitPanelKind.Workspace -> GitWorkspaceBody(
-                git = git,
-                onRefresh = onRefresh,
-                onOpenSync = onOpenSync,
-                onOpenBranches = onOpenBranches,
-                onOpenDiff = onOpenDiff,
-                onMerge = onMerge,
-                onResumeMerge = onResumeMerge,
-                onAbortMerge = onAbortMerge,
+            GitPanelKind.Workspace -> {
+                SkeletonBar(height = 16.dp)
+                Spacer(Modifier.height(8.dp))
+                SkeletonBar(height = 26.dp)
+                Spacer(Modifier.height(10.dp))
+                // 减去上面三条横条与间距（16+8+26+10 = 60）
+                SkeletonRows(
+                    rows = skeletonRowsFor(areaDp = area - 60, rowDp = 28, gapDp = 2),
+                    rowHeight = 28.dp,
+                    gap = 2.dp,
+                )
+            }
+            GitPanelKind.Graph -> SkeletonRows(
+                rows = skeletonRowsFor(areaDp = area, rowDp = GRAPH_ROW_HEIGHT_DP),
+                rowHeight = GRAPH_ROW_HEIGHT,
             )
-            GitPanelKind.Graph -> CommitGraphPanel(
-                host = host,
-                token = token,
-                owner = owner,
-                repo = repo,
-                branch = git.branch,
-                repoDir = repoDir,
-                localRepoExists = git.exists,
-                refreshTick = refreshTick,
-                dirtyCount = git.dirtyCount,
-                onOpenWorkspace = { onSelect(GitPanelKind.Workspace) },
-                onOpenSync = onOpenSync,
-                onDeepen = onDeepen,
-                onOpenCommitDiff = onOpenCommitDiff,
+            GitPanelKind.Refs -> SkeletonRows(
+                rows = skeletonRowsFor(areaDp = area, rowDp = REF_ROW_HEIGHT_DP, gapDp = 1),
+                rowHeight = REF_ROW_HEIGHT,
+                gap = 1.dp,
             )
-            GitPanelKind.FileHistory -> GitFileHistoryPanel(
-                host = host,
-                token = token,
-                owner = owner,
-                repo = repo,
-                branch = git.branch,
-                repoDir = repoDir,
-                localRepoExists = git.exists,
-                // 代码页没有「当前文件」：null 时这一档如实说明去哪看（面板里不显示空列表）
-                filePath = filePath,
-                refreshTick = refreshTick,
-                onOpenCommitDiff = onOpenCommitDiff,
-                onDeepen = onDeepen,
-            )
-            GitPanelKind.Refs -> GitRefsPanel(
-                repoDir = repoDir,
-                localRepoExists = git.exists,
-                refreshTick = refreshTick,
-                onRefresh = onRefresh,
-                onOpenSync = onOpenSync,
-                onOpenBranches = onOpenBranches,
+            GitPanelKind.FileHistory -> SkeletonRows(
+                rows = skeletonRowsFor(areaDp = area, rowDp = HISTORY_ROW_HEIGHT_DP, gapDp = 2),
+                rowHeight = HISTORY_ROW_HEIGHT,
+                gap = 2.dp,
             )
         }
     }

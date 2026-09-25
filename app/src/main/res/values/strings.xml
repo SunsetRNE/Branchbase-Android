@@ -1085,7 +1085,6 @@
     <string name="hint_search_branches">搜索分支</string>
     <string name="error_sign_in_first">请先登录</string>
     <string name="label_commit_mode_value_alt">提交模式：%1$s</string>
-    <string name="note_branch_list_loading">分支列表尚未加载完成：稍等片刻，或关闭弹窗后在顶部栏点刷新。</string>
     <string name="action_switch_branch">切换分支</string>
     <string name="action_pull_remote_branch">拉取远端分支</string>
     <string name="action_use_account_instead">改用账号</string>
@@ -1095,6 +1094,7 @@
     <string name="suffix_from_local_cache"> · 列表来自本地缓存</string>
     <string name="label_remember_repo_credentials">记住这个仓库的凭据（设置 → 仓库凭据 可删除）</string>
     <string name="state_no_branch_match">没有匹配「%1$s」的分支</string>
+    <string name="state_no_branch_in_repo">这个仓库还没有任何分支</string>
     <string name="suffix_at_login">（@%1$s）</string>
     <string name="note_paths_truncated">仅显示包含此内容的部分文件路径。优化搜索以查看更多。</string>
     <string name="state_no_pull_results">未找到匹配的拉取请求</string>

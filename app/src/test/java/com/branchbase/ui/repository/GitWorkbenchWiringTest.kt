@@ -314,6 +314,47 @@ class GitWorkbenchWiringTest {
     }
 
     @Test
+    fun `占位：立刻现身、与内容等高、三态分明`() {
+        // 这一组钉的是 1.1.2 那次返工（用户的现场：弹窗「掉下来 → 填充 → 瞬间撑高」）。
+        // 三条规则各自都只在真机上看得出来，写错了不会红：
+        //   ① 内容区固定高 → 取数前后面板不改变大小；
+        //   ② 占位立刻现身（浮层不适用 120ms 延迟）并铺满内容区；
+        //   ③ 「加载中 / 空 / 有内容」三态分明 —— 拿 isEmpty() 当加载判据会让空仓库永远转圈。
+        val host = source("src/main/java/com/branchbase/ui/repository/GitWorkspacePanel.kt")
+        assertTrue("四个档要有各自固定的内容区高度", host.contains("panelViewAreaHeight("))
+        assertTrue("快照没读完之前不许按 exists=false 渲染档内容", host.contains("if (!git.loaded)"))
+        val state = source("src/main/java/com/branchbase/ui/repository/LocalRepoGitState.kt")
+        assertTrue("loaded 与 exists 必须是两个字段", state.contains("val loaded: Boolean"))
+        assertTrue(
+            "首帧是「还没读到」，不是「没有本地仓库」（否则提交图会先白取一次 REST）",
+            state.contains("LocalRepoGitState(exists = false, loaded = false)"),
+        )
+
+        listOf("CommitGraphPanel.kt", "GitRefsPanel.kt", "GitFileHistoryPanel.kt").forEach { file ->
+            val text = source("src/main/java/com/branchbase/ui/repository/$file")
+            assertTrue("$file 要用 loadStateOf 分三态（不许拿列表空不空当加载判据）", text.contains("loadStateOf("))
+            assertTrue("$file 的占位要按实测高度铺满内容区", text.contains("SkeletonRows(") && text.contains("BoxWithConstraints("))
+            assertTrue(
+                "$file 不许再出现「独立的延迟骨架」写法（PlaceholderSwap(loading = true…) 必然走 120ms 延迟）",
+                !text.contains("PlaceholderSwap(loading = true"),
+            )
+        }
+
+        val settings = source("src/main/java/com/branchbase/ui/profile/SubPageScreens.kt")
+        assertTrue(
+            "「＋拉取仓库」弹窗的列表区要等高：加载中/空/有内容一个高度",
+            settings.contains("PICKER_LIST_HEIGHT") && settings.contains("SkeletonRows("),
+        )
+        val repo = source("src/main/java/com/branchbase/ui/repository/RepositoryScreen.kt")
+        assertTrue(
+            "分支弹窗的列表区要等高",
+            repo.contains("BRANCH_LIST_HEIGHT") && repo.contains("SkeletonRows("),
+        )
+        assertTrue("分支弹窗要有显式的「还在取」标志", repo.contains("branchesLoaded"))
+        assertTrue("三态走的必须是那个标志，不是 branches.isEmpty()", repo.contains("loadStateOf(loading, branches.size)"))
+    }
+
+    @Test
     fun `阶段 5 的两条入口都要接上，且动作仍只在运行器里跑`() {
         // 入口 ①：分叉页的第三条「合并远端」（设置 → 本地仓库那条路）。
         // 它是**第三个宿主**：合并从这里发起时，冲突弹窗与冲突详情页也得在这条路上走得通 ——

@@ -1,10 +1,15 @@
 package com.branchbase.ui.theme
 
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -13,7 +18,6 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.AnimationSpec
@@ -36,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.State
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
@@ -111,6 +116,9 @@ object ElementMotion {
      *
      * 缓存命中的页面常在 1~3 帧内就拿到数据；这段时间里闪一块灰再立刻换掉，
      * 读到的不是「加载完成」而是「闪了一下」—— 短于此值的加载干脆不显示骨架。
+     *
+     * **弹窗与浮层不适用这一条**（传 `skeletonDelayMs = 0`）：它们是用户主动点开的，
+     * 取数必然要走一次引擎 / 网络，延迟只会先空一瞬（读成「掉下来一块空的」）。
      */
     const val PLACEHOLDER_DELAY_MS = 120L
 
@@ -242,19 +250,34 @@ fun revealExit(): ExitTransition =
  *
  * [skeleton] 与 [content] 仍应尽量同尺寸（骨架的既有规矩）；不同尺寸也不会跳，只是会看到
  * 一段高度动画 —— 那是兜底，不是许可证。
+ *
+ * ## 弹窗 / 浮层：为什么要传 `skeletonDelayMs = 0`
+ *
+ * 延迟现身的理由是「缓存秒回时别闪一块灰」。但**弹窗与浮层没有缓存秒回这条路**：
+ * 用户主动点开它，取数必然要走一次引擎或网络（几十到几百毫秒），
+ * 于是这 120ms 只剩一个作用 —— 先画一块**空的**容器（面板/弹窗以最小高度出现），
+ * 再让骨架淡进来，最后内容一到又被撑高。用户看到的正是「掉下来 → 填充 → 撑高」。
+ *
+ * 配套的另一半在调用方：**占位的形状与高度要跟内容一致**（[SkeletonRows] + 固定高度的内容区），
+ * 否则延迟去掉了、撑高还在。
  */
 @Composable
 fun PlaceholderSwap(
     loading: Boolean,
     modifier: Modifier = Modifier,
+    /**
+     * 骨架延迟现身的时长；[ElementMotion.PLACEHOLDER_DELAY_MS] 是页面级的默认值，
+     * 弹窗 / 浮层传 `0`（理由见上）。
+     */
+    skeletonDelayMs: Long = ElementMotion.PLACEHOLDER_DELAY_MS,
     skeleton: @Composable () -> Unit,
     content: @Composable () -> Unit,
 ) {
     // 骨架延迟现身：加载很快就结束时，它一辈子都是透明的
     var skeletonVisible by remember { mutableStateOf(false) }
-    LaunchedEffect(loading) {
+    LaunchedEffect(loading, skeletonDelayMs) {
         if (loading) {
-            delay(ElementMotion.PLACEHOLDER_DELAY_MS)
+            if (skeletonDelayMs > 0) delay(skeletonDelayMs)
             skeletonVisible = true
         } else {
             skeletonVisible = false
@@ -291,6 +314,65 @@ fun PlaceholderSwap(
             }
         }
     }
+}
+
+/**
+ * 一块**等高占位区**里能铺几行：`area` 高度的盒子，行高 `row` + 行距 `gap`，至少一行。
+ *
+ * 抽成纯函数是为了让它能进 JVM 单测：骨架最常见的写法是「填满这块区域」，
+ * 而填不满（底下留一块空白，内容一到又撑开）或填过头（画到盒子外面）都是肉眼才看得出的错。
+ * 参数用 `Int`（dp）而不是 `Dp`：这一条是纯算术，不该把 Compose 类型拖进单测。
+ */
+fun skeletonRowsFor(areaDp: Int, rowDp: Int, gapDp: Int = 0): Int {
+    val step = rowDp + gapDp
+    if (step <= 0) return 1
+    return ((areaDp + gapDp) / step).coerceAtLeast(1)
+}
+
+/**
+ * 列表骨架：`rows` 行、每行 `rowHeight` 高、行间 `gap` —— **行高照实**（与真实行一致）。
+ *
+ * 这是「占位与内容等高」这条规矩的落点：骨架的高度决定弹窗/面板的第一帧尺寸，
+ * 行高对不上，内容一到就必然撑高（`git-mode-design.md` §3.5 的现场）。
+ * [barHeight] 默认等于行高（整行一块灰）；想让骨架看得出「一行一行」时传一个更小的值。
+ */
+@Composable
+fun SkeletonRows(
+    rows: Int,
+    rowHeight: Dp,
+    modifier: Modifier = Modifier,
+    gap: Dp = 0.dp,
+    barHeight: Dp = rowHeight,
+    horizontalPadding: Dp = 0.dp,
+    corner: Dp = 6.dp,
+) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(gap)) {
+        repeat(rows.coerceAtLeast(0)) {
+            SkeletonBar(
+                height = barHeight,
+                horizontalPadding = horizontalPadding,
+                corner = corner,
+            )
+        }
+    }
+}
+
+/** 骨架里的一条灰块（一行 / 一个标题）。 */
+@Composable
+fun SkeletonBar(
+    height: Dp,
+    modifier: Modifier = Modifier,
+    horizontalPadding: Dp = 0.dp,
+    corner: Dp = 6.dp,
+) {
+    Box(
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = horizontalPadding)
+            .height(height)
+            .clip(RoundedCornerShape(corner))
+            .background(Primer.Gray150),
+    )
 }
 
 /**

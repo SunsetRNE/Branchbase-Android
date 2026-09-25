@@ -1,15 +1,12 @@
 package com.branchbase.ui.repository
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -30,13 +27,17 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.ui.LoadState
+import com.branchbase.ui.loadStateOf
+import com.branchbase.ui.theme.SkeletonRows
+import com.branchbase.ui.theme.skeletonRowsFor
 import com.branchbase.R
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.LogCategory
 import com.branchbase.ui.log.Logger
-import com.branchbase.ui.theme.PlaceholderSwap
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -190,35 +191,44 @@ fun GitFileHistoryPanel(
             modifier = Modifier.padding(bottom = 6.dp),
         )
 
-        if (loading) {
-            PlaceholderSwap(loading = true, skeleton = { HistorySkeleton() }) { }
+        if (loadStateOf(loading, commits.size) == LoadState.Loading) {
+            // 骨架立刻出现并铺满宿主的内容区（浮层不适用「延迟现身」）；行数按实测高度算
+            BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
+                SkeletonRows(
+                    rows = skeletonRowsFor(maxHeight.value.toInt(), HISTORY_ROW_HEIGHT_DP, gapDp = 2),
+                    rowHeight = HISTORY_ROW_HEIGHT,
+                    gap = 2.dp,
+                )
+            }
             return@Column
         }
         error?.let {
-            Text(
-                it,
-                fontSize = 11.5.sp,
-                color = Primer.DangerText,
-                modifier = Modifier.padding(vertical = 8.dp),
-            )
-            TextButton(onClick = { scope.launch { loadFirstPage() } }) {
-                Text(stringResource(R.string.action_retry), color = Primer.Blue500, fontSize = 12.sp)
+            PanelEmptyArea(Modifier.weight(1f)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(it, fontSize = 11.5.sp, color = Primer.DangerText, textAlign = TextAlign.Center)
+                    TextButton(onClick = { scope.launch { loadFirstPage() } }) {
+                        Text(stringResource(R.string.action_retry), color = Primer.Blue500, fontSize = 12.sp)
+                    }
+                }
             }
             return@Column
         }
         if (commits.isEmpty()) {
-            Text(
-                stringResource(R.string.state_file_history_empty),
-                fontSize = 12.sp,
-                color = Primer.TextTertiary,
-                modifier = Modifier.padding(vertical = 10.dp),
-            )
+            PanelEmptyArea(Modifier.weight(1f)) {
+                Text(
+                    stringResource(R.string.state_file_history_empty),
+                    fontSize = 12.sp,
+                    color = Primer.TextTertiary,
+                    textAlign = TextAlign.Center,
+                )
+            }
             return@Column
         }
 
         LazyColumn(
             state = rememberLazyListState(),
-            modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp),
+            // 取满剩余高度（宿主的内容区是固定高的，列表不再自己限高）
+            modifier = Modifier.fillMaxWidth().weight(1f),
             verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
             items(items = commits, key = { it.fullSha }) { c ->
@@ -329,20 +339,9 @@ private fun FileHistoryRow(commit: FileHistoryCommit, onClick: (() -> Unit)? = n
     }
 }
 
-@Composable
-private fun HistorySkeleton() {
-    Column(Modifier.fillMaxWidth()) {
-        repeat(4) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp)
-                    .height(12.dp)
-                    .background(Primer.Gray150),
-            )
-        }
-    }
-}
+/** 文件历史一行的高度：标题 12sp + 一行 meta 10sp + 上下各 5dp。**internal**：宿主的档级骨架同高。 */
+internal val HISTORY_ROW_HEIGHT = 40.dp
+internal const val HISTORY_ROW_HEIGHT_DP = 40
 
 /** 文件历史一页的条数（与 `RustBridge.gitLogFile` 的默认值一致）。 */
 private const val PAGE_SIZE = 50

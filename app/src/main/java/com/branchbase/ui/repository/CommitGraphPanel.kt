@@ -1,18 +1,16 @@
 package com.branchbase.ui.repository
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -42,13 +40,17 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.ui.LoadState
+import com.branchbase.ui.loadStateOf
+import com.branchbase.ui.theme.SkeletonRows
+import com.branchbase.ui.theme.skeletonRowsFor
 import com.branchbase.R
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.LogCategory
 import com.branchbase.ui.log.Logger
-import com.branchbase.ui.theme.PlaceholderSwap
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -207,35 +209,47 @@ fun CommitGraphPanel(
     val unpushedInPage = remember(commits) { unpushedCount(commits) }
 
     Column(modifier.fillMaxWidth()) {
-        if (loading) {
-            PlaceholderSwap(loading = true, skeleton = { GraphSkeleton() }) { }
+        if (loadStateOf(loading, commits.size) == LoadState.Loading) {
+            // 骨架**立刻**出现（浮层不适用「延迟现身」，见 `PlaceholderSwap` 的说明），
+            // 并且铺满宿主给的内容区：行数按实测高度算，不写死 ——
+            // 写死的话宿主一改高度，这里不是没铺满就是画到盒子外
+            BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
+                SkeletonRows(
+                    rows = skeletonRowsFor(maxHeight.value.toInt(), GRAPH_ROW_HEIGHT_DP),
+                    rowHeight = GRAPH_ROW_HEIGHT,
+                )
+            }
             return@Column
         }
         error?.let {
-            Text(
-                it,
-                fontSize = 11.5.sp,
-                color = Primer.DangerText,
-                modifier = Modifier.padding(vertical = 8.dp),
-            )
-            TextButton(onClick = { scope.launch { loadFirstPage() } }) {
-                Text(stringResource(R.string.action_retry), color = Primer.Blue500, fontSize = 12.sp)
+            // 居中在固定内容区里（靠上的一行小字会被读成「没加载出来」，见 PanelEmptyArea）
+            PanelEmptyArea(Modifier.weight(1f)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(it, fontSize = 11.5.sp, color = Primer.DangerText, textAlign = TextAlign.Center)
+                    TextButton(onClick = { scope.launch { loadFirstPage() } }) {
+                        Text(stringResource(R.string.action_retry), color = Primer.Blue500, fontSize = 12.sp)
+                    }
+                }
             }
             return@Column
         }
         if (rows.isEmpty()) {
-            Text(
-                stringResource(R.string.state_graph_empty),
-                fontSize = 12.sp,
-                color = Primer.TextTertiary,
-                modifier = Modifier.padding(vertical = 10.dp),
-            )
+            PanelEmptyArea(Modifier.weight(1f)) {
+                Text(
+                    stringResource(R.string.state_graph_empty),
+                    fontSize = 12.sp,
+                    color = Primer.TextTertiary,
+                    textAlign = TextAlign.Center,
+                )
+            }
             return@Column
         }
 
         LazyColumn(
             state = rememberLazyListState(),
-            modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp),
+            // 取满内容区的剩余高度（宿主的盒子是固定高的，列表不再自己限高：
+            // 限高会让「3 条提交」和「30 条提交」在面板里长得一样高，而那正是要修的跳动来源）
+            modifier = Modifier.fillMaxWidth().weight(1f),
             verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
             items(
@@ -475,25 +489,16 @@ private fun CommitRow(row: GraphCommitRow, onClick: (() -> Unit)? = null) {
     }
 }
 
-@Composable
-private fun GraphSkeleton() {
-    Column(Modifier.fillMaxWidth()) {
-        repeat(5) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp)
-                    .height(12.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Primer.Gray150),
-            )
-        }
-    }
-}
-
 /** gutter 宽度（泳道画在左侧固定列里，右侧才是文字）。 */
 private val GUTTER = 30.dp
-private val ROW_HEIGHT = 34.dp
+
+/**
+ * 提交图一行的高度。**internal**：宿主的档级骨架（`GitPanelViewHost` 的 `PanelAreaSkeleton`）
+ * 要按同一个行高铺 —— 两处各写一个 34，改一处就会漂。
+ */
+internal val GRAPH_ROW_HEIGHT = 34.dp
+internal const val GRAPH_ROW_HEIGHT_DP = 34
+private val ROW_HEIGHT = GRAPH_ROW_HEIGHT
 
 /** 与 [GUTTER] 对应的像素值（绘制 lambda 里拿到的是 px）。 */
 private const val GUTTER_PX = 30f

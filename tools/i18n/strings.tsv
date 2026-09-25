@@ -942,7 +942,6 @@ $name（$syntax）	%1$s (%2$s)	label_name_syntax
 共 ${branches.size} 个分支	%1$s branches in total	label_branch_total
  · 列表来自本地缓存	 · list from the local cache	suffix_from_local_cache
 搜索分支	Search branches	hint_search_branches
-分支列表尚未加载完成：稍等片刻，或关闭弹窗后在顶部栏点刷新。	The branch list has not finished loading yet: wait a moment, or close this sheet and tap refresh in the top bar.	note_branch_list_loading
 没有匹配「$keyword」的分支	No branches match “%1$s”	state_no_branch_match
 当前分支	Current branch	label_current_branch_marker
 此仓库使用独立凭据	This repository uses separate credentials	label_repo_uses_own_credentials
@@ -1358,3 +1357,4 @@ $count 个只在远端	%1$s remote-only	label_refs_remote_only_count
 合并可用	Merge available	state_merge_available
 拉到本地解决	Resolve locally	action_resolve_locally
 …还有 $rest 条未列出	…%1$s more not listed	label_unpushed_rest
+这个仓库还没有任何分支	This repository has no branches yet	state_no_branch_in_repo

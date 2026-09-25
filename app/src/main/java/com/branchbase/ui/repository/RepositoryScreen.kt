@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -87,6 +86,10 @@ import com.branchbase.ui.decision.PatInputScreen
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.navigation.NavigationShell
 import com.branchbase.ui.navigation.PageBackHandler
+import com.branchbase.ui.LoadState
+import com.branchbase.ui.loadStateOf
+import com.branchbase.ui.theme.SkeletonRows
+import com.branchbase.ui.theme.skeletonRowsFor
 import com.branchbase.ui.navigation.PageLevel
 import com.branchbase.ui.navigation.PageSwitcher
 import com.branchbase.ui.navigation.TabSwitcher
@@ -206,6 +209,9 @@ fun RepositoryScreen(
     var branch by remember { mutableStateOf<String?>(null) }
     var branches by remember { mutableStateOf<List<BranchItem>>(emptyList()) }
     var branchCached by remember { mutableStateOf(false) }
+    // 分支列表**读完了没有**：必须与「列表是空的」分开 ——
+    // 拿 `branches.isEmpty()` 当加载判据时，一个真的没有分支的仓库会永远显示「加载中」
+    var branchesLoaded by remember { mutableStateOf(false) }
     var refreshTick by remember { mutableStateOf(0) }
     // 发布（Releases）：详情 / 编辑（null 目标 = 新建）/ 当前用户是否有写权限
     var releaseDetail by remember { mutableStateOf<ReleaseItem?>(null) }
@@ -337,6 +343,8 @@ fun RepositoryScreen(
                 repoInfo = info
             }
         }
+        // 无论拿到没有，这一轮都算「问过了」：弹窗据此把「加载中」与「这个仓库没有分支」分开
+        branchesLoaded = true
 
         // ③ 预加载：项目页四件套（进入页面必然要看）+ 其他 tab（策略决定是否投机）
         RepoPrefetcher.prefetch(
@@ -1146,6 +1154,7 @@ fun RepositoryScreen(
             branches = branches,
             current = branch,
             cached = branchCached,
+            loading = !branchesLoaded,
             onDismiss = { showBranchDialog = false },
             onSelect = { name ->
                 branch = name
@@ -1572,6 +1581,14 @@ private fun BranchSwitchDialog(
     branches: List<BranchItem>,
     current: String?,
     cached: Boolean,
+    /**
+     * 分支列表**还在取**（不是「列表是空的」）。
+     *
+     * 这个参数是 1.1.2 加的：此前这一页拿 `branches.isEmpty()` 当加载判据，
+     * 于是「真的没有分支的空仓库」会永远显示「分支列表加载中」——
+     * 而两种状态该说的话完全不同（一个等待、一个如实说仓库里没有分支）。
+     */
+    loading: Boolean,
     onDismiss: () -> Unit,
     onSelect: (String) -> Unit,
 ) {
@@ -1626,27 +1643,36 @@ private fun BranchSwitchDialog(
                 }
 
                 Spacer(Modifier.height(8.dp))
-                when {
-                    branches.isEmpty() -> Text(
-                        stringResource(R.string.note_branch_list_loading),
-                        fontSize = 12.5.sp,
-                        color = Primer.TextTertiary,
-                        lineHeight = 18.sp,
-                        modifier = Modifier.padding(vertical = 10.dp),
-                    )
-                    filtered.isEmpty() -> Text(
-                        stringResource(R.string.state_no_branch_match, keyword),
-                        fontSize = 12.5.sp,
-                        color = Primer.TextTertiary,
-                        modifier = Modifier.padding(vertical = 10.dp),
-                    )
-                    else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
-                        items(filtered, key = { it.name }) { b ->
-                            BranchRow(
-                                item = b,
-                                selected = b.name == current,
-                                onClick = { onSelect(b.name) },
-                            )
+                // 列表区**等高**（≈6 行）：加载中 / 空 / 有内容都占同一个高度 ——
+                // 一行「分支列表加载中…」变成 360dp 的列表，弹窗会当着用户的面长高。
+                // 判据也不再是 `branches.isEmpty()`：那会把「真的没有分支」永远显示成「加载中」
+                Box(Modifier.fillMaxWidth().height(BRANCH_LIST_HEIGHT)) {
+                    when {
+                        loadStateOf(loading, branches.size) == LoadState.Loading -> SkeletonRows(
+                            rows = skeletonRowsFor(areaDp = BRANCH_LIST_HEIGHT_DP, rowDp = BRANCH_ROW_HEIGHT_DP),
+                            rowHeight = BRANCH_ROW_HEIGHT,
+                        )
+                        // 读完了、但一个分支都没有（空仓库）—— 与「搜不到」分开说
+                        branches.isEmpty() -> Text(
+                            stringResource(R.string.state_no_branch_in_repo),
+                            fontSize = 12.5.sp,
+                            color = Primer.TextTertiary,
+                            modifier = Modifier.padding(vertical = 10.dp),
+                        )
+                        filtered.isEmpty() -> Text(
+                            stringResource(R.string.state_no_branch_match, keyword),
+                            fontSize = 12.5.sp,
+                            color = Primer.TextTertiary,
+                            modifier = Modifier.padding(vertical = 10.dp),
+                        )
+                        else -> LazyColumn(Modifier.fillMaxSize()) {
+                            items(filtered, key = { it.name }) { b ->
+                                BranchRow(
+                                    item = b,
+                                    selected = b.name == current,
+                                    onClick = { onSelect(b.name) },
+                                )
+                            }
                         }
                     }
                 }
@@ -1703,6 +1729,13 @@ private fun BranchRow(item: BranchItem, selected: Boolean, onClick: () -> Unit) 
         }
     }
 }
+
+// 分支选择弹窗的列表区：固定高度（≈6 行），加载中 / 空 / 有内容都是它 —— 弹窗不随取数长高。
+// 行高 40 = 13sp 名字 + 上下各 10dp 内边距（与 `BranchRow` 一致）。
+private val BRANCH_LIST_HEIGHT = 240.dp
+private const val BRANCH_LIST_HEIGHT_DP = 240
+private val BRANCH_ROW_HEIGHT = 40.dp
+private const val BRANCH_ROW_HEIGHT_DP = 40
 
 private val branchPages = setOf(
     RepoPage.Overview, RepoPage.Code, RepoPage.Workflows,

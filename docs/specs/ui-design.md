@@ -284,9 +284,22 @@ Canvas 绘制 lambda），它们改用 `TintRole` 角色表 / 在 composable 里
 | 图标形态切换（**结构可对应**） | `AnimatedMorphIcon(pair, target, …)` | 弹簧（默认 ζ=1.00，不过冲） | 检索页：下拉箭头 ↓⇄↑、高级筛选 +/−、过滤按钮（后者按台账降级回上一行） |
 | 数量徽标 | `CountBadge(count, …)` | 220ms 缩放淡入 | 底部导航未读数（含清零时的淡出） |
 | 骨架屏微光 | `shimmerAlpha()` | 700ms 呼吸 | 通知骨架、搜索骨架（此前通知页是死灰块） |
-| **骨架 → 内容替换** | `PlaceholderSwap(loading, skeleton, content)` | 延迟 120ms 现身 + 骨架 120ms 退 / 内容 160ms 进 | 动态页五个分区（统计卡 / 类型分布 / 热力 / 时间线）、贡献墙 |
+| **骨架 → 内容替换**（页面级） | `PlaceholderSwap(loading, skeleton, content)` | 延迟 120ms 现身 + 骨架 120ms 退 / 内容 160ms 进 | 动态页五个分区（统计卡 / 类型分布 / 热力 / 时间线）、贡献墙 |
+| **浮层占位**（面板 / 弹窗） | `PlaceholderSwap(…, skeletonDelayMs = 0)` 或直接 `SkeletonRows(rows, rowHeight)` | **不延迟**；容器高度固定，骨架/空态/内容同尺寸 | Git 气泡面板四档、提交图 / 引用树 / 文件历史、本地仓库「＋拉取仓库」与分支选择弹窗 |
 | 列表增删 | `Modifier.animateItem()` | 默认 | 通知列表、任务列表、Issue 时间线、分支对比提交列表 |
 | 文本长度变化 | `Modifier.animateContentSize()` | 默认 | Issue 长评论展开 / 收起（不再让整条时间线弹跳） |
+
+#### 浮层里的占位：不许「边加载边长高」（1.1.2 的真机结论）
+
+用户的现场是「弹窗掉下来 → 填充 → 瞬间撑高整个弹窗」。三条规则（细节与代价见
+[`git-mode-design.md`](git-mode-design.md) §3.5）：
+
+1. **立刻现身** —— 延迟 120ms 那条只服务于「页面缓存秒回」；用户主动点开的浮层里，
+   它只会先空一瞬。浮层传 `skeletonDelayMs = 0`，或者直接画 `SkeletonRows`；
+2. **容器固定高** —— 骨架、空态、内容、失败态都在同一个盒子里，取数前后面板/弹窗尺寸不变。
+   代价是内容很短时留白（留白是稳定的，撑高是跳动的）；
+3. **三态分明** —— `Loading` / `Empty` / `Ready`（`ui/LoadState.kt`）。拿 `list.isEmpty()`
+   当加载判据，等于把「还没加载」和「确实没有」写成同一句话：空仓库会永远显示「加载中」。
 
 #### 「骨架 → 内容」为什么不能用 `Crossfade`（1.0.54 的真机结论）
 

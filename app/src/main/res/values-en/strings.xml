@@ -1082,7 +1082,6 @@
     <string name="hint_search_branches">Search branches</string>
     <string name="error_sign_in_first">Sign in first</string>
     <string name="label_commit_mode_value_alt">Commit mode: %1$s</string>
-    <string name="note_branch_list_loading">The branch list has not finished loading yet: wait a moment, or close this sheet and tap refresh in the top bar.</string>
     <string name="action_switch_branch">Switch branch</string>
     <string name="action_pull_remote_branch">Pull the remote branch</string>
     <string name="action_use_account_instead">Use the account instead</string>
@@ -1092,6 +1091,7 @@
     <string name="suffix_from_local_cache"> · list from the local cache</string>
     <string name="label_remember_repo_credentials">Remember credentials for this repository (removable in Settings → Repository credentials)</string>
     <string name="state_no_branch_match">No branches match “%1$s”</string>
+    <string name="state_no_branch_in_repo">This repository has no branches yet</string>
     <string name="suffix_at_login"> (@%1$s)</string>
     <string name="note_paths_truncated">Only partial file paths containing this content are shown. Refine the search to see more.</string>
     <string name="state_no_pull_results">No matching pull requests</string>
