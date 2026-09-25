@@ -111,6 +111,55 @@ class CommitGraphSourceTest {
         assertEquals(emptyList<GraphCommit>(), parseLocalGraphCommits("""[{"subject":"没有 sha"}]"""))
     }
 
+    // ── 未推送段（阶段 4 收尾：`unpushed` 逐条标出来） ──
+
+    @Test
+    fun `本地 JSON 的 unpushed 逐条解析，缺字段按未推送之外退化`() {
+        val json = """
+            [
+              {"sha":"c3","parents":["c2"],"subject":"还没推","author":"C","date":"","unpushed":true},
+              {"sha":"c2","parents":["c1"],"subject":"推过了","author":"C","date":"","unpushed":false},
+              {"sha":"c1","parents":[],"subject":"老 .so 没有这个键","author":"C","date":""}
+            ]
+        """.trimIndent()
+        val out = parseLocalGraphCommits(json)
+        assertEquals(3, out.size)
+        assertTrue("上游没有它 → 标记", out[0].unpushed)
+        assertFalse("上游里已有 → 不标", out[1].unpushed)
+        // 缺键（老 .so / 手写的 fixture）按「不知道」退化成不标：整档不许因此报错，
+        // 也不许把「读不到」读成「都推过了」再画成事实（这里只是默认值，不是结论）
+        assertFalse(out[2].unpushed)
+        assertEquals(1, unpushedCount(out))
+    }
+
+    @Test
+    fun `REST 来源一条都不标：那份响应里没有「本地推没推」这件事`() {
+        // 就算响应体里真带了这个键，REST 解析器也不认 —— 两张来源各答各的问题，
+        // 混着认会让「图上的标记」变成「谁最后解析的」这种说不清的东西
+        val rest = """[{"sha":"c1","unpushed":true,"commit":{"message":"m","parents":[],"author":{"name":"A","date":"d"}}}]"""
+        assertEquals(1, parseGraphCommits(rest).size)
+        assertFalse(parseGraphCommits(rest)[0].unpushed)
+        assertEquals(0, unpushedCount(parseGraphCommits(rest)))
+        // 对照组：同一个键在本地解析器里是认的 —— 否则上面那条会因为「谁都不认」而全绿
+        assertTrue(parseLocalGraphCommits("""[{"sha":"c1","unpushed":true}]""")[0].unpushed)
+    }
+
+    @Test
+    fun `未推送条数只数手上这一屏`() {
+        // 脚注写的是「其中 N 条」：分页没加载的那些不在手上，数不出来也不许编
+        assertEquals(0, unpushedCount(emptyList()))
+        assertEquals(
+            2,
+            unpushedCount(
+                listOf(
+                    commit("c1").copy(unpushed = true),
+                    commit("c2"),
+                    commit("c3").copy(unpushed = true),
+                ),
+            ),
+        )
+    }
+
     @Test
     fun `两份解析各认各的形状，不互相兼容`() {
         // 两个解析器**故意不互相兼容**：本地那份只认扁平字段，REST 那份只认嵌套。

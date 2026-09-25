@@ -435,6 +435,8 @@
     <string name="state_graph_empty">这个分支还没有提交</string>
     <string name="label_graph_truncated">已加载 %1$s 条 · 更早历史未加载</string>
     <string name="label_graph_all_loaded">已加载全部 %1$s 条</string>
+    <string name="note_graph_unpushed">其中 %1$s 条还没推送到上游</string>
+    <string name="label_unpushed_short">未推送</string>
     <string name="label_working_tree_node">工作区 · %1$s 处改动</string>
     <string name="state_working_tree_uncommitted">未提交（HEAD 之上）</string>
     <string name="error_graph_load_failed">提交图加载失败：%1$s</string>

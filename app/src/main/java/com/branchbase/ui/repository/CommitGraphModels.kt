@@ -26,6 +26,14 @@ data class GraphCommit(
     val author: String,
     val date: String,
     val refs: List<CommitRef> = emptyList(),
+    /**
+     * 这条提交**还没推送到上游**（`git log @{u}..HEAD` 里的一条）。
+     *
+     * 只有**本地来源**答得出来（[parseLocalGraphCommits] 读引擎的 `unpushed`）；REST 那份响应里
+     * 根本没有「本地推没推」这件事，所以 [parseGraphCommits] 一律留 false ——
+     * 这不是「都推过了」，是「这一屏回答不了」，UI 也因此不在 REST 来源下画这个标记。
+     */
+    val unpushed: Boolean = false,
 ) {
     /** 短 sha（列表左侧那一列）。 */
     val shortSha: String get() = fullSha.take(7)
@@ -82,6 +90,9 @@ sealed interface GraphRow {
  *
  * 解析失败返回空列表 —— 与 `parseCommits` 一致：调用方按「空列表 = 没有提交 / 解析不出来」渲染，
  * 不在这里抛。
+ *
+ * `unpushed` 一律留 false：REST 那份响应里没有「本地推没推」这件事（那是**本地**才知道的事实），
+ * 所以这一来源下不画未推送标记 —— 见 [GraphCommit.unpushed]。
  */
 fun parseGraphCommits(json: String?): List<GraphCommit> {
     if (json.isNullOrBlank()) return emptyList()
@@ -110,7 +121,7 @@ fun parseGraphCommits(json: String?): List<GraphCommit> {
 }
 
 /**
- * 解析本地 `log_graph` 的输出（**扁平** native JSON：`[{sha, parents, subject, author, date}]`）。
+ * 解析本地 `log_graph` 的输出（**扁平** native JSON：`[{sha, parents, subject, author, date, unpushed}]`）。
  *
  * 与 [parseGraphCommits] 分开是**故意的**：本地那份不是 GitHub 的嵌套响应体
  * （`{sha, commit:{message, author:{…}, parents:[{sha}]}}`），把两者塞进一个函数只会
@@ -119,6 +130,9 @@ fun parseGraphCommits(json: String?): List<GraphCommit> {
  *
  * 容错口径与其它解析一致：解析不出来返回空列表、不抛。但**空数组是有意义的另一件事**
  * （仓库里真的还没有提交），调用方按「还没有提交」渲染，不是「读取失败」。
+ *
+ * `unpushed` 缺省 false：老的 `.so` 里没有这个键（原生库与 Kotlin 是两份产物），
+ * 缺了就按「不知道」退化 —— 不许把缺失读成「都推过了」，也不许整档报错。
  */
 fun parseLocalGraphCommits(json: String?): List<GraphCommit> {
     if (json.isNullOrBlank()) return emptyList()
@@ -139,10 +153,20 @@ fun parseLocalGraphCommits(json: String?): List<GraphCommit> {
                 subject = o.optString("subject"),
                 author = o.optString("author"),
                 date = o.optString("date"),
+                unpushed = o.optBoolean("unpushed", false),
             )
         }
     }.getOrDefault(emptyList())
 }
+
+/**
+ * 已加载窗口里**未推送**的条数（提交图脚注用）。
+ *
+ * 为什么是「窗口里」而不是「一共」：这一档是分页的，没加载到的那部分不在手上 ——
+ * 而脚注必须只说手上这份，不能拿 [GraphCommit.unpushed] 的条数冒充「全部待推送 N 条」
+ * （工作区档那个 `ahead` 才是全量，两处口径见 `git-mode-design.md` §4.1）。
+ */
+internal fun unpushedCount(commits: List<GraphCommit>): Int = commits.count { it.unpushed }
 
 /**
  * 提交图的**数据来源**。

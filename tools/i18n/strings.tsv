@@ -1267,6 +1267,8 @@ $count 个只在远端	%1$s remote-only	label_refs_remote_only_count
 这个分支还没有提交	No commits on this branch yet	state_graph_empty
 已加载 $count 条 · 更早历史未加载	Loaded %1$s · earlier history not loaded	label_graph_truncated
 已加载全部 $count 条	All %1$s loaded	label_graph_all_loaded
+其中 $count 条还没推送到上游	%1$s of them not pushed to upstream yet	note_graph_unpushed
+未推送	Unpushed	label_unpushed_short
 工作区 · $count 处改动	Working tree · %1$s changes	label_working_tree_node
 未提交（HEAD 之上）	Uncommitted (above HEAD)	state_working_tree_uncommitted
 提交图加载失败：$reason	Failed to load the commit graph: %1$s	error_graph_load_failed

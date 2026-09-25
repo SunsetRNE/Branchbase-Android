@@ -61,7 +61,7 @@ import kotlinx.coroutines.withContext
  *
  * | 来源 | 取数 | 分页键 | 什么时候用 |
  * |---|---|---|---|
- * | 本地 `log_graph` | 离线、不消耗 API 限额、**看得见还没推送的本地提交** | `skip`（已加载条数） | 本地仓库存在**且不是浅克隆** |
+ * | 本地 `log_graph` | 离线、不消耗 API 限额、**看得见还没推送的本地提交**（并逐条标出来） | `skip`（已加载条数） | 本地仓库存在**且不是浅克隆** |
  * | REST `/commits?sha=&per_page=100` | 与列表页同一个接口（响应里本来就带 `parents`） | 窗口内**最老的 sha** | 其余情况 |
  *
  * 为什么浅克隆不能当来源：clone 用 `depth(1)`，本地只有 HEAD 一条提交 —— 直接换过去
@@ -70,6 +70,16 @@ import kotlinx.coroutines.withContext
  *
  * 本地读不出来（引擎不可用 / 目录被删）时**退回 REST**：图还能看，但日志里留一条 warn ——
  * 否则事后只看到「来源=本地」，没人知道它其实失败过。
+ *
+ * ## 未推送段（阶段 4 收尾）
+ *
+ * 本地来源下，`HEAD` 可达、**上游**不可达的提交在行尾标一枚「未推送」（`unpushed`，
+ * 口径与工作区档的 `ahead` 完全同源：图上的标记数 = 那档写的「待推送 N」）；
+ * 脚注给一句「其中 N 条…」，只数**已加载的这一屏**（分页没加载的不在手上，不许编数）。
+ *
+ * 标记**只走文字**：虚线圈已经是「未提交」虚节点在用的形状语法（§4.3），
+ * 再拿空心 / 虚线去表示「未推送」就是两件事抢一套画法。
+ * REST 来源一律不标 —— 那份响应里没有「本地推没推」这件事。
  *
  * ## 点一行看什么
  *
@@ -193,6 +203,8 @@ fun CommitGraphPanel(
     val rows = remember(commits, dirtyCount) {
         CommitGraphLayout.layout(commits, workingTreeDirty = dirtyCount.takeIf { it > 0 })
     }
+    // 未推送段：**只数手上这一屏**（本地来源才有值；REST 来源解析出来全是 false，见 GraphCommit.unpushed）
+    val unpushedInPage = remember(commits) { unpushedCount(commits) }
 
     Column(modifier.fillMaxWidth()) {
         if (loading) {
@@ -258,6 +270,17 @@ fun CommitGraphPanel(
                 color = Primer.TextTertiary,
                 modifier = Modifier.padding(top = 6.dp),
             )
+            // 未推送段：只说**这一屏里有几条**没推到上游 —— 全量的那个数在工作区档（`ahead`）。
+            // 这里写「一共 N 条」就是编数：分页只加载了一部分，没加载的不在手上
+            if (unpushedInPage > 0) {
+                Text(
+                    stringResource(R.string.note_graph_unpushed, unpushedInPage),
+                    fontSize = 10.sp,
+                    color = Primer.TextTertiary,
+                    lineHeight = 13.sp,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
             // 浅克隆：REST 的这一屏是完整的，但**本地那份不是** —— 说清「离线看图要先把历史拉下来」。
             // 不许只在有出口时才说：没有出口（宿主没接）时这一句同样是用户需要知道的事实
             if (source == GraphSource.REST && shallowLocal && localRepoExists) {
@@ -424,14 +447,30 @@ private fun CommitRow(row: GraphCommitRow, onClick: (() -> Unit)? = null) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                "${row.commit.shortSha} · ${row.commit.author}",
-                fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace,
-                color = Primer.TextTertiary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "${row.commit.shortSha} · ${row.commit.author}",
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = Primer.TextTertiary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (row.commit.unpushed) {
+                    // 未推送标记**只用文字**，不去改节点的画法：虚线圈已经是「未提交」虚节点
+                    // 在用的语法（§4.3），再拿空心 / 虚线表示「未推送」就是两件事抢一套形状。
+                    // 颜色用 WarningText（文字安全的橙）：工作区档的改动文件状态字母也是这族的橙。
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        stringResource(R.string.label_unpushed_short),
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Primer.WarningText,
+                        maxLines = 1,
+                    )
+                }
+            }
         }
     }
 }

@@ -1309,11 +1309,14 @@ fn map_push_error(msg: &str) -> CoreError {
 /// 提交图的本地来源（对齐 `git-mode-design.md` §4.1「本地版（阶段 3）」）。
 ///
 /// 输出 JSON 数组（**新的在前**）：
-/// `[{ sha, parents: [sha…], subject, author, date }]`
+/// `[{ sha, parents: [sha…], subject, author, date, unpushed }]`
 ///
 /// - `limit` / `skip`：分页。不设上限是产品决策（head 全取、「加载更早」不限次数），
 ///   但**一次调用只取一页** —— 调用方按 `skip += limit` 续取，尾部如实写「已加载 N 条」；
 /// - `parents` 一定要带上：泳道布局靠它，缺了只能画成一条直线（图就废了）；
+/// - `unpushed`：这条提交**还没推送到上游**（见 [unpushed_oids]）。它是「未推送段」的画法依据
+///   （`git-mode-design.md` §4.1），**恒有值**（false 也发出来）—— 老 `.so` 缺这个键时
+///   Kotlin 侧按 false 退化，所以没有版本协商的麻烦；
 /// - 空仓库（没有 HEAD）**不是错误**：返回空数组。上层据此显示「这个分支还没有提交」，
 ///   而不是红字报错 —— 「没有提交」是正常状态，不是失败。
 pub fn log_graph(dir: &str, limit: usize, skip: usize) -> Result<String> {
@@ -1329,6 +1332,9 @@ pub fn log_graph(dir: &str, limit: usize, skip: usize) -> Result<String> {
     let Ok(head_commit) = head.peel_to_commit() else {
         return Ok(json!(out).to_string());
     };
+
+    // 未推送集合：**只算一次**，与逐条出图无关（集合本身很小：HEAD..上游）
+    let unpushed = unpushed_oids(&repo, head.shorthand().unwrap_or(""), head_commit.id());
 
     let mut walk = repo.revwalk().map_err(|e| CoreError::Other(format!("创建 revwalk 失败: {e}")))?;
     // TOPOLOGICAL：父在子之后出现（图从上往下画的前提）。**不要**加 SORT_TIME 之外的排序：
@@ -1350,10 +1356,52 @@ pub fn log_graph(dir: &str, limit: usize, skip: usize) -> Result<String> {
             "subject": commit.summary().unwrap_or(""),
             "author": commit.author().name().unwrap_or("").to_string(),
             "date": commit_time_iso(commit.author().when()),
+            "unpushed": unpushed.contains(&oid),
         }));
     }
 
     Ok(json!(out).to_string())
+}
+
+/// 未推送提交的集合：**HEAD 可达、上游不可达**（`git log @{u}..HEAD`）。
+///
+/// 与 [`repo_status`] 的 `ahead` 是**同一套口径**（那里是 `graph_ahead_behind(local, upstream)`）——
+/// 两个数字必须相等，工作区档写着「待推送 3」而图上一个标记都没有，比两边都没有更坏。
+///
+/// 三种「返回空集」都是有意的，别改成「全都标上」：
+/// - **没有上游**（分支没有 upstream 配置 / detached HEAD）：那时「未推送」无从谈起 ——
+///   把所有提交都标成未推送等于每一行都在喊同一件事，用户学到的只是「这个标记没有信息量」；
+/// - **revwalk 建不起来 / hide 失败**：这是显示用的提示，不该让整张图变成错误页；
+/// - 上游就是 HEAD（没有本地提交）：集合本来就空。
+fn unpushed_oids(
+    repo: &git2::Repository,
+    branch: &str,
+    head: git2::Oid,
+) -> std::collections::HashSet<git2::Oid> {
+    use std::collections::HashSet;
+
+    let mut set = HashSet::new();
+    if branch.is_empty() {
+        return set;
+    }
+    let upstream = repo
+        .find_branch(branch, git2::BranchType::Local)
+        .ok()
+        .and_then(|b| b.upstream().ok())
+        .and_then(|u| u.get().target());
+    let Some(upstream_oid) = upstream else {
+        return set;
+    };
+    let Ok(mut walk) = repo.revwalk() else {
+        return set;
+    };
+    if walk.push(head).is_err() || walk.hide(upstream_oid).is_err() {
+        return set;
+    }
+    for oid in walk.flatten() {
+        set.insert(oid);
+    }
+    set
 }
 
 /// tag 清单（对齐 D-f：**取全字段**）。
@@ -2274,6 +2322,69 @@ mod tests {
         let empty = temp_repo("log-graph-empty");
         let json = log_graph(empty.0.to_str().unwrap(), 10, 0).unwrap();
         assert_eq!(json, "[]");
+    }
+
+    /// 造一个上游：`origin` 远端 + `refs/remotes/origin/{branch}` + 分支的 upstream 配置。
+    ///
+    /// **三样缺一不可**（缺了不报错，只是 `Branch::upstream()` 给 NotFound —— 于是测的就变成
+    /// 「没有上游」那条分支，而断言照样可能绿：假绿比红更坏）：
+    /// 配置说「上游在 origin」，而 libgit2 解析上游名时会**先查远端存不存在**
+    /// （实测报 `remote 'origin' does not exist`），最后才是那条远端引用本身。
+    fn set_upstream(repo: &git2::Repository, branch: &str, oid: git2::Oid) {
+        repo.remote("origin", "https://example.com/owner/repo.git").unwrap();
+        repo.reference(&format!("refs/remotes/origin/{branch}"), oid, true, "测试造的上游")
+            .unwrap();
+        let mut cfg = repo.config().unwrap();
+        cfg.set_str(&format!("branch.{branch}.remote"), "origin").unwrap();
+        cfg.set_str(&format!("branch.{branch}.merge"), &format!("refs/heads/{branch}"))
+            .unwrap();
+    }
+
+    #[test]
+    fn log_graph_只有没推送到上游的提交带标记() {
+        let (dir, repo) = temp_repo("log-graph-unpushed");
+        let pushed = commit_file(&repo, "a.txt", "one\n", "已推送", "Alice");
+        let local = commit_file(&repo, "a.txt", "two\n", "还没推", "Bob");
+        // 分支名不写死 master / main：libgit2 认 `init.defaultBranch`，写死会在别的环境上假绿
+        let branch = repo.head().unwrap().shorthand().unwrap().to_string();
+        set_upstream(&repo, &branch, pushed);
+
+        let json = log_graph(dir.to_str().unwrap(), 10, 0).unwrap();
+        let arr: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["sha"], local.to_string());
+        assert_eq!(arr[0]["unpushed"], true, "HEAD 那条在上游里没有，必须标出来");
+        assert_eq!(arr[1]["unpushed"], false, "上游里已有的提交不许标");
+
+        // 与工作区档的「待推送 N」同源：两个数字必须相等
+        // （口径分家的话，面板上会同时出现「待推送 1」和一张一个标记都没有的图）
+        let status: serde_json::Value =
+            serde_json::from_str(&repo_status(dir.to_str().unwrap()).unwrap()).unwrap();
+        let marked = arr.iter().filter(|v| v["unpushed"] == true).count();
+        assert_eq!(status["ahead"].as_u64().unwrap() as usize, marked);
+        assert_eq!(marked, 1);
+    }
+
+    #[test]
+    fn log_graph_没有上游时一条都不标() {
+        let (dir, repo) = temp_repo("log-graph-no-upstream");
+        commit_file(&repo, "a.txt", "one\n", "c1", "Alice");
+        commit_file(&repo, "a.txt", "two\n", "c2", "Alice");
+
+        // 没有 upstream 配置：**不标**。全都标上等于每行都在喊同一件事（「未推送」就没有信息量了），
+        // 而且工作区档那时写的是「已同步」—— 两处对不上
+        let json = log_graph(dir.to_str().unwrap(), 10, 0).unwrap();
+        let arr: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+        assert_eq!(arr.len(), 2);
+        assert!(arr.iter().all(|v| v["unpushed"] == false), "没有上游时不许标：{arr:?}");
+
+        // 上游 == HEAD（没有本地提交）：同样一条都不标
+        let branch = repo.head().unwrap().shorthand().unwrap().to_string();
+        let head = repo.head().unwrap().peel_to_commit().unwrap().id();
+        set_upstream(&repo, &branch, head);
+        let json = log_graph(dir.to_str().unwrap(), 10, 0).unwrap();
+        let arr: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+        assert!(arr.iter().all(|v| v["unpushed"] == false), "上游就是 HEAD：{arr:?}");
     }
 
     #[test]

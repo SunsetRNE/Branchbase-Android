@@ -24,7 +24,10 @@ import org.junit.Test
  *    挡不住「只在一个入口打了」）；
  * 4. **长任务不许被面板吞掉**：加深（1.0.98）是分钟级的全史下载，必须走任务中心 + 进度弹窗，
  *    而且两个宿主都得接上出口 —— 写错的样子是「点了没反应」或「任务中心里什么都没有」，
- *    两种都只有真机上点一次才看得出来。
+ *    两种都只有真机上点一次才看得出来；
+ * 5. **「引擎标了、解析认了、渲染没了」要能被抓住**：未推送段（1.0.101）是三段接力 ——
+ *    引擎逐条标 `unpushed`、解析器认得它、面板把它画出来。前两段各有单测，第三段没有编译期约束，
+ *    少了那一句 `if` 的表现是「工作区档写着待推送 3，图上一条标记都没有」（两头全绿）。
  */
 class GitWorkbenchWiringTest {
 
@@ -195,6 +198,20 @@ class GitWorkbenchWiringTest {
         assertTrue(
             "本地 diff 页必须自己按入口取数（工作区 / 某个提交）",
             screen.contains("RustBridge.gitDiffWorktree(") && screen.contains("RustBridge.gitDiffCommit("),
+        )
+    }
+
+    @Test
+    fun `未推送段：面板必须真的画出来，不是只解析`() {
+        // 这一族最典型的静默失效：引擎标了（cargo 有钉子）、解析器认了（单测有）、
+        // 中间那一句渲染没了 —— 两头都绿，表现却是「工作区档写着待推送 3，图上一条标记都没有」。
+        // 所以对着面板源码钉一句：字段要真被用上，而且只有本地那份解析器认它
+        val panel = source("src/main/java/com/branchbase/ui/repository/CommitGraphPanel.kt")
+        assertTrue("提交图必须按 unpushed 画行尾标记", panel.contains("row.commit.unpushed"))
+        assertTrue("脚注要数已加载的这一屏（全量那个数在工作区档）", panel.contains("unpushedCount("))
+        assertTrue(
+            "本地来源必须走 parseLocalGraphCommits —— REST 那份解析器不认 unpushed",
+            panel.contains("::parseLocalGraphCommits"),
         )
     }
 

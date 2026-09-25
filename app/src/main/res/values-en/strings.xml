@@ -430,6 +430,8 @@
     <string name="state_graph_empty">No commits on this branch yet</string>
     <string name="label_graph_truncated">Loaded %1$s · earlier history not loaded</string>
     <string name="label_graph_all_loaded">All %1$s loaded</string>
+    <string name="note_graph_unpushed">%1$s of them not pushed to upstream yet</string>
+    <string name="label_unpushed_short">Unpushed</string>
     <string name="label_working_tree_node">Working tree · %1$s changes</string>
     <string name="state_working_tree_uncommitted">Uncommitted (above HEAD)</string>
     <string name="error_graph_load_failed">Failed to load the commit graph: %1$s</string>
