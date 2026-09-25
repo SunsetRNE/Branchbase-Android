@@ -83,6 +83,7 @@ import com.branchbase.ui.settings.LanguageScreen
 import com.branchbase.ui.settings.RepoCredentialsScreen
 import com.branchbase.ui.repository.repoRelationOf
 import com.branchbase.ui.repository.RepoRelation
+import com.branchbase.ui.repository.RepoDeepLink
 import com.branchbase.ui.theme.color
 import com.branchbase.ui.theme.TintRole
 import com.branchbase.ui.theme.selectionColor
@@ -149,6 +150,15 @@ fun ProfileScreen(
     onBack: () -> Unit,
     onLogout: () -> Unit,
     onOpenRepo: (String) -> Unit,
+    /**
+     * 深链接进仓库页（个人页里的子页用）。
+     *
+     * 与 [onOpenRepo] 分开：那个只说得清「哪个仓库」（`owner/repo`），落点是仓库首页；
+     * 「设置 → 本地仓库」的进入还要说清「去干嘛」—— 打开代码页并把 Git 面板展开到工作台
+     * （[RepoDeepLink.openGitPanel]）。合成一个回调就得在这里塞一个「要不要开面板」的布尔参数，
+     * 而那个意图属于深链接自己。
+     */
+    onOpenRepoDeepLink: (RepoDeepLink) -> Unit = {},
     /**
      * 从寄存点恢复的初始子页（例如「设置 → 账号管理」）。
      *
@@ -295,7 +305,9 @@ fun ProfileScreen(
                         SubPage.Stars -> StarsScreen(sessionJson, onBack = { subPage = null }, onOpenRepo = onOpenRepo)
                         SubPage.Projects -> ProjectsScreen(sessionJson, onBack = { subPage = null })
                         SubPage.Settings -> SettingsScreen(onBack = { subPage = null }, onOpenLocalRepo = { subPage = SubPage.LocalRepo }, onOpenAbout = { subPage = SubPage.About }, onOpenLog = { subPage = SubPage.Log }, onOpenNotificationSettings = { subPage = SubPage.NotificationSettings }, onOpenTranslate = { subPage = SubPage.Translate }, onOpenAccounts = { subPage = SubPage.Accounts }, onOpenCommitMode = { subPage = SubPage.CommitMode }, onOpenGitProxy = { subPage = SubPage.GitProxy }, onOpenRepoCredentials = { subPage = SubPage.RepoCredentials }, onOpenLanguage = { subPage = SubPage.Language }, onLogout = onLogout)
-                        SubPage.LocalRepo -> LocalRepoScreen(sessionJson, onBack = { subPage = SubPage.Settings })
+                        // 返回目标必须与其它二级页一致（`SettingsSpecTest` 逐行钉着这一条）——
+                        // 所以这句调用保持单行：拆行会让那条源码级钉子假红
+                        SubPage.LocalRepo -> LocalRepoScreen(sessionJson, onBack = { subPage = SubPage.Settings }, onOpenInApp = onOpenRepoDeepLink)
                         SubPage.About -> AboutScreen(onBack = { subPage = SubPage.Settings })
                         SubPage.Log -> LogScreen(onBack = { subPage = SubPage.Settings })
                         SubPage.NotificationSettings -> NotificationSettingsScreen(onBack = { subPage = SubPage.Settings })

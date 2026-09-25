@@ -154,7 +154,7 @@ ext4（容器里 `/tmp`）与 `/sdcard/Download`（**同一个 FUSE、另一棵�
 |---|---|---|
 | **D3** | 草稿隔离目录：编辑草稿落在 `files/edit/...`，与正式文件分开 | `ui/decision/CommitPrepScreens.kt:376`、`ui/repository/RepositoryFileViewer.kt:121` |
 | **D10** | 「Git 化」是提交模式③（本地仓库）下的子开关 | `ui/decision/SyncDecisionScreens.kt:238` |
-| **D11** | **不改写已推送历史**：不做 merge/rebase，已推送的提交只能 revert | `SyncDecisionScreens.kt:101,490`、`core/src/git/mod.rs:761`。**已拍板待实现（2026-09）**：拆开 merge 与 rebase —— merge 只新增提交、不改写历史，**允许**；仍禁 rebase / amend 已推送 / 强推。落地时改本行措辞与分叉页文案（见 [`git-mode-design.md`](git-mode-design.md) §10.2） |
+| **D11** | **不改写已推送历史**：不做 merge/rebase，已推送的提交只能 revert | `SyncDecisionScreens.kt:101,490`、`core/src/git/mod.rs:761`。**已拍板待实现（2026-09）**：拆开 merge 与 rebase —— merge 只新增提交、不改写历史，**允许**；仍禁 rebase / amend 已推送 / 强推。落地时改本行措辞与分叉页文案（见 [`git-mode-design.md`](git-mode-design.md) §6.4 的 D-g） |
 
 > 这三个编号原本登记在丢失的 `docs/code-editing-collaboration-thinking.md` 里，现在只剩代码里的裸引用 ——
 > 本表就是它们的登记处；再出现新的 `Dxx` 请加到这里。

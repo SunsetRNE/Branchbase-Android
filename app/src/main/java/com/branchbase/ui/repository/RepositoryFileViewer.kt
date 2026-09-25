@@ -711,6 +711,7 @@ fun FileViewerScreen(
                         kind = kind,
                         onSelect = { gitPanelStage = GitPanelStage.View(it) },
                         git = localGit,
+                        refreshTick = gitTick + resumeTick,
                         host = host,
                         token = token,
                         owner = owner,

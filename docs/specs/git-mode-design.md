@@ -39,17 +39,27 @@
 | 面板三档（折叠 / 动作列表 / 视图） | **已落地 1.0.93** | `ui/repository/GitPanelStage.kt` |
 | 框换框动效（`PanelSwitcher`） | **已落地 1.0.93** | `ui/navigation/PageTransitions.kt` |
 | 「工作区」档（分支 / 领先落后 / 改动清单 / 刷新 / 同步） | **已落地 1.0.93** | `ui/repository/GitWorkspacePanel.kt` |
-| 分档标签条（工作区 ✅ / 提交图 ✅ / 引用树 ⏳ / 文件历史 ⏳） | **已落地 1.0.94** | 同上（`GitPanelViewHost`） |
+| 分档标签条（未落地的档标「待接入」，点进去是如实说明） | **已落地 1.0.94** | 同上（`GitPanelViewHost`） |
 | 「提交图」档（REST 数据 + 泳道布局 + 分页脚注） | **已落地 1.0.94** | `ui/repository/CommitGraphPanel.kt` · `CommitGraphModels.kt` |
 | 未提交**虚节点**（方案 A） | **已落地 1.0.94** | 同上（`GraphRow.WorkingTree`） |
-| 引用树 / 文件历史档 | 待落地（阶段 2 / 4） | — |
+| 「引用树」档（本地 / 远端分支 + 上游 + 领先落后；tags 占位） | **已落地 1.0.95** | `ui/repository/GitRefsPanel.kt` · `GitRefsModels.kt` |
+| 标签条的可用态（工作区 / 提交图 / 引用树 ✅ · 文件历史 ⏳） | **已落地 1.0.95** | `GitPanelStage.kt` 的 `available` + 源码级钉子（提交图那格是 1.0.94 的漏改，本轮修正） |
+| 设置列表「进入」→ 代码页 + 面板开到视图档 | **已落地 1.0.95** | `RepoDeepLink.openGitPanel`（`RepositoryScreen.kt`）· `ui/profile/SubPageScreens.kt` |
+| 文件历史档 | 待落地（阶段 4） | — |
 | 设置列表「管理」页 / 列表重绘 | 待落地（阶段 6 / 后续问题） | — |
+| 危险动作收口（面板内动作全部落决策页）+ 行内动作下线 | 待落地（阶段 2 剩余） | — |
 | 本地合并 + 冲突解决 | 待落地（阶段 5） | — |
 | 引擎 `log_graph` / `list_tags` / `log_file` / `diff_*` / `merge_*` | 待落地（阶段 3–5） | `core/src/git/mod.rs` |
 
-**已落地的验证口径**：`:app:testDebugUnitTest`（`GitPanelStageTest` 7 例、`CommitGraphLayoutTest` 11 例、
-`PageTransitionsTest` 面板过渡与「三个切换器都下发 `LocalPageActive`」）· `assembleDebug` ·
-`check-i18n --min-coverage 100`。
+**已落地的验证口径**：`:app:testDebugUnitTest`（`GitPanelStageTest` 9 例、`GitRefsModelsTest` 5 例、
+`RepoDeepLinkTest` 4 例、`CommitGraphLayoutTest` 11 例、`PageTransitionsTest` 面板过渡与
+「三个切换器都下发 `LocalPageActive`」）· `assembleDebug` · `check-i18n --min-coverage 100`。
+
+**1.0.95 收口时修掉的三处「文档说已落地、代码说没落地」**（都不是新功能，是账没对上）：
+① 阶段 1 把「提交图」渲染接上了，`GitPanelKind.Graph.available` 却留在 `false` ——
+标签条标「待接入」、点进去是一张能用的图，而那枚钉子当时钉的正是这个错值；
+② 代码与资源里指向本文的章节号是收束前的旧号（动效 `§3.4` 实为 §3.3、阶段表 `§9` 实为 §8）；
+③ `VERSION-NOTES` §三 少了 195 这一版（阶段 0 那次提交），§二 1.0.94 的箭头也写成了 `194 → 195`。
 
 ---
 
@@ -74,11 +84,20 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
 |---|---|---|---|
 | **工作区** | 分支 / 领先落后 / 上游 / 改动文件清单 / 刷新 / 同步 | `LocalRepoGitState`（一次 `repo_status`，与徽标同源） | 已落地 |
 | **提交图** | 泳道 DAG + **未提交虚节点** + 分页脚注 | REST `/commits?sha=&per_page=100`（**保留 `parents`**）；阶段 3 起本地 `log_graph` | 已落地（REST 版） |
-| **引用树** | 本地 / 远端分支、tag、上游 | `local_branches` · `remote_branches` · `list_tags`（新） | 待落地（阶段 2） |
+| **引用树** | 本地 / 远端分支、上游、领先落后；tag 占位 | `local_branches` · `remote_branches`（本地仓库，离线可读）；`list_tags` 待阶段 3 | 已落地（阶段 2，**只读**） |
 | **文件历史** | 该文件的提交序列 | **本地优先**（`log_file`，已加深时）/ REST `/commits?path=` 兜底 | 待落地（阶段 4） |
 
 未落地的档在标签条上标「**待接入**」，点进去是一句如实的说明 —— **不是死按钮**，
 也不假装能用（`available = false` 只影响样式与文案，不影响可达性）。
+**落地了必须同步把 `available` 翻成 `true`**：提交图那格漏翻过一次，标签条一直标「待接入」、
+点进去却是一张能用的图（`GitPanelStageTest` 现在有一条源码级钉子对着宿主源码查这件事）。
+
+**引用树为什么只读**：切换 / 新建 / 删除分支是**有后果的动作**（脏工作区切分支要撤销改动、
+删分支会丢提交），按 §6.1 的分档它们走决策页，落点在既有的「分支管理」「本地分支同步」；
+把一个可点分支行放进 268dp 的浮层里，只会把误触变成默认路径。这一档只回答
+「有哪些引用、我在哪、哪些只在远端」，底部给「刷新」「同步」两个真能用的出口。
+**tag 不用 REST 的 `/tags` 顶替**：那会立刻出现第二个数据源与第二套字段口径（D-f），
+阶段 3 落地时还得拆两遍 —— 所以标签区如实写「按阶段接入」。
 
 ### 3.3 框换框的动效规格（复用页面级常量，不许自造）
 
@@ -99,7 +118,17 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
 | 入口 | 行为 | 状态 |
 |---|---|---|
 | 代码页 / 文件页的 Git 气泡 | 点球 → 动作列表 → 视图档（仅「本地仓库（Git）」提交模式，`showGitBubble` 门控不变） | 已落地 |
-| 设置 → 本地仓库 行 | 打开该仓库代码页 + **自动展开到视图档**（`RepoDeepLink` 加 `openGitPanel`） | 待落地（阶段 2） |
+| 设置 → 本地仓库 行的**仓库名** | 打开该仓库代码页 + **自动展开到视图档**（`RepoDeepLink.openGitPanel`） | **已落地 1.0.95**（阶段 2） |
+
+第二条的两条实现约定（都为了不出现「点了什么都没发生」）：
+
+- `openGitPanel` **隐式带上代码页**（`initialRepoPage`）—— 气泡只长在代码页上，谁只传面板而漏了
+  `page`，表现就是入口失灵；
+- 面板落地档由 `initialGitPanelStage` 决定，**直接给视图档**（不是先落在动作列表）：
+  从「本地仓库」过来的人要看的就是工作台，动作列表只是中途站；
+- owner/repo 由本地仓库的 `origin` URL 反推（**复用列表本来就要跑的那轮 `gitStatus`**，
+  不额外读第二遍）；解析不出时回落到「当前账号 + 目录名」—— 本地仓库按账号存放、clone 也来自
+  「我的仓库」，所以那就是同一个仓库，而「解析不出就不给进入」只会让一个能用的入口凭空消失。
 
 ---
 
@@ -144,6 +173,9 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
 （→ 本地仓库内容管理页：**按仓库**看占用、按仓库清理 —— 不是所有仓库都那么大）。
 
 - **「占用」= 本地仓库本身的体积**（缓存选型见 §6.3）：清理就是管理本地副本，不存在第二份缓存；
+- **「进入」已接上（1.0.95）**：落在**仓库名**上（蓝色 = 全 App 一致的链接样式），
+  不加新控件、不动行结构 —— 目标形态里那枚显式「进入」按钮等阶段 6 重绘时一起给，
+  现在只是把这条路打通（§3.4）；
 - **过渡期**：行内动作（提交 / 推送 / 撤销 / 上游 / 回退 / 分支 / 同步）暂时保留，
   每处标注「真源在 Git 面板」，**每迁走一个就删掉一个**（一次一个，跟着该动作在面板里验收通过）；
 - **已登记的后续问题（现阶段不做）**：本地仓库**列表行本身要重绘** ——
@@ -167,6 +199,7 @@ Collapsed ──点球──► Actions（动作列表）──点「工作区 /
 | D-g | **允许 merge，不做 rebase** | §6.4；D11 措辞随之修正 |
 | D-h | **冲突交互 = 冲突弹窗（出现即预解析）→ 详情对比页** | §6.4 |
 | D-i | **不另建图谱缓存**（Room / JSON 都否掉）：本地仓库对象库就是缓存 | §6.3 |
+| D-j | **「引用树」档只读**：分支的切换 / 新建 / 删除不搬进浮层（有后果 → 决策页），落点是既有的分支管理 / 本地分支同步；这一档只回答「有哪些引用、我在哪、哪些只在远端」 | §2 / §3.2（1.0.95） |
 
 ### 6.2 已废弃 / 已被取代（**不要再捡回来**）
 
@@ -235,7 +268,7 @@ merge_branch ─► outcome == "conflict"
 |---|---|---|
 | **0** | 面板三档 + `PanelSwitcher` + 「工作区」档 | **已落地 1.0.93** |
 | **1** | 「提交图」档（REST + 泳道布局）+ 虚节点 + 分档标签条 | **已落地 1.0.94** |
-| **2** | 「引用树」档（`local_branches` / `remote_branches` / tags 占位）+ 危险动作收口（全部落决策页）+ 设置列表开始下线行内动作 + `RepoDeepLink.openGitPanel` | 待做 |
+| **2** | 「引用树」档（`local_branches` / `remote_branches` / tags 占位）+ `RepoDeepLink.openGitPanel`（含设置列表「进入」） | **部分落地 1.0.95**；危险动作收口 + 设置列表动作下线**待做** |
 | **3** | `log_graph` / `list_tags` / `log_file` / `diff_worktree` / `diff_commit`（重建 `.so`）+ 工作区档的本地 diff + 提交图的本地来源 | 待做 |
 | **4** | `fetch_deepen`（任务中心 + 进度）+ 「文件历史」档（本地优先 + REST 兜底）+ 离线图谱（LocalSource 优先、未推送段） | 待做 |
 | **5** | 本地合并（D-g）+ 冲突弹窗 / 预解析 / 详情对比页（D-h）+ PR 冲突的「拉到本地解决」 | 待做 |
@@ -248,6 +281,7 @@ merge_branch ─► outcome == "conflict"
 | 要动的东西 | 登记处 |
 |---|---|
 | 面板多一档 / 返回键层级变化 | 注释与本文件的 §3.1；**不新增页面、不动 `route` / `leavePage()` / `fullScreenPages`**（形态已定） |
+| 某一档落地 | `GitPanelKind` 的 `available` 翻成 `true` **并**在 `GitPanelViewHost` 里接上渲染 —— 两处是同一件事，漏一处就是「标着待接入、进去能用」（`GitPanelStageTest` 有一条源码级钉子对着宿主源码查） |
 | `PanelSwitcher` 改动 | `ui/navigation/PageTransitions.kt`（动效唯一真源）+ `PageTransitionsTest`（「三个切换器都下发 `LocalPageActive`」） |
 | **新全屏页**（阶段 5 的冲突详情对比页、阶段 6 的管理页） | `SystemBarInsetsTest.kt` 的 `fullScreenPages` + 只走 `PageBackHandler`（裸 `BackHandler` 被全目录扫描） |
 | 新 `ui/` 文件里的颜色 | 走 `Primer` 角色；泳道配色在 `ui/theme/Color.kt`（`ThemeConvergenceTest`） |
@@ -280,4 +314,8 @@ merge_branch ─► outcome == "conflict"
    （后者是独立模块级工作量）；
 4. 显式 stash 要不要做（隐式 stash 已明确不做）：不做的话「脏工作区切分支被拒」的出路只有「放弃改动」；
 5. **导出仓库**（zip / 分享给桌面端）要不要做 —— 1.0.92 只把「复制路径到桌面端」的文案删掉了，
-   **没有出路**与「有出路但要新建能力」是两件事。
+   **没有出路**与「有出路但要新建能力」是两件事；
+6. **从个人页子页进仓库页再返回，落点是个人页主页、不是原来那个子页**（1.0.95 的「进入」会走到它）：
+   个人页的子页状态是普通 `remember`，`PageSwitcher` 切走时旧页被销毁；现有的 `pendingSubPage`
+   寄存点只覆盖「冷启动 / 整屏接管后重建」。要么把它做成通用机制（任何子页都寄存），
+   要么明确接受这个落点 —— 星标 / 仓库列表点进仓库页早就是同一行为，本轮没有顺手改。

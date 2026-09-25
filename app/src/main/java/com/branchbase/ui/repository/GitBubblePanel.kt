@@ -103,7 +103,7 @@ data class GitBubbleAction(
  * `AnimatedVisibility(expand/shrink)` —— 那是「面板出现 / 消失」，不是「换框」。
  *
  * 尺寸变化（动作列表矮、视图高）交给 `animateContentSize`，规格与
- * [`git-mode-design.md`](../../../../../../docs/specs/git-mode-design.md) §3.4 一致。
+ * [`git-mode-design.md`](../../../../../../docs/specs/git-mode-design.md) §3.3 一致。
  *
  * 设计意图（对齐「编辑之后不重复点开设置」）：把提交模式切换、推送/拉取、分支管理这些
  * 原本只在「设置 → 本地仓库」里才有的入口，直接挂到代码页/文件页，编辑完就地执行；

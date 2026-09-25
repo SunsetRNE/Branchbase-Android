@@ -212,6 +212,9 @@ fun MainScreen(
                             val parts = fullName.split("/")
                             if (parts.size >= 2) showRepo = RepoDeepLink(parts[0], parts[1])
                         },
+                        // 子页里的深链接（设置 → 本地仓库 的「进入」）：目标由子页决定，
+                        // 主界面只负责把它挂到仓库路由上（与搜索页的 onOpenInApp 同一条路）
+                        onOpenRepoDeepLink = { showRepo = it },
                     )
 
                     // 搜索页（搜索框进入）

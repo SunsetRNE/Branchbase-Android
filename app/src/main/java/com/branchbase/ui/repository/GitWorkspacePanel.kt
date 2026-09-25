@@ -17,10 +17,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -41,13 +43,20 @@ private val PANEL_WIDTH = 268.dp
  * 而不是一个点了没反应的入口（这条是本仓库的既有口径）。
  *
  * 档与档之间是**同层切换** → `PanelSwitcher` 走 fade-through（不位移，见
- * [`git-mode-design.md`](../../../../../../docs/specs/git-mode-design.md) §3.4）。
+ * [`git-mode-design.md`](../../../../../../docs/specs/git-mode-design.md) §3.3）。
+ *
+ * 本地仓库目录在这里按 `repo` **算一次**（[localRepoDir]），不叫两个宿主各传一份 ——
+ * 「引用树」档要按目录读 `local_branches` / `remote_branches`，这个路径写错的表现是
+ * 「面板说没有引用、其实仓库是好的」，只有真机上才看得出来。
+ *
+ * @param refreshTick 宿主自己的刷新计数（工作区档由它驱动重读；引用树档同样跟着它重读）
  */
 @Composable
 fun GitPanelViewHost(
     kind: GitPanelKind,
     onSelect: (GitPanelKind) -> Unit,
     git: LocalRepoGitState,
+    refreshTick: Int,
     host: String,
     token: String,
     owner: String,
@@ -56,6 +65,8 @@ fun GitPanelViewHost(
     onOpenSync: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val repoDir = remember(repo) { localRepoDir(context, repo) }
     Column(
         modifier
             .width(PANEL_WIDTH)
@@ -76,6 +87,13 @@ fun GitPanelViewHost(
                 branch = git.branch,
                 dirtyCount = git.dirtyCount,
                 onOpenWorkspace = { onSelect(GitPanelKind.Workspace) },
+                onOpenSync = onOpenSync,
+            )
+            GitPanelKind.Refs -> GitRefsPanel(
+                repoDir = repoDir,
+                localRepoExists = git.exists,
+                refreshTick = refreshTick,
+                onRefresh = onRefresh,
                 onOpenSync = onOpenSync,
             )
             else -> GitPanelViewPlaceholder(kind)
@@ -245,7 +263,7 @@ fun GitWorkspaceBody(
 
 /** 面板里的一个小胶囊按钮（面板内不用 Material 的 TextButton：它的最小高度会把面板撑肿）。 */
 @Composable
-private fun PanelChip(label: String, enabled: Boolean, onClick: () -> Unit) {
+internal fun PanelChip(label: String, enabled: Boolean, onClick: () -> Unit) {
     val bg = if (enabled) Primer.Gray150 else Primer.Gray100
     val fg = if (enabled) Primer.TextPrimary else Primer.TextTertiary
     Row(

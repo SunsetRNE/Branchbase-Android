@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.repository.RepoRelation
+import com.branchbase.ui.repository.RepoDeepLink
 import com.branchbase.ui.repository.CloneDialogState
 import com.branchbase.ui.repository.CloneProgressDialog
 import com.branchbase.ui.repository.clonePhaseText
@@ -987,6 +988,14 @@ private sealed interface LocalPage {
 private data class CloneRun(val fullName: String, val name: String)
 
 /**
+ * 本地仓库列表行要用的两件事实（一轮 `gitStatus` 同时取回）。
+ *
+ * 放在一行里一起读是有意的：`branch` 给分支胶囊，`ownerRepo` 给「进入」的深链接 ——
+ * 分两次读会让这一页每进一次列表就白跑 N 次 git（这一轮本来就慢）。
+ */
+private data class LocalRepoFacts(val branch: String, val ownerRepo: Pair<String, String>?)
+
+/**
  * clone 进度轮询间隔。
  *
  * 200ms 是「进度条看着连贯」与「不白烧电」的折中：读的是一份**进程内快照**
@@ -998,9 +1007,20 @@ private const val CLONE_POLL_MS = 200L
  * 本地仓库列表页。每个仓库独立 Git（更新/删除），「＋拉取仓库」列出我的仓库并浅 clone。
  * clone 通过 `RustBridge.gitClone`（libgit2）。
  * 决策收口：pull/push 分叉 → Fork 页；删除升级警告；提交/撤销/上游/回退入口。
+ *
+ * **「进入」= 深链接到仓库内的 Git 面板**（阶段 2）：点仓库名打开该仓库的代码页，
+ * 并把 Git 气泡**直接展开到视图档**（工作台）。这一页的定位是**统筹台**（拉了哪些、
+ * 各在什么状态），真正的版本管理在面板里做（`git-mode-design.md` §1 / §3.4）。
+ * 行内的动作按阶段逐个迁进面板，**行本身的重绘留到阶段 6**（§5）。
+ *
+ * @param onOpenInApp 交给宿主路由：本页不知道仓库页在哪，只负责说清「去哪个仓库、去干嘛」
  */
 @Composable
-fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
+fun LocalRepoScreen(
+    sessionJson: String,
+    onBack: () -> Unit,
+    onOpenInApp: (RepoDeepLink) -> Unit = {},
+) {
     LaunchedEffect(Unit) { Logger.ui("进入本地仓库页", "Compose") }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1056,25 +1076,44 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
 
     fun dirOf(name: String) = File(repoRoot, name).absolutePath
 
-    // 各仓库当前分支（用于行内显示）。
+    // 各仓库当前分支（用于行内显示）+ 这个本地副本对应的 owner/repo（「进入」要它）。
     //
     // 键里**必须带 `page`**：`repos` 是目录集合，`mutableStateOf` 用结构相等 ——
     // 切过分支 / 同步过之后再回到列表，目录集合一个字都没变，分支胶囊就一直是旧分支名
     // （用户看到的是「切了分支但列表没变」）。带上 `page` 之后，「回到列表页」本身触发重读。
-    var branchMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    //
+    // owner/repo 从 `remoteUrl` 反推（本地目录里只有仓库名）：**没有额外 git 调用** ——
+    // 这一轮 `gitStatus` 本来就要跑，顺手把 URL 解析掉，别为「进入」再读第二遍。
+    var repoFacts by remember { mutableStateOf<Map<String, LocalRepoFacts>>(emptyMap()) }
     LaunchedEffect(repos, page) {
         // 只在列表页读：进子页时不重读（否则每进一次子页都白跑 N 次 gitStatus）
         if (page !is LocalPage.List) return@LaunchedEffect
-        val m = mutableMapOf<String, String>()
+        val m = mutableMapOf<String, LocalRepoFacts>()
         repos.forEach { r ->
             val st = withContext(Dispatchers.IO) {
                 RustBridge.gitStatus(dirOf(r))?.let { parseGitStatus(it) }
             }
-            st?.branch?.takeIf { it.isNotBlank() }?.let { m[r] = it }
+            m[r] = LocalRepoFacts(
+                branch = st?.branch.orEmpty(),
+                ownerRepo = st?.remoteUrl?.let { ownerRepoOfRemote(it) },
+            )
         }
-        branchMap = m
+        repoFacts = m
     }
-    fun branchOf(name: String) = branchMap[name] ?: "—"
+    fun branchOf(name: String) = repoFacts[name]?.branch?.takeIf { it.isNotBlank() } ?: "—"
+
+    /**
+     * 「进入」：打开这个本地副本对应的仓库页并展开 Git 面板。
+     *
+     * owner/repo 取不到时（没配 origin / URL 解析不出）回落到**当前账号 + 目录名** ——
+     * 本地仓库是按账号存放的、clone 也是从「我的仓库」里拉的，所以这就是同一个仓库；
+     * 而「解析不出就不给进入」只会让一个能用的入口凭空消失。
+     */
+    fun enterRepo(name: String) {
+        val (owner, repoName) = repoFacts[name]?.ownerRepo ?: (accountLogin to name)
+        if (owner.isBlank() || repoName.isBlank()) return
+        onOpenInApp(RepoDeepLink(owner, repoName, openGitPanel = true))
+    }
 
     /** pull 三态：成功 / 分叉（→ Fork 决策页）/ 失败。 */
     fun doPull(name: String) {
@@ -1477,6 +1516,7 @@ fun LocalRepoScreen(sessionJson: String, onBack: () -> Unit) {
                     LocalRepoRow(
                         name = name,
                         branch = branchOf(name),
+                        onOpen = { enterRepo(name) },
                         onBranches = { page = LocalPage.Branches(name) },
                         onSync = { page = LocalPage.Sync(name) },
                         onPull = { doPull(name) },
@@ -1601,10 +1641,18 @@ private fun ownerRepoOfRemote(url: String): Pair<String, String>? {
     return if (owner.isNotBlank() && repo.isNotBlank()) owner to repo else null
 }
 
+/**
+ * 一行本地仓库。
+ *
+ * 「进入」落在**仓库名**上（蓝色 = 全 App 一致的链接样式，不加新控件、不动行结构）——
+ * §5 要的行重绘（名称 / 状态 / 动作按语义边界分开、外加一枚显式「进入」）留到阶段 6，
+ * 这里只把入口接上，**不硬加边界**（那是用户明确否掉的做法）。
+ */
 @Composable
 private fun LocalRepoRow(
     name: String,
     branch: String,
+    onOpen: () -> Unit,
     onBranches: () -> Unit,
     onSync: () -> Unit,
     onPull: () -> Unit,
@@ -1624,7 +1672,13 @@ private fun LocalRepoRow(
             .padding(12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
+            Text(
+                name,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Primer.Blue500,
+                modifier = Modifier.clickable { onOpen() },
+            )
             Spacer(Modifier.weight(1f))
             // 当前分支胶囊 → 分支管理页
             Row(

@@ -134,7 +134,28 @@ data class RepoDeepLink(
     val commitSha: String? = null,    // 直达提交详情
     val runId: Long? = null,          // 直达 Run 详情
     val path: String? = null,         // 直达文件查看页（代码搜索结果用）
+    /**
+     * 进页就把 Git 面板展开到**视图档**（工作台）。
+     *
+     * 唯一的出发点是「设置 → 本地仓库」那一行的进入入口：用户在那里看到的是一排本地副本，
+     * 点进去要的是**工作台**（分支 / 改动 / 引用），不是仓库首页。
+     * 它**隐式带上代码页**（见 [initialRepoPage]）—— 气泡只长在代码页上。
+     */
+    val openGitPanel: Boolean = false,
 )
+
+/**
+ * 深链接落在哪个 tab。
+ *
+ * `openGitPanel` 只在代码页有意义，所以**隐式带上代码页**：谁要是只传了它而漏了 `page`，
+ * 表现就是「点了『进入』什么都没发生」—— 深链接的字段之间不该有这种暗坑。
+ * 显式传了 `page` 的一律以显式为准（将来的入口可能要把面板和别的 tab 组合）。
+ */
+internal fun initialRepoPage(openGitPanel: Boolean, explicit: RepoPage?): RepoPage = when {
+    explicit != null -> explicit
+    openGitPanel -> RepoPage.Code
+    else -> RepoPage.Overview
+}
 
 @Composable
 fun RepositoryScreen(
@@ -153,7 +174,7 @@ fun RepositoryScreen(
             Logger.ui("进入仓库详情页 $owner/$repo", "Compose")
         }
     }
-    var page by remember { mutableStateOf(initial?.page ?: RepoPage.Overview) }
+    var page by remember { mutableStateOf(initialRepoPage(initial?.openGitPanel == true, initial?.page)) }
     var peoplePage by remember { mutableStateOf<String?>(null) } // "star"/"fork"/"watch"
     // (文件路径, 高亮行号)；代码搜索结果会带 path 直达文件页
     var filePage by remember { mutableStateOf<Pair<String, String?>?>(initial?.path?.let { it to null }) }
@@ -928,6 +949,8 @@ fun RepositoryScreen(
                                         branches = branches.map { it.name },
                                         defaultBranch = branch ?: branches.firstOrNull()?.name ?: "main",
                                         refreshTick = refreshTick,
+                                        // 设置 → 本地仓库 的「进入」带 openGitPanel 进来：直接落在视图档
+                                        initialStage = initialGitPanelStage(initial?.openGitPanel == true),
                                         modeLabel = mode?.let { stringResource(it.labelRes) },
                                         onPickMode = { showCommitMode = true },
                                         onOpenBranchManage = { showBranchManage = true },
@@ -1150,6 +1173,7 @@ private fun CodePageGitPanel(
     branches: List<String>,
     defaultBranch: String,
     refreshTick: Int,
+    initialStage: GitPanelStage = GitPanelStage.Collapsed,
     modeLabel: String?,
     onPickMode: () -> Unit,
     onOpenBranchManage: () -> Unit,
@@ -1157,7 +1181,7 @@ private fun CodePageGitPanel(
     onOpenLocalSync: () -> Unit,
     onRefresh: () -> Unit,
 ) {
-    var stage by remember { mutableStateOf<GitPanelStage>(GitPanelStage.Collapsed) }
+    var stage by remember { mutableStateOf(initialStage) }
     val localGit = rememberLocalRepoGitState(repo, refreshTick)
     val otherBranch = branches.firstOrNull { it != defaultBranch }
 
@@ -1233,6 +1257,7 @@ private fun CodePageGitPanel(
                 kind = kind,
                 onSelect = { stage = GitPanelStage.View(it) },
                 git = localGit,
+                refreshTick = refreshTick,
                 host = host,
                 token = token,
                 owner = owner,

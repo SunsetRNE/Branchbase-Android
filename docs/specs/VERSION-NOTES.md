@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只留格式契约 + 写法样板（3 个经典示例）；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.94**）
-与 §三 `versionCode` 流水（129 → **196**）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.0.95**）
+与 §三 `versionCode` 流水（129 → **197**）。
 
 ---
 
@@ -25,12 +25,87 @@
 
 ---
 
-## 二、`versionName` 流水（1.0.94 → 1.0.22）
+## 二、`versionName` 流水（1.0.95 → 1.0.22）
+
+### 1.0.95
+
+**Git 模式阶段 2（前半）：「引用树」档落地（本地 / 远端分支，零 Rust）+ 设置列表「进入」深链接
+（`RepoDeepLink.openGitPanel`）+ 收口时修掉三处「文档说已落地、代码说没落地」**。
+
+① **「引用树」档**（`GitPanelKind.Refs` → `available = true`）：
+
+- `ui/repository/GitRefsModels.kt`：一档视图模型 + 两条纯函数 —— `refSyncBadge`（两边都是 0 就
+  **不画**「↑0 ↓0」；「未跟踪」走 `tracked = false`，与 0/0 分开表达）与 `refsViewOf`
+  （**HEAD 置顶**：面板只有 268dp、分支一多就得滚动，「我现在在哪」不能被滚出屏幕；Kotlin 排序稳定，
+  置顶之外保持引擎给的顺序）。数据源是本地仓库的 `local_branches` / `remote_branches`：离线可读、
+  与「工作区」档同源、不消耗 API 限额；
+- `ui/repository/GitRefsPanel.kt`：本地分支（HEAD 圆点 / 上游 / 领先落后）+ 远端跟踪引用
+  （`origin/` 前缀、「只在远端」标出来）+ 标签区**如实写「按阶段 3 接入」**；
+  骨架 / 空 / 读不到 / 仓库不存在四态分开（`null` 不折成空列表 —— 「读失败」与「一个引用都没有」
+  是两条不同的文案），底部给两个真能用的出口（刷新 / 同步）；
+- **这一档刻意只读**：切分支 / 建分支 / 删分支是**有后果的动作**（脏工作区切分支要撤销改动、
+  删分支会丢提交），按 §6.1 的分档走决策页，落点在既有的「分支管理」「本地分支同步」——
+  把可点分支行放进 268dp 的浮层里，只会把误触变成默认路径；
+- **tags 不用 REST 的 `/tags` 顶替**：那会立刻出现第二个数据源与第二套字段口径
+  （D-f 要 annotated 的 tagger / 时间 / 说明，REST 那份给不了），阶段 3 落 `list_tags` 时还得拆两遍。
+
+② **设置 → 本地仓库「进入」**（§3.4 的第二个入口）：点**仓库名**打开该仓库代码页并把 Git 面板
+**直接开到视图档**（蓝色 = 全 App 一致的链接样式，不加新控件、不动行结构 —— 显式「进入」按钮留给
+阶段 6 的行重绘）。三条实现约定：`openGitPanel` **隐式带上代码页**（气泡只长在代码页上，
+只传面板而漏 `page` 的表现就是「点了没发生」）；落地档由 `initialGitPanelStage` 给（视图档，
+不是先落在动作列表）；owner/repo 从 `origin` URL 反推、**复用列表本来就要跑的那轮 `gitStatus`**
+（不额外读第二遍），解析不出时回落到「当前账号 + 目录名」—— 而「解析不出就不给进入」只会让
+一个能用的入口凭空消失。
+
+③ **收口时修掉的三处账目不符**（都不是新功能，是账没对上）：
+
+- 阶段 1 把「提交图」渲染接上了，`GitPanelKind.Graph.available` 却留在 `false` —— 标签条标「待接入」、
+  点进去却是一张能用的图；而那枚钉子（`GitPanelStageTest`）当时钉的正是这个错值。现在两个方向都有钉子：
+  一条查枚举值，一条**对着宿主源码**查「渲染了却没标可用」（限定在 `GitPanelViewHost` 函数体内 ——
+  同文件的 `gitPanelKindLabel` 穷尽四档，整文件扫会把「文件历史」也算成已渲染）；
+- 代码与资源里指向 `git-mode-design.md` 的章节号还是收束前的旧号（动效 `§3.4` 实为 §3.3、
+  阶段表 `§9` 实为 §8、`local-git-engine-design.md` 的 `§10.2` 实为 §6.4），一并改正；
+- `VERSION-NOTES` §三 少了 **195** 这一版（阶段 0 那次提交），§二 1.0.94 的箭头也写成了 `194 → 195`
+  —— 本轮按 git 历史补回 **1.0.93** 条目并改正（此前阶段 1 的提交把两条并成了一条，
+  合并可以，但合并之后版本码就对不上了）。
+
+`tools/i18n/check-i18n.py --min-coverage 100`（新增 9 条中英资源）· `:app:testDebugUnitTest`（861 例；
+新增 `GitRefsModelsTest` 5 例、`RepoDeepLinkTest` 4 例，`GitPanelStageTest` 7 → 9 例）·
+`assembleDebug` 通过。versionCode 196 → 197（一次提交 +1）。
 
 ### 1.0.94
 
-**Git 模式阶段 1 落地（提交图 + 未提交虚节点 + 分档标签条）+ 文档收束（三份并一份、落后决策丢弃）；
-并含阶段 0 与三轮设计落账**。
+**Git 模式阶段 1 落地（提交图 + 未提交虚节点 + 分档标签条）+ 文档收束（三份并一份、落后决策丢弃）**。
+
+⑦ **阶段 1 落地（代码，仍零 Rust）**：
+
+- `ui/repository/CommitGraphModels.kt`：图的独立解析 `parseGraphCommits`（**保留 `parents`** ——
+  不去动提交列表那份 `parseCommits`）+ 泳道布局 `CommitGraphLayout`（第一父继承泳道、汇合时本泳道释放、
+  **空位当场压实并把位移画成斜线**、父不在窗口画终止符）+ `GraphRow`（含虚节点档）；
+  11 例单测（线性 / 分叉 / 汇合回收 / 悬空父 / 根提交 / octopus / 虚节点出现与消失 / 幂等 / 解析容错）；
+- `ui/repository/CommitGraphPanel.kt`：「提交图」档 —— `LazyColumn` + 固定宽 gutter（Canvas 只画本行线段，
+  颜色在组合期取好）、短 sha · 标题 · 作者、分页脚注「已加载 N 条 · 更早历史未加载」+「加载更多」、
+  骨架 / 空 / 失败三态；
+- **虚节点（方案 A）落地**：HEAD 之上虚线圆、无 sha、点它进「工作区」档，不提供任何以 sha 为键的交互；
+- `GitPanelViewHost` + 分档标签条：工作区 ✅ / 提交图 ✅ / 引用树·文件历史 标「待接入」，
+  点进去是如实说明（不是死按钮）；两个宿主都改用它。
+
+⑧ **文档收束**：`git-mode-design.md` 重写为 **Git 模式唯一的开发进度与设计文档**
+（产品判断 / 现状 / 形态与动效 / 可视化 / 决策台账（生效 + **已废弃并丢弃**）/ 引擎缺口 / 路线图 /
+登记清单 / 未决）；`git-version-tree-design.md` 收敛成指向它的指针页（旧链接不断）；
+`docs/README.md` 索引两行并一行。**丢弃的落后决策**：全屏工作台 + `RepoRoute.GitWorkspace` 那套登记、
+虚节点方案 B/C、缓存三选一的对比表、D11「不做 merge/rebase」旧措辞。
+
+`tools/i18n/check-i18n.py --min-coverage 100`（新增 7 条中英资源）· `:app:testDebugUnitTest`（839 → 850 例）·
+`assembleDebug` 通过。versionCode **195 → 196**（一次提交 +1）。
+
+### 1.0.93
+
+**Git 模式：设计三轮落账（数据面三条决策 / 虚节点「画」/ 气泡多档面板 + 框换框动效 /
+D11 拆 merge 与 rebase / 缓存不另建）+ 阶段 0 落地（面板三档 + `PanelSwitcher` + 「工作区」档）**。
+
+**Git 模式：设计三轮落账（数据面三条决策 / 虚节点「画」/ 气泡多档面板 + 框换框动效 /
+D11 拆 merge 与 rebase / 缓存不另建）+ 阶段 0 落地（面板三档 + `PanelSwitcher` + 「工作区」档）**。
 
 产品对设计稿未决问题的三轮答复，逐条折进
 [`git-version-tree-design.md`](git-version-tree-design.md) / [`git-mode-design.md`](git-mode-design.md)：
@@ -54,7 +129,7 @@
 ④ **D11 拆开 merge 与 rebase**：merge **只新增提交、不改写历史**，与 D11 不冲突 —— **允许**；
 仍禁 rebase / amend 已推送 / 强推。冲突的交互定为**冲突弹窗 → 详情对比页**，
 且**弹窗出现的那一刻就开始预解析**（ours / theirs / base 的 diff 与冲突清单），
-用户点进去内容是现成的（预解析契约写在 `git-mode-design.md` §6.2）。
+用户点进去内容是现成的（预解析契约写在 `git-mode-design.md` §6.4）。
 
 ⑤ **缓存拍板选 A**：不另建 Room / JSON 缓存 —— 应用本身是本地优先的实现，**本地仓库对象库就是缓存**
 （配合 `fetch_deepen`：离线、无 API 限额、git 自己压缩与 gc）；「占用」= 本地仓库本身的体积，
@@ -75,29 +150,10 @@
   提交 / 推送 / 合并入口按阶段接入，**如实写在面板里**，不放点了会跳到别处的假按钮；
   提交图 / 引用树 / 文件历史三档仍是 `available = false` → 渲染成「还没落地」的占位；
 - 两个宿主（代码页 `CodePageGitPanel`、文件页）都用 `panelBack` 逐档退（返回键三层：视图 → 动作列表 →
-  收起 → 页面），源码级钉子盯着别只改一边；
-- 新增 8 条中英资源（`strings.tsv` 同步）+ `GitPanelStageTest` 7 例 + `PageTransitionsTest` 面板过渡 1 例。
+  收起 → 页面），源码级钉子盯着别只改一边。
 
-⑦ **阶段 1 落地（代码，仍零 Rust）**：
-
-- `ui/repository/CommitGraphModels.kt`：图的独立解析 `parseGraphCommits`（**保留 `parents`** ——
-  不去动提交列表那份 `parseCommits`）+ 泳道布局 `CommitGraphLayout`（第一父继承泳道、汇合时本泳道释放、
-  **空位当场压实并把位移画成斜线**、父不在窗口画终止符）+ `GraphRow`（含虚节点档）；
-  11 例单测（线性 / 分叉 / 汇合回收 / 悬空父 / 根提交 / octopus / 虚节点出现与消失 / 幂等 / 解析容错）；
-- `ui/repository/CommitGraphPanel.kt`：「提交图」档 —— `LazyColumn` + 固定宽 gutter（Canvas 只画本行线段，
-  颜色在组合期取好）、短 sha · 标题 · 作者、分页脚注「已加载 N 条 · 更早历史未加载」+「加载更多」、
-  骨架 / 空 / 失败三态；
-- **虚节点（方案 A）落地**：HEAD 之上虚线圆、无 sha、点它进「工作区」档，不提供任何以 sha 为键的交互；
-- `GitPanelViewHost` + 分档标签条：工作区 ✅ / 提交图 ✅ / 引用树·文件历史 标「待接入」，
-  点进去是如实说明（不是死按钮）；两个宿主都改用它。
-
-⑧ **文档收束**：`git-mode-design.md` 重写为 **Git 模式唯一的开发进度与设计文档**
-（产品判断 / 现状 / 形态与动效 / 可视化 / 决策台账（生效 + **已废弃并丢弃**）/ 引擎缺口 / 路线图 /
-登记清单 / 未决）；`git-version-tree-design.md` 收敛成指向它的指针页（旧链接不断）；
-`docs/README.md` 索引两行并一行。**丢弃的落后决策**：全屏工作台 + `RepoRoute.GitWorkspace` 那套登记、
-虚节点方案 B/C、缓存三选一的对比表、D11「不做 merge/rebase」旧措辞。
-
-`tools/i18n/check-i18n.py --min-coverage 100`（新增 7 条中英资源）· `:app:testDebugUnitTest`（839 → 850 例）·
+`tools/i18n/check-i18n.py --min-coverage 100`（新增 8 条中英资源 + `strings.tsv`）·
+`:app:testDebugUnitTest`（839 例；新增 `GitPanelStageTest` 7 例、`PageTransitionsTest` 面板过渡 1 例）·
 `assembleDebug` 通过。versionCode 194 → 195（一次提交 +1）。
 
 ### 1.0.92
@@ -117,7 +173,7 @@
 | `confirm_discard_unpushed_body` | …建议先到桌面端备份。 | …App 不提供导出，请确认这些改动已不再需要。 |
 
 **注意这条修正改变了承诺的口径**：以前是「有出路（桌面端）」，现在是「如实说明没有出路」。
-「把仓库整体取走」（导出 zip / 分享）**没有做**，已登记进 `git-mode-design.md` §10 未决问题 ——
+「把仓库整体取走」（导出 zip / 分享）**没有做**，已登记进 `git-mode-design.md` §11 未决问题 ——
 要做出路得单独立项，别把它当成漏掉的文案。
 
 ② **新增 [`git-mode-design.md`](git-mode-design.md)（草稿 · 未落地）**：把「Git 工作在哪里做」重新定一次。
@@ -2286,16 +2342,25 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（191 → 129）
+## 三、`versionCode` 流水（197 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
 > 更早的版本码没有逐条留存，流水从 **129** 开始。
 
+- **197**：Git 模式阶段 2（前半）——「引用树」档（`GitRefsModels` 视图模型 + `GitRefsPanel` 只读列表，
+本地 `local_branches` / `remote_branches`，tags 占位）+ 设置列表「进入」深链接
+（`RepoDeepLink.openGitPanel`：隐式带代码页、直接落视图档、owner/repo 从 origin 反推）
++ 修掉三处账目不符（`GitPanelKind.Graph.available` 漏翻、代码/资源里的旧章节号、
+§三 缺 195 与 §二 1.0.94 的箭头）（一次提交，故 +1）
+
 - **196**：Git 模式阶段 1 落地（`CommitGraphModels` 解析 + 泳道布局、`CommitGraphPanel` 提交图档、
 未提交虚节点、分档标签条）+ 文档收束（`git-mode-design.md` 成为唯一进度与设计文档，
-`git-version-tree-design.md` 收敛成指针，落后决策丢弃）；本条同时含阶段 0（面板三档 + `PanelSwitcher`
-+ 「工作区」档）与三轮设计决策落账（一次提交，故 +1）
+`git-version-tree-design.md` 收敛成指针，落后决策丢弃）（一次提交，故 +1）
+
+- **195**：Git 模式阶段 0 落地（面板三档 `GitPanelStage` + `PanelSwitcher` 框换框 + 「工作区」档）
++ 三轮设计决策落账（数据面三条 / 虚节点方案 A / 形态拍板不做全屏页 / D11 拆 merge 与 rebase /
+缓存不另建）（一次提交，故 +1）
 
 - **194**：分叉决策页文案修正（去掉「引导桌面」四处 + 两条重写；仓库在内部存储，承诺不可兑现）
 + 新增《仓库内 Git 模式》设计稿（IA 重定 / 四档视图 / 冲突解决 / 引擎缺口 8 项 / 六阶段；

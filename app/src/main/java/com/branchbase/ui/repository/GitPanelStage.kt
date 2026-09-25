@@ -39,15 +39,19 @@ enum class GitPanelKind(
     /**
      * 这一档是否已落地。
      *
-     * 阶段 0 只有「工作区」；提交图 / 引用树 / 文件历史分别在阶段 1 / 2 / 4 接上
-     * （[`git-mode-design.md`](../../../../../../docs/specs/git-mode-design.md) §9）。
+     * 阶段 0 → 工作区；阶段 1 → 提交图；阶段 2 → 引用树；文件历史留到阶段 4
+     * （[`git-mode-design.md`](../../../../../../docs/specs/git-mode-design.md) §8）。
      * 用枚举而不是「按阶段删代码」：列表与测试都能跟着它走，落地时只改这一处。
+     *
+     * **落地了必须同步改这里**：阶段 1 把「提交图」渲染接上了，却漏了把 `available` 从
+     * `false` 翻成 `true` —— 于是标签条上一直标着「待接入」，点进去却是一张能用的图
+     * （自相矛盾，且没有任何测试拦得住，因为钉子钉的正是那个错值）。
      */
     val available: Boolean,
 ) {
     Workspace(available = true),
-    Graph(available = false),
-    Refs(available = false),
+    Graph(available = true),
+    Refs(available = true),
     FileHistory(available = false),
 }
 
@@ -84,3 +88,16 @@ internal fun panelDirection(from: GitPanelStage, to: GitPanelStage): Int {
         else -> 0
     }
 }
+
+/**
+ * 带 `openGitPanel` 的深链接进来时，面板**一上来就在哪一档**。
+ *
+ * 设置 → 本地仓库那一行点「进入」的落点（`git-mode-design.md` §3.4）：打开代码页，
+ * 面板**直接展开到视图档**，而不是先落在动作列表再让用户自己点一次 ——
+ * 用户从「本地仓库」过来时想看的就是工作台（分支 / 改动 / 引用），动作列表是中途站。
+ *
+ * 抽成纯函数是为了能单测：这一条写错的表现是「点了『进入』，面板关着」或
+ * 「面板开着但停在动作列表」，两者都只有真机上点一次才看得出来。
+ */
+internal fun initialGitPanelStage(openGitPanel: Boolean): GitPanelStage =
+    if (openGitPanel) GitPanelStage.View(GitPanelKind.Workspace) else GitPanelStage.Collapsed
