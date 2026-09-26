@@ -39,6 +39,9 @@ import androidx.compose.ui.unit.sp
 import com.branchbase.R
 import com.branchbase.ui.log.LogCategory
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.repository.UpstreamRelation
+import com.branchbase.ui.repository.upstreamNoteText
+import com.branchbase.ui.repository.upstreamStateLabelRes
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.Dispatchers
@@ -564,6 +567,14 @@ fun GitifyRollbackScreen(
 
 /**
  * ③ 首次 push 上游设置页（P2-2）。
+ *
+ * 1.1.5 起这一页多一张「上游状态」卡（[upstream]，Git 模式自动探测的结果）：
+ * 这一页要让用户决定的是**往哪推**，而「这个仓库有没有上游、上游还在不在」
+ * 是客观事实 —— 后者的答案是「已归档 / 已删除 / 已私有化」时，
+ * 「推上去让上游合并」这件事根本不存在，得在填地址之前就说清楚。
+ *
+ * @param repoFullName `owner/name`：只知道 [repoName] 时拼出来的地址缺 owner
+ *   （`https://github.com/Branchbase-Android.git` 并不是一个能推的仓库）。
  */
 @Composable
 fun UpstreamSetupScreen(
@@ -572,6 +583,8 @@ fun UpstreamSetupScreen(
     token: String,
     onBack: () -> Unit,
     onResolved: (message: String?, fork: Boolean) -> Unit,
+    upstream: UpstreamRelation? = null,
+    repoFullName: String? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -584,7 +597,11 @@ fun UpstreamSetupScreen(
     androidx.compose.runtime.LaunchedEffect(repoDir) {
         val s = withContext(Dispatchers.IO) { RustBridge.gitStatus(repoDir)?.let { parseGitStatus(it) } }
         if (remoteUrl.isBlank()) {
-            remoteUrl = s?.remoteUrl ?: "https://github.com/${repoName.removeSuffix(".git")}.git"
+            // 修一个老毛病：原来这里拿 repoName（`Branchbase-Android`）拼地址，少了 owner ——
+            // `https://github.com/Branchbase-Android.git` 不是一个能推的仓库。
+            // 宿主知道全名就用全名，不知道仍退回 repoName（地址仍可改，不是死值）。
+            remoteUrl = s?.remoteUrl
+                ?: "https://github.com/${(repoFullName ?: repoName).removeSuffix(".git")}.git"
         }
         if (s != null && s.branch.isNotBlank()) upstreamBranch = s.branch
         Logger.local(
@@ -619,6 +636,35 @@ fun UpstreamSetupScreen(
         onBack = onBack,
         content = {
         DecisionNote(stringResource(R.string.note_first_push))
+
+        upstream?.let { rel ->
+            FactCard(stringResource(R.string.label_upstream_state)) {
+                Column(Modifier.padding(12.dp)) {
+                    Text(
+                        stringResource(upstreamStateLabelRes(rel.state)),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Primer.TextPrimary,
+                    )
+                    rel.fullName?.let {
+                        Text(
+                            it,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = Primer.TextSecondary,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
+                    Text(
+                        upstreamNoteText(rel),
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp,
+                        color = Primer.TextSecondary,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+            }
+        }
 
         FactCard(stringResource(R.string.label_remote_config)) {
             Column(Modifier.padding(12.dp)) {

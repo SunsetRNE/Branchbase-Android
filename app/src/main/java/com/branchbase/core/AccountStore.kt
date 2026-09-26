@@ -233,13 +233,18 @@ object AccountStore {
         val all = existing.toMutableList()
         val exist = indexOfSameIdentity(all, login, host, auth)
         if (exist >= 0) {
+            // 换过令牌就作废旧结论 —— 结论是关于某一枚 token 的，见 [tokenChanged]
+            val changed = tokenChanged(all[exist], session)
             val account = all[exist].copy(
                 session = session,
                 avatar = avatar ?: all[exist].avatar,
                 // auth 用**实际登录方式**写回：老记录是 UNKNOWN（字段缺失）时，
                 // 这次登录正好把它升级成具体值 —— 否则它会一直是通配，看不出用的是哪种方式
                 auth = auth,
-                // lastCheck / status 保持不变 —— 见 add 的注释（重置它会让「刚查过」作废）
+                // lastCheck / status 在**同一枚令牌**下保持不变 —— 见 add 的注释
+                //（重置它会让「刚查过」作废）；换了令牌则必须作废，见 [tokenChanged]
+                status = if (changed) AccountStatus.UNKNOWN else all[exist].status,
+                lastCheck = if (changed) 0L else all[exist].lastCheck,
             )
             all[exist] = account
             return UpsertPlan(
@@ -334,6 +339,22 @@ object AccountStore {
         }
     }
 
+    /**
+     * 把**当前账号**的会话同步到旧单账号键 `session`（续期等外部改了会话之后调用）。
+     *
+     * 为什么必须有这个入口：[AccountRenewal] 续期成功后只写了账号表，而
+     * `LoginViewModel.init` 启动时仍从旧键恢复登录态、并据此 `persistAccount` 写回账号表 ——
+     * 不同步的话，下次启动会把**旧会话连同那枚已经被消耗掉的 refresh token** 写回来
+     * （GitHub 的 refresh token 是一次性的），新令牌白拿了。
+     *
+     * 非当前账号直接跳过：旧键只能装一份会话，替别的账号写进去就是「切号」。
+     */
+    fun syncLegacySessionOf(context: Context, id: String) {
+        if (current(context)?.id != id) return
+        val account = accounts(context).firstOrNull { it.id == id } ?: return
+        syncLegacySession(context, account)
+    }
+
     /** 更新账号的检查结果。 */
     fun updateStatus(context: Context, id: String, status: AccountStatus, at: Long = System.currentTimeMillis()) {
         val all = accounts(context).toMutableList()
@@ -343,12 +364,22 @@ object AccountStore {
         save(context, all)
     }
 
-    /** 更新账号的会话（令牌续期后调用）。 */
+    /**
+     * 更新账号的会话（登录成功 / 令牌续期后调用）。
+     *
+     * 换过令牌就把上次的检查结论一并作废（[tokenChanged]：续期成功却继续挂
+     * 「令牌已失效」是本仓库真机上出现过的误报）。
+     */
     fun updateSession(context: Context, id: String, session: String) {
         val all = accounts(context).toMutableList()
         val i = all.indexOfFirst { it.id == id }
         if (i < 0) return
-        all[i] = all[i].copy(session = session)
+        val changed = tokenChanged(all[i], session)
+        all[i] = all[i].copy(
+            session = session,
+            status = if (changed) AccountStatus.UNKNOWN else all[i].status,
+            lastCheck = if (changed) 0L else all[i].lastCheck,
+        )
         save(context, all)
     }
 
@@ -365,6 +396,29 @@ object AccountStore {
     fun refreshTokenOf(session: String): String = runCatching {
         JSONObject(session).optJSONObject("token")?.optString("refresh_token")
     }.getOrNull().orEmpty()
+
+    /**
+     * 这次写入的会话是不是**换了一枚 access token**（纯函数，有单测）。
+     *
+     * ## 为什么结论必须跟着令牌一起过期（1.1.6）
+     *
+     * [Account.status] 记的是「上次拿**那枚** token 去探，GitHub 说 …」—— 结论是关于
+     * 某一枚令牌的，不是关于这个账号的。而 [planUpsert] 原本刻意保留 `status` / `lastCheck`
+     * （理由：重置它会让「刚查过」作废），那条理由只对**同一枚令牌**成立。换过令牌还留着
+     * 旧判决书，真机上的表现正是用户报的那一种：**明确能登录（新令牌好好的），账号页却挂着
+     * 「令牌已失效」**；而 [AccountChecks.isStale] 在 5 分钟内不会自动重查，用户以为这次登录
+     * 没生效，就去反复重新登录 —— 越重登越乱。
+     *
+     * 判据取「access token 变了」而不是「session 变了」：登录成功时会话里还会补 `user`、
+     * 头像等字段，那些变化与令牌是否有效无关，拿它们作废结论只会白白丢掉「刚查过」。
+     *
+     * 新会话解析不出 token（空串）时**不算换过**：那说明这次写进来的会话本身有问题，
+     * 留着旧结论信息量更大，而且 [AccountChecks] 会把空 token 直接判成「令牌已失效」。
+     */
+    internal fun tokenChanged(existing: Account, session: String): Boolean {
+        val next = accessTokenOf(session)
+        return next.isNotBlank() && next != accessTokenOf(existing.session)
+    }
 
     /** 从会话 JSON 里尽力取 login（部分导入路径会写入 user 信息）。 */
     fun loginOf(session: String): String? = runCatching {

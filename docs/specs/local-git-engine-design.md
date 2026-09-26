@@ -11,7 +11,7 @@
 > 同一段历史：`/docs/` 曾被整体 `.gitignore`）。补写时以**代码实际行为**为准，
 > 注释已改指本文 §3 / §4。
 >
-> **真源**：`core/src/git/mod.rs`（20 个 `pub fn`）· JNI 导出 `core/src/bridge/jni.rs` ·
+> **真源**：`core/src/git/mod.rs`（36 个 `pub fn`）· JNI 导出 `core/src/bridge/jni.rs` ·
 > Kotlin 侧门面 `app/src/main/java/com/branchbase/core/RustBridge.kt`。
 
 ---
@@ -42,7 +42,7 @@
 | 浅 clone（`depth(1)`） | 减体积；代价是本地只有 HEAD 一条提交 —— 要查历史得先 `fetch_deepen`（见 §3 与 §7.1） | `:37`（`fo.remote_callbacks(callbacks).depth(1); // 浅 clone，减体积`） |
 | 与 REST 通道**不共用连接池** | 两条通道的凭据与生命周期不同（Git 走 HTTPS+token，REST 走 reqwest 客户端） | [`reachability-design.md`](reachability-design.md) §五 |
 
-## 3. 稳定接口（`core/src/git/mod.rs` 的 35 个 `pub fn`）
+## 3. 稳定接口（`core/src/git/mod.rs` 的 36 个 `pub fn`）
 
 > 「稳定」= 函数名、参数含义、返回约定是**对外条款**（表中行号只作定位参考，会随文件演进漂），改签名要同时改 JNI 与 Kotlin 门面，
 > 并重建 `.so`（见 [`BUILD-NOTES.md`](BUILD-NOTES.md) §四）。
@@ -61,7 +61,8 @@
 | 决策页面支持 | `repo_status` · `reset_soft` · `reset_hard_to_remote` · `amend_message` · `revert_commit` · `push_set_upstream` · `scan_sensitive`（同一段注释之下，按名字找） | 条款写在 [`decision-pages-design.md`](decision-pages-design.md) §6，本文不重复 |
 | **工作台本地读接口**（阶段 3，**全部只读**） | `log_graph` · `list_tags` · `log_file` · `diff_worktree` · `diff_commit`（同一段注释之下） | 输出是**扁平 native JSON**（不是 GitHub REST 那份嵌套结构）；分页一律 `limit` / `skip`；空仓库给 `[]` 而不是报错。`log_graph` 逐条带 `unpushed`（**HEAD 可达、上游不可达**，与 `repo_status` 的 `ahead` 同口径；没有上游时一条都不标 —— 见 `unpushed_oids`）；`list_tags` 按 D-f 取全字段、轻量 tag **留空不编值**；`diff_*` 的 `patch` 超 200 KB 截断并置 `truncated`；`diff_worktree` 里**未跟踪文件也带内容**（`show_untracked_content`：不给内容的话，「新增一个文件」点开就是一片空白），且 `files[i]` 与 patch 的第 i 段**同序**——上层按下标对齐，不解析路径 |
 | **本地合并与冲突解决**（阶段 5，1.0.102；只有 `merge_state` / `analyze_conflicts` 只读） | `merge_branch(dir, branch, token, author_name, author_email)` · `merge_state(dir)` · `analyze_conflicts(dir)` · `resolve_conflict(dir, path, side)` · `write_resolved(dir, path, content)` · `merge_continue(dir, message, author_name, author_email)` · `merge_abort(dir)` | **只新增提交，不改写历史**（D11 拆分后的 D-g）。`merge_branch` 四条出口：`up_to_date` / `fast_forward`（不产生提交）/ `merged`（落**两父**提交）/ `conflict`（**不是错误**：仓库停在合并中，返回未解决的冲突清单）；`branch` 三种写法：**裸名**（先 `refs/heads/{x}`、再 `refs/remotes/origin/{x}`）/ **显式远端名** `origin/{x}`（1.1.1 起先按 `refs/remotes/{x}` 解析 —— 分叉场景两边**同名**，裸名会解析成本地那条 = HEAD 自己，判成 `up_to_date` 的静默空动作）/ 带斜杠的本地分支名（不被显式规则抢走）；目标分支本地没有时引擎自己 `fetch` 一次。三条前置：浅克隆（`is_shallow()`）/ 已在合并中 / 工作区脏 —— 都提前拒绝并给出路。`analyze_conflicts` 另给三方内容（`ours` / `theirs` / `worktree`，单份上限 64 KB → `content_truncated`；`worktree` 是**带冲突标记**的那一份，即手工编辑的初值），base 只给 sha 与大小（界面要做的决定是「用我方还是用对方」，base 不参与，真要看走 patch）；`resolve_conflict` 的「用某一侧」读的是**索引三方条目**，不是带冲突标记的工作区那份；`merge_abort` 敢 hard reset 正因为入口要求了工作区干净。`repo_status` 另加只增字段 `merging` |
-| **加深克隆**（阶段 4） | `fetch_deepen(dir, depth, token)` | `depth <= 0` = 全量，内部发 `i32::MAX`（与 `git fetch --unshallow` 同一条路；libgit2 也拿 `INT_MAX` 当「不要浅边界」的哨兵）；`depth > 0` = 加深到该条数。**只动对象与 `refs/remotes/origin/*`**：不改工作区、不动本地提交 —— 因此是安全动作，但可能是长任务（进度/取消复用 clone 那一条通道，见 §3.1）。浅克隆里 `.git/shallow` 由 libgit2 在浅边界归零时删掉（`fetch.c:65` + `repository.c` 的 `shallow_roots_write`）—— UI 正是靠它把提交图翻回本地来源 |
+| **加深克隆**（阶段 4） | `fetch_deepen(dir, depth, token)` | `depth <= 0` = 全量，内部发 `i32::MAX`（与 `git fetch --unshallow` 同一条路；libgit2 也拿 `INT_MAX` 当「不要浅边界」的哨兵）；`depth > 0` = 加深到该条数。**只动对象与 `refs/remotes/origin/*`**：不改工作区、不动本地提交 —— 因此是安全动作，但可能是长任务（进度/取消复用 clone 那一条通道，见 §3.1）。浅克隆里 `.git/shallow` 由 libgit2 在浅边界归零时删掉（`fetch.c:65` + `repository.c` 的 `shallow_roots_write`）—— UI 正是靠它把提交图翻回本地来源。**但 1.7.2 会把「没归零」的边界也删掉**（见下一条），1.1.4 起引擎在每次 fetch 之后自己补回来 |
+| **浅边界自愈**（1.1.4） | `repair_shallow_boundary(dir) -> usize` | 读 `<gitdir>/shallow` 已声明的边界，从**全部 refs + HEAD** 做 BFS：凡「父不在本地」（`odb.exists`）的提交即浅边界，与已有边界取并集后**只增写回**（`.lock` + rename），返回新增条数 —— 不动 refs、不动对象、不动工作区。**为什么必须有**：libgit2 1.7.2 的 `setup_shallow_roots`（`transports/smart_protocol.c:379`）用 `git_array_init_to_size`（`util/array.h:33` 把 `size` 置 0、只分配 `asize`）+ `memcpy` 灌数据，`git_smart__shallow_roots`（`:587`）报出的 `count` 恒 0，于是**非加深的 fetch** 收尾走到 `repository.c:3742` 的 `if (!roots->count) remove(path)`，把 `<gitdir>/shallow` 删掉（加深走服务端的 `shallow` / `unshallow` 包，`git_oidarray__add` 会正确维护 size，所以只有普通 fetch 中招）。删掉之后仓库自称完整（`is_shallow()` 假）→ UI 切回本地来源（提交图 / 文件历史 / 本地 diff 全读不出来）→ 下一次 fetch 在协商阶段用 `refs/*` 走本地历史、撞上缺父提交，整次 fetch 死在 `object not found - no match for id (…)`。修法是**事后补回**：`fetch_origin` / `pull_repo` / `fetch_deepen` 在 fetch 前记下 `is_shallow()`，成功后若发现自己不再浅就重扫补写（`restore_shallow_after_fetch`）；BFS 读的是**原始提交对象**的 `parent` 行（`raw_parent_ids`），不能用 `Commit::parent_ids()` —— 后者被 grafts 截断成空，而 grafts 是**进程内缓存**（只有 `git_repository__shallow_roots` 会按文件 mtime+size 刷新），fetch 刚删掉文件那一刻缓存里还是旧边界，用它扫一条都扫不出来 |
 
 JNI 侧对应导出（`core/src/bridge/jni.rs`）：`nativeGitClone`、`nativeGitPull`、`nativeGitCommit`、
 `nativeGitPush`、`nativeGitStatus`、`nativeGitResetSoft`、`nativeGitResetHardRemote`、
@@ -187,7 +188,8 @@ ext4（容器里 `/tmp`）与 `/sdcard/Download`（**同一个 FUSE、另一棵�
    出路是 `fetch_deepen`（1.0.98 落地）：全量加深后 `.git/shallow` 被删掉、历史可完整走；
    代价是它**一次全史下载**（大仓库几分钟、几百 MB），所以 UI 把它当长任务
    （任务中心 + 进度弹窗），并且默认不自动做 —— 由用户在提交图档点「加深历史」。
-   注意 `pull` / `fetch` 都**不会**撤销浅边界（git 自己也要 `--unshallow`）。
+   注意 `pull` / `fetch` 都**不会**撤销浅边界（git 自己也要 `--unshallow`）—— 而 libgit2 1.7.2 走得更远：
+   它会把边界文件整个**删掉**（第 10 条），所以 1.1.4 起引擎在每次 fetch 之后自己把边界补回来。
 2. **pull 只 fast-forward**：分叉即 `nff:` 报错，不做自动 merge（`:51-52`、`:119-120`）。
 3. **脏工作区不隐式 stash**：切分支会被 libgit2 拒绝，UI 负责提示「撤销改动后再切换」（`:345-349`）。
 4. **远端跟踪匹配有优先级**：先 upstream 配置、同名兜底 —— 避免「本地 `main` 跟踪 `origin/other`」被误判（`:266-268`）。
@@ -209,24 +211,45 @@ ext4（容器里 `/tmp`）与 `/sdcard/Download`（**同一个 FUSE、另一棵�
    **1.1.1 又改一次**：那两句话里的「App 不做 merge/rebase」在 1.0.102 放行 merge 之后就过期了，
    现在写的是「可以把远端合进本地（merge 只新增提交，已有历史一字不改）」。
    仍然没有「把仓库整体取走」的出路（导出 zip 之类），要的话得单独立项。
+10. **`fetch` 会删掉 `.git/shallow`（libgit2 1.7.2 的 size bug）—— 1.1.4 已自愈。**
+    真机事故（用户 2026-09-26 的日志）逐字：`刷新远端失败：未知错误：fetch 失败:object not found - no match for id (c8301a5aebf59ef8c8c7a2c7cc071d1f07117c59); class=Odb (9); code=NotFound (-3)`，
+    同一份日志里并排着「提交图 ▸ 本地 … 读取失败，退回 REST」「本地 diff ▸ 读取失败」—— 三处症状同一个根：
+    用户点过一次「刷新远端」，那次 fetch 的收尾把 `<gitdir>/shallow` 删了；从那以后仓库自称完整，
+    界面全走 REST，而**每一次** fetch 都在同一个缺对象上判死。机制与修法见 §3 的「浅边界自愈」一行。
+    **这条边界的边界**：修的是「本地副本被自己的 fetch 弄坏」，不是「缺对象的仓库能读历史」——
+    补回边界之后仓库重新自称浅，界面按设计转回 REST 并给出「加深历史」入口，
+    真要把历史拿到本地仍然只有 `fetch_deepen` 一条路（第 1 条）。
 
 ## 8. 钉子与验收
 
-- **单测**：`cargo test` 的**单测共 108 个**（`core/src/git/mod.rs` 56、`core/src/git/progress.rs` 6、
-  其余在 `api/` `auth/` `html/` `workflow/` `translate/`），另有 4 个集成测试
-  （`core/tests/deepseek_http.rs`）—— 所以「`cargo test` 跑了几例」这句话要写清是哪一个口径，
-  两个数差 4。
+- **单测**：`cargo test` 的**单测共 110 个**（`core/src/git/mod.rs` 58、`core/src/git/progress.rs` 6、
+  其余在 `api/` `auth/` `html/` `workflow/` `translate/`），另有 **10 个集成测试**
+  （`core/tests/deepseek_http.rs` 4 + `core/tests/git_shallow_repair.rs` 6）——
+  所以「`cargo test` 跑了几例」这句话要写清是哪一个口径，两个数差 10。
   与决策页相关的是 `scan_sensitive`（5 条）、`map_push_error`（2 条）、
   `repo_status`（3 条：`dirty` 顺序、父子提交与完整 sha、远端 ref 三态含悬挂符号引用）；
   与 clone / 加深相关的是 `prepare_clone_target`（3 条）、`discard_partial_clone`（1 条）、
   `clear_stale_locks`（2 条：只删锁文件 / 没有 `.git` 时是空操作）、
   `map_clone_error`（4 条：锁文件保留完整路径 + 现场清单、其余原样、取消要能区分）、取消标记（1 条）、
   `fetch_deepen`（3 条：没有 origin 时如实报错 / 全量之后浅边界消失且历史完整 / 已全量时再跑一次无害）、
+  `repair_shallow_boundary`（2 条：把缺父的提交补成浅边界（删掉根提交的 loose object 造出「事实浅、
+  声明不浅」）/ 完整仓库不写边界）、
   `diff_worktree`（2 条：行首语义与逐文件统计 / 未跟踪文件带内容且两段按下标对齐），
   以及 `progress.rs` 的阶段/百分比/JSON（6 条）。
+- **集成测试 `core/tests/git_shallow_repair.rs`（6 例，1.1.4）**：起一个**只监听 127.0.0.1 的 `git daemon`**
+  （git:// 智能传输，不联网）造**真浅克隆** —— 因为它要复刻的形状（本地缺祖先对象 + `is_shallow()` 假）
+  在单测里造不出真货。六例分别是：裸 fetch 确实死在协商阶段（断言 `class=Odb` / `code=NotFound` /
+  报文含缺的 oid，就是用户贴的那条）、`fetch_remote` 命中后自愈并刷新成功、**普通 fetch 之后浅边界仍在**
+  （事故入口）、`repair_shallow_boundary` 只补必要的边界（1 条再 0 条）、真浅 clone 上的全量加深、
+  以及「缺对象且无边界」时加深一次全修好。
   **说清测不到什么**：libgit2 的 local transport 不支持 depth（`transports/local.c` 的
-  `local_shallow_roots` 直接返回空），所以「真浅克隆」在单测里造不出来 —— 那一组是**手工写下
-  `.git/shallow`** 再加深，钉的是界面依赖的性质（边界消失、全史可走）；真浅克隆只能在真机 / HTTP 上验。
+  `local_shallow_roots` 直接返回空），所以 in-crate 那一组是**手工写下 `.git/shallow`** 再加深，
+  钉的是界面依赖的性质（边界消失、全史可走）；真浅 clone 只能靠回环 `git daemon`（集成测试）或真机。
+  另一处只能靠集成测试的：libgit2 1.7.2 在 **stateful v0**（git://）上会把 want 段发两次
+  （`smart_protocol.c` 的协商循环里那份 buffer 没清），git 2.43 的 upload-pack 会回
+  `expected SHA1 list` —— 集成测试用一个 pkt-line 代理把重复的 want 段丢掉才跑得通；
+  **GitHub 的 HTTPS 走 stateless-rpc（`t->rpc`）本来就要重复发 want，不受影响**，
+  所以这条代理只为测试服务，生产路径不需要它。
 - **Kotlin 侧**：`CloneProgressTest`（11 例：解析容错、阶段百分比、越界夹紧、单调性）、
   `CloneProgressDialogTest`（2 例：分母未知不编号）、`CloneErrorDiagnosticsTest`（2 例：源码级钉住
   「clone 失败原因不许再被单独截短」）、`LocalReposMigrationTest`（5 例：搬迁不丢东西、

@@ -209,3 +209,44 @@ if !status.is_success() { return Err(CoreError::Other(format!("HTTP {status}: {t
 
 **钉子**：`AccountChecksTest` 19 例 —— 三种时间形态解析 / 解析失败返回 null /
 三种白话结论 / 无过期头不产噪音 / 边界「正好过期」/ `isStale` 四态 / 指纹稳定且不含原文。
+
+## 八、第三次真机日志：结论**是对的**，但结论的**适用范围**错了（1.1.6）
+
+§六 修的是「结论错了」，§七 修的是「结论对了但说不出为什么」，这一节修的是第三种：
+**结论对、也说得出为什么，可它回答的不是用户问的那个问题。**
+
+**现场**（2026-09-26 11:36–11:37 的日志包）：同一分钟内 8 轮
+
+```
+GET /user (XK-Pro@github.com tok=da37091e @2026-09-26 11:36:07) → 令牌已失效｜原始 ERROR:未知错误: HTTP 401 …
+复核 /user/repos?per_page=1 → 令牌已失效（原始 … 同上）
+```
+
+两条端点、真 GitHub 形状的 401、没有过期头 —— 按 §六 / §七 的口径，这就是「令牌确实失效」，
+判定没错。而用户看到的是同一时间的另一件事：**「明确能够登录」**。
+
+**为什么两件事同时成立**：`Account.status` 是关于**某一枚 token** 的结论，
+界面却把它当成关于**这个账号**的结论。`AccountStore.planUpsert` 刻意保留 `status` / `lastCheck`
+（§7.2 的理由：重置会让「刚查过」作废），而那条理由只对**同一枚令牌**成立 ——
+重新授权、重填 PAT、或续期换到新令牌之后，账号行还挂着上一枚死令牌的判决书；
+`AccountChecks.isStale` 又规定 5 分钟内不自动重探。于是「刚刚登录成功」与「界面说令牌已失效」
+同时为真，用户以为自己没登录上，就去反复重新登录。
+
+**修法一（结论戴上适用范围）**：`AccountStore.tokenChanged(existing, session)` 按 `access_token`
+比较（纯函数）；`planUpsert` / `updateSession` 一旦发现令牌变了，就把 `status` 归 `UNKNOWN`、
+`lastCheck` 归 0，下一次进账号页立刻重探；令牌没变则一字不动 —— 1.0.76 的理由照样成立。
+
+**修法二（续期就地进行，不再等进程重启）**：新增 `core/AccountRenewal.kt`，
+`AccountChecks.check` 在「`/user` 401 + 复核也 401」之后先续期一次再重探：
+
+| 续期结果 | 之后 |
+|---|---|
+| 成功（有 refresh token） | 新会话写回账号行（当前账号同时同步 legacy `session` 键）→ 立刻重探 `/user`，新结论直接替换旧结论 |
+| 没有 refresh token（PAT / 旧会话） | 日志写「只能重新登录」，**不假装续过** |
+| 失败 | 保持原结论，日志带原始响应与新令牌指纹 |
+
+旧结论的作废与新结论的写入发生在同一步，用户看不到「先失效再正常」的中间态。
+
+**钉子**：`app/src/test/java/com/branchbase/core/AccountRenewalTest.kt`（11 例：换令牌才算换过 /
+同一枚令牌只补 `user` 不算换过 / 换令牌才作废旧结论、且保留账号身份与登录方式 / 同一枚令牌保留「刚查过」/
+`swapToken` 把新令牌装回会话且不把空令牌写进账号表 / 坏 JSON 不崩）。`AccountChecksTest` 19 例不动。

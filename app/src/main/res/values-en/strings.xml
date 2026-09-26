@@ -451,6 +451,22 @@
     <string name="note_outlet_commit">Hands the working tree to the “Commit changes” page: write a message and land one commit on the current branch. If no commit identity is set yet, one page in between collects it first.</string>
     <string name="note_outlet_undo">Undoes the most recent commit: amend / soft / hard while it is unpushed, revert only once it is pushed. The next page spells out exactly how history and the working tree change.</string>
     <string name="note_outlet_upstream">Sets an upstream for the current branch: enter the remote URL and push once. Until then “Local branch sync” has nothing to align with.</string>
+    <!-- Upstream states (1.1.5): Git mode detects this repository's upstream inside the fork network.
+         The rules, their evidence, and why “deleted” and “private” are distinguishable live in the
+         file header of ui/repository/UpstreamRelation.kt. -->
+    <string name="state_upstream_self_owned">Self-owned</string>
+    <string name="state_upstream_available">Has upstream</string>
+    <string name="state_upstream_archived">Upstream archived</string>
+    <string name="state_upstream_deleted">Upstream deleted</string>
+    <string name="state_upstream_private">Upstream private</string>
+    <string name="state_upstream_unknown">Upstream unknown</string>
+    <string name="label_upstream_state">Upstream</string>
+    <string name="note_upstream_self_owned">This repository is not a fork — it is the source of its own fork network, so there is no upstream to set. The workbench no longer shows this outlet; to push a branch elsewhere, use the “push remote” page.</string>
+    <string name="note_upstream_available">Upstream %1$s is readable: you can pull, compare, and open PRs against it (this repository still pushes to your own fork).</string>
+    <string name="note_upstream_archived">Upstream %1$s is archived: read-only. Pulling and comparing still work, but pushes and new PRs do not.</string>
+    <string name="note_upstream_deleted">Upstream deleted (the fork relationship is gone): the old upstream URL no longer works, and this repository is now the source of its own network.</string>
+    <string name="note_upstream_private">Upstream is private, or unreadable with the current token: the fork relationship remains but you have no access — pull, compare, and PR all fail.</string>
+    <string name="note_upstream_unknown">The fork relationship could not be read (not signed in, or the API failed), so upstream is unknown — every entry stays visible.</string>
     <string name="note_outlet_rollback">Returns the whole local repository to the unmanaged state (as if it had never been cloned on this device): keep .git (recommended) / remove .git / delete the entire repository. History and the remote are untouched — to undo a single commit, use “Undo”.</string>
     <string name="action_outlet_continue">Continue</string>
     <string name="note_commit_local_repo_scope">Local repository (Git) mode commits every change in the working tree (the engine stages all of it first), so files are not ticked individually here.</string>

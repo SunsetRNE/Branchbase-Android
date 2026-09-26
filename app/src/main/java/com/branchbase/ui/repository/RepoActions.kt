@@ -141,6 +141,71 @@ object RepoActions {
         return RepoViewerRelation.fromGraphQL(data)
     }
 
+    /**
+     * 上游关系（1.1.5，Git 模式）：自动探测本仓库在复刻网络里的上游，并给出它的状态。
+     *
+     * 一次调用做完三件事，调用方只拿结论：
+     *
+     * 1. **复刻关系**：宿主已经读到的 [info]（仓库详情）/ [relation]（关系态）直接用，
+     *    两个都没有才自己读一次 `/repos/{owner}/{repo}` —— 仓库页本来就在读同一份数据，
+     *    不该为了「有没有上游」再发一次；
+     * 2. **上游状态**：有上游、且有令牌时探一次 `GET /repos/{parent}`。这里**必须**用
+     *    [RustBridge.getJson] 而不是 `getRepoInfo`：前者把 HTTP 状态留在
+     *    `ERROR:HTTP 404: …` 里，后者失败一律返回 null —— 而「404 = 复刻关系还在、
+     *    却读不到」正是「上游已私有化」与「网络没打通」唯一的分界（见 [UpstreamState]）；
+     * 3. **结论**：交给 [UpstreamRules.detect]（纯函数，规则可单测）。探测没打通一律
+     *    收敛成「未知」，不拿它当结论。
+     */
+    suspend fun loadUpstream(
+        host: String,
+        token: String,
+        owner: String,
+        repo: String,
+        info: RepoInfo? = null,
+        relation: RepoViewerRelation? = null,
+    ): UpstreamRelation {
+        val self = info ?: parseRepoInfo(RustBridge.getJson(host, token, "/repos/$owner/$repo").orEmpty())
+        val (isFork, parent) = UpstreamRules.resolve(self, relation)
+        val parts = UpstreamRules.splitFullName(parent)
+        val hasToken = token.isNotBlank()
+
+        var attempted = false
+        var denied = false
+        var upstream: RepoInfo? = null
+        if (parts != null && hasToken) {
+            attempted = true
+            val (parentOwner, parentName) = parts
+            val raw = RustBridge.getJson(host, token, "/repos/$parentOwner/$parentName")
+            denied = raw != null && raw.startsWith("ERROR:") && raw.contains("404")
+            upstream = raw?.takeIf { !it.startsWith("ERROR:") }?.let { parseRepoInfo(it) }
+        }
+
+        val rel = UpstreamRules.detect(
+            isFork = isFork,
+            parentFullName = parent,
+            probe = UpstreamProbe(info = upstream, attempted = attempted, denied = denied),
+            hasToken = hasToken,
+        )
+        // 判定结果写日志：真机上「界面为什么没画那枚胶囊」只靠这一行能回答
+        Logger.net(
+            buildString {
+                append("上游 ▸ $owner/$repo：${rel.state.name}")
+                rel.fullName?.let { append(" · $it") }
+                append(
+                    when {
+                        !hasToken -> "（无令牌，未探测）"
+                        !attempted -> "（没有上游可探）"
+                        denied -> "（上游 404：关系还在、读不到）"
+                        upstream != null -> "（上游可读）"
+                        else -> "（探测未打通，按未知处理）"
+                    },
+                )
+            },
+            "GitHubAPI",
+        )
+        return rel
+    }
+
     /** 星标 / 取消星标（`PUT|DELETE /user/starred/{o}/{r}`）。null = 成功。 */
     suspend fun setStar(
         host: String,

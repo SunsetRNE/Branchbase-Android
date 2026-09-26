@@ -231,14 +231,10 @@ pub fn pull_repo(dir: &str, token: Option<&str>) -> Result<()> {
 
     let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
 
-    let mut fo = git2::FetchOptions::new();
-    fo.remote_callbacks(net_callbacks(token));
-    let mut remote = repo
-        .find_remote("origin")
-        .map_err(|e| CoreError::Other(format!("找不到 origin: {e}")))?;
-    remote
-        .fetch(&["refs/heads/*:refs/remotes/origin/*"], Some(&mut fo), None)
-        .map_err(|e| CoreError::Other(format!("fetch 失败: {e}")))?;
+    // 与 `fetch_remote` 走同一条路：同一份 refspec，同一个「本地缺对象就补浅边界再试一次」
+    // 的自愈（见 [fetch_origin]）—— 「拉取」与「刷新远端」死在同一个坑里，
+    // 只在其中一处自愈等于让另一个入口永远修不好。
+    fetch_origin(&repo, token, false)?;
 
     // 当前分支名
     let head = repo.head().map_err(|e| CoreError::Other(format!("读取 HEAD 失败: {e}")))?;
@@ -415,18 +411,62 @@ pub fn fetch_remote(dir: &str, token: Option<&str>, prune: bool) -> Result<()> {
 /// 因此它是一件**安全动作**（不会丢东西），但可能是长任务 —— 进度走 [`crate::git::progress`]
 /// 那份快照（与 clone 同一个通道，UI 不许出现第二种「转圈」），取消走 [`request_cancel`]。
 pub fn fetch_deepen(dir: &str, depth: i32, token: Option<&str>) -> Result<()> {
-    use git2::{FetchOptions, RemoteCallbacks, Repository};
+    use git2::Repository;
 
     // 与 clone 同一套进度语义：`begin` 先清上一次的结果，否则弹窗打开时会闪一下上一轮的 100%
     progress::begin();
     CANCEL_REQUESTED.store(false, Ordering::SeqCst);
 
     let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
-    let mut remote = repo
+    // depth <= 0 = 全量：发 i32::MAX，与 git 自己的 `--unshallow` 一致
+    let effective_depth = if depth <= 0 { i32::MAX } else { depth };
+
+    let (mut remote, mut fo) = deepen_fetch_parts(&repo, token, effective_depth)?;
+    let was_shallow = repo.is_shallow();
+    let outcome = match remote.fetch(&[FETCH_HEADS_REFSPEC], Some(&mut fo), None) {
+        Ok(()) => Ok(()),
+        // 本地副本「声称完整、其实缺对象」时，普通 fetch 会死在协商阶段 —— 加深这条路同样
+        // 会，而它偏偏是浅仓库出问题时**唯一**的出路。自愈一次再看（见 [fetch_origin]）。
+        Err(e) if heal_missing_objects(&repo, &e) => {
+            let (mut remote, mut fo) = deepen_fetch_parts(&repo, token, effective_depth)?;
+            remote.fetch(&[FETCH_HEADS_REFSPEC], Some(&mut fo), None)
+        }
+        Err(e) => Err(e),
+    };
+    match outcome {
+        Ok(()) => {
+            // 加深到一半（depth > 0）时收尾也会踩那个浅边界 bug（见 [restore_shallow_after_fetch]），
+            // 按同一口径复核；真全量加深后本地已完整，复核只会得出「不需要边界」，文件保持消失。
+            restore_shallow_after_fetch(&repo, was_shallow);
+            progress::complete(true);
+            Ok(())
+        }
+        Err(e) => {
+            // 失败也要落一个终态：不然进度条会永远停在「接收中」，而它其实已经停了
+            progress::complete(false);
+            // 用户按的取消不是「失败」：libgit2 用回调返回 false 中断，错误原文对用户没有意义
+            if cancelled() {
+                return Err(CoreError::Other("已取消".into()));
+            }
+            Err(CoreError::Other(format!("加深失败: {e}")))
+        }
+    }
+}
+
+/// [fetch_deepen] 一次尝试要用的东西：`origin` 的 remote + 回调（进度 / 取消 / 凭据）+ 深度。
+///
+/// 做成函数是因为它**会被调用两次**（缺对象自愈后重试一次），而 `RemoteCallbacks` 里的凭据
+/// 闭包不可克隆 —— 复制粘贴一遍就等于把「凭据怎么答」这件事变成两处。
+fn deepen_fetch_parts<'r>(
+    repo: &'r git2::Repository,
+    token: Option<&str>,
+    depth: i32,
+) -> Result<(git2::Remote<'r>, git2::FetchOptions<'static>)> {
+    let remote = repo
         .find_remote("origin")
         .map_err(|e| CoreError::Other(format!("找不到 origin: {e}")))?;
 
-    let mut callbacks = RemoteCallbacks::new();
+    let mut callbacks = git2::RemoteCallbacks::new();
     callbacks.certificate_check(check_cert);
     callbacks.transfer_progress(|stats| {
         if cancelled() {
@@ -451,26 +491,10 @@ pub fn fetch_deepen(dir: &str, depth: i32, token: Option<&str>) -> Result<()> {
         });
     }
 
-    let mut fo = FetchOptions::new();
+    let mut fo = git2::FetchOptions::new();
     fo.remote_callbacks(callbacks);
-    fo.depth(if depth <= 0 { i32::MAX } else { depth });
-
-    let outcome = remote.fetch(&["refs/heads/*:refs/remotes/origin/*"], Some(&mut fo), None);
-    match outcome {
-        Ok(()) => {
-            progress::complete(true);
-            Ok(())
-        }
-        Err(e) => {
-            // 失败也要落一个终态：不然进度条会永远停在「接收中」，而它其实已经停了
-            progress::complete(false);
-            // 用户按的取消不是「失败」：libgit2 用回调返回 false 中断，错误原文对用户没有意义
-            if cancelled() {
-                return Err(CoreError::Other("已取消".into()));
-            }
-            Err(CoreError::Other(format!("加深失败: {e}")))
-        }
-    }
+    fo.depth(depth);
+    Ok((remote, fo))
 }
 
 /// 远端分支清单（`refs/remotes/origin/*`），并带上对应本地分支的跟踪状态。
@@ -807,13 +831,55 @@ fn net_callbacks(token: Option<&str>) -> git2::RemoteCallbacks<'static> {
     callbacks
 }
 
+/// fetch 的 refspec：把远端的全部本地分支取到 `refs/remotes/origin/*`（不合并、不动工作区）。
+/// pull / fetch_remote / 合并前补拉 / 加深共用这一份。
+const FETCH_HEADS_REFSPEC: &str = "refs/heads/*:refs/remotes/origin/*";
+
 /// fetch `origin` 的**全部本地分支**到 `refs/remotes/origin/*`（不合并、不动工作区）。
 ///
 /// [fetch_remote]（决策页的「先看清再决定」原语）与合并前的那次补拉共用这一份 ——
 /// refspec 写歪（少了 `refs/heads/*` 那半）的表现是「远端分支列表永远只有一条」，
 /// 而它看着像服务端的事。
+///
+/// ## 失败自愈（真机事故 `object not found - no match for id (c8301a5…)`）
+///
+/// 失败若是「**本地缺对象**」（见 [`repair_shallow_boundary`]），补写浅边界后**重建 remote
+/// 与 options 再试一次**。不做这件事的话，这台机器上「本地副本缺对象」= 「此后每一次 fetch
+/// 都失败」，而用户看到的是一次网络错误 —— 他会去切网络、换 token，全都治不好。
 fn fetch_origin(repo: &git2::Repository, token: Option<&str>, prune: bool) -> Result<()> {
-    let mut remote = repo
+    // libgit2 1.7.2 的浅边界 bug：**非加深** fetch 收尾会把 `<gitdir>/shallow` 删掉
+    // （见 [restore_shallow_after_fetch]）。所以先记住「进这趟之前是不是浅仓库」。
+    let was_shallow = repo.is_shallow();
+    let (mut remote, mut fo) = origin_fetch_parts(repo, token, prune)?;
+    match remote.fetch(&[FETCH_HEADS_REFSPEC], Some(&mut fo), None) {
+        Ok(()) => {
+            restore_shallow_after_fetch(repo, was_shallow);
+            Ok(())
+        }
+        Err(e) => {
+            if !heal_missing_objects(repo, &e) {
+                return Err(CoreError::Other(format!("fetch 失败: {e}")));
+            }
+            // 边界补上了：**重开** remote 与 options（失败过一次的 fetch 状态不复用）
+            let (mut remote, mut fo) = origin_fetch_parts(repo, token, prune)?;
+            let outcome = remote.fetch(&[FETCH_HEADS_REFSPEC], Some(&mut fo), None);
+            if outcome.is_ok() {
+                // 这一趟的收尾会再删一次刚补上的边界，按同一条口径补回来
+                let _ = repair_shallow_boundary_in(repo);
+            }
+            outcome.map_err(|e| CoreError::Other(format!("fetch 失败: {e}")))
+        }
+    }
+}
+
+/// [fetch_origin] 一次尝试要用的两件东西：`origin` 的 remote + 选项。
+/// 两次尝试各建一份 —— 「找不到 origin」的文案因此只有一处。
+fn origin_fetch_parts<'r>(
+    repo: &'r git2::Repository,
+    token: Option<&str>,
+    prune: bool,
+) -> Result<(git2::Remote<'r>, git2::FetchOptions<'static>)> {
+    let remote = repo
         .find_remote("origin")
         .map_err(|e| CoreError::Other(format!("找不到 origin: {e}")))?;
     let mut fo = git2::FetchOptions::new();
@@ -823,9 +889,219 @@ fn fetch_origin(repo: &git2::Repository, token: Option<&str>, prune: bool) -> Re
     } else {
         git2::FetchPrune::Off
     });
-    remote
-        .fetch(&["refs/heads/*:refs/remotes/origin/*"], Some(&mut fo), None)
-        .map_err(|e| CoreError::Other(format!("fetch 失败: {e}")))?;
+    Ok((remote, fo))
+}
+
+/// 这个 fetch 类错误是不是「**本地对象库缺对象**」。
+///
+/// libgit2 在 fetch 协商阶段从 `refs/*` 走一遍提交图来收集要发的 `have`
+/// （`smart_protocol.c`：`git_revwalk__push_glob(walk, "refs/*")` 之后循环 `git_revwalk_next`），
+/// 走到本地缺的提交就返回 `object not found - no match for id (<sha>)`（class=Odb、code=NotFound）。
+/// 类与码**两个都认**才认，免得把别的 Not-found 也当成本地缺对象。
+fn is_missing_object_error(e: &git2::Error) -> bool {
+    e.class() == git2::ErrorClass::Odb && e.code() == git2::ErrorCode::NotFound
+}
+
+/// fetch（或加深）失败后的**自愈一次**：命中 [`is_missing_object_error`] 就
+/// [补写浅边界](repair_shallow_boundary_in)，返回 `true` 表示调用方值得重试一次。
+///
+/// 只重试一次是有意的：边界是「扫出来再写回去」的，扫与写之间没有原子性可言，多试几轮也不会
+/// 更好（真要更深处才缺，下一次 fetch 会再走一遍这条路）。修不动就照原样报错 ——
+/// 把网络错误伪装成成功，比报错更坏。
+fn heal_missing_objects(repo: &git2::Repository, e: &git2::Error) -> bool {
+    if !is_missing_object_error(e) {
+        return false;
+    }
+    matches!(repair_shallow_boundary_in(repo), Ok(n) if n > 0)
+}
+
+/// fetch 成功后的**收尾复核**：确保「事实浅」的仓库仍然自称浅。
+///
+/// ## 这是本事故的根因（libgit2 1.7.2）
+///
+/// `transports/smart_protocol.c:379 setup_shallow_roots` 用 `git_array_init_to_size` + `memcpy`
+/// 拼 `t->shallow_roots`，而那个宏（`src/util/array.h:33`）只做 `size = 0` 再分配 —— **size
+/// 从头到尾没被写上**。于是**非加深** fetch 收尾时 `git_fetch_download_pack`（`fetch.c:210`）
+/// 拿到的 roots 恒为空数组，`git_repository__shallow_roots_write` 见 `count == 0` 就
+/// `remove(<gitdir>/shallow)`（`repository.c:3742`）。
+///
+/// 后果是一条**死循环**（真机日志逐行对得上）：浅 clone 刷新一次远端就「自称完整」→
+/// 界面改用本地来源（提交图读不出来退回 REST、本地 diff 全失败）→ 下一次 fetch 协商走
+/// `refs/*` 撞上缺父提交，整次 fetch 死在 `object not found - no match for id (…)`，
+/// 且**永不自愈**。
+///
+/// 加深路径不受这个 bug 影响：`depth > 0` 时服务端的 `shallow` / `unshallow` 包走
+/// `git_oidarray__add` / `__remove`，会把 size 正确维护起来。
+///
+/// 复核口径与 [repair_shallow_boundary_in] 完全一样（只补不删）：真全量加深后本地已经完整，
+/// BFS 扫不出「缺父」的提交，因此什么都不会写 —— 文件该消失就消失。
+fn restore_shallow_after_fetch(repo: &git2::Repository, was_shallow: bool) {
+    if was_shallow && !repo.is_shallow() {
+        let _ = repair_shallow_boundary_in(repo);
+    }
+}
+
+/// 单次修复最多扫多少条提交（「父在不在本地」要一条条 `odb.exists`，是 O(本地历史) 的活）。
+/// 超过就带着已扫到的边界返回：宁可少补几条（下次 fetch 再补），也不能把界面卡死。
+const MAX_SHALLOW_SCAN: usize = 200_000;
+
+/// 把「**本地缺了父提交**」的提交补写进 `.git/shallow`（只增边界），返回**新增**条数。
+///
+/// ## 为什么需要它（真机事故）
+///
+/// 报错原文：`刷新远端失败：未知错误: fetch 失败:object not found - no match for id (c8301a5…)`。
+///
+/// 直接原因是 [restore_shallow_after_fetch] 里记的那个 libgit2 1.7.2 bug：**浅 clone 只要刷新
+/// 一次远端，`.git/shallow` 就会被删掉**，本地副本从此「声称完整、其实缺对象」。
+///
+/// `.git/shallow` 是「这条提交的父不在本地」的**唯一**声明：libgit2 解析提交时按它截断父列表
+/// （`commit.c` 查 `repo->shallow_grafts`），fetch 协商的那趟 revwalk 也靠它才能在边界上安全
+/// 停下。文件一旦丢失（刷新远端之后、加深/拉取中途被打断、仓库被搬移、单纯没写进去），
+/// 本地副本就成了「**声称完整、其实缺对象**」：`Repository::is_shallow()` 是 false，界面照走
+/// 本地来源，提交图 / 文件历史 / 本地 diff 全读不出来；更麻烦的是**之后每一次 fetch 都在同一个
+/// 对象上死掉**，自己再也好不了 —— 本函数就是这条死路的出口。
+///
+/// ## 它做什么、不做什么
+///
+/// 从所有 ref 指向的提交（外加 HEAD）出发 BFS：**父不在对象库里的提交**就是浅边界。
+/// 只把新边界并进 `.git/shallow`（原子写：`shallow.lock` → rename，与 git 自己的写法一致）；
+/// **不动 refs、不动对象、不动工作区、不删任何东西** —— 最坏情况只是把仓库的「自述」改成实话。
+///
+/// 写回后 libgit2 自己会重读 grafts（`grafts.c` 的 `git_grafts_refresh` 按文件 mtime+size
+/// 判断有没有变），所以**同一个进程里**紧接着重试的 fetch 就能用上新边界，不必重启。
+///
+/// 返回 0 = 不用修（要么本来就一致，要么已经有边界）。
+/// 已有 `Repository` 的调用点用 [repair_shallow_boundary_in]，不必再按路径开一次。
+pub fn repair_shallow_boundary(dir: &str) -> Result<usize> {
+    use git2::Repository;
+
+    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    repair_shallow_boundary_in(&repo)
+}
+
+/// [repair_shallow_boundary] 的本体（已经有 `Repository` 的调用点走这条）。
+fn repair_shallow_boundary_in(repo: &git2::Repository) -> Result<usize> {
+    use std::collections::HashSet;
+
+    let odb = repo
+        .odb()
+        .map_err(|e| CoreError::Other(format!("打开对象库失败: {e}")))?;
+
+    let declared = read_shallow_roots(repo);
+    let mut boundary: HashSet<git2::Oid> = HashSet::new();
+    let mut seen: HashSet<git2::Oid> = HashSet::new();
+    let mut stack: Vec<git2::Oid> = Vec::new();
+
+    // 起点必须覆盖 fetch 协商要走的那些 ref（`refs/*`）：出事的形状正是
+    // 「引用在、对象不在」（远端分支引用有 3 条，对象库里却缺了它们的祖先）
+    if let Ok(references) = repo.references() {
+        for reference in references.flatten() {
+            if let Ok(commit) = reference.peel_to_commit() {
+                stack.push(commit.id());
+            }
+        }
+    }
+    if let Ok(head) = repo.head() {
+        if let Ok(commit) = head.peel_to_commit() {
+            stack.push(commit.id());
+        }
+    }
+
+    while let Some(oid) = stack.pop() {
+        if seen.len() >= MAX_SHALLOW_SCAN {
+            break;
+        }
+        if !seen.insert(oid) {
+            continue;
+        }
+        // 连自己都不在本地：这不是「缺父」（例如 ref 指向的对象被清掉了），补边界救不了
+        let Some(parents) = raw_parent_ids(&odb, oid) else {
+            continue;
+        };
+        for parent in parents {
+            if odb.exists(parent) {
+                if !seen.contains(&parent) {
+                    stack.push(parent);
+                }
+            } else {
+                boundary.insert(oid);
+            }
+        }
+    }
+
+    let added = boundary
+        .iter()
+        .filter(|oid| !declared.contains(oid))
+        .count();
+    if added == 0 {
+        return Ok(0);
+    }
+    boundary.extend(declared);
+    write_shallow_roots(repo, &boundary)?;
+    Ok(added)
+}
+
+/// 读提交对象里**原始的**父列表（`parent <hex>` 行，读到空行为止）。对象不在本地返回 `None`。
+///
+/// 不能用 `Commit::parent_ids()`：libgit2 会按 `.git/shallow`（grafts）把**浅边界提交的父
+/// 截断成空** —— 而这里要判的恰恰是「父在不在对象库里」。更麻烦的是 grafts 是**进程内缓存**的
+/// （`commit.c` 只查 `repo->shallow_grafts`，只有 `git_repository__shallow_roots` 会按文件
+/// mtime/size 刷新）：fetch 刚把 `<gitdir>/shallow` 删掉的那一刻，缓存里还留着旧边界，
+/// 于是那条刚被抹掉的提交会被当成「没有父」，扫描直接漏掉真正的边界（真机上表现为
+/// 「补了 0 条」——仓库继续自称完整）。
+fn raw_parent_ids(odb: &git2::Odb<'_>, oid: git2::Oid) -> Option<Vec<git2::Oid>> {
+    let object = odb.read(oid).ok()?;
+    let mut parents = Vec::new();
+    for line in object.data().split(|byte| *byte == b'\n') {
+        if line.is_empty() {
+            break;
+        }
+        if let Some(hex) = line.strip_prefix(b"parent ") {
+            if let Ok(text) = std::str::from_utf8(hex) {
+                if let Ok(parent) = git2::Oid::from_str(text.trim()) {
+                    parents.push(parent);
+                }
+            }
+        }
+    }
+    Some(parents)
+}
+
+/// 读 `.git/shallow` 里已声明的浅边界。**文件不在 = 空集**，正是出事的那个状态。
+fn read_shallow_roots(repo: &git2::Repository) -> std::collections::HashSet<git2::Oid> {
+    let mut out = std::collections::HashSet::new();
+    let Ok(text) = std::fs::read_to_string(repo.path().join("shallow")) else {
+        return out;
+    };
+    for line in text.lines() {
+        if let Ok(oid) = git2::Oid::from_str(line.trim()) {
+            out.insert(oid);
+        }
+    }
+    out
+}
+
+/// 原子写 `.git/shallow`（`shallow.lock` → rename）。
+/// 半截的 `shallow` 比没有 `shallow` 更坏：它会让边界看起来「就是这些」。
+fn write_shallow_roots(
+    repo: &git2::Repository,
+    roots: &std::collections::HashSet<git2::Oid>,
+) -> Result<()> {
+    let path = repo.path().join("shallow");
+    let mut oids: Vec<git2::Oid> = roots.iter().copied().collect();
+    oids.sort();
+    let mut text = String::with_capacity(oids.len() * 41);
+    for oid in &oids {
+        text.push_str(&oid.to_string());
+        text.push('\n');
+    }
+    let lock = path.with_file_name("shallow.lock");
+    std::fs::write(&lock, text.as_bytes())
+        .map_err(|e| CoreError::Other(format!("写入浅边界失败: {e}")))?;
+    std::fs::rename(&lock, &path).map_err(|e| {
+        let _ = std::fs::remove_file(&lock);
+        CoreError::Other(format!("提交浅边界失败: {e}"))
+    })?;
     Ok(())
 }
 
@@ -2950,8 +3226,12 @@ mod tests {
     // 说清这一组**测不到**什么：libgit2 的 local transport 不支持 depth
     // （`transports/local.c` 的 `local_shallow_roots` 直接返回空、下载时也不看 depth），
     // 所以「从本地路径浅 clone 出 `.git/shallow`」这条路在单测里造不出来 ——
-    // 真的浅克隆只会出现在 HTTP（GitHub）上。这里因此**手工写下浅边界**，
+    // 真的浅克隆只会出现在 HTTP / git://（GitHub、git daemon）上。这里因此**手工写下浅边界**，
     // 钉的是加深之后那条界面依赖的性质：**边界消失、全史可走**。
+    //
+    // 「真浅 clone」那条路在 `core/tests/git_shallow_repair.rs`：它起一个只监听 127.0.0.1 的
+    // `git daemon`，让 `clone_repo` 的 `depth(1)` 真的生效，从而复现真机事故
+    // （`object not found - no match for id`）并验自愈。
 
     /// 没有 origin 的仓库：加深这件事本身不成立，要如实报错而不是 panic。
     #[test]
@@ -3010,6 +3290,65 @@ mod tests {
         let json = log_graph(into.to_str().unwrap(), 10, 0).unwrap();
         let arr: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
         assert_eq!(arr.len(), 1);
+    }
+
+    /// 缺了祖先对象、又没有任何浅边界声明的仓库：`repair_shallow_boundary` 要把**缺父的那条
+    /// 提交**补成浅边界。
+    ///
+    /// 这就是真机上那个「事实浅、声明不浅」的形状：本地有 tip，tip 的祖先没了，
+    /// 而 `.git/shallow` 不在 —— 于是仓库自称完整（`is_shallow() == false`），界面切回本地来源，
+    /// 下一次 fetch 又在同一个对象上判死。补完边界之后仓库重新自称浅，界面转 REST + 出现加深入口。
+    #[test]
+    fn repair_shallow_boundary_把缺父的提交补成浅边界() {
+        let (dir, repo) = temp_repo("shallow-repair");
+        let first = commit_file(&repo, "a.txt", "one\n", "第一个提交", "Alice");
+        let second = commit_file(&repo, "a.txt", "two\n", "第二个提交", "Bob");
+        let tip = commit_file(&repo, "a.txt", "three\n", "第三个提交", "Carol");
+        drop(repo);
+
+        // 抹掉根提交的 loose object：现在 second 的父不在本地，而没人声明过浅边界
+        let text = first.to_string();
+        let object = dir
+            .join(".git")
+            .join("objects")
+            .join(&text[..2])
+            .join(&text[2..]);
+        assert!(object.exists(), "根提交应当是 loose object：{object:?}");
+        std::fs::remove_file(&object).unwrap();
+        let shallow = dir.join(".git").join("shallow");
+        assert!(!shallow.exists(), "起点不能有边界声明");
+
+        // ① 扫出 1 条新边界，写下的是**缺父的那条提交**（second），不是缺的那个对象
+        assert_eq!(repair_shallow_boundary(dir.to_str().unwrap()).unwrap(), 1);
+        assert_eq!(
+            std::fs::read_to_string(&shallow).unwrap(),
+            format!("{second}\n")
+        );
+        // ② 边界一旦声明，仓库自称浅 —— Kotlin 侧 `isShallowClone` 读的就是这个文件
+        let repo = git2::Repository::open(&dir).unwrap();
+        assert!(repo.is_shallow());
+        // ③ 再跑一次是幂等的：已有边界不再重写
+        assert_eq!(repair_shallow_boundary_in(&repo).unwrap(), 0);
+        assert_eq!(
+            std::fs::read_to_string(&shallow).unwrap(),
+            format!("{second}\n")
+        );
+        // ④ 没动 refs：HEAD 还是那条 tip
+        assert_eq!(repo.head().unwrap().peel_to_commit().unwrap().id(), tip);
+    }
+
+    /// 仓库本身完整时不多写一条边界（否则界面会永远停在 REST 来源）。
+    #[test]
+    fn repair_shallow_boundary_完整仓库不写边界() {
+        let (dir, repo) = temp_repo("shallow-repair-clean");
+        let tip = commit_file(&repo, "a.txt", "one\n", "唯一提交", "Alice");
+
+        assert_eq!(repair_shallow_boundary_in(&repo).unwrap(), 0);
+        assert!(
+            !dir.join(".git").join("shallow").exists(),
+            "完整仓库不该多出边界声明"
+        );
+        assert_eq!(repo.head().unwrap().peel_to_commit().unwrap().id(), tip);
     }
 
     // ───────────────────── 阶段 3：本地读接口 ─────────────────────

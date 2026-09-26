@@ -43,6 +43,13 @@ data class RepoInfo(
     val isFork: Boolean = false,
     /** 复刻来源的 `owner/name`（`parent.full_name`），非复刻为 null。 */
     val parentFullName: String? = null,
+    /**
+     * 是否已归档（`archived`）。
+     *
+     * 1.1.5 起「上游」会用这一位判出「上游已归档」：归档仓库只读 —— 可以拉取、比对，
+     * 但推不上去、也开不了新 PR。字段缺失（老缓存）按未归档处理。
+     */
+    val archived: Boolean = false,
 )
 
 // ── 链接跳转目标（对齐 matcher 输出） ──
@@ -106,6 +113,7 @@ fun parseRepoInfo(json: String): RepoInfo? = runCatching {
         parentFullName = o.optJSONObject("parent")
             ?.optString("full_name")
             ?.takeIf { it.isNotBlank() },
+        archived = o.optBoolean("archived", false),
     )
 }.getOrNull()
 

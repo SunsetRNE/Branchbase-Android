@@ -496,6 +496,33 @@ fun RepositoryScreen(
     // 刷新后服务端计数会重来一遍，乐观增量必须归零，否则数字会越刷越离谱
     LaunchedEffect(owner, repo, refreshTick) { starDelta = 0L }
 
+    /**
+     * 上游关系（1.1.5）：**自动探测**，不是让用户填。
+     *
+     * 判定输入这一页本来就有：`repoInfo`（是不是复刻、复刻自谁）优先，`relation`
+     * （GraphQL 里一直查着、以前被丢掉的那两项）兜底；两者都没有才多发一次仓库详情。
+     *
+     * 三条纪律：
+     * - `repoInfo` 到齐之前不探 —— 否则会先画一帧「未知」，再重画成结论；
+     * - 令牌没到也不探（会得出「读不到 = 已私有化」这个假结论，见 [UpstreamProbe]）；
+     * - `refreshTick` 是 key：上游被归档 / 被删 / 转私有，用户下一次刷新就跟上。
+     *
+     * 结论是 [UpstreamState.SELF_OWNED] 时**整枚出口不画**（[UpstreamRelation.showsEntry]）——
+     * 自持仓库没有上游可设，摆一枚点进去只能说「你没有上游」的胶囊，就是本仓库一直在删的那种入口。
+     */
+    var upstreamRel by remember(owner, repo) { mutableStateOf<UpstreamRelation?>(null) }
+    LaunchedEffect(owner, repo, refreshTick, repoInfo, sessionToken) {
+        val info = repoInfo ?: return@LaunchedEffect
+        upstreamRel = RepoActions.loadUpstream(
+            host = sessionHost,
+            token = sessionToken,
+            owner = owner,
+            repo = repo,
+            info = info,
+            relation = relation,
+        )
+    }
+
     val forkDecision = RepoRelationRules.forkDecision(relation, repoInfo, owner, sessionLogin)
 
     /** 星标：收藏 ↔ 取消收藏（双向态）。乐观更新 + 失败回滚。 */
@@ -971,6 +998,11 @@ fun RepositoryScreen(
                             repoName = repo,
                             repoDir = localRepoDir(context, repo),
                             token = sessionToken,
+                            // 上游状态随页带去：这一页要让人填地址，而「上游已归档 / 已删除 /
+                            // 已私有化」会改变这件事的意义（见 UpstreamSetupScreen 的注释）
+                            upstream = upstreamRel,
+                            // 全名给上：没有它，页面拼出来的默认地址缺 owner（老毛病，1.1.5 修）
+                            repoFullName = repoInfo?.fullName,
                             onBack = { showOutletUpstream = false },
                             onResolved = { msg, fork ->
                                 // fork 这一步有自己的页面（设置 → 本地仓库那条路）：代码页没有这一页，
@@ -1372,7 +1404,14 @@ fun RepositoryScreen(
                                         // 确认之后才由 openOutletDestination 送进对应的决策页
                                         onCommit = { outletFlow.pending = GitOutlet.Commit },
                                         onUndo = { outletFlow.pending = GitOutlet.Undo },
-                                        onUpstream = { outletFlow.pending = GitOutlet.Upstream },
+                                        // 自持仓库没有「上游」这件事：传 null 整枚不画（1.1.5 起自动探测，
+                                        // 结论见 upstreamRel 与 UpstreamRelation.showsEntry）。
+                                        // 面板的约定正是 null = 不画那枚胶囊，而不是「点了给一句提示」。
+                                        onUpstream = if (upstreamRel?.showsEntry == false) {
+                                            null
+                                        } else {
+                                            ({ outletFlow.pending = GitOutlet.Upstream })
+                                        },
                                         onRollback = { outletFlow.pending = GitOutlet.Rollback },
                                     )
                                 }
@@ -1422,6 +1461,7 @@ fun RepositoryScreen(
                 outletFlow.settle()
             },
             onDismiss = { outletFlow.settle() },
+            upstream = upstreamRel,
         )
     }
 

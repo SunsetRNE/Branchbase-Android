@@ -456,6 +456,21 @@
     <string name="note_outlet_commit">把工作区的改动交给「提交更改」页：写提交信息，然后落成当前分支上的一笔提交。还没填过提交身份的话，中间会先停一页补身份。</string>
     <string name="note_outlet_undo">撤销最近一次提交：未推送时可选 amend / soft / hard，已推送时只走 revert。改动与历史怎么变，下一页里逐条写清。</string>
     <string name="note_outlet_upstream">给当前分支设一个上游：填远端地址并推送一次。设好之后「本地分支同步」才知道该和谁对齐。</string>
+    <!-- 上游状态（1.1.5）：Git 模式自动探测本仓库在复刻网络（fork network）里的上游，六态各一句 ——
+         判定规则、证据与「为什么能分开已删除与已私有化」写在 ui/repository/UpstreamRelation.kt 的文件头。 -->
+    <string name="state_upstream_self_owned">自持仓库</string>
+    <string name="state_upstream_available">有上游仓库</string>
+    <string name="state_upstream_archived">上游已归档</string>
+    <string name="state_upstream_deleted">上游已删除</string>
+    <string name="state_upstream_private">上游已私有化</string>
+    <string name="state_upstream_unknown">上游未知</string>
+    <string name="label_upstream_state">上游状态</string>
+    <string name="note_upstream_self_owned">本仓库不是复刻 —— 它自己就是复刻网络的源，没有上游可设。工作台不再显示这个出口；要把分支推到别的仓库，用「推送远端」那一页。</string>
+    <string name="note_upstream_available">上游 %1$s 读得到：可以拉取、比对，也能往它开 PR（本仓库仍然往自己的复刻推）。</string>
+    <string name="note_upstream_archived">上游 %1$s 已归档：只读。拉取与比对照旧，但推不上去、也开不了新 PR。</string>
+    <string name="note_upstream_deleted">上游已删除（复刻关系已断开）：原来那个上游地址不再可用，本仓库现在自己就是这个网络的源。</string>
+    <string name="note_upstream_private">上游已私有化或当前令牌读不到：复刻关系还在，但没有访问权 —— 拉取、比对、开 PR 都会失败。</string>
+    <string name="note_upstream_unknown">读不到本仓库的复刻关系（未登录或接口失败），判断不了有没有上游 —— 所有入口照旧保留。</string>
     <string name="note_outlet_rollback">把整个本地仓库退回未纳管状态（就像这台设备上没 clone 过它）：保留 .git（推荐）/ 移除 .git / 删除整个仓库。历史与远端都不动 —— 只想退掉一笔提交，用「撤销」。</string>
     <string name="action_outlet_continue">继续</string>
     <string name="note_commit_local_repo_scope">本地仓库（Git）模式：工作区的全部改动会一起提交（引擎先把整个工作区加入索引），所以这里不按文件勾选。</string>

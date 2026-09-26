@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.1.3**）
-与 §三 `versionCode` 流水（129 → **209**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.1.6**）
+与 §三 `versionCode` 流水（129 → **212**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,114 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.1.3 → 1.0.22）
+## 二、`versionName` 流水（1.1.6 → 1.0.22）
+
+### 1.1.6
+
+**修「明确能登录，却报令牌已失效」：结论只对某一枚令牌有效，换了令牌要作废；续期从静默试一次改为探测时就地续。**
+
+① **现场**（第三次真机日志，2026-09-26 11:36–11:37）：同一分钟 8 轮
+`GET /user (XK-Pro@github.com tok=da37091e @2026-09-26 11:36:07) → 令牌已失效｜原始 …401 Bad credentials…`，
+复核 `/user/repos?per_page=1` 同样 401 —— 判定**没错**，那枚令牌对 github.com 确实死了。
+可用户说的是「明确能够登录，但校验令牌异常」：**结论是关于某一枚令牌的，界面却把它当成关于这个账号的。**
+
+② **为什么两件事同时成立**：`AccountStore.planUpsert` 刻意保留 `status` / `lastCheck`（1.0.76 的理由：
+重置会让「刚查过」作废），而这条理由只对**同一枚令牌**成立 —— 重新授权、重填 PAT、或续期换到新令牌之后，
+账号页仍挂着上一枚死令牌的判决书；`AccountChecks.isStale` 又规定 5 分钟内不自动重探，
+用户以为登录没生效，就去反复重新登录。
+
+③ **修法一：结论戴上适用范围**。新增 `AccountStore.tokenChanged(existing, session)`（按 `access_token`
+比较的纯函数）：`planUpsert` / `updateSession` 一旦发现令牌变了，就把 `status` 归 `UNKNOWN`、`lastCheck` 归 0
+（下次进账号页立刻重探）；令牌没变则一字不动 —— 1.0.76 那条理由照样成立。
+
+④ **修法二：续期不再是黑洞，也不必等进程重启**。新增 `core/AccountRenewal.kt`
+（`renew(context, account)` + `swapToken(session, tokenJson)`），`AccountChecks.check` 在「`/user` 401 +
+复核也 401」之后**先续期一次再重探**：成功 → 直接判「正常」，并把新会话写回账号行（当前账号同时同步
+legacy `session` 键）；失败 → 保持原结论；跳过 / 失败 / 成功三种情形都写日志，且带**新旧令牌指纹**
+（此前 `refreshSession` 失败是静默 return，日志里查不到任何人试过续期）。
+
+⑤ **边界**：续期成功但重探仍 401 → 保持「令牌已失效」（原始响应照记）；「账号挂起 / 限流」两条判定不动
+（只在 INVALID 分支续期，不会把限流当死令牌去续）；本次**不新增任何界面文案**，也不动登录页。
+
+⑥ **钉子**：`app/src/test/java/com/branchbase/core/AccountRenewalTest.kt`（11 例：换令牌才算换过 /
+同一枚令牌只补 `user` 不算 / 换令牌才作废旧结论、且保留账号身份与登录方式 / 同一枚令牌保留「刚查过」/
+`swapToken` 把新令牌装回会话且不把空令牌写进账号表 / 坏 JSON 不崩）。判定口径补进
+`docs/specs/reachability-design.md` §八（§六 修「结论错了」，§七 修「说不出为什么」，这条修「结论的适用范围」）。
+
+### 1.1.5
+
+**Git 模式的「上游」改为自动探测：六态各给一句话，自持仓库不再显示上游相关选项。**
+
+① **为什么要改**：这一出口此前只有一张手填表（远端地址 + 上游分支名），而其中只有「往哪推」
+是用户的自由 —— 「有没有上游、上游是谁、上游还在不在」GitHub 的接口里一直写着。让用户回忆事实的
+结果，真机上三种都出现过：填成自己的仓库（推了个寂寞）、填成上游（对别人的仓库没有写权限）、
+以及 1.1.3 的默认地址 `https://github.com/<repo>.git` **少了 owner**（本次一并修：宿主把
+`owner/repo` 传下来）。1.1.5 起这一页拆成两件事：**上游关系**（自动探测，只用来给一句话）与
+**推送远端**（仍然是本仓库自己的地址 —— 复刻推的必须是自己的复刻）。
+
+② **六态与判据**（`ui/repository/UpstreamRelation.kt`，纯函数 + 单测）：自持仓库（`fork=false`
+且无 `parent`）／有上游仓库／上游已归档（`archived`）／上游已删除（`fork=true` 但 `parent` 没了）／
+上游已私有化（`parent` 还在但 `/repos/{parent}` 回 404）／上游未知。**「已删除」与「已私有化」
+分开靠的是 GitHub 的复刻语义，不是猜 404**：父仓库被删、或公共仓库转私有，都会让复刻断开成
+独立网络（`parent` 随之消失）；`parent` 还在却读不到，只剩「没权限」这一种解释。所以判定顺序是
+**先看复刻关系在不在、再看能不能读到**。**没令牌、或探测请求本身没打通（超时 / 限流）一律落在
+「未知」** —— 不拿它去说「已私有化」，那是用户并没有的结论。
+
+③ **界面**：`UpstreamRelation.showsEntry` 为假（只有自持仓库）时，两个宿主给面板的 `onUpstream`
+传 `null` —— 面板的约定本就是 `null` = 不画那枚胶囊，于是**整枚出口消失**（用户口径：自持仓库
+「不提供上游选项，且不显示相关选项」）。其余五态一律保留出口：探测不到不等于没有上游，
+藏功能比多说一句坏得多。状态句出现在两处：「后果弹窗」里（自持仓库只留状态句，不显示
+「给当前分支设一个上游」那句已不成立的话）与决策页新增的「上游状态」卡（含上游全名）。
+文案六态各一句（`state_upstream_*` / `note_upstream_*`，中英各一套），并钉住「不许两态共用一句」。
+
+④ **接线**：`RepoActions.loadUpstream` 负责取数 —— 宿主已有的仓库详情优先，GraphQL 关系态兜底
+（`RELATION_QUERY` 一直在查 `isFork` / `parent{nameWithOwner}`，只是以前解析时被丢掉，本次补进
+`RepoViewerRelation` 的 `isFork` / `parentFullName`），两者都没有才多读一次仓库详情。上游那次探测
+**必须**用 `RustBridge.getJson`（HTTP 状态留在 `ERROR:HTTP 404: …` 里）而不是 `getRepoInfo`
+（失败一律返回 null）—— 这正是「关系还在却读不到」与「网络没打通」唯一的分界。判定结果写
+`Logger.net("上游 ▸ owner/repo：<状态> …")`：真机上「界面为什么没画那枚胶囊」靠这一行回答。
+
+⑤ **不动的地方**：设置 →「本地仓库」那一页、以及「分支同步」页未跟踪分支上的「设为上游并推送」
+都照旧 —— 本地仓库可能是 `git init` 出来的（根本没有复刻关系），那条推送路径与复刻网络无关。
+
+⑥ **钉子**：`app/src/test/java/com/branchbase/ui/repository/UpstreamRelationTest.kt`（21 例：
+六态判定、`resolve` 的两条来源优先级、`splitFullName` 不硬拆坏格式、REST / GraphQL / 缓存三条
+通道都带上复刻关系、以及「只有自持仓库藏出口」与「六态文案不重句」）。设计口径记进
+`docs/specs/git-mode-design.md` §3.6 的「上游 = 自动探测出来的事实」一段（D-p）。
+
+### 1.1.4
+
+**修「刷新远端」永久失败：libgit2 1.7.2 会把浅克隆的 `.git/shallow` 删掉，此后每一次 fetch 都死在同一个缺对象上。**
+
+用户报错逐字：`刷新远端失败：未知错误：fetch 失败:object not found - no match for id (c8301a5aebf59ef8c8c7a2c7cc071d1f07117c59); class=Odb (9); code=NotFound (-3)`；
+同一份日志里并排着「提交图 ▸ 本地 … 读取失败，退回 REST」与五条「本地 diff ▸ 读取失败（2197d5d…）」——
+三处症状一个根。
+
+① **根因（vendored libgit2 1.7.2）**：`transports/smart_protocol.c:379 setup_shallow_roots` 用
+`git_array_init_to_size(*out, wants->shallow_roots_len)` + `memcpy` 灌浅边界，而 `util/array.h:33`
+的宏只把 `size` 置 0、分配 `asize`；`git_smart__shallow_roots`（`:587`）于是在
+`fetch.c:210 git_fetch_download_pack` → `repository.c:3742 if (!roots->count) remove(path)` 这一步
+**把 `<gitdir>/shallow` 删掉**。加深 fetch（depth > 0）走的是服务端 `shallow` / `unshallow` 包，
+`git_oidarray__add` 会正确维护 size，所以**只有普通 fetch 中招**（`!need_pack` 的早退也碰不到）。
+删掉之后：仓库自称完整（`is_shallow() == false`）→ `graphSourceOf` 切回本地来源 →
+提交图 / 文件历史 / 本地 diff 全读不出来退回 REST → 下一次 fetch 的协商阶段用 `refs/*` 走本地历史，
+撞上那条缺掉的父提交 → 整次 fetch 判死，**且此后永不自愈**（每次都在同一对象上死）。
+
+② **修法（事后补回，不是绕开 bug）**：引擎在 fetch 前记下 `repo.is_shallow()`，成功后若发现自己
+不再浅就重扫并补写边界（新 `restore_shallow_after_fetch`，接在 `fetch_origin` / `pull_repo` /
+`fetch_deepen` 三条路上；`fetch_remote` 与 `merge_branch` 的补拉都走 `fetch_origin`，一并覆盖）。
+新增 `pub fn repair_shallow_boundary(dir) -> usize`：从全部 refs + HEAD 做 BFS，凡「父不在本地」
+的提交即浅边界，与已有边界取并集后**只增写回**（`.lock` + rename，不动 refs / 对象 / 工作区）。
+BFS 读的是**原始提交对象**的 `parent` 行（`raw_parent_ids`），不能用 `Commit::parent_ids()` ——
+后者被 grafts 截断成空，而 grafts 是**进程内缓存**（只有 `git_repository__shallow_roots` 会按文件
+mtime+size 刷新），fetch 刚删掉文件那一刻缓存里还是旧边界，用它扫一条都扫不出来
+（真机上表现为「补了 0 条」、仓库继续自称完整）。
+
+③ **钉子**：单测 2 例（`repair_shallow_boundary_把缺父的提交补成浅边界` —— 删掉根提交的 loose
+object 造出「事实浅、声明不浅」；`repair_shallow_boundary_完整仓库不写边界`）；新集成文件
+`core/tests/git_shallow_repair.rs` 6 例，起**只监听 127.0.0.1 的 `git daemon`** 造真浅 clone，
+复刻用户那条报错（裸 fetch 死在协商阶段）、验自愈、验「普通 fetch 之后浅边界仍在」（事故入口）、
+验只补必要边界、验两条 deepen 路。`cargo test`：单测 110 + 集成 10 全绿。
 
 ### 1.1.3
 
@@ -2953,7 +3060,7 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（209 → 129）
+## 三、`versionCode` 流水（212 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
@@ -2965,6 +3072,10 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 > - **129**：主题彻底收敛（A+B+C 全量收角色 + 两道源码级钉子）（一次提交，故 +1）
 > - **142**：慢帧守望（帧级定位）+ 日志追加写修复 + 设置行图标居中（一次发布，故 +1）
 > - **146**：设置页账户卡头像改走统一 Avatar（真实图标 + 圆形裁切）+ 账号头像地址回落会话（一次提交，故 +1）
+
+- **212**：1.1.4–1.1.6 三件事（浅克隆 fetch 自愈 / 上游自动探测 / 令牌结论作废与就地域期）**已压成一个提交**；
+版本码不回收 —— **211** 已随 beta 构建发布过（`verify/signature.txt` 上写着 v1.1.5），回收会让升级变成降级。
+三次变更各自的现场、根因与钉子见 §二 的 1.1.4 / 1.1.5 / 1.1.6 条目（三个提交 → 一个，故只 +1 次）
 
 - **209**：代码页文件树补上「返回上一层」—— 目录状态上提到页面级（`RepositoryScreen.codePath`）+
 `codeFolderBackTarget` / `parentPath` 纯函数 + 列表首行 `..` 入口（文件夹图标 + `..`，

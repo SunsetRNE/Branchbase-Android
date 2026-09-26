@@ -503,6 +503,25 @@ fun FileViewerScreen(
     // 两页各接一次是有意的 —— 面板不知道自己在谁里面，弹窗与动作都得由宿主收口。
     val outletFlow = rememberGitOutletFlowState()
 
+    /**
+     * 上游关系（1.1.5，与代码页同一套判定）。
+     *
+     * 文件页手里没有仓库详情，所以这一次由 [RepoActions.loadUpstream] 自己读一遍
+     * `/repos/{owner}/{repo}` —— 一次请求换掉一枚「点进去只能说没有上游」的胶囊，值。
+     *
+     * 读不到时结论文案是「未知」，那枚出口照旧画着：**探测不到不等于没有上游** ——
+     * 藏掉功能比多说一句话坏得多。
+     */
+    var upstreamRel by remember(owner, repo) { mutableStateOf<UpstreamRelation?>(null) }
+    LaunchedEffect(owner, repo, gitTick, token) {
+        upstreamRel = RepoActions.loadUpstream(
+            host = host,
+            token = token,
+            owner = owner,
+            repo = repo,
+        )
+    }
+
     /** 送进目的地（与代码页同形；这里只有一条 `page` 状态机，所以直接改它）。 */
     fun openOutletDestination(outlet: GitOutlet) {
         when (outlet) {
@@ -804,7 +823,12 @@ fun FileViewerScreen(
                         // 后果弹窗与四个目的地都由本页承担（`outletFlow`）
                         onCommit = { outletFlow.pending = GitOutlet.Commit },
                         onUndo = { outletFlow.pending = GitOutlet.Undo },
-                        onUpstream = { outletFlow.pending = GitOutlet.Upstream },
+                        // 自持仓库没有「上游」这件事：传 null 整枚不画（判定见 upstreamRel）
+                        onUpstream = if (upstreamRel?.showsEntry == false) {
+                            null
+                        } else {
+                            ({ outletFlow.pending = GitOutlet.Upstream })
+                        },
                         onRollback = { outletFlow.pending = GitOutlet.Rollback },
                     )
                 },
@@ -849,6 +873,7 @@ fun FileViewerScreen(
                 outletFlow.settle()
             },
             onDismiss = { outletFlow.settle() },
+            upstream = upstreamRel,
         )
     }
 
@@ -989,6 +1014,8 @@ fun FileViewerScreen(
                 repoName = repo,
                 repoDir = localRepoDir(context, repo),
                 token = token,
+                upstream = upstreamRel,
+                repoFullName = "$owner/$repo",
                 onBack = { page = FilePage.None },
                 onResolved = { msg, fork ->
                     // fork 那一步有自己的页面（在设置 → 本地仓库里）：本页没有这一页，
