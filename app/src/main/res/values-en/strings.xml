@@ -899,7 +899,13 @@
     <string name="label_unread_notifications">Unread notifications</string>
     <string name="label_todo">To do</string>
     <string name="label_frequent_repos">Frequent repositories</string>
+    <string name="state_no_my_repos">No repositories available</string>
     <string name="state_no_starred_repos">No starred repositories yet</string>
+    <string name="label_repo_private">Private</string>
+    <string name="label_manage_frequent_repos">Manage frequent repositories</string>
+    <string name="note_frequent_repos_hint">Tap to pin. Home shows up to %1$d.</string>
+    <string name="toast_frequent_repos_limit">Home shows up to %1$d repositories</string>
+    <string name="note_frequent_repos_empty_hint">Long-press the “Frequent repositories” title to choose again</string>
     <string name="label_unread_count">%1$s</string>
     <string name="greet_late_night">Working late</string>
     <string name="state_no_recent_activity">No recent activity yet</string>

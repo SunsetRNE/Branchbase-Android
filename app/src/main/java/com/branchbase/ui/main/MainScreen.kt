@@ -17,6 +17,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.branchbase.ui.home.FrequentReposScreen
 import com.branchbase.ui.home.HomeScreen
 import com.branchbase.ui.navigation.BranchbaseNavigationBar
 import com.branchbase.ui.navigation.BackDisposition
@@ -96,6 +97,8 @@ fun MainScreen(
         }
     }
     var showSearch by remember { mutableStateOf(false) }
+    // 「常用仓库」置顶管理页（首页长按标题 / 点管理图标进入；见 FrequentReposScreen）
+    var showFrequent by remember { mutableStateOf(false) }
     var showRepo by remember { mutableStateOf<RepoDeepLink?>(null) }
     var showSecurity by remember { mutableStateOf<NotifTarget.Security?>(null) }
     // 未读徽标与首页「待处理」卡片同源：订阅快照的未读数。
@@ -113,6 +116,7 @@ fun MainScreen(
         currentSecurity != null -> MainRoute.Security(currentSecurity)
         showProfile -> MainRoute.Profile
         showSearch -> MainRoute.Search
+        showFrequent -> MainRoute.FrequentRepos
         else -> MainRoute.Tabs
     }
 
@@ -141,6 +145,7 @@ fun MainScreen(
             MainRoute.Tabs -> Unit
             MainRoute.Profile -> showProfile = false
             MainRoute.Search -> showSearch = false
+            MainRoute.FrequentRepos -> showFrequent = false
             is MainRoute.Repo -> showRepo = null
             is MainRoute.Security -> showSecurity = null
         }
@@ -226,6 +231,12 @@ fun MainScreen(
                         onOpenInApp = { showRepo = it },
                     )
 
+                    // 常用仓库置顶管理页（首页长按标题进入）
+                    MainRoute.FrequentRepos -> FrequentReposScreen(
+                        sessionJson = sessionJson,
+                        onBack = { showFrequent = false },
+                    )
+
                     // Tab 骨架（首页 / 消息：同级切换做淡入淡出）
                     //
                     // 顶部内边距原来由 Scaffold 的 innerPadding 给（HomeScreen / NotificationScreen
@@ -257,6 +268,7 @@ fun MainScreen(
                                         if (parts.size >= 2) showRepo = RepoDeepLink(parts[0], parts[1])
                                     },
                                     onOpenNotifications = { selected = NavDestination.Notifications },
+                                    onEditFrequent = { showFrequent = true },
                                 )
 
                                 NavDestination.Notifications -> NotificationScreen(
@@ -304,6 +316,11 @@ private sealed interface MainRoute : PageLevel {
     }
 
     data object Search : MainRoute {
+        override val depth: Int get() = 1
+    }
+
+    /** 「常用仓库」置顶管理页：从首页打开，与搜索页同一层（首页 → 它 = 推进） */
+    data object FrequentRepos : MainRoute {
         override val depth: Int get() = 1
     }
 

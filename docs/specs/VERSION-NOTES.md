@@ -74,7 +74,95 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.1.7 → 1.0.22）
+## 二、`versionName` 流水（1.1.9 → 1.0.22）
+
+### 1.1.9
+
+**首页「常用仓库」：置顶过只放常用仓库（候选＝自有 · 协作 · 组织与团队仓库），没置顶过回落收藏（星标）仓库最近 5 个；私有 / 复刻加徽标。**
+
+① **默认态仍是收藏仓库的最近 5 个**：没置顶过时这一栏取
+`/user/starred?per_page=100&sort=created&direction=desc`（常量 `STARRED_RECENT_PATH`），
+服务端按最近星标倒序。「最近 5 个」这个语义完全落在顺序上，所以 `sort` / `direction` 显式写出、
+不靠默认值；缓存键刻意**沿用 1.1.8 的 `starred_repos`** —— 升级上来的用户本地已经有这份缓存，
+首帧就能渲染出和以前一样的 5 个仓库，而不是先闪一下空态。
+进管理页把置顶**全部取消** = 回到这个默认态（用户原话：「若设置常用仓库，则不显示收藏仓库，
+只显示常用仓库，除非取消所有常用仓库的选择」）——「清空」不是空态，而是还原默认。
+
+② **置顶过 → 只显示常用仓库**：候选集换成
+`/user/repos?per_page=100&affiliation=owner,collaborator,organization_member&sort=pushed&direction=desc`
+（常量 `MY_REPOS_PATH`，`ui/home/FrequentRepoStore.kt`）：`owner` = 账号自身持有，
+`collaborator` = 被邀请协作、对仓库拥有权限，`organization_member` = 所属组织（含团队授权）里的
+仓库。三个值**显式写出** —— GitHub 的默认值恰好就是这三个，靠默认值过日子的话，默认一变用户的
+候选集就会静默变少，而且没有任何报错。`sort=pushed` **必须留在服务端**：`per_page=100` 只取
+第一页，改成客户端排序就退化成「先按仓库名取一页、再把这一页排序」，名字靠后的活跃仓库进不了
+这一页，首页那 5 个会挑错人。
+
+③ 两个源、两套键，选谁只看「有没有置顶」（纯函数 `FrequentRepoSource.pathFor` / `cacheKeyFor`，
+`ui/home/FrequentRepoStore.kt`）：`my_repos`（置顶态）与 `starred_repos`（默认态）。
+共用一键会让切源后的第一帧拿另一份 JSON 渲染（都是「闪一下又变」，且顺序来源都不对）。
+1.1.9 开发途中曾把键统一改成 `my_repos`，本版按①又请回 `starred_repos`。
+同包重命名沿用：`parseStarredRepos` → `parseRepoList`、`StarredRepo` → `RepoSummary`，
+空态文案 `state_no_starred_repos` → `state_no_my_repos`（「暂无可用的仓库」/ `No repositories available`），
+并新增 `state_no_starred_repos`（「暂无星标仓库」/ `No starred repositories yet`）作为默认态的空态
+—— 是哪个源空了就说哪个源的话。`FrequentRepoRules` 里「键不存在 / 空数组 / 数组非空」的规则收敛成
+一条：前两者都回落该数据源自己的顺序取前 5（`visibleOnHome` 的判据从 `selection == null` 改成
+`isNullOrEmpty()`），置顶顺序规则与 1.1.8 完全一致。
+
+④ **私有 / 复刻徽标**：仓库名右侧的描边小标签（`RepoBadges`，`ui/home/HomeScreen.kt`，
+首页卡片与管理页列表行共用）。候选集里混着组织仓库、别人的协作仓库与复刻，用户需要一眼看出
+「这条链接谁能打开」「最近推送是不是上游的」。样式是「1dp `Primer.Border` 描边 + 10sp 次级文字」
+而不是彩底：私有 / 复刻是仓库的**属性**不是状态，彩底会和真正表示状态的色块（成功 / 警告 /
+危险 / 选中蓝）抢读法。`RepoSummary` 因此长出 `isPrivate` / `isFork`（`optBoolean`，缺字段即不亮，
+不参与任何判断）。
+
+⑤ 标题图标 `Icons.Filled.Star` → `Icons.Filled.Folder`：这一栏现在有两种来源（默认态是收藏仓库、
+置顶态是「我能用的仓库」），Star 只在默认态说得通、置顶态就是错的，所以用被整个 App 当作「仓库」
+的既有图标（个人页「仓库」tab、仓库列表页同款）。栏目标题「常用仓库」不变 —— 用户视角这一栏
+还是「常用仓库」，只是里面放的东西换了。
+
+⑥ **不重建 Rust 层**：`getMyRepos`（`core/src/api/github.rs`）的路径写死为
+`/user/repos?per_page=100`（GitHub 默认按仓库名升序），改它需要 NDK + 交叉编译
+openssl/libgit2 重出 `libbranchbase_core.so`；本版改走既有的通用桥
+`RustBridge.getJson(host, token, path)`（首页「最近活动」早就在用它）。副作用：这一栏的请求
+现在会进 `ApiEvidence`（与「最近活动」一致）。
+
+⑦ 钉子：新增 `MyReposSourceTest` 6 例（三类 `affiliation` 显式写出 / 排序在服务端 /
+未置顶读收藏、置顶读我能用的仓库且两键不同 / 收藏按最近星标取一页 / 私有与复刻可解析 /
+坏 JSON 与缺 private-fork 字段分别退化成空候选集与不亮的徽标）；
+`FrequentRepoRulesTest` 8 例（其中「空选择是空态」改成「取消全部置顶后回到默认态」，
+「取消星标被过滤」现在的含义是「失去访问权限被过滤」）。
+
+### 1.1.8
+
+**首页「常用仓库」可自定义置顶：长按标题进选择页，选中态由边框颜色表达；选择按账号只存本地。**
+
+① 首页那 5 格原先是「星标接口顺序的前 5 个」，用户没有任何办法改变它 —— 星标一多，最常用的
+那个仓库可能永远排在 6 名开外。现在长按「常用仓库」标题（或点右上角管理图标 `Icons.Filled.Tune`）
+进 `FrequentReposScreen`：点一条即置顶到首页，**顺序就是点选先后**，最多 5 个；选满后再点第 6 个
+给 Toast 说明原因（静默无反应在真机上看起来就是「点击坏了」）。长按**只挂标题行**：卡片区留给
+将来的长按快捷操作，现在占掉就是两者手势打架。`SectionHeader` 因此长出
+`onAction` / `actionIcon` / `actionLabel` / `onLongClick` 四个参数。
+
+② 选中态按需求「用边框颜色表示」：未选中 1dp `Primer.Border`、选中 1.5dp `Primer.Blue500` +
+6% 蓝底 + 右侧对勾。三者同时变，是因为**只靠边框颜色**区分时色弱用户和强光下的屏幕都读不出来
+（沿用 `NotificationScreen` 多选行的叠法）；整行 `selectable(role = Role.Checkbox)` 让读屏念
+「已选中 / 未选中」，比「一个带边框的按钮」准确。
+
+③ 存储的三种语义（`FrequentRepoStore`，键 `home_frequent_repos`，**按账号分桶**
+`{"<login>": ["owner/repo", …]}`）：键**不存在** = 从未自定义 → 首页保持旧行为（升级上来的用户
+观感不变）；**空数组** = 用户明确清空 → 首页就该是空的，**不许**回落到接口顺序（那等于
+「取消置顶」不生效）；数组非空 = 按用户顺序渲染，其中已被取消星标的条目自动跳过。点一下立刻
+`apply()` 落盘、没有保存按钮 —— 多一个保存按钮就多一条「返回时忘了保存」的丢数据路径。
+`branchbase` prefs 本就参与云备份与设备迁移（两份 xml 只排除 `repo_credentials.xml`），
+所以「更新 / 换机不丢」。规则抽成纯函数 `FrequentRepoRules`（`visibleOnHome` / `canPin` / `toggle`），
+新增 `FrequentRepoRulesTest` 8 例钉住以上边界。
+
+④ 顺带：首页「常用仓库」右上角的**刷新**图标换成管理图标 —— 每次回到前台
+`LaunchedEffect(resumeTick)` 本来就会重拉星标，那个刷新只让它早 0.1 秒，而管理入口一个都没有；
+「最近活动」的刷新图标照旧。`loadStarred` 随之删掉 `refresh` 参数（`refresh = true` 已无调用方，
+留着就是死代码）；要强制刷新星标去管理页，那里右上角有刷新按钮。
+同包复用：`parseStarredRepos` / `StarredRepo` / `langColor` 由 `private` 改 `internal`，
+星标缓存键收成 `STARRED_CACHE_KEY`，首页与管理页共用同一份缓存。
 
 ### 1.1.7
 
@@ -3109,6 +3197,14 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 > - **129**：主题彻底收敛（A+B+C 全量收角色 + 两道源码级钉子）（一次提交，故 +1）
 > - **142**：慢帧守望（帧级定位）+ 日志追加写修复 + 设置行图标居中（一次发布，故 +1）
 > - **146**：设置页账户卡头像改走统一 Avatar（真实图标 + 圆形裁切）+ 账号头像地址回落会话（一次提交，故 +1）
+
+- **215**：首页「常用仓库」换数据源（星标仓库 → 我能用的仓库：`/user/repos?per_page=100&affiliation=owner,collaborator,organization_member&sort=pushed&direction=desc`；
+缓存键 `starred_repos` → `my_repos`，`parseStarredRepos`/`StarredRepo` → `parseRepoList`/`RepoSummary`，
+标题图标 `Star` → `Folder`，钉子 `MyReposSourceTest` 4 例）（一次提交，故 +1）
+
+- **214**：首页「常用仓库」可自定义置顶（长按标题进 `FrequentReposScreen`，选中态由边框颜色表达，
+本地按账号持久化 `FrequentRepoStore` / 规则纯函数 `FrequentRepoRules` + `FrequentRepoRulesTest` 8 例；
+顺带把该区块的刷新图标换成管理图标、`loadStarred` 去掉已无调用方的 `refresh` 参数）（一次提交，故 +1）
 
 - **213**：Git 工作台三处收口 —— 没有上游就不画那行「未设置上游」（`showsUpstreamLine`）+
 提交图 REST 首页进 `PageCache` 并在浅克隆时预热（`CommitGraphCache`）+

@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,12 +27,14 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CallSplit
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Timeline
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -48,6 +52,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
@@ -76,6 +81,10 @@ import org.json.JSONObject
  * 首页 Dashboard。
  *
  * 结构：搜索栏+头像 / 待处理 / 进行中 / 常用仓库 / 最近活动。
+ *
+ * 「常用仓库」有两种形态：**没自定义过** → 接口顺序取前 5（与 1.1.7 一致）；
+ * **自定义过** → 按用户在管理页点选的先后排（长按标题行或点右侧管理图标进入）。
+ * 判定与排序都在 [FrequentRepoRules] 里（纯函数、有单测），这里只负责把状态接上。
  */
 @Composable
 fun HomeScreen(
@@ -84,6 +93,7 @@ fun HomeScreen(
     onSearchClick: () -> Unit,
     onRepoClick: (String) -> Unit = {},
     onOpenNotifications: () -> Unit = {},
+    onEditFrequent: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val user = runCatching { JSONObject(sessionJson).getJSONObject("user") }.getOrNull()
@@ -99,20 +109,38 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences("branchbase", Context.MODE_PRIVATE) }
 
-    var repos by remember { mutableStateOf<List<StarredRepo>>(emptyList()) }
+    var repos by remember { mutableStateOf<List<RepoSummary>>(emptyList()) }
     var events by remember { mutableStateOf<List<Activity>>(emptyList()) }
 
-    // 加载星标（先读缓存，再网络刷新）
-    suspend fun loadStarred(refresh: Boolean) {
-        if (!refresh) {
-            prefs.getString("starred_repos", null)?.let { repos = parseStarredRepos(it) }
-        }
-        RustBridge.getStarredRepos(host, token)?.let { json ->
+    // 置顶选择（本地、按账号）：`null` = 从没自定义过 → 走接口顺序。
+    // 初始值在组合期读一次盘（prefs 已加载过，代价可忽略），effect 里每次回前台再重读。
+    val bucket = remember(sessionJson, context) { frequentRepoBucket(context, sessionJson) }
+    var pinned by remember(bucket) { mutableStateOf(FrequentRepoStore.selection(context, bucket)) }
+
+    // 加载首页「常用仓库」这一栏的数据（先读缓存，再网络刷新）
+    //
+    // **两个数据源，看有没有置顶**（规则集中在 [FrequentRepoSource]，这里只是照它取数）：
+    // - 没置顶过（或把置顶全取消）→ 默认态：星标（收藏）仓库，服务端按最近星标倒序，取前 5
+    //   （[STARRED_RECENT_PATH]，与 1.1.8 及以前一致）；
+    // - 置顶过 → 只显示常用仓库：候选集是「我能用的仓库」= 自己持有的 + 有权限/被协作的 +
+    //   所属组织与团队里的（[MY_REPOS_PATH]），服务端按最近推送排序。
+    // 两个源各有一份缓存键：共用键会让切源后第一帧拿错数据渲染（见 [FrequentRepoSource.cacheKeyFor]）。
+    //
+    // 这里没有 `refresh` 参数了：管理页出现之前，首页「常用仓库」右上角有个刷新按钮，
+    // 走的是 `refresh = true`（跳过缓存直接联网）。现在那个位置换成了管理入口，
+    // 而**回前台本来就会重新联网**（这个 effect 的键是 resumeTick），
+    // 于是「跳缓存」这条路径再没有调用方 —— 留着它就是一段没人走的死代码。
+    // 真要强制刷新：进管理页，那里右上角有刷新按钮。
+    suspend fun loadRepos(): List<RepoSummary> {
+        val cacheKey = FrequentRepoSource.cacheKeyFor(pinned)
+        prefs.getString(cacheKey, null)?.let { repos = parseRepoList(it) }
+        RustBridge.getJson(host, token, FrequentRepoSource.pathFor(pinned))?.let { json ->
             if (!json.startsWith("ERROR:")) {
-                repos = parseStarredRepos(json)
-                prefs.edit().putString("starred_repos", json).apply()
+                repos = parseRepoList(json)
+                prefs.edit().putString(cacheKey, json).apply()
             }
         }
+        return repos
     }
 
     // 加载最近活动（先读缓存，再网络刷新）
@@ -182,8 +210,12 @@ fun HomeScreen(
         // 进程级的闸门不受页面生命周期影响，见 [Logger.startupOnce]。
         Logger.startupOnce("home-first-paint", "启动 ▸ 首页首帧取数（L2 缓存 + 星标/通知解析）")
         // 5 个互不依赖的请求并行（原来是串行：星标 → 活动 → 通知 → 评审 → 指派）
+        //
+        // `loaded` 是「这一轮真正拿到的仓库」：`repos` 是 state，effect 闭包读到的是**启动那一刻**
+        // 的旧值，直接拿它做预加载会预热上一轮的那几个仓库。
+        var loaded: List<RepoSummary> = emptyList()
         coroutineScope {
-            launch { loadStarred(false) }
+            launch { loaded = loadRepos() }
             launch { loadEvents(false) }
             // 待处理三件套（都是轻量请求，失败静默为 0，不打扰首页）
             // 每个计数各自 key（home:unread / home:review / home:assigned），类型 TYPE_HOME（TTL 5 分钟）
@@ -212,16 +244,23 @@ fun HomeScreen(
         // 进行中任务：本地 Room，零网络请求
         runningTasks = com.branchbase.ui.task.TaskStore.list(context)
             .filter { it.status == com.branchbase.ui.task.TaskStatus.RUNNING }
-        // 预加载：星标首屏几个仓库的详情，点进去直接命中缓存（计费网络下自动跳过）
+        // 置顶选择每次回前台重读：管理页是点一下就写盘（没有保存按钮），
+        // 而 Tab 保活时首页**不会被重建**（切回首页不重跑 remember），只在组合期读一次会读到旧值。
+        // 键无变化时 `pinned` 的写回是同一个 List 实例，Compose 跳过重组，代价为零。
+        pinned = FrequentRepoStore.selection(context, bucket)
+        // 预加载：首页「常用仓库」首屏那几个仓库的详情，点进去直接命中缓存（计费网络下自动跳过）
         RepoPrefetcher.warmList(
             context = context,
             host = host,
             token = token,
-            entries = repos.map {
+            entries = FrequentRepoRules.visibleOnHome(loaded, pinned, key = { it.fullName }).map {
                 it.fullName.substringBefore('/') to it.fullName.substringAfter('/', "")
             },
         )
     }
+
+    // 首页实际要渲染的「常用仓库」（顺序 = 用户点选先后；没自定义过时 = 接口顺序前 5）
+    val shownRepos = FrequentRepoRules.visibleOnHome(repos, pinned, key = { it.fullName })
 
     Column(
         modifier = Modifier
@@ -253,23 +292,52 @@ fun HomeScreen(
                 item { RunningTasksCard(runningTasks) }
             }
 
-            // ③ 常用仓库（星标，最多 5 个）
+            // ③ 常用仓库（置顶过 = 只放用户选的常用仓库；没置顶过 = 收藏仓库最近 5 个）
+            //
+            // 图标：1.1.8 及以前这里是 Star。这一栏现在有**两种来源**（默认态是收藏仓库、
+            // 置顶态是「我能用的仓库」），Star 只在默认态说得通、置顶态就是错的，
+            // 所以用被整个 App 当作「仓库」的中性图标 Folder（个人页「仓库」tab 与仓库列表页都是它）。
+            //
+            // 右侧图标从「刷新」换成「管理」（Tune）：刷新在这个位置是冗余的 ——
+            // 每次回到前台这个 effect 都会联网重拉仓库，刷新按钮只是让它早 0.1 秒；
+            // 而「自定义置顶」没有别的入口。
             item {
-                SectionHeader(stringResource(R.string.label_frequent_repos), Icons.Filled.Star) {
-                    scope.launch { loadStarred(true) }
-                }
+                SectionHeader(
+                    title = stringResource(R.string.label_frequent_repos),
+                    icon = Icons.Filled.Folder,
+                    onAction = onEditFrequent,
+                    actionIcon = Icons.Filled.Tune,
+                    actionLabel = stringResource(R.string.label_manage_frequent_repos),
+                    onLongClick = onEditFrequent,
+                )
             }
             if (repos.isEmpty()) {
-                item { EmptyState(stringResource(R.string.state_no_starred_repos)) }
+                // 是哪个源空了就说哪个源的话：默认态（收藏仓库为空）和「置顶了但候选集为空」不是一回事
+                item {
+                    EmptyState(
+                        stringResource(
+                            if (pinned.isNullOrEmpty()) R.string.state_no_starred_repos
+                            else R.string.state_no_my_repos,
+                        ),
+                    )
+                }
+            } else if (shownRepos.isEmpty()) {
+                // 勾过、但勾的那些都不在候选集里了（被移出协作者、组织权限变更、仓库转移）：空态 + 说明书。
+                // **不要**在这里回落收藏仓库 —— 用户确实置顶了，静默换成另一份列表等于选择被无声覆盖；
+                // 回落只发生在「一个都没置顶」（含把置顶全取消）时，规则见 [FrequentRepoSource]。
+                item { EmptyState(stringResource(R.string.state_no_pinned_repos)) }
+                item { EmptyState(stringResource(R.string.note_frequent_repos_empty_hint)) }
             } else {
-                items(repos.take(5)) { repo -> RepoCard(repo, onClick = { onRepoClick(repo.fullName) }) }
+                items(shownRepos) { repo -> RepoCard(repo, onClick = { onRepoClick(repo.fullName) }) }
             }
 
             // ④ 最近活动（只留 3 条，完整列表在个人主页的动态页）
             item {
-                SectionHeader(stringResource(R.string.label_recent_activity), Icons.Filled.History) {
-                    scope.launch { loadEvents(true) }
-                }
+                SectionHeader(
+                    title = stringResource(R.string.label_recent_activity),
+                    icon = Icons.Filled.History,
+                    onAction = { scope.launch { loadEvents(true) } },
+                )
             }
             if (events.isEmpty()) {
                 item { EmptyState(stringResource(R.string.state_no_recent_activity)) }
@@ -280,18 +348,22 @@ fun HomeScreen(
     }
 }
 
-/** 解析 /user/starred 返回的 JSON 数组 */
-private fun parseStarredRepos(json: String): List<StarredRepo> {
+/** 解析 `/user/repos` 或 `/user/starred` 返回的 JSON 数组（首页与管理页共用，故 internal） */
+internal fun parseRepoList(json: String): List<RepoSummary> {
     return runCatching {
         val arr = org.json.JSONArray(json)
         (0 until arr.length()).map { i ->
             val obj = arr.getJSONObject(i)
-            StarredRepo(
+            RepoSummary(
                 fullName = obj.optString("full_name"),
                 desc = obj.optString("description").orEmpty(),
                 language = obj.optString("language").takeIf { it.isNotBlank() },
                 stars = obj.optLong("stargazers_count").let { formatCount(it) },
                 forks = obj.optLong("forks_count").let { formatCount(it) },
+                // 这两个字段两份响应（/user/repos 与 /user/starred）都有；缺字段时是 false，
+                // 与「没读到」在界面上没法区分 —— 但徽标只是提示，不参与任何判断，代价可接受
+                isPrivate = obj.optBoolean("private", false),
+                isFork = obj.optBoolean("fork", false),
             )
         }
     }.getOrDefault(emptyList())
@@ -538,25 +610,48 @@ private fun RunningTasksCard(tasks: List<com.branchbase.ui.task.TaskRecord>) {
     }
 }
 
-/** 区块标题（图标 + 文字 + 可选刷新按钮） */
+/**
+ * 区块标题（图标 + 文字 + 可选右侧操作 + 可选长按）。
+ *
+ * `onLongClick` 目前只有「常用仓库」用（长按 = 进自定义置顶页），并且**只挂在标题行**：
+ * 需求明确说了「只让标题行长按」，卡片区要留给将来的「长按快捷操作」（打开仓库 /
+ * 复制链接那类），现在把长按占掉的话以后就是两者的手势打架。
+ *
+ * 长按不配点击反馈：`indication = null` —— 点这一行本来什么都不做，
+ * 给一个「有反馈但没反应」的水波纹比没有反馈更让人困惑。
+ */
 @Composable
-private fun SectionHeader(title: String, icon: ImageVector, onRefresh: (() -> Unit)? = null) {
+private fun SectionHeader(
+    title: String,
+    icon: ImageVector,
+    onAction: (() -> Unit)? = null,
+    actionIcon: ImageVector = Icons.Filled.Refresh,
+    actionLabel: String = stringResource(R.string.action_refresh),
+    onLongClick: (() -> Unit)? = null,
+) {
+    val press = remember { MutableInteractionSource() }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp)
+            .combinedClickable(
+                interactionSource = press,
+                indication = null,
+                onClick = {},
+                onLongClick = onLongClick,
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, contentDescription = null, tint = Primer.IconPrimary, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(6.dp))
         Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
         Spacer(Modifier.weight(1f))
-        if (onRefresh != null) {
+        if (onAction != null) {
             Icon(
-                Icons.Filled.Refresh,
-                contentDescription = stringResource(R.string.action_refresh),
+                actionIcon,
+                contentDescription = actionLabel,
                 tint = Primer.IconSecondary,
-                modifier = Modifier.size(18.dp).iconTap { onRefresh() },
+                modifier = Modifier.size(18.dp).iconTap { onAction() },
             )
         }
     }
@@ -564,7 +659,7 @@ private fun SectionHeader(title: String, icon: ImageVector, onRefresh: (() -> Un
 
 /** 仓库卡片 */
 @Composable
-private fun RepoCard(repo: StarredRepo, onClick: () -> Unit = {}) {
+private fun RepoCard(repo: RepoSummary, onClick: () -> Unit = {}) {
     Column(
         modifier = Modifier
             .padding(start = 16.dp, end = 16.dp, bottom = 10.dp)
@@ -574,7 +669,19 @@ private fun RepoCard(repo: StarredRepo, onClick: () -> Unit = {}) {
             .clickable { onClick() }
             .padding(14.dp),
     ) {
-        Text(repo.fullName, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                repo.fullName,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Primer.Blue500,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                // fill = false：名字短的时候徽标紧跟着名字，而不是被 weight 推到屏幕最右
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            RepoBadges(repo)
+        }
         if (repo.desc.isNotBlank()) {
             Spacer(Modifier.height(4.dp))
             Text(repo.desc, fontSize = 13.sp, color = Primer.TextSecondary)
@@ -602,6 +709,42 @@ private fun RepoCard(repo: StarredRepo, onClick: () -> Unit = {}) {
             }
         }
     }
+}
+
+/**
+ * 仓库徽标（私有 / 复刻）。两个都不是时不占位：连那 6dp 间隔都不加。
+ *
+ * 用「描边 + 次级文字」而不是彩底：私有 / 复刻是仓库的**属性**，不是状态。
+ * 彩底会和真正表示状态的色块（成功 / 警告 / 危险 / 选中蓝）抢读法，
+ * 而这里一屏最多出现两次，安静地把信息给到就够了。
+ *
+ * 首页卡片与管理页列表行共用（同包 internal）。
+ */
+@Composable
+internal fun RepoBadges(repo: RepoSummary) {
+    if (!repo.isPrivate && !repo.isFork) return
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Spacer(Modifier.width(6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (repo.isPrivate) RepoBadge(stringResource(R.string.label_repo_private))
+            // 复刻沿用仓库页动作按钮的文案（同一条资源，两种语言下都念得通）
+            if (repo.isFork) RepoBadge(stringResource(R.string.action_fork))
+        }
+    }
+}
+
+@Composable
+private fun RepoBadge(text: String) {
+    val shape = RoundedCornerShape(4.dp)
+    Text(
+        text = text,
+        fontSize = 10.sp,
+        color = Primer.TextSecondary,
+        modifier = Modifier
+            .clip(shape)
+            .border(1.dp, Primer.Border, shape)
+            .padding(horizontal = 5.dp, vertical = 1.dp),
+    )
 }
 
 /** 活动项 */
@@ -648,13 +791,17 @@ private fun EmptyState(text: String) {
     }
 }
 
-/** 星标仓库（来自 /user/starred） */
-private data class StarredRepo(
+/** 仓库摘要（来自 `/user/repos` 或 `/user/starred`；首页与管理页共用，故 internal） */
+internal data class RepoSummary(
     val fullName: String,
     val desc: String,
     val language: String?,
     val stars: String,
     val forks: String? = null,
+    /** 私有仓库（`private`）：同一列里混着组织仓库与别人的仓库，用户需要一眼看出「这条谁能打开」。 */
+    val isPrivate: Boolean = false,
+    /** 复刻（`fork`）：复刻的「最近推送」常来自上游，和自有仓库是两回事。 */
+    val isFork: Boolean = false,
 )
 
 /** 活动（来自 received_events） */
@@ -666,8 +813,8 @@ private data class Activity(
     val createdAt: String,
 )
 
-/** GitHub 语言色映射 */
-private fun langColor(lang: String?): Color = when (lang) {
+/** GitHub 语言色映射（首页与管理页共用，故 internal） */
+internal fun langColor(lang: String?): Color = when (lang) {
     "Kotlin" -> Color(0xFFA97BFF)
     "Rust" -> Color(0xFFDEA584)
     "Java" -> Color(0xFFB07219)

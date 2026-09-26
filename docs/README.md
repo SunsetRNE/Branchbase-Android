@@ -123,7 +123,7 @@ README.md                          ← 项目门面 + 下载与上手 + 文档�
 
 | 文档 | 一句话 | 真源 / 引用者（改了要回头改这些地方） |
 |---|---|---|
-| [`specs/features-design.md`](specs/features-design.md) | **功能规格**：登录与账号 / 个人主页 / 仓库浏览 / 搜索 / 提交与本地仓库 / 关于页 | 根 `README.md`「功能一览」、`ui/search/SearchQuery.kt` |
+| [`specs/features-design.md`](specs/features-design.md) | **功能规格**：登录与账号 / 个人主页 / 仓库浏览 / 搜索 / 提交与本地仓库 / 关于页 / 首页仪表盘 | 根 `README.md`「功能一览」、`ui/search/SearchQuery.kt` |
 | [`specs/modules-design.md`](specs/modules-design.md) | **功能模块族**：§1 沉浸式翻译 / §2 内建下载 / §3 图片查看器 / §4 代码编辑器 / §5 作业日志 / §6 运行中的工作流轮询，各带「已知边界」 | `ui/repository/ReadmeWebView.kt:57,455`、根 `README.md` |
 | [`specs/decision-pages-design.md`](specs/decision-pages-design.md) | **决策页面**：14 页体系 / 四要素组件 / §4.5 PR 一条龙 / §6 本地支持 API / §8.4 执行层 / 已知缺口 | `ui/decision/*.kt`、`core/src/git/mod.rs:582`、`core/src/bridge/jni.rs:1285`、`core/src/api/github.rs:678` |
 | [`specs/local-git-engine-design.md`](specs/local-git-engine-design.md) | **本地 Git 引擎**：§3 稳定接口（35 个 `pub fn`，含阶段 3 的 5 个只读接口、阶段 4 的 `fetch_deepen`、阶段 5 的合并与冲突七条）/ §4 `nff:` 错误归一 / §5 D11 拆分（merge 允许、rebase 仍禁）/ 证书与代理 / 已知边界 | `core/src/git/mod.rs:3` |

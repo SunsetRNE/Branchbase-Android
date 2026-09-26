@@ -51,6 +51,20 @@ object SettingsKeys {
     const val FRAME_WATCH = "frame_watch"
 
     /**
+     * 首页「常用仓库」的**置顶选择**（JSON 对象，见 `FrequentRepoStore`）：
+     * `{"<login>": ["owner/repo", …]}`，数组**保序** —— 顺序就是首页显示顺序，
+     * 后选的在后面（用户点选先后即排序，见 `FrequentRepoRules`）。
+     *
+     * 为什么按账号分桶：同一台设备可以登多个账号（见 `docs/specs/features-design.md` §1），
+     * 而「常用」天然是每个账号各一份。为什么是**整体 JSON** 而不是 `键_账号`：
+     * 账号一多键就散，且读一次就能拿到全部桶。
+     *
+     * **缺键 ≠ 空数组**：缺键 = 用户从未自定义过，首页回落到接口顺序取前 5；
+     * 存在但该账号为空数组 = 用户明确清空了置顶，首页显示空态。两者不能混。
+     */
+    const val HOME_FREQUENT_REPOS = "home_frequent_repos"
+
+    /**
      * 统一的 SharedPreferences 句柄。
      *
      * 优先用 `applicationContext`：设置页可能在 Activity 重建的瞬间读写，

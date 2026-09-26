@@ -42,6 +42,7 @@
 |---|---|---|
 | 登录与账号 | OAuth + PAT 两种方式；多账号管理与状态检查 | [`features-design.md`](docs/specs/features-design.md) §1 |
 | 个人主页 | 概览 / 仓库 / 动态 + 星标 · 软件包 · 项目 · 设置 | §2 |
+| 首页仪表盘 | 待处理 / 进行中 / 常用仓库（长按标题自定义置顶：候选＝自有 · 协作 · 组织与团队仓库，顺序即点选先后，仅存本地、按账号隔离；没置顶时显示最近星标的 5 个，私有 / 复刻带徽标） | [`features-design.md`](docs/specs/features-design.md) §9 |
 | 仓库浏览 | 列表 / 详情 / README 渲染 / 语言 / 贡献者 / 分支同步 | §3 |
 | 搜索 | 七类搜索；结果可点进站内；**按账号隔离**缓存 | §4 |
 | 提交与本地仓库 | 三种提交模式；libgit2 浅 clone / pull / commit / push | §5、[`local-git-engine-design.md`](docs/specs/local-git-engine-design.md) |

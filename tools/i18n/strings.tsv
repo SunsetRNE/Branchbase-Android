@@ -849,7 +849,9 @@ ${snapshot.chars} 字符 · ${(fraction * 100).roundToInt()}%	%1$s characters ·
 待处理	To do	label_todo
 进行中	In progress	label_in_progress
 常用仓库	Frequent repositories	label_frequent_repos
+暂无可用的仓库	No repositories available	state_no_my_repos
 暂无星标仓库	No starred repositories yet	state_no_starred_repos
+私有	Private	label_repo_private
 暂无最近活动	No recent activity yet	state_no_recent_activity
 搜索 GitHub	Search GitHub	hint_search_github
 夜深了	Working late	greet_late_night

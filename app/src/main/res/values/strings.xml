@@ -902,7 +902,13 @@
     <string name="label_unread_notifications">未读通知</string>
     <string name="label_todo">待处理</string>
     <string name="label_frequent_repos">常用仓库</string>
+    <string name="state_no_my_repos">暂无可用的仓库</string>
     <string name="state_no_starred_repos">暂无星标仓库</string>
+    <string name="label_repo_private">私有</string>
+    <string name="label_manage_frequent_repos">管理常用仓库</string>
+    <string name="note_frequent_repos_hint">点一下选中，首页最多显示 %1$d 个</string>
+    <string name="toast_frequent_repos_limit">首页最多显示 %1$d 个</string>
+    <string name="note_frequent_repos_empty_hint">长按「常用仓库」标题可重新选择</string>
     <string name="label_unread_count">%1$s 条</string>
     <string name="greet_late_night">夜深了</string>
     <string name="state_no_recent_activity">暂无最近活动</string>
