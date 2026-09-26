@@ -718,7 +718,6 @@
     <string name="label_activity_overview">动态概览</string>
     <string name="label_activity_totals">共 %1$s 次活动 · 最深 %2$s 次/天</string>
     <string name="label_activity_90_days">近 90 天公开活动</string>
-    <string name="label_custom_pins">自定义置顶</string>
     <string name="label_followers">%1$s 关注者</string>
     <string name="label_popular_repos">热门仓库</string>
     <string name="label_activity_heatmap">活动热力</string>

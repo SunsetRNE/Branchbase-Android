@@ -74,7 +74,29 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.1.9 → 1.0.22）
+## 二、`versionName` 流水（1.1.10 → 1.0.22）
+
+### 1.1.10
+
+**个人页「热门仓库」右侧的「自定义置顶」是死链仿写，本版删掉 —— 那个位置点下去从来没有反应。**
+
+① 它仿的是 GitHub 网页端「Customize your pins」，但本 App 里**没有**对应的管理页：那一格显示的是
+GitHub 服务端返回的置顶项（`pinnedRepos`），本 App 既不能改置顶、也没有第二处入口。它由
+`ProfileScreen.kt` 的 `SectionTitle(stringResource(R.string.label_popular_repos),
+stringResource(R.string.label_custom_pins))` 画成 —— `SectionTitle` 的 `sub` 只是一段 `Primer.Blue500`
+的 12sp 文字，**没有 `clickable`**，颜色却按链接来，于是它看起来像个按钮、点下去什么都不发生。
+界面里「长得像能点、点了没反应」比不放更坏：用户会先怀疑是自己没点准，再去怀疑 App 坏了。
+
+② **真正能置顶的地方是首页「常用仓库」**（1.1.8 长按标题进 `FrequentReposScreen`，1.1.9 换过数据源），
+那边有完整的 `SectionHeader` + `onAction` / `onLongClick` 接线。本版不把那条路搬到个人页：个人页的
+这一格是**别人的**仓库（含协作 / 组织仓库），而首页那 5 格是「我能用的仓库」，两者的候选集不同，
+共用一个管理页会把两套语义搅在一起。
+
+③ 删的是引用 + 资源，不是功能：`SectionTitle` 回到单参数调用；`label_custom_pins`
+（`values/strings.xml` / `values-en/strings.xml`）与 `tools/i18n/strings.tsv` 里对应那行**随唯一引用
+一起删除** —— 留着就是孤儿键，`check-i18n.py` 的键集合比对虽然不报，但下次谁改 `label_custom_pins`
+都不会有任何一处界面跟着变。`SectionTitle` 的 `sub` 参数本身保留：`label_by_contribution_calendar`
+（动态概览）与 `label_past_90_days`（活动热力）两处还在用它做**说明文字**（那两处是陈述，不是按钮）。
 
 ### 1.1.9
 
@@ -3185,7 +3207,7 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（213 → 129）
+## 三、`versionCode` 流水（216 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
@@ -3197,6 +3219,10 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 > - **129**：主题彻底收敛（A+B+C 全量收角色 + 两道源码级钉子）（一次提交，故 +1）
 > - **142**：慢帧守望（帧级定位）+ 日志追加写修复 + 设置行图标居中（一次发布，故 +1）
 > - **146**：设置页账户卡头像改走统一 Avatar（真实图标 + 圆形裁切）+ 账号头像地址回落会话（一次提交，故 +1）
+
+- **216**：个人页「热门仓库」移除占位「自定义置顶」（`ProfileScreen.kt` 的 `SectionTitle` 调用回到单参数，
+`label_custom_pins` 中英资源与 `tools/i18n/strings.tsv` 对应行一并删除；`SectionTitle` 的 `sub` 参数保留，
+动态概览 / 活动热力两处仍在用）（一次提交，故 +1）
 
 - **215**：首页「常用仓库」换数据源（星标仓库 → 我能用的仓库：`/user/repos?per_page=100&affiliation=owner,collaborator,organization_member&sort=pushed&direction=desc`；
 缓存键 `starred_repos` → `my_repos`，`parseStarredRepos`/`StarredRepo` → `parseRepoList`/`RepoSummary`，

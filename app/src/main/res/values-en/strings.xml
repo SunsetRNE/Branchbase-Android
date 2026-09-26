@@ -714,7 +714,6 @@
     <string name="label_activity_overview">Activity overview</string>
     <string name="label_activity_totals">%1$s activities in total · busiest day %2$s</string>
     <string name="label_activity_90_days">Public activity in the last 90 days</string>
-    <string name="label_custom_pins">Custom pins</string>
     <string name="label_followers">%1$s followers</string>
     <string name="label_popular_repos">Popular repositories</string>
     <string name="label_activity_heatmap">Activity heatmap</string>

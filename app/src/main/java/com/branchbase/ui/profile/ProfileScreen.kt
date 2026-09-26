@@ -524,7 +524,7 @@ private fun ProfileOverview(
         }
         // 热门仓库
         item {
-            SectionTitle(stringResource(R.string.label_popular_repos), stringResource(R.string.label_custom_pins))
+            SectionTitle(stringResource(R.string.label_popular_repos))
             Column(Modifier.padding(horizontal = 16.dp)) {
                 if (loading) {
                     // 骨架屏：结构和尺寸与 [RepoCard] 一一对应（同 6dp 圆角 / 同边框 / 同 12dp 内边距）。

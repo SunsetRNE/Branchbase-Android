@@ -717,7 +717,6 @@ ${followers} 关注者	%1$s followers	label_followers
 ${following} 正在关注	%1$s following	label_following
 ${publicRepos} 仓库	%1$s repositories	label_repo_count_public
 热门仓库	Popular repositories	label_popular_repos
-自定义置顶	Custom pins	label_custom_pins
 暂无置顶仓库	No pinned repositories yet	state_no_pinned_repos
 🔍 查找仓库…	🔍 Find a repository…	hint_find_repo
 未获取到登录名，请重新登录	Could not get the login name; sign in again	error_login_name_missing
