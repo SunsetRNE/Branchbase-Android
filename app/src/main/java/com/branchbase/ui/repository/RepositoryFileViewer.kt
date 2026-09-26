@@ -830,6 +830,8 @@ fun FileViewerScreen(
                             ({ outletFlow.pending = GitOutlet.Upstream })
                         },
                         onRollback = { outletFlow.pending = GitOutlet.Rollback },
+                        // 上游探测结果也管工作区那行「未设置上游」：自持仓库不画那行
+                        upstream = upstreamRel,
                     )
                 },
                 title = localGit.summary(),
@@ -885,6 +887,10 @@ fun FileViewerScreen(
                 repoDir = localRepoDir(context, repo),
                 path = p.path,
                 commitSha = p.sha,
+                // 本地读不出来时换远端提交详情（1.1.7）：浅克隆里这次提交的父对象不在本地
+                sessionJson = sessionJson,
+                owner = owner,
+                repo = repo,
                 onBack = { page = FilePage.None },
             )
             return

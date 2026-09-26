@@ -59,6 +59,17 @@ import kotlinx.coroutines.withContext
  * | 工作区档的改动清单（点一行） | `diff_worktree` | 工作区改动（+ 文件路径） |
  * | 提交图档的一条提交（点一行） | `diff_commit` | 提交 <短 sha> |
  *
+ * ## 退路：本地打不开这一次提交，就换远端详情（1.1.7）
+ *
+ * 本地仓库是**浅克隆**时（`clone` 用 `depth(1)` 只拿一条历史），`diff_commit` 要算「这次提交 vs 它的父」
+ * —— 而那个父对象**根本不在本地**，引擎只能报错。于是提交图里点任何一条历史提交，看到的都是一句
+ * 「读取失败」（真机日志里那五条「本地 diff ▸ 读取失败（2197d5d…）」就是这个根）。
+ *
+ * 所以：**读不出来 + 知道是哪个仓库的哪次提交** → 这一屏整体换成 `CommitDetailScreen`
+ * （GitHub 的提交详情，自带 `PageCache` 直出与重试）。不知道仓库身份（owner/repo 为空）时不换，
+ * 照旧如实报错 —— 猜一个仓库去取详情比报错更坏。
+ * 本地**读得出来**时一律用本地那一份（含工作区档）：那才是「我设备上的这个副本」。
+ *
  * ## 态
  *
  * 加载 / 失败可重试 / 没有改动 / 截断 / 单文件没有可显示的差异（二进制），
@@ -70,11 +81,18 @@ fun LocalDiffScreen(
     onBack: () -> Unit,
     path: String? = null,
     commitSha: String? = null,
+    // 本地读不出来时的**退路**（1.1.7）：浅克隆里那次提交的父对象根本不在本地，
+    // 本地 diff 注定读不出来 —— 这三样齐了就把同一屏换成 GitHub 的提交详情（见文件头「退路」）
+    sessionJson: String = "",
+    owner: String = "",
+    repo: String = "",
     modifier: Modifier = Modifier,
 ) {
     var view by remember(commitSha, repoDir) { mutableStateOf<LocalDiffView?>(null) }
     var loading by remember(commitSha, repoDir) { mutableStateOf(true) }
     var failed by remember(commitSha, repoDir) { mutableStateOf(false) }
+    // 本地读不出来且知道这是哪个仓库的哪次提交 → 换远端详情（这一屏就不再是「本地 diff 页」）
+    var remoteFallback by remember(commitSha, repoDir) { mutableStateOf(false) }
     var reloadKey by remember { mutableStateOf(0) }
 
     LaunchedEffect(repoDir, path, commitSha, reloadKey) {
@@ -86,14 +104,20 @@ fun LocalDiffScreen(
         }
         val parsed = parseLocalDiff(json)
         view = parsed
-        failed = parsed == null
         loading = false
+        // 本地读不出来、又是具名提交、也知道仓库身份 → 交给远端详情，别让用户停在「读取失败」上。
+        // 不知道仓库身份时**不许猜**：宁可按原来的方式如实报错（见文件头「退路」）
+        val fallback = parsed == null && !commitSha.isNullOrBlank() &&
+            sessionJson.isNotBlank() && owner.isNotBlank() && repo.isNotBlank()
+        remoteFallback = fallback
+        failed = parsed == null && !fallback
         // 读失败**必须留一条**：页面上只有一句「读取失败」，事后分不清是引擎不可用、
         // 目录被删还是 sha 传错了（锚点与面板那一族一致）
         if (parsed == null) {
             Logger.warn(
                 LogCategory.NETWORK, GIT_WORKBENCH_LOG_TAG,
-                "本地 diff ▸ 读取失败（${commitSha ?: "工作区"}）",
+                "本地 diff ▸ 读取失败（${commitSha ?: "工作区"}）" +
+                    if (fallback) "，改从 GitHub 取提交详情" else "",
             )
         } else {
             Logger.net(
@@ -102,6 +126,20 @@ fun LocalDiffScreen(
                 GIT_WORKBENCH_LOG_TAG,
             )
         }
+    }
+
+    // 本地这一份注定读不出来（浅克隆里那次提交的父对象不在本地）→ **同一屏换成远端详情**。
+    // 远端那一页自带缓存与重试（`CommitDetailScreen`），这也是手机上「点一条提交能看到改了什么」
+    // 的唯一出路 —— 停留在这一页只会看到一句「读取失败」。
+    if (remoteFallback) {
+        CommitDetailScreen(
+            sessionJson = sessionJson,
+            owner = owner,
+            repo = repo,
+            sha = commitSha.orEmpty(),
+            onBack = onBack,
+        )
+        return
     }
 
     val rows = remember(view, path) { view?.let { localDiffRows(it, onlyPath = path) }.orEmpty() }

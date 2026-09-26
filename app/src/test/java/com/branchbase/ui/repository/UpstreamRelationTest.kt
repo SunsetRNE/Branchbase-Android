@@ -266,4 +266,62 @@ class UpstreamRelationTest {
         val hiding = UpstreamState.entries.filter { !UpstreamRelation(it).showsEntry }
         assertEquals(listOf(UpstreamState.SELF_OWNED), hiding)
     }
+
+    // ── 工作台那行「未设置上游」：复用同一份判定，没有上游就不显示 ──
+
+    @Test
+    fun `自持仓库且没跟踪远端时_不画未设置上游那一行`() {
+        // 自持仓库没有上游可设 —— 那句话落在那里是一句永远无法执行的催促
+        assertFalse(
+            showsUpstreamLine(
+                hasUpstream = false,
+                upstreamBranch = null,
+                rel = UpstreamRelation(UpstreamState.SELF_OWNED),
+            ),
+        )
+    }
+
+    @Test
+    fun `真有上游却还没跟踪时_照旧画那一行`() {
+        // 这一句对它是**可执行的**提示：上游就在那儿（哪怕已归档 / 已私有化，也仍然要出现）
+        listOf(
+            UpstreamState.AVAILABLE,
+            UpstreamState.ARCHIVED,
+            UpstreamState.DELETED,
+            UpstreamState.PRIVATE,
+        ).forEach { state ->
+            assertTrue(
+                "$state 有上游，不许藏那一行",
+                showsUpstreamLine(false, null, UpstreamRelation(state, "up/stream")),
+            )
+        }
+    }
+
+    @Test
+    fun `还没探到上游时_不藏那一行`() {
+        // 拿「不知道」当「没有」，会让一个真有上游的仓库失去那句唯一提示
+        assertTrue(showsUpstreamLine(hasUpstream = false, upstreamBranch = null, rel = null))
+        assertTrue(showsUpstreamLine(false, null, UpstreamRelation(UpstreamState.UNKNOWN)))
+    }
+
+    @Test
+    fun `跟踪上了远端分支_自持仓库也照画那一行`() {
+        // 这时要说的不是「你可以设上游」，而是「你跟踪的是 origin/main」这个事实（clone 自己的仓库就是这样）
+        assertTrue(
+            showsUpstreamLine(
+                hasUpstream = true,
+                upstreamBranch = "origin/main",
+                rel = UpstreamRelation(UpstreamState.SELF_OWNED),
+            ),
+        )
+    }
+
+    @Test
+    fun `hasUpstream 为真但分支名是空的_不算跟踪上了`() {
+        // 快照可能只有 hasUpstream=true 而没有分支名 —— 空串 / 空白不许当「跟踪上了」，
+        // 否则自持仓库会凭一个空名字把那一行画回来
+        assertFalse(showsUpstreamLine(true, "", UpstreamRelation(UpstreamState.SELF_OWNED)))
+        assertFalse(showsUpstreamLine(true, "   ", UpstreamRelation(UpstreamState.SELF_OWNED)))
+        assertTrue(showsUpstreamLine(true, "   ", UpstreamRelation(UpstreamState.AVAILABLE)))
+    }
 }

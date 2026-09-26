@@ -202,3 +202,31 @@ internal fun upstreamNoteText(rel: UpstreamRelation): String = when (rel.state) 
 
     else -> stringResource(upstreamNoteRes(rel.state))
 }
+
+/**
+ * Git 工作台分支下面那一行要不要画。
+ *
+ * 那一行只有两种内容：「跟踪到的远端分支」（`origin/main`）与「未设置上游」。
+ * 后者是**说给有上游的仓库听的** —— 它在提示「你可以设一个上游」；而自持仓库（本仓库就是复刻
+ * 网络的源，见 [UpstreamState.SELF_OWNED]）没有上游可设，同一句话落在那里就是一句永远无法
+ * 执行的催促。所以复用 1.1.5 的探测结果：**没有上游就不显示，有就显示**。
+ *
+ * 两个细节：
+ * - 判定与藏「上游…」那枚出口用的是同一份 [UpstreamRelation]，但**不是同一个开关**：
+ *   出口看 [UpstreamRelation.showsEntry]，这一行还取决于当前分支有没有跟踪上远端 ——
+ *   跟踪上了就必须画，因为「跟踪的是 `origin/xxx`」本身是要说的事实。
+ * - [rel] 为 null（还没探到、或本仓库详情读不到）时**不许藏**：拿「不知道」去当「没有」，
+ *   会让一个真有上游的仓库失去那句唯一提示（和 [UpstreamState.UNKNOWN] 的取舍一致）。
+ *
+ * @param hasUpstream 本地分支是否跟踪了远端分支（`LocalRepoGitState.hasUpstream`）
+ * @param upstreamBranch 跟踪的远端分支名（`LocalRepoGitState.upstream`）；空串视同没跟踪
+ * @param rel 上游探测结果；null = 还不知道
+ */
+internal fun showsUpstreamLine(
+    hasUpstream: Boolean,
+    upstreamBranch: String?,
+    rel: UpstreamRelation?,
+): Boolean {
+    if (hasUpstream && !upstreamBranch.isNullOrBlank()) return true
+    return rel?.state != UpstreamState.SELF_OWNED
+}

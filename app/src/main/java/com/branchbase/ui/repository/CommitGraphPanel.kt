@@ -127,20 +127,20 @@ fun CommitGraphPanel(
     val context = LocalContext.current
 
     suspend fun fetchRest(sha: String?): List<GraphCommit>? {
-        val path = buildString {
-            append("/repos/$owner/$repo/commits?per_page=")
-            append(PAGE_SIZE)
-            if (!sha.isNullOrBlank()) append("&sha=$sha")
-            else if (branch.isNotBlank()) append("&sha=$branch")
-        }
-        val json = RustBridge.getJson(host, token, path) ?: return null
+        // 首页（不带 sha）走 PageCache：新鲜时直接命中、过期时在这里回源并写回（1.1.7）。
+        // 带 sha 的是「加载更早」的翻页，键会与首页打架，照旧直连。
+        val json = if (sha.isNullOrBlank()) {
+            CommitGraphCache.load(CommitGraphCache.manager(context), host, token, owner, repo, branch)
+        } else {
+            RustBridge.getJson(host, token, CommitGraphCache.firstPagePath(owner, repo, branch, sha))
+        } ?: return null
         if (json.startsWith("ERROR:")) return null
         return parseGraphCommits(json)
     }
 
     suspend fun fetchPage(page: GraphPage, from: GraphSource): List<GraphCommit>? = when (page) {
         is GraphPage.Local ->
-            RustBridge.gitLogGraph(repoDir, PAGE_SIZE, page.skip)?.let(::parseLocalGraphCommits)
+            RustBridge.gitLogGraph(repoDir, GRAPH_PAGE_SIZE, page.skip)?.let(::parseLocalGraphCommits)
         is GraphPage.Rest -> fetchRest(page.sha)
     }
 
@@ -157,6 +157,24 @@ fun CommitGraphPanel(
         shallowLocal = shallow
         var used = graphSourceOf(localRepoExists, shallow)
         var localFailed = false
+        // ① 缓存直出（1.1.7）：这一档改成 REST 之后此前**没有任何缓存** ——
+        //    「本地有副本但它是浅克隆」的仓库，每次打开提交图、每次换档回来都要白等一次网络。
+        //    只对 REST 做：本地来源在本机读，比查缓存快，缓存它反而会把「加深历史」之前的图留在屏幕上。
+        val restManager = if (used == GraphSource.REST) CommitGraphCache.manager(context) else null
+        val paintedFromCache = restManager
+            ?.let { CommitGraphCache.cached(it, owner, repo, branch) }
+            ?.let(::parseGraphCommits)
+            ?.let {
+                commits = it
+                source = GraphSource.REST
+                truncated = it.size >= GRAPH_PAGE_SIZE
+                loading = false
+                Logger.net(
+                    "提交图 ▸ $owner/$repo@${branch.ifBlank { "HEAD" }}：${it.size} 条（来源 REST·缓存直出）",
+                    GIT_WORKBENCH_LOG_TAG,
+                )
+                true
+            } == true
         var first = withContext(Dispatchers.IO) { fetchPage(nextGraphPage(used, emptyList()), used) }
         if (first == null && used == GraphSource.LOCAL) {
             localFailed = true
@@ -169,6 +187,15 @@ fun CommitGraphPanel(
         }
         source = used
         if (first == null) {
+            // 缓存已经出过内容：回源失败**不许**把它换成错误页 —— 屏上那一份仍然是当前最好的答案，
+            // 换成「加载失败」等于把已经拿到的数据扔掉（这也是 PageCache 那一套的约定）
+            if (paintedFromCache) {
+                Logger.warn(
+                    LogCategory.NETWORK, GIT_WORKBENCH_LOG_TAG,
+                    "提交图 ▸ $owner/$repo@${branch.ifBlank { "HEAD" }} 回源失败，屏上仍是缓存那一份",
+                )
+                return
+            }
             error = context.getString(
                 R.string.error_graph_load_failed,
                 context.getString(
@@ -186,7 +213,7 @@ fun CommitGraphPanel(
             return
         }
         commits = first
-        truncated = first.size >= PAGE_SIZE
+        truncated = first.size >= GRAPH_PAGE_SIZE
         loading = false
         Logger.net(
             "提交图 ▸ $owner/$repo@${branch.ifBlank { "HEAD" }}：${first.size} 条" +
@@ -330,7 +357,7 @@ fun CommitGraphPanel(
                                         val seen = commits.map { it.fullSha }.toHashSet()
                                         val fresh = more.filter { it.fullSha !in seen }
                                         commits = commits + fresh
-                                        truncated = more.size >= PAGE_SIZE
+                                        truncated = more.size >= GRAPH_PAGE_SIZE
                                         Logger.net(
                                             "提交图 ▸ $owner/$repo 加载更早：+${fresh.size}（共 ${commits.size}，来源 $from）",
                                             GIT_WORKBENCH_LOG_TAG,
@@ -356,7 +383,9 @@ fun CommitGraphPanel(
     }
 }
 
-private const val PAGE_SIZE = 100
+// 一页多少条：**必须**与 CommitGraphCache 拼 URL 时用的是同一个数（internal 就是为了只留这一份）——
+// 两边差一条，「有没有下一页」的截断判定就会静默失准
+internal const val GRAPH_PAGE_SIZE = 100
 
 /** 虚节点：HEAD 之上那一层「还没提交」的东西。虚线 + 无 sha + 点它进「工作区」档。 */
 @Composable

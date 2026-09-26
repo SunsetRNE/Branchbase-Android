@@ -78,6 +78,8 @@ private val PANEL_WIDTH = 268.dp
  * @param onUndo 「撤销…」出口（撤销最近一次提交，改动不凭空消失）
  * @param onUpstream 「上游…」出口（给当前分支设上游）
  * @param onRollback 「回退 Git 化…」出口（退回未纳管；与「撤销」是两回事，文案不共用）
+ * @param upstream 上游探测结果（1.1.5 起自动探测）：只用来决定工作区那行「未设置上游」画不画 ——
+ *   自持仓库没有上游可设，那句话在那里是噪音（同一份判定也管着「上游…」那枚出口要不要出现）
  * @param filePath 「文件历史」档要看哪个文件：文件页传正在看的那个路径，代码页传 null
  *   （那时这一档如实说明去哪看，而不是显示一个空列表）
  */
@@ -104,6 +106,7 @@ fun GitPanelViewHost(
     onUndo: (() -> Unit)? = null,
     onUpstream: (() -> Unit)? = null,
     onRollback: (() -> Unit)? = null,
+    upstream: UpstreamRelation? = null,
     filePath: String? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -146,6 +149,7 @@ fun GitPanelViewHost(
                         onUndo = onUndo,
                         onUpstream = onUpstream,
                         onRollback = onRollback,
+                        upstream = upstream,
                     )
                     GitPanelKind.Graph -> CommitGraphPanel(
                         host = host,
@@ -365,6 +369,7 @@ fun GitWorkspaceBody(
     onUndo: (() -> Unit)? = null,
     onUpstream: (() -> Unit)? = null,
     onRollback: (() -> Unit)? = null,
+    upstream: UpstreamRelation? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxWidth()) {
@@ -394,14 +399,21 @@ fun GitWorkspaceBody(
                 )
             }
         }
-        Text(
-            if (git.hasUpstream && git.upstream.isNotBlank()) git.upstream else stringResource(R.string.state_no_upstream_short),
-            fontSize = 10.5.sp,
-            color = Primer.TextTertiary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 2.dp),
-        )
+        // 上游那一行：跟踪上了就写远端分支名；没跟踪才写「未设置上游」——
+        // 而**自持仓库连这一行都不写**（没有上游可设，那句话在那里只是一句永远无法执行的催促）。
+        // 判定复用 1.1.5 的探测结果，与「上游…」那枚出口同一份来源、但不是同一个开关：
+        // 出口看 showsEntry，这一行还要看分支有没有跟踪上远端（见 showsUpstreamLine）。
+        if (showsUpstreamLine(git.hasUpstream, git.upstream, upstream)) {
+            val tracked = if (git.hasUpstream && git.upstream.isNotBlank()) git.upstream else null
+            Text(
+                tracked ?: stringResource(R.string.state_no_upstream_short),
+                fontSize = 10.5.sp,
+                color = Primer.TextTertiary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
 
         // ── 合并中：这一档最先要说的是「现在停在哪儿」，不是「工作区干不干净」──
         // 停在合并中时工作区**必然**是脏的（冲突文件带标记），先列改动清单只会让人更糊涂。

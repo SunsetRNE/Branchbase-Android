@@ -880,6 +880,10 @@ fun RepositoryScreen(
                             repoDir = localRepoDir(context, repo),
                             path = r.path,
                             commitSha = r.sha,
+                            // 本地读不出来时换远端提交详情（1.1.7）：浅克隆里这次提交的父对象不在本地
+                            sessionJson = session,
+                            owner = owner,
+                            repo = repo,
                             onBack = { diffTarget = null },
                         )
                     }
@@ -1413,6 +1417,8 @@ fun RepositoryScreen(
                                             ({ outletFlow.pending = GitOutlet.Upstream })
                                         },
                                         onRollback = { outletFlow.pending = GitOutlet.Rollback },
+                                        // 上游探测结果也管工作区那行「未设置上游」：自持仓库不画那行
+                                        upstream = upstreamRel,
                                     )
                                 }
                             }
@@ -1753,6 +1759,7 @@ private fun CodePageGitPanel(
     onUndo: (() -> Unit)? = null,
     onUpstream: (() -> Unit)? = null,
     onRollback: (() -> Unit)? = null,
+    upstream: UpstreamRelation? = null,
 ) {
     val localGit = rememberLocalRepoGitState(repo, refreshTick)
     val otherBranch = branches.firstOrNull { it != defaultBranch }
@@ -1765,6 +1772,18 @@ private fun CodePageGitPanel(
         // 加深成功后刷新：refreshTick 一变，提交图重读一遍（含重新判定浅克隆）→ 换回本地来源
         onDone = onRefresh,
     )
+
+    // 提交图预缓存（1.1.7）：本地副本是**浅克隆**时，提交图注定退回 REST —— 可此前是「用户点开
+    // 那一档」才第一次发请求，于是每次打开都在等一次网络（观感：本地明明有副本，提交图还是慢）。
+    // 仓库页一打开就先把首页暖进 PageCache（与提交图自己取数用的是同一把键），点开即直出。
+    // 只在浅克隆时暖：完整副本由本地引擎回答，那比网络快，无脑预热只是多打一次没用的请求。
+    val graphWarmContext = LocalContext.current
+    LaunchedEffect(host, token, owner, repo, refreshTick, localGit.exists, localGit.branch) {
+        if (!localGit.exists || host.isBlank() || token.isBlank()) return@LaunchedEffect
+        val dir = localRepoDir(graphWarmContext, repo)
+        if (!withContext(Dispatchers.IO) { isShallowClone(dir) }) return@LaunchedEffect
+        CommitGraphCache.warm(graphWarmContext, host, token, owner, repo, localGit.branch)
+    }
 
     // 展开态铺了一层全屏透明遮罩（点空白收起）：返回键要消费的是「收起面板」，
     // 而不是把整个仓库页关掉（遮罩挡着正文时，用户按返回的意图一定是不看了）。
@@ -1864,6 +1883,7 @@ private fun CodePageGitPanel(
                 onUndo = onUndo,
                 onUpstream = onUpstream,
                 onRollback = onRollback,
+                upstream = upstream,
             )
         },
         title = localGit.summary(),

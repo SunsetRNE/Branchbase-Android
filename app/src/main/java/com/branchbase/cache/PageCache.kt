@@ -40,6 +40,15 @@ object PageCache {
     fun pullKey(owner: String, repo: String, number: Long) = "detail:pull:$owner/$repo#$number"
     fun pullFilesKey(owner: String, repo: String, number: Long) = "detail:pull-files:$owner/$repo#$number"
     fun commitKey(owner: String, repo: String, sha: String) = "detail:commit:$owner/$repo@$sha"
+
+    /**
+     * 提交图首页（一个仓库的一个分支一份）。
+     *
+     * 提交图本该由本地引擎回答，但**浅克隆里本地读不出来**（revwalk 撞上缺掉的父提交），
+     * 于是这一档的 REST 首页是最值得缓存的一份：它是「点开就在等」的那一次请求。
+     */
+    fun graphKey(owner: String, repo: String, branch: String) =
+        "detail:graph:$owner/$repo@${branch.ifBlank { "HEAD" }}"
     fun releaseKey(owner: String, repo: String, tag: String) = "detail:release:$owner/$repo@$tag"
     /** 某工作流的运行历史列表（分支筛选也算不同结果）。 */
     fun runsKey(owner: String, repo: String, workflowId: Long, branch: String) =
