@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.1.3**）
-与 §三 `versionCode` 流水（129 → **209**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.1.4**）
+与 §三 `versionCode` 流水（129 → **210**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,41 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.1.3 → 1.0.22）
+## 二、`versionName` 流水（1.1.4 → 1.0.22）
+
+### 1.1.4
+
+**修「刷新远端」永久失败：libgit2 1.7.2 会把浅克隆的 `.git/shallow` 删掉，此后每一次 fetch 都死在同一个缺对象上。**
+
+用户报错逐字：`刷新远端失败：未知错误：fetch 失败:object not found - no match for id (c8301a5aebf59ef8c8c7a2c7cc071d1f07117c59); class=Odb (9); code=NotFound (-3)`；
+同一份日志里并排着「提交图 ▸ 本地 … 读取失败，退回 REST」与五条「本地 diff ▸ 读取失败（2197d5d…）」——
+三处症状一个根。
+
+① **根因（vendored libgit2 1.7.2）**：`transports/smart_protocol.c:379 setup_shallow_roots` 用
+`git_array_init_to_size(*out, wants->shallow_roots_len)` + `memcpy` 灌浅边界，而 `util/array.h:33`
+的宏只把 `size` 置 0、分配 `asize`；`git_smart__shallow_roots`（`:587`）于是在
+`fetch.c:210 git_fetch_download_pack` → `repository.c:3742 if (!roots->count) remove(path)` 这一步
+**把 `<gitdir>/shallow` 删掉**。加深 fetch（depth > 0）走的是服务端 `shallow` / `unshallow` 包，
+`git_oidarray__add` 会正确维护 size，所以**只有普通 fetch 中招**（`!need_pack` 的早退也碰不到）。
+删掉之后：仓库自称完整（`is_shallow() == false`）→ `graphSourceOf` 切回本地来源 →
+提交图 / 文件历史 / 本地 diff 全读不出来退回 REST → 下一次 fetch 的协商阶段用 `refs/*` 走本地历史，
+撞上那条缺掉的父提交 → 整次 fetch 判死，**且此后永不自愈**（每次都在同一对象上死）。
+
+② **修法（事后补回，不是绕开 bug）**：引擎在 fetch 前记下 `repo.is_shallow()`，成功后若发现自己
+不再浅就重扫并补写边界（新 `restore_shallow_after_fetch`，接在 `fetch_origin` / `pull_repo` /
+`fetch_deepen` 三条路上；`fetch_remote` 与 `merge_branch` 的补拉都走 `fetch_origin`，一并覆盖）。
+新增 `pub fn repair_shallow_boundary(dir) -> usize`：从全部 refs + HEAD 做 BFS，凡「父不在本地」
+的提交即浅边界，与已有边界取并集后**只增写回**（`.lock` + rename，不动 refs / 对象 / 工作区）。
+BFS 读的是**原始提交对象**的 `parent` 行（`raw_parent_ids`），不能用 `Commit::parent_ids()` ——
+后者被 grafts 截断成空，而 grafts 是**进程内缓存**（只有 `git_repository__shallow_roots` 会按文件
+mtime+size 刷新），fetch 刚删掉文件那一刻缓存里还是旧边界，用它扫一条都扫不出来
+（真机上表现为「补了 0 条」、仓库继续自称完整）。
+
+③ **钉子**：单测 2 例（`repair_shallow_boundary_把缺父的提交补成浅边界` —— 删掉根提交的 loose
+object 造出「事实浅、声明不浅」；`repair_shallow_boundary_完整仓库不写边界`）；新集成文件
+`core/tests/git_shallow_repair.rs` 6 例，起**只监听 127.0.0.1 的 `git daemon`** 造真浅 clone，
+复刻用户那条报错（裸 fetch 死在协商阶段）、验自愈、验「普通 fetch 之后浅边界仍在」（事故入口）、
+验只补必要边界、验两条 deepen 路。`cargo test`：单测 110 + 集成 10 全绿。
 
 ### 1.1.3
 
@@ -2953,7 +2987,7 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（209 → 129）
+## 三、`versionCode` 流水（210 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
@@ -2965,6 +2999,13 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 > - **129**：主题彻底收敛（A+B+C 全量收角色 + 两道源码级钉子）（一次提交，故 +1）
 > - **142**：慢帧守望（帧级定位）+ 日志追加写修复 + 设置行图标居中（一次发布，故 +1）
 > - **146**：设置页账户卡头像改走统一 Avatar（真实图标 + 圆形裁切）+ 账号头像地址回落会话（一次提交，故 +1）
+
+- **210**：修「刷新远端」永久失败 —— libgit2 1.7.2 的 `setup_shallow_roots` size bug 会把浅克隆的
+`.git/shallow` 删掉（`git_array_init_to_size` 只置 `asize` 不置 `size`，收尾 `if (!roots->count) remove(path)`），
+此后每一次 fetch 都在缺对象上判死（`object not found - no match for id`）；新增
+`repair_shallow_boundary` + `restore_shallow_after_fetch` 自愈（fetch / pull / deepen 三条路），
+BFS 用 `raw_parent_ids` 读原始父列表以绕开 graft 缓存；单测 2 例 + 集成 `git_shallow_repair.rs` 6 例
+（回环 `git daemon` 真浅 clone）（单测 110 + 集成 10）（一次提交，故 +1）
 
 - **209**：代码页文件树补上「返回上一层」—— 目录状态上提到页面级（`RepositoryScreen.codePath`）+
 `codeFolderBackTarget` / `parentPath` 纯函数 + 列表首行 `..` 入口（文件夹图标 + `..`，
