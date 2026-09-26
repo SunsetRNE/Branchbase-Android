@@ -169,14 +169,26 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** 用 refresh token 刷新 access token，更新持久化的会话（失败则保持原会话） */
+    /**
+     * 用 refresh token 刷新 access token，更新持久化的会话（失败则保持原会话）。
+     *
+     * **三步都要写日志**（1.1.6）：这条路径以前是黑洞 —— 成功没记录、失败静默 `return@launch`、
+     * 连「记录里根本没有 refresh token（PAT）」都不说。真机上于是只看到账号检查说
+     * 「令牌已失效」，日志里完全查不到「到底试过续期没有」。续期本身也只在这里试
+     * **一次**（进程启动时），所以它失败之后还有 [AccountChecks] 那条兜底（401 时再续一次）。
+     */
     private fun refreshSession(sessionJson: String) {
         viewModelScope.launch {
             // 取 prefs 里的最新会话：persistAccount 可能刚补全 user，用入参旧值会把它覆盖掉
             val current = prefs.getString(KEY_SESSION, null)?.takeIf { it.isNotBlank() } ?: sessionJson
             val refreshToken = runCatching {
                 JSONObject(current).getJSONObject("token").optString("refresh_token")
-            }.getOrNull()?.takeIf { it.isNotBlank() } ?: return@launch
+            }.getOrNull()?.takeIf { it.isNotBlank() }
+            if (refreshToken == null) {
+                // PAT / 旧会话没有 refresh token —— 记一条，免得下次又怀疑「续期是不是没跑」
+                Logger.net("续期跳过：会话里没有 refresh token（PAT 或旧会话），令牌过期后只能重新登录", "OAuth")
+                return@launch
+            }
 
             val newTokenJson = RustBridge.refreshToken(
                 clientId = credentials.clientId,
@@ -185,6 +197,11 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                 refreshToken = refreshToken
             )
             if (newTokenJson.startsWith("ERROR:") || newTokenJson.isBlank()) {
+                Logger.net(
+                    "POST /login/oauth/access_token（refresh_token）→ 失败：" +
+                        newTokenJson.removePrefix("ERROR:").take(200),
+                    "OAuth",
+                )
                 return@launch // 刷新失败，保持原会话
             }
 
@@ -192,7 +209,12 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                 val session = JSONObject(current)
                 session.put("token", JSONObject(newTokenJson))
                 session.toString()
-            }.getOrNull() ?: return@launch
+            }.getOrNull()
+            if (newSession == null) {
+                Logger.net("续期响应装不进会话（形状不认识）：${newTokenJson.take(200)}", "OAuth")
+                return@launch
+            }
+            Logger.net("POST /login/oauth/access_token（refresh_token）→ 200，会话已换新令牌", "OAuth")
 
             prefs.edit().putString(KEY_SESSION, newSession).apply()
             _state.value = LoginState.LoggedIn(newSession)

@@ -131,6 +131,28 @@ object AccountChecks {
             }
         }
 
+        // ②.5 续期：两步复核都说 401 之后才动 refresh token —— 只有这时才值得换一枚新令牌。
+        //      「access token 过期（refresh token 还能用）」与「令牌真失效」在 401 上长得一样，
+        //      但前者用户什么都不用做。不先救一次就写「令牌已失效」，用户会去反复重新登录
+        //      （真机上就是这么报上来的：登录明明好好的，界面一直说令牌异常）。
+        if (status == AccountStatus.INVALID) {
+            val renewed = AccountRenewal.renew(context, account)
+            if (renewed != null) {
+                val again = withContext(Dispatchers.IO) {
+                    RustBridge.getJson(account.host, renewed, "/user")
+                }
+                status = AccountStore.statusFromResponse(again)
+                Logger.net(
+                    "续期后重探 /user (${account.login}@${account.host} tok=${fingerprint(renewed)}) → " +
+                        "${status.logLabel}（旧 tok=${fingerprint(account.token)} 的结论作废）" +
+                        "｜原始 ${again?.take(RAW_MAX) ?: "null"}",
+                    "Account",
+                )
+                AccountStore.updateStatus(context, account.id, status)
+                return status
+            }
+        }
+
         // ③ 交叉验证：同一 token 最近成功过，就不可能是「令牌失效」
         if (status == AccountStatus.INVALID && ApiEvidence.sawSuccessRecently(account.host, account.token)) {
             Logger.net(
