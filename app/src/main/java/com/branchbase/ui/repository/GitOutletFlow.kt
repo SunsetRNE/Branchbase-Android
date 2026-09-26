@@ -103,13 +103,23 @@ internal fun rememberGitOutletFlowState(): GitOutletFlowState = remember { GitOu
  *
  * 只有两个按钮：继续（去决策页）/ 取消。**没有第三枚「就这样吧」** ——
  * 隔着屏幕猜用户想要哪种形态，正是弹窗这一层要避免的事。
+ *
+ * 1.1.5 起「上游」这一枚多带一句**探测出来的状态**（[upstream]）：点进去要做什么，
+ * 取决于这个仓库在复刻网络里的位置（有上游 / 上游已归档 / 上游已删除 / 上游已私有化…），
+ * 而那是客观事实、不是用户的选择 —— 摆在「后果」这一层，比进了页面才知道更早一步。
+ * 自持仓库没有上游这一说，此时只显示状态句（那枚胶囊本来也不会画，见
+ * [UpstreamRelation.showsEntry]）。
  */
 @Composable
 internal fun GitOutletDialog(
     outlet: GitOutlet,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
+    upstream: UpstreamRelation? = null,
 ) {
+    val baseNote = stringResource(gitOutletNoteRes(outlet))
+    // 只有「上游…」这一出口带状态句（其余三枚传进来的 upstream 一律忽略）
+    val upstreamRel = upstream?.takeIf { outlet == GitOutlet.Upstream }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -122,7 +132,13 @@ internal fun GitOutletDialog(
         },
         text = {
             Text(
-                stringResource(gitOutletNoteRes(outlet)),
+                when {
+                    // 还没探测出结果（老路径 / 离线）：只留基础说明，不说不知道的话
+                    upstreamRel == null -> baseNote
+                    // 自持仓库：那句「给当前分支设一个上游」不成立，只留状态句
+                    upstreamRel.state == UpstreamState.SELF_OWNED -> upstreamNoteText(upstreamRel)
+                    else -> "$baseNote\n\n${upstreamNoteText(upstreamRel)}"
+                },
                 fontSize = 13.sp,
                 lineHeight = 19.sp,
                 color = Primer.TextSecondary,

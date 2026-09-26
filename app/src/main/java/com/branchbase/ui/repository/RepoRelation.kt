@@ -86,6 +86,15 @@ data class RepoViewerRelation(
     val watchersCount: Long? = null,
     /** 网页用的仓库 id（订阅写入必须带上它）。 */
     val repositoryId: String? = null,
+    /**
+     * 本仓库是不是复刻、复刻自谁（`owner/name`）。
+     *
+     * 两处都为 null = 这个来源没给复刻信息（网页那条路就不给）—— 上游判定会因此落在
+     * [UpstreamState.UNKNOWN]，**不要用 `false` / 空串冒充**：`false` 会被判成
+     * 「自持仓库」，界面会因此把上游出口整枚藏掉。
+     */
+    val isFork: Boolean? = null,
+    val parentFullName: String? = null,
     val source: Source = Source.UNKNOWN,
 ) {
     enum class Source { WEB, GRAPHQL, UNKNOWN }
@@ -101,6 +110,8 @@ data class RepoViewerRelation(
         threadTypes = threadTypes.ifEmpty { lower.threadTypes },
         watchersCount = watchersCount ?: lower.watchersCount,
         repositoryId = repositoryId ?: lower.repositoryId,
+        isFork = isFork ?: lower.isFork,
+        parentFullName = parentFullName ?: lower.parentFullName,
     )
 
     /**
@@ -119,6 +130,8 @@ data class RepoViewerRelation(
         subscription?.let { put("subscription", it.id) }
         watchersCount?.let { put("watchersCount", it) }
         repositoryId?.let { put("repositoryId", it) }
+        isFork?.let { put("isFork", it) }
+        parentFullName?.let { put("parentFullName", it) }
         put("source", source.name)
         put(
             "threadTypes",
@@ -151,6 +164,8 @@ data class RepoViewerRelation(
                 threadTypes = parseThreadTypes(o.optJSONArray("threadTypes")),
                 watchersCount = o.optLongOrNull("watchersCount"),
                 repositoryId = o.optString("repositoryId").takeIf { it.isNotBlank() },
+                isFork = o.optBooleanOrNull("isFork"),
+                parentFullName = o.optString("parentFullName").takeIf { it.isNotBlank() },
                 source = runCatching { Source.valueOf(o.optString("source")) }.getOrDefault(Source.UNKNOWN),
             )
         }.getOrNull()
@@ -194,6 +209,12 @@ data class RepoViewerRelation(
                     .takeIf { it.isNotBlank() }
                     ?.let(::watchLevelOfGraphQL),
                 watchersCount = repo.optJSONObject("watchers")?.optLongOrNull("totalCount"),
+                // 这两项 RELATION_QUERY 一直在查（RepoActions.RELATION_QUERY 里的 isFork /
+                // parent{nameWithOwner}），只是以前没解析 —— 补上就白得复刻关系，不必多一次请求。
+                isFork = repo.optBooleanOrNull("isFork"),
+                parentFullName = repo.optJSONObject("parent")
+                    ?.optString("nameWithOwner")
+                    ?.takeIf { it.isNotBlank() },
                 source = Source.GRAPHQL,
             )
         }

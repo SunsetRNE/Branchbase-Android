@@ -1358,3 +1358,18 @@ $count 个只在远端	%1$s remote-only	label_refs_remote_only_count
 拉到本地解决	Resolve locally	action_resolve_locally
 …还有 $rest 条未列出	…%1$s more not listed	label_unpushed_rest
 这个仓库还没有任何分支	This repository has no branches yet	state_no_branch_in_repo
+
+# 上游自动探测（1.1.5）：六态标签与说明 —— 判定规则见 ui/repository/UpstreamRelation.kt
+自持仓库	Self-owned	state_upstream_self_owned
+有上游仓库	Has upstream	state_upstream_available
+上游已归档	Upstream archived	state_upstream_archived
+上游已删除	Upstream deleted	state_upstream_deleted
+上游已私有化	Upstream private	state_upstream_private
+上游未知	Upstream unknown	state_upstream_unknown
+上游状态	Upstream	label_upstream_state
+本仓库不是复刻 —— 它自己就是复刻网络的源，没有上游可设。工作台不再显示这个出口；要把分支推到别的仓库，用「推送远端」那一页。	This repository is not a fork — it is the source of its own fork network, so there is no upstream to set. The workbench no longer shows this outlet; to push a branch elsewhere, use the “push remote” page.	note_upstream_self_owned
+上游 %1$s 读得到：可以拉取、比对，也能往它开 PR（本仓库仍然往自己的复刻推）。	Upstream %1$s is readable: you can pull, compare, and open PRs against it (this repository still pushes to your own fork).	note_upstream_available
+上游 %1$s 已归档：只读。拉取与比对照旧，但推不上去、也开不了新 PR。	Upstream %1$s is archived: read-only. Pulling and comparing still work, but pushes and new PRs do not.	note_upstream_archived
+上游已删除（复刻关系已断开）：原来那个上游地址不再可用，本仓库现在自己就是这个网络的源。	Upstream deleted (the fork relationship is gone): the old upstream URL no longer works, and this repository is now the source of its own network.	note_upstream_deleted
+上游已私有化或当前令牌读不到：复刻关系还在，但没有访问权 —— 拉取、比对、开 PR 都会失败。	Upstream is private, or unreadable with the current token: the fork relationship remains but you have no access — pull, compare, and PR all fail.	note_upstream_private
+读不到本仓库的复刻关系（未登录或接口失败），判断不了有没有上游 —— 所有入口照旧保留。	The fork relationship could not be read (not signed in, or the API failed), so upstream is unknown — every entry stays visible.	note_upstream_unknown
