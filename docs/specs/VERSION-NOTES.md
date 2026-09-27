@@ -74,7 +74,19 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.1.14 → 1.0.22）
+## 二、`versionName` 流水（1.1.15 → 1.0.22）
+
+### 1.1.15
+
+**发布页分组头不再重叠：定高 20dp 的一行里，文字永远不许折行 —— 用户报「渲染坐标导致 UI 重叠」后逐处核出来的唯一一处真会叠的地方。**
+
+① 起因：用户（`m01300`）要求检查发布页代码，怀疑「部分代码的渲染坐标会导致 UI 重叠」。把发布页三屏（列表 / 详情 / 编辑）里**所有手算坐标**逐处核了一遍，只有三处：`ReleaseTypeRow` 的滑动胶囊 `offset`（`(maxWidth - gap*2)/3` 与 `weight(1f)` 的分配数学相等；`padding(2.dp)` 在 modifier 链最内 ⇒ `BoxWithConstraints.maxWidth` 已是轨道内部宽度）、`MiniSwitch` 的滑块 `offset(x = 16.dp)`（16+16=32 ≤ 34）、行号编辑器的槽高与 `drawBehind` 淡绿行（槽与正文共用 22sp 行高、同一 Row 顶边；`lineStartOffsets(\"\")` / `offset.coerceIn(...)` / `coerceAtLeast(0f)` 三处边界都安全）。**这三处都不算错。**
+
+② 真会叠的是 `app/src/main/java/com/branchbase/ui/repository/ReleaseEditParts.kt` 的 `ReleaseGroupHeader`（「附件」与「更新内容」两个分组头）：原来是 `Text(title) ; Text(\"  ·  $counter\") ; Spacer(Modifier.weight(1f)) ; trailing()`。Row 给**非加权**子项的宽度是「剩余宽度」（逐个子项扣减），而计数是 `label_lines_chars`（「N 行 · M 字符」，随正文变长）——窄屏 / 大字体下它折成两行（约 28dp），却因为 `verticalAlignment = CenterVertically` 被塞进 `height(20.dp)` 的定高盒子：上下各溢出约 4dp，画到相邻发丝线与下一个分组上（Compose 不裁剪溢出子项）。
+
+③ 修法：标题 + 计数包进 `Modifier.weight(1f)` 的**内层 Row**，两者都 `maxLines = 1` + `TextOverflow.Ellipsis`；外层只剩「吃掉剩余宽度的文字 Row + `trailing()`」。顺序是刻意的 —— 右侧动作是非加权子项，先量到固有宽度，剩下的宽度才给文字；放不下就收省略号，永远不会折行，动作也不会被顶出右边界。钉子 `ReleaseHeaderLayoutTest` 3 例，全是源码级（定高行里每个 `Text` 都必须带 `maxLines = 1` + Ellipsis；文字 Row 带 `weight(1f)` 且在 `trailing()` 之前；不许再出现 `Spacer(Modifier.weight(1f))` 顶开动作的写法 —— 注释里的反例靠「过滤注释行」排除）。
+
+④ 与闪退的关系要写清楚：**重叠只是画出来的样子，不会让 Compose 崩**（崩的是组合 / 测量 / 布局期抛出的异常）。这一轮把发布页翻了一遍：没有嵌套惰性滚动（页脚那个 `Spacer(Modifier.weight(1f))` 在 `Row` 的水平轴上）、没有负尺寸、没有 `!!`（详情页 `html = html!!` 外面有 `if (html != null)` 守卫）、没有下标算术（`lineStartOffsets` / `lineOfOffset` / `lineHeightOf` 全部 `coerceIn`；`ReleaseDraftStore.load/save` 全包 `runCatching`）⇒ 发布页的**渲染代码里没有能解释那次必现闪退的抛出点**，栈仍然只能靠 1.1.14 的 `闪退` 通道拿。
 
 ### 1.1.14
 
@@ -3336,7 +3348,7 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（220 → 129）
+## 三、`versionCode` 流水（221 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
@@ -3349,6 +3361,9 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 > - **142**：慢帧守望（帧级定位）+ 日志追加写修复 + 设置行图标居中（一次发布，故 +1）
 > - **146**：设置页账户卡头像改走统一 Avatar（真实图标 + 圆形裁切）+ 账号头像地址回落会话（一次提交，故 +1）
 
+- **221**：发布页分组头（`ReleaseGroupHeader`）不再重叠 —— 标题 + 计数包进 `weight(1f)` 内层 Row 并
+`maxLines = 1` + Ellipsis（原来窄屏 / 大字体下计数折成两行，溢出 20dp 定高盒子、画到下一个分组上）；
+`ReleaseHeaderLayoutTest` 3 例（一次提交，故 +1）
 - **220**：闪退现场 —— 装 `Thread.setDefaultUncaughtExceptionHandler`，在崩溃线程上**同步**写下栈
 （`闪退 ▸ <线程> 线程未捕获异常` + 本进程现场，上限 80 层）+ 链式转交上一个 handler + `flush(1.5s)`；
 `LogManager.flush` 加 `timeoutMs` 参数；起因是 1.1.12 真机日志的「原因码 4 但系统没有留下栈」；

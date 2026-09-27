@@ -309,12 +309,35 @@ internal fun ReleaseGroupHeader(
     counter: String? = null,
     trailing: @Composable RowScope.() -> Unit = {},
 ) {
+    // 定高 20dp 的一行：里面**不许有会换行的文字**。
+    //
+    // 反例（修之前的写法）：标题与计数直接当外层 Row 的子项、末尾用 Spacer(weight(1f)) 顶开动作。
+    // Row 给非加权子项的是「剩余宽度」（逐个子项扣减），而计数是「N 行 · M 字符」——随正文变长；
+    // 窄屏 / 大字体下它会折成两行（约 28dp），却被 verticalAlignment = CenterVertically 塞进 20dp
+    // 的盒子里：上下各溢出约 4dp，画到相邻发丝线和下一个分组上（Compose 不裁剪溢出子项）。
+    //
+    // 现在的顺序：右侧动作（非加权）先拿固有宽度，剩下的宽度全部给「标题 + 计数」这个内层 Row，
+    // 两者 maxLines = 1 + Ellipsis —— 放不下就省略号，永远不折行。
     Row(Modifier.fillMaxWidth().height(20.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextTertiary)
-        if (!counter.isNullOrBlank()) {
-            Text("  ·  $counter", fontSize = 11.sp, color = Primer.TextTertiary)
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                title,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Primer.TextTertiary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (!counter.isNullOrBlank()) {
+                Text(
+                    "  ·  $counter",
+                    fontSize = 11.sp,
+                    color = Primer.TextTertiary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
-        Spacer(Modifier.weight(1f))
         trailing()
     }
 }
