@@ -34,7 +34,7 @@
 
 | 方案 | 判定 |
 |---|---|
-| 装 `Thread.setDefaultUncaughtExceptionHandler` | 只能覆盖「Java 未捕获异常」；**管不了**被杀 / native；而且它是「下次才生效」，对已经发生过的那次毫无办法 |
+| 装 `Thread.setDefaultUncaughtExceptionHandler` | 当时**没装**（这一版的取舍写在下面）；1.1.14 补上了，见 §六 —— 它只覆盖「Java 未捕获异常」（管不了被杀 / native），但它是**唯一能在崩溃那一刻、崩溃线程上拿到「崩在哪一行」**的位置，所以不是替代，是补刀 |
 | 常驻读 logcat（`Runtime.exec("logcat")`） | Android 10+ 起 App 读不到别的进程的日志，自己的崩溃行还常常在 `DEBUG` 缓冲里被冲掉；还有常驻进程的代价 |
 | 让用户抓 bugreport | 用户成本极高（开发者选项 → 完整错误报告），偶发问题根本等不到 |
 | 第三方崩溃平台 | 要把栈送出设备，涉及隐私与网络依赖；本项目的日志哲学是「一切都进本地 `branchbase.log`，用户自己导出」 |
@@ -177,3 +177,87 @@ tombstone，所以在容器内只能把纯函数与接线钉死；真正「拿�
 4. **不做 ANR traces 的分段解析**：ANR 的 trace 是几万行的 `traces.txt`，本版只截前 60 行。
 5. **不进 `report.md`**：目前只进 `branchbase.log`（`report.md` 的锚点表里登记了 `异常退出` 这个词，
    收到日志的人照着 grep 就能找到那一行）。
+
+## 六、补刀：进程内兜底（1.1.14 / versionCode 220）
+
+> 代码：`app/src/main/java/com/branchbase/ui/log/CrashCapture.kt`；
+> 钉子：`app/src/test/java/com/branchbase/ui/log/CrashCaptureTest.kt`（12 例）；
+> 日志锚点：`闪退`（登记在 `Logging.kt` 的 `LOG_ANCHORS`）。
+
+### 6.1 系统那条腿真的断了
+
+用户装上 1.1.12 复现后，上报器**确实逮住了**闪退 —— 但也只逮住了「原因」：
+
+```
+10:50:42.507 [本地] [异常退出] ERROR 上次异常退出：2026-09-27 10:50:39.207 · Java/Kotlin 未捕获异常（闪退）（原因码 4）
+10:50:42.507 [本地] [异常退出] ERROR 进程 com.branchbase pid 24282 · 退出时 前台（100） / RSS 228MB
+10:50:42.507 [本地] [异常退出] ERROR 系统描述 crash
+10:50:42.507 [本地] [异常退出] ERROR （系统没有留下栈：被 LMK 杀 / 被信号杀这类退出只有原因，没有调用栈）
+```
+
+（第二次 `10:51:35.210` 完全同形：原因码 4、前台、`系统描述 crash`、没有栈。）
+
+三条信息很关键：
+
+1. **原因码 4 = Java/Kotlin 未捕获异常** —— 不是 native abort，也不是 LMK；范围一下子缩到「Kotlin 抛了个没接住的异常」。
+2. **系统那份记录里就是没有栈**。`getTraceInputStream()` 返回的是 dropbox 里那条 `crash`（各 ROM 保留策略不同），
+   这台 OnePlus / Android 16 上它是空的。§三 的读栈代码复核过，没有 bug —— 是设备确实没给。
+3. 于是「有原因、没现场」：**修不了**。要么继续猜，要么在崩溃那一刻自己抓。
+
+### 6.2 机制
+
+`CrashCapture.install()` 在 `BranchbaseApp.onCreate` 里、`LogManager.init(this)` **之后**调用：
+
+```kotlin
+Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+    runCatching { record(thread.name, error) }   // 抓现场绝不能把崩溃变成另一种崩溃
+    previous?.uncaughtException(thread, error)   // 必须链式转交，否则顶掉系统自己的处理
+}
+```
+
+`record()` 把 `crashEntry(...)`（**本地**类目 / **ERROR** / tag `闪退`）交给 `LogManager.log`，
+再 `LogManager.flush(FLUSH_MS = 1_500ms)` **同步等落盘** —— 崩溃线程马上要被系统结束，
+异步队列很可能来不及；这里宁可多等一会儿。
+
+正文（`crashMessage`）第一行自解释，因为这份日志会离开设备：
+
+```
+闪退 ▸ main 线程未捕获异常（进程即将被系统结束）
+本进程现场（系统那份退出记录里可能没有栈）：
+java.lang.IllegalStateException: boom
+    at com.branchbase.ui.repository.…（崩在哪一行）
+```
+
+`throwableLines` 用 `error.printStackTrace(PrintWriter(StringWriter()))` 取栈 —— `Caused by` /
+`Suppressed` 链全在里面 —— 上限 `STACK_MAX_LINES = 80`，超了末尾补 `…（余下 N 行没记）`。
+
+### 6.3 三条通道的分工（写在日志锚点里）
+
+| 锚点 | 回答的问题 | 谁写 |
+|---|---|---|
+| `闪退` | 崩在哪一行（**本进程现场**，进程死之前） | `CrashCapture`（1.1.14） |
+| `异常退出` | 上一程是怎么结束的（原因码 / 时间 / 内存 / 系统栈） | `ExitReport`（1.1.12） |
+| `主线程` | 卡在哪一行（还没死但卡住） | `HangWatch`（1.1.13） |
+
+同一次 Java 闪退会留下**两条**记录（`闪退` 在崩溃当时、`异常退出` 在下次启动），这不是重复：
+系统那条能告诉你「如果是被杀 / native，原因码是什么」，本进程那条能告诉你「如果是 Java，栈长什么样」。
+
+### 6.4 验证
+
+`CrashCaptureTest` 12 例：正文自解释（含线程名 / 异常类型与消息 / 含 `CrashCaptureTest.boom` —— 即「崩在哪一行」）/
+`Caused by` 链不丢 / 非主线程也写清线程名 / 超长栈截成 3+1 行并交代余量 / 上限 0 只留余量行 /
+栈行不带换行与空行残留 / `crashEntry` 的 seq·time·类目·级别·tag / 写盘后**每行都带表头**
+（`HH:mm:ss.SSS [本地] [闪退] ERROR `，多行正文逐行补）/ 源码级：链式转交、`runCatching` 包住、`AtomicBoolean` 幂等、
+`LogManager.flush(FLUSH_MS)`、`printStackTrace`、装配顺序（`CrashCapture.install()` 在 `LogManager.init(this)` 之后）、
+锚点表登记、不碰 `SettingsKeys`。
+
+全量 `121 suites / 1092 tests / 0 failures / 0 errors`；`check-i18n.py --min-coverage 100` 仍 100%
+（同样**没有**新增字符串键：正文全进日志）。
+
+### 6.5 边界
+
+1. **只覆盖 Java/Kotlin 未捕获异常**：native abort（Rust panic / SIGSEGV）、被 `SIGKILL`、ANR 都不走这里 ——
+   那些仍靠 `异常退出` 的原因码与系统 trace 定位。
+2. **早于 `LogManager.init` 的崩溃救不了**：写盘线程还没起，没有文件可写。
+3. **崩溃那一刻的现场是「当时的栈」**，不含线程转储：要看别的线程在干什么得靠 `主线程` 守望与系统 trace。
+4. **`flush` 只等 1.5 秒**：真遇上写盘线程被卡死，栈可能丢 —— 概率极低，不为此阻塞进程退出。

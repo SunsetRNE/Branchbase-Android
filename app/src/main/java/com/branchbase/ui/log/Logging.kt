@@ -111,8 +111,13 @@ object LogManager {
 
     fun clear() = synchronized(buffer) { buffer.clear() }
 
-    /** 读日志文件前调一次：把队列里还没落盘的行刷下去（有界等待，超时即返回）。 */
-    fun flush() = appender?.flush()
+    /**
+     * 读日志文件前调一次：把队列里还没落盘的行刷下去（有界等待，超时即返回）。
+     *
+     * [timeoutMs] 默认 300ms 够导出用；崩溃现场（`CrashCapture`）会传一个更长的值 ——
+     * 那一刻进程马上要被系统结束，多等一会儿换「栈真的落盘」是划算的。
+     */
+    fun flush(timeoutMs: Long = 300) = appender?.flush(timeoutMs)
 
     fun logFile(): File? = appender?.file
 }
@@ -170,6 +175,7 @@ internal val LOG_ANCHORS: List<Pair<String, String>> = listOf(
     "合并" to "本地合并：合的是哪个分支、四条出口的结果、冲突文件数与「仓库停在合并中」、放弃合并",
     "代码页文件树" to "代码页每次列目录：项数、目录数与渲染顺序（前 6 项名字）—— 排序规则（文件夹优先 / `.` 开头最前 / A→Z）是否生效看这一条",
     HangWatch.MAIN_THREAD_LOG_TAG to "主线程卡住：探针超时的下界时长、当时页面、主线程调用栈；恢复时补一条真实卡顿时长（见 `HangWatch.kt`）",
+    CrashCapture.CRASH_LOG_TAG to "本进程闪退：未捕获异常的类型、消息与**本进程现场**的调用栈（在进程死之前同步落盘；见 `CrashCapture.kt`）",
     EXIT_LOG_TAG to "上一程是怎么结束的：原因（自己退出 / 被杀 / LMK / 闪退 / ANR）、时间、进程与内存、系统留下的栈（见 `ExitReport.kt`）",
 )
 

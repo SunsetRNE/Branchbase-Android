@@ -74,7 +74,19 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.1.13 → 1.0.22）
+## 二、`versionName` 流水（1.1.14 → 1.0.22）
+
+### 1.1.14
+
+**闪退现场得自己抓：1.1.12 的上报器确实逮住了闪退，但系统那份记录里没有栈 —— 于是在进程死之前，自己在崩溃线程上把栈写进日志。**
+
+① 用户装上 1.1.12（`1.1.12-20260927-0948-unknown-Beta`，versionCode 218）后按 `点开仓库 → 发布页 → 点发布加号` 复现，两次闪退都被上报器记下了：`10:50:42.507 [本地] [异常退出] ERROR 上次异常退出：2026-09-27 10:50:39.207 · Java/Kotlin 未捕获异常（闪退）（原因码 4）` / `进程 com.branchbase pid 24282 · 退出时 前台（100） / RSS 228MB` / `系统描述 crash` / **`（系统没有留下栈：被 LMK 杀 / 被信号杀这类退出只有原因，没有调用栈）`**（第二次 `10:51:35.210` 同形）。**原因码 4 = Java/Kotlin 未捕获异常** ⇒ 不是 native abort、不是 LMK，范围缩到「Kotlin 抛了个没接住的异常」；但系统在这台 OnePlus / Android 16 上对 Java 崩溃不给 `getTraceInputStream()`（那是 dropbox 的 `crash` 记录，各家 ROM 保留策略不同；`ExitReport.kt` 的读栈路径已复核，代码没问题）——**有原因、没现场，等于修不了**。
+
+② 新增 `app/src/main/java/com/branchbase/ui/log/CrashCapture.kt`：`install()`（`AtomicBoolean` 幂等）把 `Thread.setDefaultUncaughtExceptionHandler` 换成「先 `runCatching { record(thread.name, error) }`，再**链式转交** `previous?.uncaughtException(thread, error)`」——抓现场失败绝不能把崩溃变成另一种崩溃，转交也不能漏（漏了就等于顶掉系统自己的闪退处理）。`record()` 用 `error.printStackTrace(PrintWriter(StringWriter()))` 取栈（`Caused by` / `Suppressed` 链都在里面），上限 `STACK_MAX_LINES = 80`，超了末尾交代「余下 N 行没记」；写一条 **本地类目 / ERROR / tag `闪退`** 的日志，然后 `LogManager.flush(1_500ms)` **同步等落盘** —— 崩溃线程马上要被系统结束，异步队列很可能来不及。首行自解释（这份日志会离开设备）：`闪退 ▸ main 线程未捕获异常（进程即将被系统结束）` + `本进程现场（系统那份退出记录里可能没有栈）：` + 各层栈。
+
+③ `LogManager.flush` 从无参改成 `flush(timeoutMs: Long = 300)`（默认值不变，只有崩溃现场传 1.5s）；装配点在 `BranchbaseApp.onCreate` 的 `LogManager.init(this)` **之后**（写盘线程已就绪；早于它的崩溃救不了）；`闪退` 登记进 `LOG_ANCHORS`，导出包 `report.md` 里有词可 grep。
+
+④ 到这里是**三条互补通道**：`闪退` = 崩在哪一行（本进程现场，进程死之前）/ `异常退出` = 上一程为什么结束（原因码 + 系统 trace）/ `主线程` = 卡在哪一行。同一次 Java 闪退会留下前两条 —— 不是重复：系统那条还能区分被杀 / native，本进程这条才给栈。设计补记写进 `docs/specs/exit-report-design.md` §六（含那四行真机日志与四条边界：只覆盖 Java / 早于 `LogManager.init` 救不了 / 不含线程转储 / flush 只等 1.5s）；钉子 `CrashCaptureTest` 12 例。
 
 ### 1.1.13
 
@@ -3324,7 +3336,7 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（219 → 129）
+## 三、`versionCode` 流水（220 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
@@ -3337,6 +3349,10 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 > - **142**：慢帧守望（帧级定位）+ 日志追加写修复 + 设置行图标居中（一次发布，故 +1）
 > - **146**：设置页账户卡头像改走统一 Avatar（真实图标 + 圆形裁切）+ 账号头像地址回落会话（一次提交，故 +1）
 
+- **220**：闪退现场 —— 装 `Thread.setDefaultUncaughtExceptionHandler`，在崩溃线程上**同步**写下栈
+（`闪退 ▸ <线程> 线程未捕获异常` + 本进程现场，上限 80 层）+ 链式转交上一个 handler + `flush(1.5s)`；
+`LogManager.flush` 加 `timeoutMs` 参数；起因是 1.1.12 真机日志的「原因码 4 但系统没有留下栈」；
+`CrashCaptureTest` 12 例 + 锚点表新增 `闪退`（一次提交，故 +1）
 - **219**：主线程卡顿守望（`HangWatch.kt`）—— 后台探针每秒量一次主线程延迟，卡住时从守望线程写下
 「主线程卡住 ≥Nms + 当时页面 + 主线程调用栈」，恢复时补真实时长；解掉「慢帧日志看不到没过完的那一帧」
 这个盲区（两次闪退的 4.9 秒空白全落在这里）；纯函数 4 个 + `HangWatchTest` 13 例 + 锚点表新增 `主线程`

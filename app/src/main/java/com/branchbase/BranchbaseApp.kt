@@ -13,6 +13,7 @@ import com.branchbase.downloader.DownloaderConfig
 import com.branchbase.downloader.DownloaderRuntime
 import com.branchbase.downloader.VendorIslandExtensions
 import com.branchbase.translate.TranslateRuntime
+import com.branchbase.ui.log.CrashCapture
 import com.branchbase.ui.log.ExitWatch
 import com.branchbase.ui.log.LogManager
 import com.branchbase.ui.log.Logger
@@ -48,6 +49,11 @@ class BranchbaseApp : Application(), ImageLoaderFactory {
         // 基线，而整份 907 行日志里 `[Reach]` 只出现过 1 次。init 幂等，`MainActivity` 那次是兜底。
         Logger.startupOnce("log-init", "启动 ▸ 日志初始化（建目录 / 清历史）")
         LogManager.init(this)
+
+        // 本进程崩了要留下带栈的现场：系统的退出记录（下面那段）在这台机器上只给原因、
+        // **不给 Java 崩溃的栈**（真机证据：10:51:35.210「原因码 4」+「系统没有留下栈」）。
+        // 钩子必须早装：晚于任何一次崩溃就等于没装。装好之后照样转交系统那套，两条通道并行。
+        CrashCapture.install()
 
         // 上一程是怎么结束的：闪退时进程往往一句话都来不及说（被 LMK 杀 / 被信号杀 / 未捕获异常
         // 时还没有 handler），日志里就只剩一段空白 —— 2026-09-27 那次真机闪退就是这样：最后一条
