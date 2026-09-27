@@ -89,18 +89,32 @@ PATCH 的默认值是 `legacy`（= 不动归属），所以编辑标题/正文�
 - **性质从两个开关改成三段式单选**。改前是「草稿」「预发布」两个可以同时勾上、含义又重叠的开关，
   而「最新发布」这个概念在 App 里根本没有；现在一屏说清三档各自的可见性与能否占用 Latest；
 - **垂直预算从 ≈694dp 压到 ≈360dp**（逐项见 `docs/specs/prototypes/release-redesign.md`）：
-  标签 / 标题 / 目标分支**并成一行**（标签是等宽 chip、分支是行尾只读 chip）；
+  标签 / 标题 / 目标分支**并成一行**（标签是等宽 chip、分支是行尾 chip）；
   「设为最新」从一张卡片变成类型行里的小开关，且只在该有意义（正式发布）时出现；
   分组标题去掉、统计（`附件 · 2 个 · 14.0 MB`、`更新内容 · 12 行 · 348 字`）挪进分组头；
   分组之间用 1dp 发丝线代替大留白。**没有这一步，附件区根本没有位置**；
-- **分组头是定高 20dp 的一行，所以里面的文字永远不许折行**：标题 + 计数（`附件 · 2 个 · 14.0 MB`、
-  `更新内容 · 12 行 · 348 字`）包进 `Modifier.weight(1f)` 的**内层 Row**，两者 `maxLines = 1` +
-  `TextOverflow.Ellipsis`，右侧动作跟在后面。顺序是刻意的 —— 非加权子项先量到固有宽度，剩下的宽度才给
-  文字；反过来写（文字直接当外层子项 + 末尾 `Spacer(Modifier.weight(1f))` 顶开动作）在窄屏 / 大字体下
-  计数会折成两行，溢出定高盒子画到相邻发丝线和下一个分组上（Compose 不裁剪溢出子项）。
+- **行尾那枚分支 chip 是「选目标分支」的入口，不是装饰**：新建发布时它可点，弹底部分支列表
+  （`ReleaseBranchPickerSheet`），选中写回 `target` —— 它同时喂给 `target_commitish` 与
+  `POST /releases/generate-notes` 的基准提交。列表与「分支管理 / 对比 / 同步」三页**同源同缓存**
+  （`RustBridge.listBranches` + `PageCache.branchListKey(owner, repo)`，先直出再回源）。
+  编辑已有发布时它退回只读（`onBranch = null`）：`PATCH /releases` 不接受 `target_commitish`，
+  给一个点得动、点完不变的东西比不给更糟。图标是设计稿那一枚 `ReleaseBranchIcon`
+  （`design/release-redesign/app.js` 的 `ICONS.branch`），不是 Material 的 `AccountTree`；
+  触控区用 `fillMaxHeight()` 撑满 40dp 的整行 —— **用 vertical padding 撑会踩到下一条**；
+- **分组头是「至少 20dp」的一行（`heightIn(min = 20.dp)`，不是定高），而且里面的文字永远不许折行、
+  也必须真的装得下**：标题 + 计数（`附件 · 2 个 · 14.0 MB`、`更新内容 · 12 行 · 348 字`）包进
+  `Modifier.weight(1f)` 的**内层 Row**，两者 `maxLines = 1` + `TextOverflow.Ellipsis`，右侧动作跟在后面。
+  顺序是刻意的 —— 非加权子项先量到固有宽度，剩下的宽度才给文字；反过来写（文字直接当外层子项 +
+  末尾 `Spacer(Modifier.weight(1f))` 顶开动作）在窄屏 / 大字体下计数会折成两行，溢出盒子画到相邻
+  发丝线和下一个分组上（Compose 不裁剪溢出子项）。
   **右侧动作（`ReleaseHeaderAction`）的标签算同一行的一部分：它也必须 `maxLines = 1` + Ellipsis** ——
-  动作是定高行的非加权子项，只有「动作比整行还宽」（长标签 + 大字体）时才会被折行，同样溢出；
-  见 `ReleaseEditParts.kt` 的 `ReleaseGroupHeader` / `ReleaseHeaderAction` 与钉子 `ReleaseHeaderLayoutTest`；
+  动作是这一行的非加权子项，只有「动作比整行还宽」（长标签 + 大字体）时才会被折行，同样溢出；
+  **但「不折行」只保证高度不翻倍，不保证装得下**：11.5sp 中文的行盒在 `fontScale` 1x 下就有 ≈16.7dp，
+  加上下 3dp 内边距 = 22.7dp，塞进 20dp 会被行约束压掉 2.7dp，动作自己的 `.clip()` 于是削掉字形顶端
+  （真机截图实测：同尺寸的标题纯墨高 10px、动作只有 7px，缺的全在顶部 —— 1.1.19）。所以分组头不许回到
+  `height(20.dp)`，动作标签显式给 `lineHeight`（现在 14sp）且「行高 + 上下内边距 ≤ 20dp」；
+  见 `ReleaseEditParts.kt` 的 `ReleaseGroupHeader` / `ReleaseHeaderAction` 与钉子 `ReleaseHeaderLayoutTest`
+  （后者会**算**这条预算，而不只是钉字符串）；
 - **更新内容去掉包裹框**，改用编辑器的**行标识槽**：行号（等宽右对齐 / `CodeSyntax.LineNo`）+
   当前行底色 + **定宽标记列**，正文无框、3 行起步自动增高（改前是固定 200dp 的描边盒子）。
   槽宽、行号字号、「不画分隔竖线」、当前行底色全部取自仓库既有的行号列与 `BranchbaseCodeEditor`

@@ -7,7 +7,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 「发布编辑页的分组头（`ReleaseGroupHeader`）是一行定高 20dp，里面不许有会换行的文字」的结构性钉子。
+ * 「发布编辑页的分组头（`ReleaseGroupHeader`）至少 20dp、里面的文字既不许折行、也必须真的装得下」
+ * 的结构性钉子。
  *
  * 背景（真机缺陷）：这一行原来是
  *
@@ -27,6 +28,11 @@ import org.junit.Test
  *    剩下的才给文字；
  * 3. 右侧动作自己的标签（`ReleaseHeaderAction`）也必须 `maxLines = 1` + Ellipsis —— 动作行比整行还宽时
  *    （大字体 / 长标签）默认 `softWrap` 会把它折成两行，同样溢出定高盒子。文字侧与动作侧是同一个缺陷的两半。
+ *
+ * 4. 反过来，**水平没超、垂直超了**也一样被切：动作的「行高 + 上下内边距」必须 ≤ 20dp。
+ *    11.5sp 的中文行盒约 16.7dp（fontScale 1x）加上下 3dp 就是 22.7dp —— 超出的 2.7dp 被行约束压掉，
+ *    动作自己的 `.clip()` 于是削掉字形顶端（真机实测：`+ 导入` / `预览` / `生成说明` 的内高比同尺寸的
+ *    标题少 3px，缺的全在顶部）。分组头因此改成 `heightIn(min = 20.dp)`：允许长高，不许切字。
  *
  * 这类缺陷只有真机肉眼能看出来，JVM 单测里没有 Compose 运行时，所以按 `FileEditorWiringTest` 的套路钉在源码上。
  */
@@ -76,10 +82,16 @@ class ReleaseHeaderLayoutTest {
     }
 
     @Test
-    fun `定高二十 dp 的分组头里每个文字都必须单行`() {
+    fun `分组头至少二十 dp，但不可以是定高`() {
         val body = headerBody()
         assertTrue(
-            "分组头仍是 height(20.dp) 的定高行；里面一旦有字折行就会画到下面去（当前函数体：\n$body）",
+            "分组头必须是 heightIn(min = 20.dp)：定高只解决折行，解决不了「同一份文字在大字体下更高」，"
+                + "而 11.5sp 的动作标签在 fontScale 1x 下就已经高出 20dp（真机截图里字形顶端被切掉 3px）。"
+                + "当前函数体：\n$body",
+            body.contains("heightIn(min = 20.dp)"),
+        )
+        assertFalse(
+            "不能再退回 height(20.dp)：定高 + CenterVertically 会把内容压扁，动作的 .clip() 于是切掉字形顶部",
             body.contains("height(20.dp)"),
         )
         val texts = Regex("\\bText\\s*\\(").findAll(body).count()
@@ -147,6 +159,39 @@ class ReleaseHeaderLayoutTest {
             "动作标签必须 overflow = TextOverflow.Ellipsis（当前函数体：\n$body）",
             texts,
             Regex("overflow\\s*=\\s*TextOverflow\\.Ellipsis").findAll(body).count(),
+        )
+    }
+
+    /**
+     * 第二半（版本 225 修复）：**不折行**还不够 —— 一行放不下也要装得进 20dp。
+     *
+     * `maxLines = 1` 只保证高度不翻倍。11.5sp 的中文按系统默认行距约 16.7dp，加上下各 3dp 内边距
+     * 就是 22.7dp，超出分组头最小高度 2.7dp —— 行约束把这个超出的部分压掉，动作自己的 `.clip()`
+     * 于是把**字形顶端**削掉：真机截图里 `+ 导入` / `预览` / `生成说明` 的内高只有 7px，而同尺寸、
+     * 同样式、同一行的标题（`附件` / `更新内容`）有 10px，缺的 3px 全在顶部。
+     *
+     * 所以这里不看字符串，直接把两个数字抓出来算预算：行高 + 上下内边距 ≤ 20dp。
+     */
+    @Test
+    fun `右侧动作的内容高加内边距必须放进分组头的最小高度`() {
+        val body = actionBody()
+        val lineHeight = Regex("lineHeight\\s*=\\s*([\\d.]+)\\.sp").find(body)?.groupValues?.get(1)?.toFloat()
+        assertTrue(
+            "动作标签必须显式给 lineHeight —— 系统默认行距（≈1.45×字号）在 20dp 里装不下，"
+                + "会把字形顶部切掉（真机实测少 3px）。当前函数体：\n$body",
+            lineHeight != null,
+        )
+        val verticalPadding = Regex("vertical\\s*=\\s*([\\d.]+)\\.dp").find(body)?.groupValues?.get(1)?.toFloat()
+        assertTrue("动作的上下内边距必须是显式数字（当前函数体：\n$body）", verticalPadding != null)
+        val contentHeight = lineHeight!! + verticalPadding!! * 2
+        assertTrue(
+            "动作内容高（行高 ${lineHeight}sp + 上下 ${verticalPadding}dp）必须 ≤ 20dp 才不会被分组头压掉字形，"
+                + "现在是 ${contentHeight}dp（字号 11.5sp 的图标 12dp 也要一并算进来，别让行高低于图标）",
+            contentHeight <= 20f,
+        )
+        assertTrue(
+            "行高不该低于图标尺寸（12dp）：否则图标会被行高挤小 —— 现在是 ${lineHeight}sp",
+            lineHeight >= 12f,
         )
     }
 }

@@ -74,7 +74,27 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.1.18 → 1.0.22）
+## 二、`versionName` 流水（1.1.19 → 1.0.22）
+
+### 1.1.19
+
+**用户圈出的那两处：不是折行（1.1.15 / 1.1.17 修过了），是「没折行也放不下」—— 动作标签的字形顶端被削掉 3px，在 360dp @ `fontScale` 1x 的默认设置下就看得见。**
+
+① 先说证据是怎么来的：用户给的截图只有 360×792，肉眼分不清「3px 的差」是不是错觉，所以按像素扫了一遍（JDK `ImageIO` 手写的取像素小程序，无第三方依赖；手机端无障碍 / 设备通道都没开，拿不到新截图）。同一行取「纯墨高度」（亮于阈值的行数）：`附件`（标题）**10px** vs `+ 导入`（动作）**7px**；`更新内容`（标题）**10px** vs `预览` / `生成说明`（动作）**7px**。降低阈值差距缩小但方向不变（附件 13 / 导入 10、更新内容 15 / 生成说明 9），**底部行完全对齐、缺的全在顶部**。
+
+② 结论：字形**顶部被裁掉**，不是被谁压暗。用户手绘的标注框确实带半透明红色填充（框内采样偏红：`(320,188)=(32,11,18)`，框外 `(250,300)=(12,17,23)` 偏蓝），但把阈值压到 30 差额还在，说明与压暗无关。
+
+③ 根因：`ReleaseHeaderAction` 的标签是 11.5sp 中文，系统默认行距下内容高 ≈ **16.7dp**，加上下各 3dp 内边距 = **22.7dp**，而分组头是 `height(20.dp)` 的定高行 + `CenterVertically` —— 超出的 2.7dp 被行约束压掉，动作这个 `Row` 自己 `.clip(RoundedCornerShape(6.dp))` 过，于是连 12dp 图标一起被裁顶。**这是同一行的第三半**：1.1.15 解决「标题 / 计数折行」（高度翻倍）、1.1.17 解决「动作折行」（同样翻倍）、这一版解决「不折行也放不下」（高度只差 3dp，肉眼就是字被削了顶）。1.1.17 的 ④ 写「1x 下看不出变化」—— 那说的是**水平**方向（动作拿得到固有宽度、折不了行）；**垂直**方向在 1x 下就已经在切字，所以用户这一版能直接圈出来。
+
+④ 修法：分组头 `height(20.dp)` → `heightIn(min = 20.dp)`（允许长高，不许切字）；动作标签显式 `lineHeight = 14.sp`、上下内边距 3dp → 2dp（内容 14 + 4 = 18dp ≤ 20dp，`fontScale` 1x 下分组头的视觉高度一个像素都不变）。
+
+⑤ 钉子 `ReleaseHeaderLayoutTest` 改造 +1 例：原来那条断言的是**存在** `height(20.dp)`，现在反过来钉「必须是 `heightIn(min = 20.dp)`、且不许再出现 `height(20.dp)`」（旧断言会把这一版修回来的缺陷钉死）；新增那例**真的算预算** —— 从函数体里抓 `lineHeight` 与 `vertical` 两个数字，算「行高 + 2×内边距 ≤ 20dp」。只钉字符串挡不住「下次谁把内边距加回去」。
+
+⑥ **顺带落地用户问的「分支那个标记」**：行尾那枚 chip 以前只是把仓库默认分支显示出来（只读），图标借的是 Material 的 `AccountTree` 占位。现在新建发布时它是**按钮**：点开底部分支列表（`ReleaseBranchPickerSheet`），选中写回 `target`，于是 `target_commitish` 与「生成说明」的基准提交一起变。列表与「分支管理 / 对比 / 同步」三页**同源同缓存**（`RustBridge.listBranches` + `PageCache.branchListKey(owner, repo)`，先直出再回源；`parseBranchNames` 由 `private` 提为 `internal` 复用），点开通常同帧就有内容。编辑已有发布时仍传 `onBranch = null`：`PATCH /releases` 不接受 `target_commitish`，给一个点得动、点完不变的东西比不给更糟。
+
+⑦ 图标换成设计稿那一枚：`design/release-redesign/app.js` 的 `ICONS.branch`（16 网格、1.5 描边、半径 1.7 的两个圆环节点 + 一条竖直连线 + 一条 2.4 圆角支线）逐点照抄进 `ReleaseIcons.kt` 的 `ReleaseBranchIcon`，描边色走 tint。钉子 `ReleaseBranchTargetTest` 4 例：chip 只在 `onBranch != null` 时挂 `clickable` / 不许再出现 `AccountTree` / **图标几何与设计稿双向一致**（设计稿改了而实现没跟上也会红）/ 分支列表必须复用同一接口与缓存键。触控区用 `fillMaxHeight()` 撑到整行 40dp，**不用 vertical padding** —— 定高父行会把「行盒 + 内边距」压回去，那就等于在这枚 chip 上重犯 ③。
+
+⑧ 单测：全量 **125 suites / 1110 tests / 0 failures / 0 errors**（1.1.18 是 124 / 1105）；i18n 100%。
 
 ### 1.1.18
 
@@ -3408,7 +3428,7 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（224 → 129）
+## 三、`versionCode` 流水（225 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
@@ -3421,6 +3441,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 > - **142**：慢帧守望（帧级定位）+ 日志追加写修复 + 设置行图标居中（一次发布，故 +1）
 > - **146**：设置页账户卡头像改走统一 Avatar（真实图标 + 圆形裁切）+ 账号头像地址回落会话（一次提交，故 +1）
 
+- **225**：分组头定高行的第三半 —— `height(20.dp)` → `heightIn(min = 20.dp)`，动作标签 `lineHeight = 14.sp`
++ 上下内边距 3dp → 2dp（不折行也放不下：22.7dp 塞进 20dp 的行约束，`.clip()` 把字形顶端削掉 3px，
+真机 1x 下就可见，同尺寸标题 10px / 动作 7px）；顺带把行尾分支 chip 从只读标记做成可选目标分支的按钮
+（`ReleaseBranchPickerSheet` + 与分支管理页同源同缓存的 `listBranches`）、图标换成设计稿的
+`ReleaseBranchIcon`；`ReleaseHeaderLayoutTest` 改造 +1 例 + `ReleaseBranchTargetTest` 4 例（一次提交，故 +1）
 - **224**：草稿自动保存的提示只在内容真的变了时出现且 2.5 秒自走 + 发布 Tab / 仓库页的写权限判定
 先吃 `PreloadStore` 缓存并与列表并行（改前它排在取数链最后一步，白等 2~4 次串行往返）；
 `ReleaseDraftAutosaveTest` 3 例 + `ReleasePermissionFastPathTest` 3 例 + `RepoOverviewLoadTest` +1 例（一次提交，故 +1）

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -26,7 +27,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
-import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.Archive
@@ -192,7 +192,17 @@ private fun MiniSwitch(checked: Boolean) {
  *
  * 上一版是三个各自「标签在上、底线在下」的字段（每个 54dp），光标签行就吃掉 3×17dp。
  * 这里把它们并成一行：标签是一个带 tag 图标的等宽 chip（它本身就长得像输入框），标题跟着它，
- * 目标分支是行尾只读 chip（编辑已有发布时也不能改，GitHub 的 PATCH 不接受 target_commitish）。
+ * 目标分支是行尾 chip。
+ *
+ * ## 分支 chip：从「只读标记」变成「可选的目标分支」
+ *
+ * 之前它只是把仓库的默认分支显示出来。现在 [onBranch] 非空时 chip 就是按钮：点开分支选择弹层
+ * （`ReleaseBranchPickerSheet`，在 `ReleaseScreens.kt` —— 那里已经有另外两个底部弹层），选中的
+ * 分支写回 `target`，进而决定 `target_commitish` 与「生成说明」的基准提交。
+ *
+ * [onBranch] 传 null 时保持只读，而且**编辑已有发布走的就是这条路径**：GitHub 的
+ * `PATCH /releases/{id}` 根本不接受 `target_commitish`，给一个点得动、点完不变的东西
+ * 比不给更糟。图标也不再是 Material 的 `AccountTree` 占位，而是设计稿那一枚（[ReleaseBranchIcon]）。
  */
 @Composable
 internal fun ReleaseTagTitleRow(
@@ -201,6 +211,7 @@ internal fun ReleaseTagTitleRow(
     title: String,
     onTitle: (String) -> Unit,
     branch: String,
+    onBranch: (() -> Unit)? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
 
@@ -272,11 +283,20 @@ internal fun ReleaseTagTitleRow(
             if (branch.isNotBlank()) {
                 Spacer(Modifier.width(8.dp))
                 Row(
-                    Modifier.widthIn(max = 76.dp),
+                    Modifier
+                        .widthIn(max = 96.dp)
+                        // 触控区纵向撑满整行（40dp）。这里**不能**用 vertical padding 去撑：
+                        // 定高 40dp 的父行会把「文字行盒 + 上下内边距」压回 40dp 以内，
+                        // 于是字形顶端又被切掉 —— 正是 1.1.19 修的那一类。
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(6.dp))
+                        .then(if (onBranch != null) Modifier.clickable { onBranch() } else Modifier)
+                        // 横向只加 4dp：chip 宽度是从标题那里借来的
+                        .padding(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
-                        Icons.Filled.AccountTree,
+                        ReleaseBranchIcon,
                         contentDescription = stringResource(R.string.label_target_branch_name),
                         tint = Primer.IconSecondary,
                         modifier = Modifier.size(12.dp),
@@ -290,6 +310,11 @@ internal fun ReleaseTagTitleRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    // 可点才给下拉暗示：设计稿这一枚是只读 chip，本身没有箭头
+                    if (onBranch != null) {
+                        Spacer(Modifier.width(3.dp))
+                        Text("▾", fontSize = 9.sp, color = Primer.TextTertiary)
+                    }
                 }
             }
         }
@@ -309,7 +334,7 @@ internal fun ReleaseGroupHeader(
     counter: String? = null,
     trailing: @Composable RowScope.() -> Unit = {},
 ) {
-    // 定高 20dp 的一行：里面**不许有会换行的文字**。
+    // 分组头一行，**最小** 20dp —— 不是定高。
     //
     // 反例（修之前的写法）：标题与计数直接当外层 Row 的子项、末尾用 Spacer(weight(1f)) 顶开动作。
     // Row 给非加权子项的是「剩余宽度」（逐个子项扣减），而计数是「N 行 · M 字符」——随正文变长；
@@ -318,7 +343,15 @@ internal fun ReleaseGroupHeader(
     //
     // 现在的顺序：右侧动作（非加权）先拿固有宽度，剩下的宽度全部给「标题 + 计数」这个内层 Row，
     // 两者 maxLines = 1 + Ellipsis —— 放不下就省略号，永远不折行。
-    Row(Modifier.fillMaxWidth().height(20.dp), verticalAlignment = Alignment.CenterVertically) {
+    //
+    // ## 为什么是 heightIn(min) 而不是 height
+    //
+    // 定高只解决「文字折行」，解决不了「同一份文字在大字体下更高」。11.5sp 的中文行盒在
+    // fontScale 1x 下约 16.7dp，加动作的上下内边距正好卡在 20dp；fontScale 1.3 时行盒约 21.7dp，
+    // 定高就会把动作（[ReleaseHeaderAction] 自带 `.clip()`）连图标一起压扁 —— 真机截图里
+    // 「+ 导入」「预览 / 生成说明」的字形顶端各少 3dp 就是这个，只是它在 1x 下就已经发生了。
+    // 换成最小高度后，这一行在大字体下只是长高，不再切字、也不再压到相邻发丝线上。
+    Row(Modifier.fillMaxWidth().heightIn(min = 20.dp), verticalAlignment = Alignment.CenterVertically) {
         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 title,
@@ -345,9 +378,17 @@ internal fun ReleaseGroupHeader(
 /**
  * 分组头右侧的文字动作（导入 / 生成说明 / 预览 / 全部保留 …）。
  *
- * 它住在 [ReleaseGroupHeader] 的定高 20dp 行里，所以**标签必须单行**（`maxLines = 1` + Ellipsis）：
- * 动作行内容高 12dp 图标 / 11.5sp 文字 + 上下 3dp 内边距，一旦文字折成两行（约 30dp）就会
- * 盖到相邻发丝线与下一个分组上（Compose 不裁剪溢出子项）—— 和标题 / 计数是同一个缺陷的两半。
+ * 它住在 [ReleaseGroupHeader]（最小 20dp）的行里，所以**标签必须单行**（`maxLines = 1` + Ellipsis）：
+ * 一旦文字折成两行（约 30dp）就会盖到相邻发丝线与下一个分组上（Compose 不裁剪溢出子项）
+ * —— 和标题 / 计数是同一个缺陷的两半。
+ *
+ * ## 20dp 的内容预算：行高钉 14sp + 上下内边距 2dp
+ *
+ * 11.5sp 的中文按系统默认行距约 16.7dp，加上下 3dp 内边距就是 22.7dp —— 超出分组头 20dp 的部分
+ * 会被行约束压掉，而这个 Row 自己 `.clip()` 过，于是**字形顶端被削掉**：真机截图里动作标签比
+ * 同尺寸的标题矮 3px，缺的全部在顶部（阈值扫描：附件标题 10px 高、+ 导入 只有 7px，底部对齐）。
+ * 把行高钉在 14sp、内边距收到上下 2dp：内容 14 + 4 = 18dp ≤ 20dp，两端都不再被压。
+ * 更大的字体仍会顶开分组头 —— 那是 [ReleaseGroupHeader] 用最小高度兜住的路径（允许长高，不许切字）。
  */
 @Composable
 internal fun ReleaseHeaderAction(
@@ -366,7 +407,7 @@ internal fun ReleaseHeaderAction(
         Modifier
             .clip(RoundedCornerShape(6.dp))
             .clickable(enabled = enabled) { onClick() }
-            .padding(horizontal = 6.dp, vertical = 3.dp),
+            .padding(horizontal = 6.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
@@ -378,6 +419,7 @@ internal fun ReleaseHeaderAction(
             fontSize = 11.5.sp,
             fontWeight = FontWeight.SemiBold,
             color = color,
+            lineHeight = 14.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )

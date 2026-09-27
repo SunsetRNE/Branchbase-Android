@@ -1202,6 +1202,7 @@
     <string name="label_tag">Tag</string>
     <string name="action_remove">Remove</string>
     <string name="label_target_branch_name">Target branch</string>
+    <string name="note_target_branch_new_only">The release is cut from this branch\'s commit. GitHub\'s API rejects a new target branch once the release exists, so choose it now.</string>
     <string name="action_import_any_file">Import an APK or any file</string>
     <string name="state_uploading">Uploading…</string>
     <string name="state_pending_upload">Pending upload</string>

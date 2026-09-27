@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,9 +26,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SnackbarDuration
@@ -56,6 +59,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.R
+import com.branchbase.cache.PageCache
+import com.branchbase.cache.SearchCacheDatabase
+import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.AttachmentStatus
 import com.branchbase.core.DraftAttachment
 import com.branchbase.core.ReleaseAttachmentStore
@@ -410,6 +416,47 @@ fun ReleaseEditScreen(
     var previewHtml by remember { mutableStateOf<String?>(null) }
     val snackbar = remember { SnackbarHostState() }
 
+    // ── 目标分支 ──
+    // 新建时行尾那个分支 chip 是个按钮：点开底部分支列表，选中后写回 target（→ target_commitish、
+    // 以及「生成说明」的基准提交）。编辑已有发布时不提供（GitHub 的 PATCH 不接受 target_commitish，
+    // 见 ReleaseTagTitleRow 的说明），所以下面的取数也只在新建时跑。
+    var branchPickerOpen by remember { mutableStateOf(false) }
+    var branchNames by remember { mutableStateOf<List<String>>(emptyList()) }
+    var branchLoading by remember { mutableStateOf(false) }
+    LaunchedEffect(branchPickerOpen, owner, repo) {
+        if (!branchPickerOpen || existing != null) return@LaunchedEffect
+        branchLoading = true
+        // 与分支管理页 / 对比页 / 同步页共用 branchListKey：同一份服务端数据，别各拉一遍
+        val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+        val cacheKey = PageCache.branchListKey(owner, repo)
+        var shown = false
+
+        // ① 先直出（可能是过期数据）：点开就有分支可选，不用等联网
+        PageCache.cachedFirst(manager, cacheKey, PageCache.TYPE_DETAIL)?.let { cached ->
+            val list = withContext(Dispatchers.IO) { parseBranchNames(cached) }
+            if (list.isNotEmpty()) {
+                branchNames = list
+                shown = true
+                branchLoading = false
+            }
+        }
+
+        // ② 回源刷新（缓存没过期时直接复用，不重复联网）
+        PageCache.refresh(manager, cacheKey, PageCache.TYPE_DETAIL) {
+            withContext(Dispatchers.IO) { RustBridge.listBranches(host, token, owner, repo) }
+        }?.let { json ->
+            val list = withContext(Dispatchers.IO) { parseBranchNames(json) }
+            if (list.isNotEmpty()) {
+                branchNames = list
+                shown = true
+            }
+        }
+
+        // 拉不到就老实说「没拿到」：留一个空列表比留一个假分支好（用户会以为自己点错了）
+        if (!shown) branchNames = emptyList()
+        branchLoading = false
+    }
+
     // 顺手回收过期的暂存文件（TTL 7 天）：导入的附件在「没发布就放弃」时会一直留在盘上，
     // 而清理的时机只有进这个页面时才自然 —— 用户不会去设置里点「清理缓存」。
     // 失败不影响页面（prune 是 best-effort）。
@@ -705,8 +752,14 @@ fun ReleaseEditScreen(
                     onTag = { tag = it },
                     title = name,
                     onTitle = { name = it },
-                    // 目标分支只在新建时可改（GitHub 的 PATCH 不接受 target_commitish）
+                    // 目标分支只在新建时可改（GitHub 的 PATCH 不接受 target_commitish）：
+                    // 编辑已有发布时 onBranch 传 null，chip 保持只读（也就不会去拉分支列表）
                     branch = if (existing == null) target else "",
+                    onBranch = if (existing == null) {
+                        { branchPickerOpen = true }
+                    } else {
+                        null
+                    },
                 )
 
                 // ── 附件 ──
@@ -801,6 +854,20 @@ fun ReleaseEditScreen(
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
     }
 
+    // 目标分支选择：新建时才可能打开（编辑已有发布时 chip 是只读的）
+    if (branchPickerOpen) {
+        ReleaseBranchPickerSheet(
+            branches = branchNames,
+            selected = target,
+            loading = branchLoading,
+            onPick = { picked ->
+                target = picked
+                branchPickerOpen = false
+            },
+            onDismiss = { branchPickerOpen = false },
+        )
+    }
+
     // 「导入的文件存在哪」：常驻一行说明太贵（这一屏每 dp 都算过），改成按需展开
     if (showStoreInfo) {
         ModalBottomSheet(
@@ -862,6 +929,110 @@ fun ReleaseEditScreen(
                         token = token,
                         onLinkClick = {},
                     )
+                }
+            }
+        }
+    }
+}
+
+// ───────────────────────────────── 目标分支选择弹层 ─────────────────────────────────
+
+/**
+ * 目标分支选择（新建发布时）。
+ *
+ * ## 为什么是底部弹层，而不是行内下拉
+ *
+ * 分支名可以很长、数量可以上百：行内下拉会往下盖住「更新内容」与附件区，而这个页面从设计稿
+ * 开始就在抠垂直预算（`design/release-redesign/README.md`「三、设计 ②」）。弹层自己滚，
+ * 挤不到表单。
+ *
+ * ## 为什么通常点开就有内容
+ *
+ * 列表与「分支管理 / 对比 / 同步」三页共用同一个缓存键（`PageCache.branchListKey`），
+ * 下拉即直出（[loading] 只在真的一个分支都还没拿到时才有意义），随后回源刷新。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReleaseBranchPickerSheet(
+    branches: List<String>,
+    selected: String,
+    loading: Boolean,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
+            Text(
+                stringResource(R.string.label_target_branch_name),
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                color = Primer.TextPrimary,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                stringResource(R.string.note_target_branch_new_only),
+                fontSize = 11.5.sp,
+                color = Primer.TextTertiary,
+                lineHeight = 17.sp,
+            )
+            Spacer(Modifier.height(12.dp))
+            when {
+                branches.isEmpty() && loading -> Text(
+                    stringResource(R.string.state_loading),
+                    fontSize = 12.5.sp,
+                    color = Primer.TextTertiary,
+                )
+
+                branches.isEmpty() -> Text(
+                    stringResource(R.string.state_no_branches_or_failed),
+                    fontSize = 12.5.sp,
+                    color = Primer.TextTertiary,
+                    lineHeight = 18.sp,
+                )
+
+                else -> Column(
+                    // 分支多时列表自己滚：弹层最高给到 320dp，再高会把上面的说明顶出屏幕
+                    Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
+                ) {
+                    branches.forEach { name ->
+                        val isSelected = name == selected
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(7.dp))
+                                .clickable { onPick(name) }
+                                .padding(horizontal = 8.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                ReleaseBranchIcon,
+                                contentDescription = null,
+                                tint = if (isSelected) Primer.Blue500 else Primer.IconSecondary,
+                                modifier = Modifier.size(12.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                name,
+                                fontSize = 13.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = if (isSelected) Primer.Blue500 else Primer.TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (isSelected) {
+                                Icon(
+                                    Icons.Filled.Check,
+                                    contentDescription = null,
+                                    tint = Primer.Blue500,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

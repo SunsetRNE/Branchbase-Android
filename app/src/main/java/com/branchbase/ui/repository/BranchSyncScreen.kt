@@ -108,8 +108,9 @@ private fun parseCompare(json: String?): CompareInfo? {
     }.getOrNull()
 }
 
-/** 分支名列表（`GET /repos/{o}/{r}/branches`）：单个条目异常时跳过，不影响其余分支。 */
-private fun parseBranchNames(json: String?): List<String> {
+/** 分支名列表（`GET /repos/{o}/{r}/branches`）：单个条目异常时跳过，不影响其余分支。
+ *  `internal` 而不是 `private`：发布编辑页选目标分支时用的是同一份接口与同一份缓存，别再写一遍解析。 */
+internal fun parseBranchNames(json: String?): List<String> {
     if (json.isNullOrBlank()) return emptyList()
     return runCatching {
         val arr = JSONArray(json)

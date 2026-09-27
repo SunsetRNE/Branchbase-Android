@@ -1203,6 +1203,7 @@
     <string name="label_tag">标签</string>
     <string name="action_remove">移除</string>
     <string name="label_target_branch_name">目标分支</string>
+    <string name="note_target_branch_new_only">发布从这个分支的提交切出。创建后 GitHub 的接口不接受再改目标分支，所以只能在新建时选。</string>
     <string name="action_import_any_file">导入安装包或任意文件</string>
     <string name="state_uploading">上传中…</string>
     <string name="state_pending_upload">待上传</string>
