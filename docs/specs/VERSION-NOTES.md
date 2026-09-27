@@ -74,7 +74,19 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.1.16 → 1.0.22）
+## 二、`versionName` 流水（1.1.17 → 1.0.22）
+
+### 1.1.17
+
+**分组头定高行里缺陷的另一半：右侧动作的标签也不许折行 —— 文字侧（1.1.15）修过了，动作侧一直漏着。**
+
+① 起因：用户确认 1.1.16 装机后不再闪退（「实锤是 UI 挤占溢出的问题，这一版重新核对运算，大部分修复之后就没有闪退」），并圈出「更新内容」分组头那一行。逐处复核后，这一行的文字侧（标题 + 计数）在 1.1.15 已单行化，**但右侧动作 `ReleaseHeaderAction` 的标签还是裸 `Text`**。
+
+② 为什么它也会叠：动作是外层 Row 的**非加权**子项，正常情况下「先量到固有宽度」不会折行；可一旦动作自己就比这一行宽（长标签 + 大字体，例如 `fontScale` 2.0 下的「生成说明」），Row 给它的约束就会小于文字固有宽度 —— 默认 `softWrap = true` 会把它**折成两行**（约 30dp），而它住在 `height(20.dp)` 的定高行里、`verticalAlignment = CenterVertically`，于是上下各溢出约 5dp，画到相邻发丝线 / 下一个分组上（Compose 不裁剪溢出子项）。与 1.1.15 的计数折行是**同一个缺陷的两半**。
+
+③ 修法：`ReleaseHeaderAction` 的标签加 `maxLines = 1` + `overflow = TextOverflow.Ellipsis` —— 宁可收省略号，不许换行（覆盖动作：「存储位置 / 导入 / 预览 / 生成说明 / 生成中 / 全部保留 / 丢弃生成行」）。钉子 `ReleaseHeaderLayoutTest` +1 例（`右侧动作的标签也必须单行`；与已有 3 例同一源码级套路：取 `ReleaseHeaderAction` 函数体，数 `Text(` 与 `maxLines = 1` / `overflow = TextOverflow.Ellipsis` 必须一一对应 —— `Primer.TextTertiary` 这类标识符不会被 `\bText\s*\(` 误匹配）。
+
+④ 边界要说清楚：在用户当前的 360dp @ `fontScale` 1x 下，这一行**看起来不会有任何变化**（动作本就拿得到固有宽度、在 14dp 内边距处收尾）；这一版修的是「换台设备 / 调大字体就会露出来」的溢出路径，不是肉眼可见的错位。
 
 ### 1.1.16
 
@@ -3370,7 +3382,7 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（222 → 129）
+## 三、`versionCode` 流水（223 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
@@ -3383,6 +3395,9 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 > - **142**：慢帧守望（帧级定位）+ 日志追加写修复 + 设置行图标居中（一次发布，故 +1）
 > - **146**：设置页账户卡头像改走统一 Avatar（真实图标 + 圆形裁切）+ 账号头像地址回落会话（一次提交，故 +1）
 
+- **223**：分组头定高行的另一半 —— `ReleaseHeaderAction` 的标签加 `maxLines = 1` + Ellipsis
+（1.1.15 只把标题 / 计数单行化了，动作标签还是裸 `Text`：大字体 / 长标签下它折成两行、溢出 20dp 定高行）；
+`ReleaseHeaderLayoutTest` +1 例（一次提交，故 +1）
 - **222**：修掉必崩的下标越界 —— `ReleaseNotesEditor.lineHeightOf` 取最后一条逻辑行的底边时
 写的是 `getLineTop(lineCount)`（合法下标只到 `lineCount - 1`），改成 `getLineBottom(lastLineIndex(lineCount))`；
 1.1.14 真机 `闪退` 栈（`ReleaseNotesEditor.kt:274` ← `drawBehind` `:172`）一次定位 = 发布编辑页每次必崩；

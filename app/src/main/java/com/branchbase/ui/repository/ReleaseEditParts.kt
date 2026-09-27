@@ -342,7 +342,13 @@ internal fun ReleaseGroupHeader(
     }
 }
 
-/** 分组头右侧的文字动作（导入 / 生成说明 / 预览 / 全部保留 …）。 */
+/**
+ * 分组头右侧的文字动作（导入 / 生成说明 / 预览 / 全部保留 …）。
+ *
+ * 它住在 [ReleaseGroupHeader] 的定高 20dp 行里，所以**标签必须单行**（`maxLines = 1` + Ellipsis）：
+ * 动作行内容高 12dp 图标 / 11.5sp 文字 + 上下 3dp 内边距，一旦文字折成两行（约 30dp）就会
+ * 盖到相邻发丝线与下一个分组上（Compose 不裁剪溢出子项）—— 和标题 / 计数是同一个缺陷的两半。
+ */
 @Composable
 internal fun ReleaseHeaderAction(
     label: String,
@@ -367,7 +373,14 @@ internal fun ReleaseHeaderAction(
             Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(12.dp))
             Spacer(Modifier.width(4.dp))
         }
-        Text(label, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = color)
+        Text(
+            label,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

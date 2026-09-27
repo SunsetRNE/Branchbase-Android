@@ -87,7 +87,9 @@ PATCH 的默认值是 `legacy`（= 不动归属），所以编辑标题/正文�
   `TextOverflow.Ellipsis`，右侧动作跟在后面。顺序是刻意的 —— 非加权子项先量到固有宽度，剩下的宽度才给
   文字；反过来写（文字直接当外层子项 + 末尾 `Spacer(Modifier.weight(1f))` 顶开动作）在窄屏 / 大字体下
   计数会折成两行，溢出定高盒子画到相邻发丝线和下一个分组上（Compose 不裁剪溢出子项）。
-  见 `ReleaseEditParts.kt` 的 `ReleaseGroupHeader` 与钉子 `ReleaseHeaderLayoutTest`；
+  **右侧动作（`ReleaseHeaderAction`）的标签算同一行的一部分：它也必须 `maxLines = 1` + Ellipsis** ——
+  动作是定高行的非加权子项，只有「动作比整行还宽」（长标签 + 大字体）时才会被折行，同样溢出；
+  见 `ReleaseEditParts.kt` 的 `ReleaseGroupHeader` / `ReleaseHeaderAction` 与钉子 `ReleaseHeaderLayoutTest`；
 - **更新内容去掉包裹框**，改用编辑器的**行标识槽**：行号（等宽右对齐 / `CodeSyntax.LineNo`）+
   当前行底色 + **定宽标记列**，正文无框、3 行起步自动增高（改前是固定 200dp 的描边盒子）。
   槽宽、行号字号、「不画分隔竖线」、当前行底色全部取自仓库既有的行号列与 `BranchbaseCodeEditor`

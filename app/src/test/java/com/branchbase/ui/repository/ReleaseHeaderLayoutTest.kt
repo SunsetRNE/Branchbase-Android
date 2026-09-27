@@ -24,7 +24,9 @@ import org.junit.Test
  *
  * 1. 标题与计数**必须** `maxLines = 1` + `TextOverflow.Ellipsis` —— 放不下就省略号，不折行；
  * 2. 两者包进一个 `Modifier.weight(1f)` 的**内层 Row**，右侧动作（非加权子项）因此先拿到自己的固有宽度，
- *    剩下的才给文字。
+ *    剩下的才给文字；
+ * 3. 右侧动作自己的标签（`ReleaseHeaderAction`）也必须 `maxLines = 1` + Ellipsis —— 动作行比整行还宽时
+ *    （大字体 / 长标签）默认 `softWrap` 会把它折成两行，同样溢出定高盒子。文字侧与动作侧是同一个缺陷的两半。
  *
  * 这类缺陷只有真机肉眼能看出来，JVM 单测里没有 Compose 运行时，所以按 `FileEditorWiringTest` 的套路钉在源码上。
  */
@@ -48,12 +50,18 @@ class ReleaseHeaderLayoutTest {
             .joinToString("\n")
 
     /** `ReleaseGroupHeader` 的函数体（从头一个 `) {` 起做大括号配对，避免误取参数里的 `trailing` 默认值 `{}`）。 */
-    private fun headerBody(): String {
+    private fun headerBody(): String = bodyOf("internal fun ReleaseGroupHeader(")
+
+    /** `ReleaseHeaderAction` 的函数体（同一个套路；参数表里的 `() -> Unit` 没有 `{`，所以头一个 `) {` 就是函数体）。 */
+    private fun actionBody(): String = bodyOf("internal fun ReleaseHeaderAction(")
+
+    /** 按函数签名取出函数体：从头一个 `) {` 起做大括号配对。 */
+    private fun bodyOf(signature: String): String {
         val text = code(partsPath)
-        val funStart = text.indexOf("internal fun ReleaseGroupHeader(")
-        assertTrue("`ReleaseEditParts.kt` 里找不到 `internal fun ReleaseGroupHeader(`", funStart >= 0)
+        val funStart = text.indexOf(signature)
+        assertTrue("`ReleaseEditParts.kt` 里找不到 `$signature`", funStart >= 0)
         val bodyOpen = text.indexOf(") {", funStart)
-        assertTrue("`ReleaseGroupHeader` 的参数表没闭合成 `) {`", bodyOpen >= 0)
+        assertTrue("`$signature` 的参数表没闭合成 `) {`", bodyOpen >= 0)
         var depth = 0
         for (i in bodyOpen + 2 until text.length) {
             when (text[i]) {
@@ -64,7 +72,7 @@ class ReleaseHeaderLayoutTest {
                 }
             }
         }
-        throw AssertionError("`ReleaseGroupHeader` 的函数体没闭合")
+        throw AssertionError("`$signature` 的函数体没闭合")
     }
 
     @Test
@@ -114,6 +122,31 @@ class ReleaseHeaderLayoutTest {
         assertFalse(
             "`Spacer(Modifier.weight(1f))` 顶开动作 = 让标题 / 计数无限膨胀，窄屏下折行溢出（就是那个重叠缺陷）",
             headerBody().contains("Spacer(Modifier.weight(1f))"),
+        )
+    }
+
+    /**
+     * 同一行里的另一半：`ReleaseHeaderAction` 的标签。
+     *
+     * 动作是非加权子项 —— 正常情况下先量到固有宽度，标签不会折；但当动作自己就比这一行宽
+     * （大字体 / 长标签，比如「生成说明」在 `fontScale` 2.0 下），Row 给它的约束会小于文字固有宽度，
+     * 默认 `softWrap = true` 就会**折成两行**（约 30dp），同样溢出 20dp 的定高盒子。
+     * 所以标签也必须 `maxLines = 1` + Ellipsis：宁可收省略号，不许换行。
+     */
+    @Test
+    fun `右侧动作的标签也必须单行`() {
+        val body = actionBody()
+        val texts = Regex("\\bText\\s*\\(").findAll(body).count()
+        assertEquals("动作里只有标签一个 Text（当前函数体：\n$body）", 1, texts)
+        assertEquals(
+            "动作标签必须 maxLines = 1：放不下要收省略号，不能折行溢出定高分组头（当前：$texts 个 Text）",
+            texts,
+            Regex("maxLines\\s*=\\s*1").findAll(body).count(),
+        )
+        assertEquals(
+            "动作标签必须 overflow = TextOverflow.Ellipsis（当前函数体：\n$body）",
+            texts,
+            Regex("overflow\\s*=\\s*TextOverflow\\.Ellipsis").findAll(body).count(),
         )
     }
 }
