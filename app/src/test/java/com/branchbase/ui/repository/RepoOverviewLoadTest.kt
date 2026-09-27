@@ -99,4 +99,30 @@ class RepoOverviewLoadTest {
             src.contains("RepoActions.loadRelation(context, sessionHost, sessionToken, owner, repo, sessionLogin)\n            ?.let { relation = it }"),
         )
     }
+
+    /**
+     * 「这个仓库是不是我的 / 我能不能写」= `info.permissions.push`，**不许**排在分支列表后面。
+     *
+     * 两个 `async` 本来就是并行的，但落地是顺序 `await`：先等分支列表、再等仓库信息。
+     * 于是仓库信息命中缓存（当帧就能定）时也要白等一次分支往返 —— 发布页的「+」、
+     * ⋮ 气泡、编辑/删除按钮都吃这个结论，用户看到的就是「持有者判定很慢」。
+     * 修法是各等各的：分支列表放进自己的 `launch`，`infoJob.await()` 先落地。
+     */
+    @Test
+    fun `写权限的落地不许排在分支列表后面`() {
+        val src = code(screenPath)
+        val region = src.substringAfter("// ② 并行回源").substringBefore("branchesLoaded = true")
+        assertTrue("找不到「② 并行回源」那一段，测试要跟着改锚点", region.isNotBlank())
+        val nested = "launch {\n                branchJob.await()?.let { (list, fromCache) ->"
+        val sameLevel = "\n            branchJob.await()?.let { (list, fromCache) ->"
+        assertTrue(
+            "分支列表要放进自己的 launch 里落地：它与仓库信息本来就是两个独立请求，谁也不该等谁",
+            region.contains(nested),
+        )
+        assertFalse(
+            "旧写法：branchJob.await() 与 infoJob.await() 同处一层 —— 写在前面就把后面的仓库信息（写权限）挡住",
+            region.contains(sameLevel),
+        )
+        assertTrue("仓库信息照旧要 await 收口", region.contains("infoJob.await()"))
+    }
 }

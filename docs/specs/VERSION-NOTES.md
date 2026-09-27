@@ -74,7 +74,33 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.1.17 → 1.0.22）
+## 二、`versionName` 流水（1.1.18 → 1.0.22）
+
+### 1.1.18
+
+**「草稿莫名其妙的自动保存」与「持有者判定为什么那么慢」—— 两个都不是崩溃，是取数与反馈的时机问题。**
+
+① **草稿自动保存**（`ReleaseScreens.kt`）：功能本身没问题，两个「莫名」都来自实现细节 ——
+(a) `LaunchedEffect(tag, name, body, target, type, makeLatest, attachments)` **首次组合就会跑**
+（它是「键变了就重启」，不是「检测到变更」），所以进编辑页什么都不动、900ms 后照样落盘一次并弹
+「草稿已自动保存」；附件状态变化也会反复重启这个倒计时；(b) `savedHint` 只在保存成功那一行被赋值，
+**赋值之后再没人清**，于是提示一直挂在「更新内容」上方。修法：留一份「上次落盘的内容指纹」，
+只有这次与上次真的不同才提示（保存照旧静默执行 —— 退出再回来不丢是这个功能的全部意义），
+并让提示 2.5 秒后自己消失。钉子 `ReleaseDraftAutosaveTest`（3 例：自动保存不许被删 /
+进页面没动过就不提示 / 提示会自己消失）。
+
+② **写权限（= 「这个仓库是不是我的」）判定慢**：规则本身零网络（`repoRelationOf`：owner 与本地
+登录名一比即出，`permissions.push` 只用来补协同身份），慢的是它的**输入**。发布 Tab 原来是一条串行
+链：`L1 直出列表 → GET /releases → GET /releases/latest →（必要时）逐条 GET /releases/{id} 补 assets
+→ GET /repos/{owner}/{repo}` —— 写权限排在**最后一步**，而列表有缓存同帧就显示，「+ 新建发布」
+却还要再多等 2~4 次串行往返。同一份仓库信息，仓库页刚写进 `PreloadStore` 的 `TYPE_INFO` 缓存。
+修法：先 `getStale` 直出（命中就同帧定形）＋ 网络那次 `async` 与列表并行（回来覆盖并顺手写回缓存）。
+仓库页那侧同理：两个请求本来就 `async` 并行，但**落地**是顺序 `await`（先分支列表、再仓库信息），
+分支慢时写权限白等一次往返 —— 改成分支列表进自己的 `launch` 落地，各等各的。
+钉子 `ReleasePermissionFastPathTest`（3 例）＋ `RepoOverviewLoadTest` 新增
+`写权限的落地不许排在分支列表后面`（教训：断言要盯嵌套结构，源码文本顺序 ≠ 执行顺序）。
+
+③ 单测：全量 **124 suites / 1105 tests / 0 failures / 0 errors**（1.1.17 是 122 / 1098）；i18n 100%。
 
 ### 1.1.17
 
@@ -3382,7 +3408,7 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（223 → 129）
+## 三、`versionCode` 流水（224 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
@@ -3395,6 +3421,9 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 > - **142**：慢帧守望（帧级定位）+ 日志追加写修复 + 设置行图标居中（一次发布，故 +1）
 > - **146**：设置页账户卡头像改走统一 Avatar（真实图标 + 圆形裁切）+ 账号头像地址回落会话（一次提交，故 +1）
 
+- **224**：草稿自动保存的提示只在内容真的变了时出现且 2.5 秒自走 + 发布 Tab / 仓库页的写权限判定
+先吃 `PreloadStore` 缓存并与列表并行（改前它排在取数链最后一步，白等 2~4 次串行往返）；
+`ReleaseDraftAutosaveTest` 3 例 + `ReleasePermissionFastPathTest` 3 例 + `RepoOverviewLoadTest` +1 例（一次提交，故 +1）
 - **223**：分组头定高行的另一半 —— `ReleaseHeaderAction` 的标签加 `maxLines = 1` + Ellipsis
 （1.1.15 只把标题 / 计数单行化了，动作标签还是裸 `Text`：大字体 / 长标签下它折成两行、溢出 20dp 定高行）；
 `ReleaseHeaderLayoutTest` +1 例（一次提交，故 +1）

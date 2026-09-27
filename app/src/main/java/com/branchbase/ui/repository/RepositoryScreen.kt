@@ -431,10 +431,16 @@ fun RepositoryScreen(
                 json?.let { parseRepoInfo(it) }
             }
 
-            branchJob.await()?.let { (list, fromCache) ->
-                if (list.isNotEmpty()) {
-                    branches = list
-                    branchCached = fromCache
+            // 分支列表单独落地：**各等各的**。
+            // 原来是顺序 await（先 branchJob 再 infoJob），于是「这个仓库是不是我的、能不能写」
+            // 要排队等在分支列表后面 —— info 命中缓存当帧就能定的事，被一次分支往返拖住
+            // （发布页的「+」、⋮ 气泡、编辑/删除按钮都吃这个结论）。
+            launch {
+                branchJob.await()?.let { (list, fromCache) ->
+                    if (list.isNotEmpty()) {
+                        branches = list
+                        branchCached = fromCache
+                    }
                 }
             }
             // 默认分支 + 当前用户写权限（发布页的编辑/删除、⋮ 气泡里的分支同步都依赖 canPush）

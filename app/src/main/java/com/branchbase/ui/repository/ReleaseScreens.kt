@@ -457,6 +457,14 @@ fun ReleaseEditScreen(
 
     // 自动保存草稿：改任何字段 900ms 后落盘。文件在 release-uploads/、清单在 filesDir，
     // 两边一起才叫「退出再回来不丢」
+    //
+    // ⚠️ `LaunchedEffect` **首次组合就会跑**（它不是「检测到变更」，是「键变了就重启，首次也算」），
+    // 所以「进页面什么都没动 → 提示草稿已自动保存」以前照样会出现 —— 这正是「莫名其妙的自动保存」。
+    // 为此留一份上次落盘的内容指纹：和它一样就不提示（照样静默保存）。
+    val draftFingerprint = listOf(
+        tag, name, body, target, type.name, makeLatest.toString(), attachments.map { it.path }.toString(),
+    )
+    var savedFingerprint by remember { mutableStateOf(draftFingerprint) }
     LaunchedEffect(tag, name, body, target, type, makeLatest, attachments) {
         delay(900)
         val ok = withContext(Dispatchers.IO) {
@@ -477,7 +485,20 @@ fun ReleaseEditScreen(
                 ),
             )
         }
-        if (ok) savedHint = context.getString(R.string.toast_draft_autosaved)
+        if (ok) {
+            val changed = draftFingerprint != savedFingerprint
+            savedFingerprint = draftFingerprint
+            if (changed) savedHint = context.getString(R.string.toast_draft_autosaved)
+        }
+    }
+
+    // 提示只挂 2.5 秒就自己走：它是「刚刚存了一下」的反馈，不是状态栏 ——
+    // 之前赋值后再没人清，于是它会一直挂在「更新内容」上方。
+    LaunchedEffect(savedHint) {
+        if (savedHint != null) {
+            delay(2500)
+            savedHint = null
+        }
     }
 
     // 预览：正文 → HTML 走 Rust 的渲染器（与详情页同一条路径），放在底部弹层里看，不挤占编辑区

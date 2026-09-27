@@ -55,9 +55,11 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.branchbase.R
 import com.branchbase.cache.ListCache
+import com.branchbase.cache.PreloadStore
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
+import kotlinx.coroutines.async
 import com.branchbase.ui.LocalizedText
 import com.branchbase.ui.log.LogCategory
 import com.branchbase.ui.log.Logger
@@ -946,6 +948,20 @@ fun ReleaseListContent(
         var shownStale = false
         val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
 
+        // ⓪ 写权限判定「先直出 + 并行回源」。
+        //    它原来排在这条链的**最后一步**（列表 → latestReleaseId → 必要时逐条补 assets →
+        //    才轮到 `/repos/{owner}/{repo}`），于是「这个仓库我有没有权限发版」要等前面 2~4 次
+        //    串行往返，「+ 新建发布」最后才冒出来 —— 用户看到的就是「是不是我的仓库」判定很慢。
+        //    判定本身零网络（[repoRelationOf]），慢的只是它的输入；而这份仓库信息仓库页刚写进
+        //    info 缓存（`PreloadStore.infoKey`），所以先读缓存当帧定形，再让网络那次与列表并行。
+        if (refreshTick == 0) {
+            manager.getStale(PreloadStore.infoKey(owner, repo), PreloadStore.TYPE_INFO)
+                ?.let { cached -> parseRepoInfo(cached)?.let { canPush = it.canPush } }
+        }
+        val pushJob = async {
+            RustBridge.getRepoInfo(host, token, owner, repo)?.takeIf { !it.startsWith("ERROR:") }
+        }
+
         // ① 先直出缓存（含过期数据）
         if (refreshTick == 0 && retryTick == 0) {
             ListCache.readStale(manager, cacheKey)?.let { cached ->
@@ -991,10 +1007,12 @@ fun ReleaseListContent(
         //    所以只在「有人显式改过 latest 归属」时不准，方向上不会错，也不会因此报错。
         latestId = RustBridge.latestReleaseId(host, token, owner, repo)
             ?: items.firstOrNull { !it.draft && !it.prerelease }?.id?.takeIf { it != 0L }
-        // 写权限决定「新建发布」入口是否出现（缺失即视为无权限，保守）；不入缓存
-        canPush = RustBridge.getRepoInfo(host, token, owner, repo)
-            ?.takeIf { !it.startsWith("ERROR:") }
-            ?.let { parseRepoInfo(it)?.canPush } ?: false
+        // 写权限决定「新建发布」入口是否出现（缺失即视为无权限，保守）；拿到就顺手把 info 缓存
+        // 刷新一份 —— 仓库页读的是同一个键，那边因此也不用再发一次同样的请求。
+        pushJob.await()?.let { info ->
+            manager.put(PreloadStore.infoKey(owner, repo), PreloadStore.TYPE_INFO, info)
+            parseRepoInfo(info)?.let { canPush = it.canPush }
+        }
         loading = false
     }
 
