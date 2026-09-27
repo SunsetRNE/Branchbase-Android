@@ -221,6 +221,18 @@ internal fun lineOfOffset(text: String, offset: Int): Int {
 }
 
 /**
+ * 最后一个**视觉行**的下标。
+ *
+ * `TextLayoutResult.getLineTop` / `getLineBottom` 只接受 `0 until lineCount` ——
+ * 传 `lineCount` 会抛 `IllegalArgumentException: lineIndex(N) is out of bounds [0, N)`。
+ * 「取最后一条逻辑行的底边」的正确写法是 `getLineBottom(lastLineIndex(lineCount))`；
+ * 早先 [lineHeightOf] 写的是 `getLineTop(lineCount)`，于是每打开发布编辑页必崩（1.1.14 真机栈）。
+ *
+ * `lineCount` 只可能 ≥ 1（排过版的文本至少一行），`coerceAtLeast(0)` 只是兜住理论上不存在的 0。
+ */
+internal fun lastLineIndex(lineCount: Int): Int = (lineCount - 1).coerceAtLeast(0)
+
+/**
  * 生成说明写进来的行号（1-based，纯函数，可单测）。
  *
  * 按**行文本**匹配而不是记死行号：用户在生成前后随手敲几行，行号会整体移动；
@@ -265,13 +277,21 @@ private fun TextLayoutResult.lineTopOf(offset: Int): Float =
 /**
  * 从某偏移所在视觉行，到「下一条逻辑行的第一视觉行」之间的高度（= 这条逻辑行折行后的总高）。
  *
- * [nextOffset] 为 null 表示这是最后一条逻辑行 —— 此时用 `getLineTop(lineCount)` 取底边，
- * 否则会退化成「最后一行的行高是 0」。
+ * [nextOffset] 为 null 表示这是最后一条逻辑行 —— 此时取最后一视觉行的**底边**
+ * （`getLineBottom(lastLineIndex(lineCount))`），否则会退化成「最后一行的行高是 0」。
+ *
+ * ⚠️ 这里**不能**写 `getLineTop(lineCount)`：`TextLayoutResult` 的 `getLineTop` / `getLineBottom`
+ * 只接受 `0 until lineCount`，传 `lineCount` 会抛
+ * `java.lang.IllegalArgumentException: lineIndex(N) is out of bounds [0, N)`。
+ *
+ * 1.1.14 的真机闪退现场就是这一行（`闪退` 锚点抓到的本进程栈：`ReleaseNotesEditor.kt:274`）——
+ * 而且**必崩**：正文空时 `lineStarts = [0]`、`nextOffset = null`、`lineCount = 1`，于是
+ * `getLineTop(1)` 直接越界，每打开发布编辑页都在画当前行底色时倒下。
  */
 private fun TextLayoutResult.lineHeightOf(offset: Int, nextOffset: Int?): Float {
     val start = lineTopOf(offset)
     val end = if (nextOffset == null) {
-        getLineTop(lineCount)
+        getLineBottom(lastLineIndex(lineCount))
     } else {
         lineTopOf(nextOffset)
     }

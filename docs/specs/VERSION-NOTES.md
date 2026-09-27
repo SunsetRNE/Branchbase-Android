@@ -74,7 +74,29 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.1.15 → 1.0.22）
+## 二、`versionName` 流水（1.1.16 → 1.0.22）
+
+### 1.1.16
+
+**闪退查明并修好：`TextLayoutResult.getLineTop(lineCount)` 越界 —— 「更新内容」编辑器取最后一条逻辑行的底边时用了越界下标，打开发布编辑页必崩。**
+
+① 证据：用户装上 1.1.14（`1.1.14-20260927-1103-unknown-Beta`，versionCode 220）后复现，日志包里**1.1.12 拿不到的那条栈终于有了**（`闪退` 通道，两段同一签名：`11:08:07.982` 与 `11:19:09.696`）：
+
+```
+java.lang.IllegalArgumentException: lineIndex(1) is out of bounds [0, 1)
+	at androidx.compose.ui.text.MultiParagraph.requireLineIndexInRange(MultiParagraph.kt:1277)
+	at androidx.compose.ui.text.MultiParagraph.getLineTop(MultiParagraph.kt:886)
+	at androidx.compose.ui.text.TextLayoutResult.getLineTop(TextLayoutResult.kt:394)
+	at com.branchbase.ui.repository.ReleaseNotesEditorKt.lineHeightOf(ReleaseNotesEditor.kt:274)
+	at com.branchbase.ui.repository.ReleaseNotesEditorKt.ReleaseNotesEditor$lambda$10$1$0(ReleaseNotesEditor.kt:172)
+	at androidx.compose.ui.draw.DrawBackgroundModifier.draw(DrawModifier.kt:126)
+```
+
+② 根因：`ReleaseNotesEditor.kt` 的 `lineHeightOf(offset, nextOffset)` 在「这是最后一条逻辑行」（`nextOffset == null`）时写的是 `getLineTop(lineCount)` 想取底边 —— 而 `TextLayoutResult` 的 `getLineTop` / `getLineBottom` 只接受 `0 until lineCount`，传 `lineCount` **必抛**。两个调用点都踩：行号槽每行的 `height = layout?.lineHeightOf(start, lineStarts.getOrNull(index + 1))`（最后一行 `nextOffset = null`），以及 `drawBehind` 里当前行 / 生成行的底色（`:166`、`:172`）。正文空时 `lineStarts = [0]`、`currentLine = 1`、`lineCount = 1` ⇒ 第一次画「当前行」底色就 `getLineTop(1)` 越界 —— 所以「点开仓库 → 发布页 → 点发布加号」**每次必崩**；前三次（1.1.10 / 1.1.11 / 1.1.12）的静默死亡与 `原因码 4` 都是同一件事，**与「UI 堆积 / OOM」无关**（退出时 RSS 228MB、堆上限 256MB，日志里没有 OOM 记录）。
+
+③ 修法：新增 `internal fun lastLineIndex(lineCount: Int): Int = (lineCount - 1).coerceAtLeast(0)`，`lineHeightOf` 的最后一行分支改成 `getLineBottom(lastLineIndex(lineCount))`（纯函数、可单测）。钉子 `ReleaseNotesMarkingTest` +2 例：`最后一行下标不会越界`（1→0、0→0、3→2）与 `最后一条逻辑行的底边不许用 getLineTop 取`（源码级：全文件不许再出现 `getLineTop(lineCount)`、必须有 `getLineBottom(lastLineIndex(lineCount))`；注释里的反例靠过滤注释行排除）。
+
+④ 取证链的收获：这一版验证了 1.1.12 / 1.1.13 / 1.1.14 三条通道的分工 —— `异常退出` 只给「原因码 4 = Java/Kotlin 未捕获异常」，`闪退` 直接给「崩在哪一行」。真机栈与结论写进 `docs/specs/exit-report-design.md` §6.6，几何下标的不变量写进 `docs/specs/screens-design.md`。
 
 ### 1.1.15
 
@@ -3348,7 +3370,7 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（221 → 129）
+## 三、`versionCode` 流水（222 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
@@ -3361,6 +3383,10 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 > - **142**：慢帧守望（帧级定位）+ 日志追加写修复 + 设置行图标居中（一次发布，故 +1）
 > - **146**：设置页账户卡头像改走统一 Avatar（真实图标 + 圆形裁切）+ 账号头像地址回落会话（一次提交，故 +1）
 
+- **222**：修掉必崩的下标越界 —— `ReleaseNotesEditor.lineHeightOf` 取最后一条逻辑行的底边时
+写的是 `getLineTop(lineCount)`（合法下标只到 `lineCount - 1`），改成 `getLineBottom(lastLineIndex(lineCount))`；
+1.1.14 真机 `闪退` 栈（`ReleaseNotesEditor.kt:274` ← `drawBehind` `:172`）一次定位 = 发布编辑页每次必崩；
+`ReleaseNotesMarkingTest` +2 例（一次提交，故 +1）
 - **221**：发布页分组头（`ReleaseGroupHeader`）不再重叠 —— 标题 + 计数包进 `weight(1f)` 内层 Row 并
 `maxLines = 1` + Ellipsis（原来窄屏 / 大字体下计数折成两行，溢出 20dp 定高盒子、画到下一个分组上）；
 `ReleaseHeaderLayoutTest` 3 例（一次提交，故 +1）

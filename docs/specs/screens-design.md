@@ -92,7 +92,11 @@ PATCH 的默认值是 `legacy`（= 不动归属），所以编辑标题/正文�
   当前行底色 + **定宽标记列**，正文无框、3 行起步自动增高（改前是固定 200dp 的描边盒子）。
   槽宽、行号字号、「不画分隔竖线」、当前行底色全部取自仓库既有的行号列与 `BranchbaseCodeEditor`
   的取舍；「槽宽恒定」这条约束连槽内部也遵守 —— `+` 标记出现/消失时数字轴不动。
-  折行对齐走 `TextLayoutResult`（一条逻辑行折成多行时行号只占第一视觉行），不按 `\n` 数；
+  折行对齐走 `TextLayoutResult`（一条逻辑行折成多行时行号只占第一视觉行），不按 `\n` 数。
+  **取几何量的下标只在 `0 until lineCount` 里**：最后一条逻辑行的底边用
+  `getLineBottom(lastLineIndex(lineCount))`，写成 `getLineTop(lineCount)` 会抛
+  `lineIndex(N) is out of bounds [0, N)` —— 1.1.14 每打开发布编辑页必崩就是这一处（真机栈见
+  `exit-report-design.md` §6.6，钉子见 `ReleaseNotesMarkingTest`）；
 - **「生成说明」不再整段覆盖**：接官方 `POST /releases/generate-notes`，生成的行在行号槽里带 `+`、
   行底淡绿，底部给 `+ N 行来自生成说明 · [全部保留] [丢弃生成行]` —— 手写的字一行都不会被吞，
   所以那个「替换现有更新内容？」的确认弹窗也删掉了；

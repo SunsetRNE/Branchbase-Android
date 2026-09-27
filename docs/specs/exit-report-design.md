@@ -261,3 +261,34 @@ java.lang.IllegalStateException: boom
 2. **早于 `LogManager.init` 的崩溃救不了**：写盘线程还没起，没有文件可写。
 3. **崩溃那一刻的现场是「当时的栈」**，不含线程转储：要看别的线程在干什么得靠 `主线程` 守望与系统 trace。
 4. **`flush` 只等 1.5 秒**：真遇上写盘线程被卡死，栈可能丢 —— 概率极低，不为此阻塞进程退出。
+
+### 6.6 第一次真机捕获：通道成立，抓到的正是那个必崩的越界
+
+用户装上 1.1.14（`1.1.14-20260927-1103-unknown-Beta`，versionCode 220）后复现，日志包里第一次出现了
+`闪退` 的两段栈（`11:08:07.982` 与 `11:19:09.696`，同一签名）：
+
+```
+闪退 ▸ main 线程未捕获异常（进程即将被系统结束）
+本进程现场（系统那份退出记录里可能没有栈）：
+java.lang.IllegalArgumentException: lineIndex(1) is out of bounds [0, 1)
+	at androidx.compose.ui.text.MultiParagraph.requireLineIndexInRange(MultiParagraph.kt:1277)
+	at androidx.compose.ui.text.MultiParagraph.getLineTop(MultiParagraph.kt:886)
+	at androidx.compose.ui.text.TextLayoutResult.getLineTop(TextLayoutResult.kt:394)
+	at com.branchbase.ui.repository.ReleaseNotesEditorKt.lineHeightOf(ReleaseNotesEditor.kt:274)
+	at com.branchbase.ui.repository.ReleaseNotesEditorKt.ReleaseNotesEditor$lambda$10$1$0(ReleaseNotesEditor.kt:172)
+	at androidx.compose.ui.draw.DrawBackgroundModifier.draw(DrawModifier.kt:126)
+```
+
+**这条栈就是 1.1.12 那一版拿不到的东西**：`异常退出` 只会说「原因码 4 = Java/Kotlin 未捕获异常」，
+而 `闪退` 直接指出了崩在哪一行 —— `ReleaseNotesEditor.kt:274` 的 `getLineTop(lineCount)`，
+从 `drawBehind`（`:172`，画当前行底色）调进来；`lineIndex(1) is out of bounds [0, 1)` 说明那次
+`lineCount = 1`，即正文空、`lineStarts = [0]`、最后一条逻辑行的 `nextOffset = null`。
+
+结论（写进 1.1.16）：**这不是 OOM / 不是 UI 堆积**，是一次确定性的下标越界 ——
+`TextLayoutResult.getLineTop` / `getLineBottom` 只接受 `0 until lineCount`，
+「最后一条逻辑行的底边」必须用 `getLineBottom(lineCount - 1)`（`lastLineIndex(lineCount)`），
+所以打开发布编辑页必崩。修法与钉子见 `docs/specs/VERSION-NOTES.md` 的 1.1.16 与
+`ReleaseNotesMarkingTest` 新增的两例。
+
+三条通道的分工也因此被真机验证了一遍：`闪退` 给出「崩在哪一行」，
+`异常退出` 给出「上一程为什么结束（原因码 4 + 进程 / 内存）」，两者互补、缺一不可。

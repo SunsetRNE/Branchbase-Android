@@ -95,6 +95,33 @@ class ReleaseNotesMarkingTest {
     // ── 结构性钉子（源码级，与 FileEditorWiringTest 同一套路） ──
 
     @Test
+    fun `最后一行下标不会越界`() {
+        // 1.1.14 真机闪退：`getLineTop(lineCount)` → lineIndex(1) is out of bounds [0, 1)
+        assertEquals(0, lastLineIndex(1))
+        assertEquals(0, lastLineIndex(0))
+        assertEquals(2, lastLineIndex(3))
+    }
+
+    @Test
+    fun `最后一条逻辑行的底边不许用 getLineTop 取`() {
+        // 注释里正好写着反例（`getLineTop(lineCount)`），所以先剔掉注释行再匹配
+        val code = File("src/main/java/com/branchbase/ui/repository/ReleaseNotesEditor.kt").readText()
+            .lines()
+            .filterNot { it.trimStart().startsWith("//") }
+            .filterNot { it.trimStart().startsWith("*") }
+            .filterNot { it.trimStart().startsWith("/*") }
+            .joinToString("\n")
+        assertFalse(
+            "`getLineTop(lineCount)` 一定越界（合法下标是 0 until lineCount）—— 用 `getLineBottom(lastLineIndex(lineCount))`",
+            code.contains("getLineTop(lineCount)"),
+        )
+        assertTrue(
+            "最后一条逻辑行的底边必须走 `getLineBottom(lastLineIndex(lineCount))`",
+            code.contains("getLineBottom(lastLineIndex(lineCount))"),
+        )
+    }
+
+    @Test
     fun `编辑器必须按 TextLayoutResult 量行高_而不是数换行符`() {
         val source = File("src/main/java/com/branchbase/ui/repository/ReleaseNotesEditor.kt").readText()
         assertTrue("必须用 onTextLayout 拿布局结果", source.contains("onTextLayout"))
