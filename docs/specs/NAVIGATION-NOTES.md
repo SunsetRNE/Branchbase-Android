@@ -64,6 +64,7 @@ Compose 的返回键是「**最后注册且启用者胜**」。`PageSwitcher` �
 | 每个页面各挂一个裸 `BackHandler` | 谁赢取决于注册顺序，动画期间新旧两页会抢同一个事件 | 全部换成 `PageBackHandler`；多层页面用嵌套 `PageSwitcher` 各自下发 active |
 | 把 busy/error 塞进页面状态（如密钥填写页） | 状态值一变就被当成换页：多播一次动画 + 重建内容丢输入 | 页面身份与请求态分开（页面态存 `data object`，请求态用独立 `StateFlow`） |
 | **把 Tab 目的地塞进外层路由**（`MainRoute.Tabs(selected)` / `RepoRoute.Tab(page)` / `ProfileRoute.Main(tab)`） | 切一次 Tab 就等于换一次路由 → 外层 `PageSwitcher` 把整块内容播同级动效（淡入淡出 + 2% 垂直位移），**底部导航栏跟着一起上移/上浮、两栏错位叠着**（用户反馈「切页面时导航栏上下跳」）；内层 `TabSwitcher` 还会再播一次，位移叠加成 4% | Tab 是**内容区自己的维度**，不进外层路由（三个路由都改成 `data object`）；切 Tab 由内容区自己的 `TabSwitcher` 负责；导航栏归 `NavigationShell`（在 `PageSwitcher` 外面），`barVisible` 由路由决定 |
+| **一行里塞一组数量可变的短文本**（面包屑 / 路径 / 标签条）而容器是 `Row` | `Row` 既不换行也不报错，只把每个 `Text` 压到最窄的一列：仓库页的面包屑把 `Branchbase` 竖排成 `bra`/`nch`/`bas`/`e`，且**它自己的上级还会把整条 `owner/repo` 画进路径里**，长仓库名一占满，真正要看的目录链直接挤出屏幕 | 显示的是**相对仓库根的目录链**（根 = `/`，仓库名归顶栏），并把「哪几段落在第几行」交给纯函数（`breadcrumbLayers` / `wrapCrumbs` / `crumbRows`，`RepositoryModels.kt:501,528,568`）+ 自定义 `Layout`（`CrumbFlow`，`RepositoryListScreens.kt:474`）：**整层**折行、折行处行尾挂 `…`、每枚 `Text` 都 `maxLines = 1`，且**每个可能的折行点各备一枚 `…`**（`breaks = layers.size - 1` 枚，用不到的不摆、不上屏、不进读屏 —— 一枚 `Placeable` 只有一个摆放位置，摆第二次是把它从上一行**挪走**，共用一枚的话多行折行时只有最后一行还留着 `…`）。只用 `FlowRow` 不够 —— 它换行但补不出那枚 `…`，看不出「这是上一行接着排的」 |
 
 ## 四、当前行为（用户可见的契约）
 
@@ -103,6 +104,10 @@ Compose 的返回键是「**最后注册且启用者胜**」。`PageSwitcher` �
       列表里的「上一层」用文件管理器那套 `..`（文件夹图标 + `..`，a11y 标签兜底含义）。
 - [ ] Tab 内的标签条在**英文界面**下装得下吗？（`Row` 会在词内折行：`File history` 折成 `File`/`hist`/`ory`
       三行 —— 268dp 的面板可用 248dp，英文四档约 273dp；这种条用 `FlowRow`）
+- [ ] 新增/改动的一行里是**一组数量可变的短文本**（面包屑 / 路径 / 标签条）吗？`Row` 会把它压成竖排窄列
+      （`Branchbase` → `bra`/`nch`/`bas`/`e`）—— 换行要**整段挪行**（不裁切、不省略任何一段），
+      折行处行尾补一枚 `…`（`breadcrumbLayers` / `wrapCrumbs` 有单测），每枚 `Text` 都 `maxLines = 1`；
+      **写自定义 `Layout` 时记住一枚 `Placeable` 只能摆一次** —— 摆第二次是把它挪到新位置，不是再画一份。
 - [ ] 新页面**消费了系统栏内边距**？（edge-to-edge 是强制的：要么自己 `statusBarsPadding()` +
       `navigationBarsPadding()`，要么走 `DetailScaffold` / `FullScreen` / `DecisionScreenShell` 这些已经取过的壳。
       仓库树里进详情页时底部导航栏会收起（`barVisible = route is RepoRoute.Tab`），**没有人为子页兜底底部**）

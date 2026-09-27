@@ -42,11 +42,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -368,7 +371,7 @@ fun RepositoryCodeContent(
     }
 
     Column(Modifier.fillMaxSize()) {
-        BreadcrumbBar(owner, repo, path, onNavigate)
+        BreadcrumbBar(path, onNavigate)
         when {
             loading -> ListLoading()
             error != null -> ListError(error!!) { retryTick++ }
@@ -436,29 +439,141 @@ private fun ParentFolderRow(onClick: () -> Unit) {
 }
 
 @Composable
-private fun BreadcrumbBar(owner: String, repo: String, path: String, onNavigate: (String) -> Unit) {
-    val segs = path.split("/").filter { it.isNotBlank() }
-    Row(
-        Modifier
+private fun BreadcrumbBar(path: String, onNavigate: (String) -> Unit) {
+    // 仓库名不进面包屑：顶栏已经写着 `owner/repo`，路径这一行只画目录链（根 = `/`）
+    val layers = remember(path) { breadcrumbLayers(path) }
+    CrumbFlow(
+        layers = layers,
+        onNavigate = onNavigate,
+        modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            "$owner/$repo",
-            fontSize = 12.5.sp,
-            color = Primer.Blue500,
-            modifier = Modifier.clickable { onNavigate("") },
-        )
-        segs.forEachIndexed { i, seg ->
-            Text("/", fontSize = 12.5.sp, color = Primer.TextTertiary)
-            Text(
-                seg,
-                fontSize = 12.5.sp,
-                color = if (i == segs.lastIndex) Primer.TextPrimary else Primer.Blue500,
-                fontWeight = if (i == segs.lastIndex) FontWeight.SemiBold else FontWeight.Normal,
-                modifier = Modifier.clickable { onNavigate(segs.take(i + 1).joinToString("/")) },
-            )
+    )
+}
+
+/** 折行处那枚「…」：它不是文案（不进资源表、不翻译），也不会和任何一段目录名重名 */
+private const val CRUMB_ELLIPSIS = "…"
+
+/** 「…」与它前面那层之间的间距 —— 路径里本来就是紧挨着的斜杠，不给间距会读成目录名的一部分 */
+private val CRUMB_ELLIPSIS_GAP = 3.dp
+
+private val CRUMB_FONT_SIZE = 12.5.sp
+
+/**
+ * 面包屑本体：**整层**折行，折行处行尾挂 `…`，下一行接着往下显示。
+ *
+ * 为什么不用 `Row`：`Row` 不换行也不报错，路径一长每个 `Text` 都被压成最窄的列，
+ * 于是 `Branchbase` 会竖着排成 `bra/nch/bas/e`（用户 2026-09-27 真机截图）；
+ * 也不用 `FlowRow`：它能换行，但没法在**被换上去的那一层之前**补一枚 `…`，
+ * 用户就看不出「上一行还剩着、这是接着排的」。
+ *
+ * 这里用 [Layout] 自己量、自己摆：宽度由 Compose 量（跟字体缩放走），
+ * 「哪一层落在第几行」（[wrapCrumbs]）与「摆哪些子项、行尾用哪枚 `…`」（[crumbRows]）
+ * 都交给纯函数（可以脱离真机单测）。
+ */
+@Composable
+private fun CrumbFlow(layers: List<CrumbLayer>, onNavigate: (String) -> Unit, modifier: Modifier) {
+    // 折行最多发生 layers.size - 1 次，所以预先备好这么多枚「…」。为什么不是共用一枚：
+    // Placeable 的摆放位置只是节点上的一个字段，**摆第二次等于把它挪过去**，
+    // 多行折行时就只有最后一行还留着「…」了（详见 wrapCrumbs 上方的说明）
+    val breaks = (layers.size - 1).coerceAtLeast(0)
+    Layout(
+        modifier = modifier,
+        content = {
+            // 先用掉 breaks 个子项做「…」的位子：Layout 里每个子项都必须量到，所以它们**都参与测量**，
+            // 但没被折行用到的位子不摆、不上屏（不摆放的子项既不画、也不进读屏、也点不到）
+            repeat(breaks) {
+                Text(CRUMB_ELLIPSIS, fontSize = CRUMB_FONT_SIZE, color = Primer.TextTertiary, maxLines = 1)
+            }
+            layers.forEach { layer ->
+                layer.crumbs.forEach { crumb ->
+                    Text(
+                        crumb.label,
+                        fontSize = CRUMB_FONT_SIZE,
+                        color = when {
+                            crumb.target == null -> Primer.TextTertiary
+                            crumb.current -> Primer.TextPrimary
+                            else -> Primer.Blue500
+                        },
+                        fontWeight = if (crumb.current) FontWeight.SemiBold else FontWeight.Normal,
+                        // 单行：一层就是一枚不可再折的 token，绝不把目录名按字符竖排
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = if (crumb.target != null) {
+                            Modifier.clickable { onNavigate(crumb.target) }
+                        } else {
+                            Modifier
+                        },
+                    )
+                }
+            }
+        },
+    ) { measurables, constraints ->
+        val maxPx = constraints.maxWidth
+        val bounded = maxPx != Constraints.Infinity
+        // 前 breaks 个子项是「…」的位子（不属于任何层）；同一层里已量过的宽度要扣掉，
+        // 免得一层（如「根 + 一个超长目录名」）加起来超出整行、被父级裁掉右边
+        val layerOfChild = IntArray(measurables.size) { -1 }
+        val firstOfLayer = BooleanArray(measurables.size)
+        run {
+            var child = breaks
+            layers.forEachIndexed { li, layer ->
+                layer.crumbs.indices.forEach { ci ->
+                    layerOfChild[child] = li
+                    firstOfLayer[child] = ci == 0
+                    child++
+                }
+            }
+        }
+        val placeables = ArrayList<Placeable>(measurables.size)
+        val layerWidths = FloatArray(layers.size)
+        var consumed = 0
+        measurables.forEachIndexed { i, measurable ->
+            if (i < breaks) {
+                placeables += measurable.measure(Constraints(maxWidth = maxPx))
+            } else {
+                if (firstOfLayer[i]) consumed = 0
+                val room = if (bounded) (maxPx - consumed).coerceAtLeast(0) else Constraints.Infinity
+                val p = measurable.measure(Constraints(maxWidth = room))
+                placeables += p
+                consumed += p.width
+                layerWidths[layerOfChild[i]] = consumed.toFloat()
+            }
+        }
+
+        val gapPx = CRUMB_ELLIPSIS_GAP.roundToPx()
+        // 只有一层时折不了行，也就不需要给「…」留宽度（此时一枚位子都没有）
+        val ellipsisWidth = if (breaks > 0) (placeables[0].width + gapPx).toFloat() else 0f
+        val lines = if (bounded) {
+            wrapCrumbs(layerWidths.toList(), ellipsisWidth, maxPx.toFloat())
+        } else {
+            listOf(CrumbLine(0, layers.size, continued = false))
+        }
+        // 折行方案 → 落位表：摆哪些子项、行尾用哪枚「…」。逐枚 placeable 只摆一次这件事由它保证
+        val rows = crumbRows(layers.map { it.crumbs.size }, lines)
+        val lineHeight = placeables.maxOfOrNull { it.height } ?: 0
+        val height = lineHeight * lines.size
+        // 宽度不受约束时（横向滚动里）按内容撑开；正常是 fillMaxWidth 给的定宽
+        val width = if (bounded) maxPx else layerWidths.sum().toInt()
+
+        layout(width, height) {
+            var y = 0
+            rows.forEach { row ->
+                var x = 0
+                row.children.forEach { ci ->
+                    placeables[ci].place(x, y)
+                    x += placeables[ci].width
+                }
+                row.ellipsisSlot?.let { slot ->
+                    val ellipsisX = x + gapPx
+                    // 一整层就比整行宽时（极长的目录名）行尾已经由框架自己裁出「…」了，
+                    // 再挂一枚会叠在它上面、而且必然溢出到屏幕右边 —— 那就只留框架那一枚
+                    if (!bounded || ellipsisX + placeables[slot].width <= maxPx) {
+                        placeables[slot].place(ellipsisX, y)
+                    }
+                }
+                y += lineHeight
+            }
         }
     }
 }

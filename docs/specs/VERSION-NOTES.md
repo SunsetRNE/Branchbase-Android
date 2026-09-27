@@ -74,7 +74,48 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.1.10 → 1.0.22）
+## 二、`versionName` 流水（1.1.11 → 1.0.22）
+
+### 1.1.11
+
+**代码页的路径显示面板（面包屑）返工：根 = `/`，路径长时整层折行、折行处挂 `…` 接着往下排 —— 原先把 `owner/repo` 也画进去，长仓库名把目录链挤出屏幕；路径一长 `Row` 又把目录名压成竖排。**
+
+① 面包屑原先从 `"$owner/$repo"` 起画（旧签名 `BreadcrumbBar(owner, repo, path, onNavigate)`），
+仓库名一长（真机上的 `SunsetRNE/Branchbase-Android`）整行几乎被它占满，真正要看的目录链反而看不见。
+仓库名在仓库页顶栏已经写着，这一行只该画目录链 —— 现在**默认显示 `/`**（仓库根），点进任意文件夹只长成
+`/` → `/app` → `/app/src`。拆层抽成纯函数 `breadcrumbLayers(path)`（`RepositoryModels.kt:501`），返回
+`List<CrumbLayer>`，每枚 `Crumb(label, target, current)`（`RepositoryModels.kt:487`）：`target = null` 表示
+分隔符不可点，其余每段点回自己那一级（`segs.take(i + 1).joinToString("/")`），最后一段是「当前目录」——
+主色加粗，其余链接蓝。**第 0 层刻意把根 `/` 与第一段目录名绑成一层**：根那个 `/` 就是二者之间唯一的分隔符，
+拆成两层的话折行后第二行会以 `app` 开头，看起来像丢了斜杠；第 k（k≥1）层则是「`/` + 第 k+1 段」。
+
+② 路径一长就露第二个问题：`Row` 不换行也**不报错**，只是把每个 `Text` 压成最窄的一列，于是
+`Branchbase` 竖着排成 `bra`/`nch`/`bas`/`e`（用户 2026-09-27 第二张截图）。改成 `Layout` 自己量、自己摆
+（`CrumbFlow`，`RepositoryListScreens.kt:474`），**整层**折行 —— 一层（`/` + 段名）要么一起上屏、
+要么一起换行；折行处行尾挂一枚 `…`，下一行从被挪走的那层接着显示。没用 `FlowRow` 的原因是它
+能换行、但**没法在被挪上去的那层之前补一枚 `…`**，「上一行还剩着、这是接着排的」就看不出来了。
+哪层落在第几行仍交给纯函数 `wrapCrumbs(layerWidths, ellipsisWidth, maxWidth)`（`RepositoryModels.kt:528`）：
+贪心装层，`…` 的宽度**参与**装填判断（不参与的话要么把它挤出屏幕、要么反过来把它裁掉）；每行至少装一层
+（一层就比整行宽时让它独占、由 `TextOverflow.Ellipsis` 裁切，否则会退化成死循环）；
+每枚目录名的 `Text` 都 `maxLines = 1` —— 这是「不再竖排」那条结论的执法者。`…` 是符号不是文案，
+中英共用一处、不进资源表（i18n 覆盖率仍 100%）。
+**折行的 `…` 是每个可能的折行点各备一枚**（`breaks = layers.size - 1` 枚，用不到的不摆、不上屏、不进读屏）：
+Compose 的 `Placeable` 身上只有一个摆放位置，摆第二次是把它从上一行挪走，共用一枚的话多行折行时
+就只有最后一行还留着 `…`、前面几行空一块。折行方案到「摆哪些子项、行尾用哪枚 `…`」的翻译也抽成
+纯函数 `crumbRows(layerCounts, lines)`（`RepositoryModels.kt:568`，返回 `CrumbRow(children, ellipsisSlot)`，
+`RepositoryModels.kt:556`）—— 于是「每个子项恰好摆一次、每个位子至多用一次、`…` 的计数不跨行重复」
+这几条都能脱离真机钉死；`CrumbFlow` 里不再自己数位子（源码级钉子禁止它出现 `slot++`）。
+同一层的框架细节：一整层就比整行宽时，行尾已经由 `TextOverflow.Ellipsis` 自己裁出一枚「…」，
+这时不再叠一枚（否则叠字且必然溢到屏幕右侧）。
+
+③ 新增 `BreadcrumbPathTest` 18 例（`app/src/test/java/com/branchbase/ui/repository/BreadcrumbPathTest.kt`）：
+拆层（根只画 `/`、逐段展开且**不再背仓库全名**、每层 target/current、根与第一段同层、含空格与中文的
+目录名不被拆开）+ 折行（装得下不折行且不挂 `…`、装不下整层挪行且行尾挂 `…`、多种行宽扫一遍保证
+区间首尾相接 / 无空行 / 最后一行不挂 `…` / 断行位置既不早也不晚 / 超长单层独占一行 /
+行尾 `…` 的个数不会超过备下的位子）+ 落位表（多种行宽扫一遍：子项按层顺序不重不漏地摆一遍、
+续行依次取位子且最后一行不留 `…`、位子不复用、单层时连位子都没有）+ 源码接线
+（`BreadcrumbBar` 只收 `path`、不再收 `owner`/`repo`、折行经 `wrapCrumbs`、落位经 `crumbRows`、
+`CrumbFlow` 里 `maxLines = 1`、折行点各备一枚「…」且一枚只摆一次、位子计数只许待在纯函数里）。
 
 ### 1.1.10
 
@@ -3207,7 +3248,7 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（216 → 129）
+## 三、`versionCode` 流水（217 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
@@ -3219,6 +3260,10 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 > - **129**：主题彻底收敛（A+B+C 全量收角色 + 两道源码级钉子）（一次提交，故 +1）
 > - **142**：慢帧守望（帧级定位）+ 日志追加写修复 + 设置行图标居中（一次发布，故 +1）
 > - **146**：设置页账户卡头像改走统一 Avatar（真实图标 + 圆形裁切）+ 账号头像地址回落会话（一次提交，故 +1）
+
+- **217**：代码页路径显示面板（面包屑）返工 —— 根 = `/`、不再画 `owner/repo`，路径长时整层折行、
+折行处行尾挂 `…` 续排（拆层 `breadcrumbLayers` / 折行 `wrapCrumbs` / 落位表 `crumbRows` 三个纯函数 + `CrumbFlow` 自定义 Layout，
+折行点各备一枚「…」—— 一枚 `Placeable` 摆第二次是把它挪走；`BreadcrumbPathTest` 18 例）（一次提交，故 +1）
 
 - **216**：个人页「热门仓库」移除占位「自定义置顶」（`ProfileScreen.kt` 的 `SectionTitle` 调用回到单参数，
 `label_custom_pins` 中英资源与 `tools/i18n/strings.tsv` 对应行一并删除；`SectionTitle` 的 `sub` 参数保留，

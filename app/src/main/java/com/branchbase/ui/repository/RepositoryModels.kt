@@ -475,6 +475,116 @@ fun joinPath(parent: String, name: String): String = if (parent.isEmpty()) name 
 fun parentPath(path: String): String =
     path.split("/").filter { it.isNotBlank() }.dropLast(1).joinToString("/")
 
+// ── 代码页面包屑（路径显示面板） ──
+
+/**
+ * 面包屑上的一枚元素。
+ *
+ * @param label 显示文本：根是 `/`，其余每一枚是一段目录名（分隔符 `/` 是**单独一枚**、不可点）
+ * @param target 点它跳到哪个目录；`null` = 分隔符，不可点
+ * @param current 是不是当前所在目录（路径最后一段）—— 只有它用主色加粗，其余是链接蓝
+ */
+data class Crumb(val label: String, val target: String?, val current: Boolean = false)
+
+/** 面包屑的**一层**：折行时不可拆开的最小单位（[crumbs] 要么一起上屏、要么一起换行）。 */
+data class CrumbLayer(val crumbs: List<Crumb>)
+
+/**
+ * 把目录路径拆成面包屑的层（纯函数，便于单测）：`""` → `[/]`；`"app"` → `[/ app]`；`"app/src"` → `[/ app] [/ src]`。
+ *
+ * 两点是刻意的：
+ * - **根只画 `/`**，不再画 `owner/repo`。仓库名已经在仓库页顶栏了，面包屑再背一遍，
+ *   长仓库名会把真正要看的目录链挤出屏幕（用户 2026-09-27 报的）。
+ * - 第 0 层把根 `/` 和第一段目录名**绑成一层**：根那个 `/` 就是它俩之间唯一的分隔符，
+ *   拆开折行的话第二行会以 `app` 开头，看起来像丢了斜杠。第 k（k≥1）层则是 `/` 与第 k+1 段。
+ */
+fun breadcrumbLayers(path: String): List<CrumbLayer> {
+    val segs = path.split("/").filter { it.isNotBlank() }
+    if (segs.isEmpty()) return listOf(CrumbLayer(listOf(Crumb("/", "", current = true))))
+    return segs.mapIndexed { i, seg ->
+        val name = Crumb(seg, segs.take(i + 1).joinToString("/"), current = i == segs.lastIndex)
+        if (i == 0) CrumbLayer(listOf(Crumb("/", ""), name))
+        else CrumbLayer(listOf(Crumb("/", null), name))
+    }
+}
+
+/** [wrapCrumbs] 的一行：`[first, lastExclusive)` 是本行放下的层号，[continued] 表示行尾挂了一枚 `…`。 */
+data class CrumbLine(val first: Int, val lastExclusive: Int, val continued: Boolean)
+
+/**
+ * 面包屑折行方案（纯函数，便于单测）：哪几层落在第几行、行尾要不要挂 `…`。
+ *
+ * 规则：一行从左往右装层，**装不下就整层挪到下一行**（不裁切、不省略任何一段 —— 每一段都还得点得回去）；
+ * 只要本行后面还有层，行尾就挂一枚 `…`，下一行从被挪走的那层接着显示。
+ * `…` 自己占的宽度**参与**装填判断：不参与的话要么把 `…` 挤出屏幕，要么反过来把它裁掉。
+ *
+ * 调用方（`CrumbFlow`）必须给**每个可能的折行点**各备一枚 `…`：Compose 的 `Placeable` 身上只有一个摆放位置，
+ * 摆第二次等于把它从上一行挪走 —— 共用一枚的话，多行折行时只有最后一行还留着 `…`。
+ *
+ * @param layerWidths 每层的实测宽度（px），顺序与 [breadcrumbLayers] 一致
+ * @param ellipsisWidth `…` 的实测宽度（含它与前一层之间的间距）
+ * @param maxWidth 一行可用的宽度（px）
+ */
+fun wrapCrumbs(layerWidths: List<Float>, ellipsisWidth: Float, maxWidth: Float): List<CrumbLine> {
+    if (layerWidths.isEmpty()) return emptyList()
+    val lines = mutableListOf<CrumbLine>()
+    var start = 0
+    while (start < layerWidths.size) {
+        var end = start
+        var used = 0f
+        while (end < layerWidths.size) {
+            val next = used + layerWidths[end]
+            // 这一层之后还有层 ⇒ 本行行尾得给「…」留位；它正好是最后一行时不需要
+            val room = if (end + 1 < layerWidths.size) ellipsisWidth else 0f
+            // 每行至少装一层：一层就比整行宽时让它独占（那一层自己会按 maxWidth 裁切），
+            // 否则会退化成死循环
+            if (end > start && next + room > maxWidth) break
+            used = next
+            end++
+        }
+        lines += CrumbLine(start, end, continued = end < layerWidths.size)
+        start = end
+    }
+    return lines
+}
+
+/**
+ * [crumbRows] 里的一行：要摆哪些子项（`Layout` 的 content 下标，升序）、行尾那枚 `…` 用哪个位子。
+ *
+ * [ellipsisSlot] 为 null 表示这一行是最后一行（行尾没有 `…`）。
+ */
+data class CrumbRow(val children: List<Int>, val ellipsisSlot: Int?)
+
+/**
+ * 折行方案的落位表（纯函数）：把 [wrapCrumbs] 的「哪几层在第几行」翻成「摆哪些子项、行尾用哪个位子」。
+ *
+ * 两个必须守住的约束，单测钉着：**每个子项恰好摆一次**（不重不漏）、**每个 `…` 位子至多用一次** ——
+ * Compose 的 `Placeable` 身上只有一个摆放位置，摆第二次是把它从上一行**挪走**，
+ * 所以 `…` 的位子必须一个折行点一个，不能共用。
+ *
+ * @param layerCounts 每层的子项枚数（`/` + 段名 ⇒ 2；根那一层只有一枚 `/` 时是 1），顺序与 [breadcrumbLayers] 一致
+ * @param lines [wrapCrumbs] 给出的折行方案（层号必须落在 `layerCounts` 范围内）
+ */
+fun crumbRows(layerCounts: List<Int>, lines: List<CrumbLine>): List<CrumbRow> {
+    // content 里前 breaks 个子项是「…」的位子，目录链从 breaks 开始排
+    val breaks = (layerCounts.size - 1).coerceAtLeast(0)
+    val firstChildOfLayer = IntArray(layerCounts.size)
+    var child = breaks
+    layerCounts.forEachIndexed { li, count ->
+        firstChildOfLayer[li] = child
+        child += count
+    }
+    var slot = 0
+    return lines.map { line ->
+        val children = ArrayList<Int>()
+        for (li in line.first until line.lastExclusive) {
+            val first = firstChildOfLayer[li]
+            for (k in 0 until layerCounts[li]) children += first + k
+        }
+        CrumbRow(children, if (line.continued) slot++ else null)
+    }
+}
+
 /** URL 编码路径（逐段编码，保留 '/' 分隔；空格编码为 `%20` 而非 `+`，路径里 `+` 是字面加号） */
 fun encodePath(path: String): String = path.split("/").joinToString("/") {
     java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20")
