@@ -13,6 +13,7 @@ import com.branchbase.downloader.DownloaderConfig
 import com.branchbase.downloader.DownloaderRuntime
 import com.branchbase.downloader.VendorIslandExtensions
 import com.branchbase.translate.TranslateRuntime
+import com.branchbase.ui.log.ExitWatch
 import com.branchbase.ui.log.LogManager
 import com.branchbase.ui.log.Logger
 import com.branchbase.translate.TranslateSettings
@@ -47,6 +48,14 @@ class BranchbaseApp : Application(), ImageLoaderFactory {
         // 基线，而整份 907 行日志里 `[Reach]` 只出现过 1 次。init 幂等，`MainActivity` 那次是兜底。
         Logger.startupOnce("log-init", "启动 ▸ 日志初始化（建目录 / 清历史）")
         LogManager.init(this)
+
+        // 上一程是怎么结束的：闪退时进程往往一句话都来不及说（被 LMK 杀 / 被信号杀 / 未捕获异常
+        // 时还没有 handler），日志里就只剩一段空白 —— 2026-09-27 那次真机闪退就是这样：最后一条
+        // `09:12:24 切到「发布」` 之后直接是 `09:12:28 启动`，4.7 秒里什么都没留下。
+        // 系统替我们记着最后一次进程退出的原因、时间与栈（`ApplicationExitInfo`，API 30+），
+        // 所以在写盘线程就绪之后立刻补一次：用户下次复现（或这次已经发生过的闪退）就会进日志。
+        Logger.startupOnce("exit-report", "启动 ▸ 异常退出上报（读系统留的退出记录）")
+        ExitWatch.report(this)
 
         // 远端可达性守望：盯默认网络（含 VPN 接入 / 断开），跃迁时丢连接池并重探远端。
         // 必须**最先**装：晚于任何一次网络请求的话，基线就落在旧网络上，

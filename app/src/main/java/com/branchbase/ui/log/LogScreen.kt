@@ -62,9 +62,6 @@ import com.branchbase.R
 import com.branchbase.ui.theme.selectionColor
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Primer
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 // 分类 / 级别 语义色（对齐 HTML 原型）
 internal val catColor: Map<LogCategory, Color> = mapOf(
@@ -80,20 +77,20 @@ internal val levelColor: Map<LogLevel, Color> = mapOf(
     LogLevel.ERROR to Color(0xFFF85149),
 )
 
-private val timeFmt = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
-
-internal fun formatTime(epochMs: Long): String =
-    Instant.ofEpochMilli(epochMs).atZone(ZoneId.of("Asia/Shanghai")).format(timeFmt)
+internal fun formatTime(epochMs: Long): String = formatLogTime(epochMs)
 
 /**
- * 一行日志的完整文本。
+ * 一行日志的完整文本（多行正文会有多行）。
  *
  * 原始日志、点按复制、过滤面板复制**共用这一个格式** —— 原先三处各拼一遍，
  * 改一处就会分家（`log-redesign` 文档把「点行复制的内容 = `branchbase.log` 的行格式」
  * 列为验收项）。
+ *
+ * 现在这个格式只有一处真源：[logFileLines]（`Logging.kt`）。多行正文（异常退出的栈）
+ * 在这里也**逐行补表头**，与写进文件的样子**逐字节一致** —— 否则复制出来的栈粘到别处
+ * 就分不清哪行是哪条日志。
  */
-internal fun logLine(e: LogEntry): String =
-    "${formatTime(e.time)} [${e.category.label}] [${e.tag}] ${e.level.name} ${e.message}"
+internal fun logLine(e: LogEntry): String = logFileLines(e).joinToString("\n")
 
 private enum class LogMode { STREAM, RAW }
 

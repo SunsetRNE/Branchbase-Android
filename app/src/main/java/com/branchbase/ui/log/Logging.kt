@@ -169,6 +169,7 @@ internal val LOG_ANCHORS: List<Pair<String, String>> = listOf(
     "Git工作台" to "Git 面板：进 / 退档与返回退档、动作点击（记稳定的 action.key）、三档取数条数与失败原因、深链接与设置列表的进入",
     "合并" to "本地合并：合的是哪个分支、四条出口的结果、冲突文件数与「仓库停在合并中」、放弃合并",
     "代码页文件树" to "代码页每次列目录：项数、目录数与渲染顺序（前 6 项名字）—— 排序规则（文件夹优先 / `.` 开头最前 / A→Z）是否生效看这一条",
+    EXIT_LOG_TAG to "上一程是怎么结束的：原因（自己退出 / 被杀 / LMK / 闪退 / ANR）、时间、进程与内存、系统留下的栈（见 `ExitReport.kt`）",
 )
 
 /**
@@ -209,6 +210,26 @@ private val fileTimeFmt = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
 
 /** 时区查一次就够：原先每写一行都 `ZoneId.of("Asia/Shanghai")` 一次。 */
 private val fileZone: ZoneId = ZoneId.of("Asia/Shanghai")
+
+/** 一条日志的表头时间（北京时间，`HH:mm:ss.SSS`）—— 界面行首、文件每行共用这一个格式。 */
+internal fun formatLogTime(epochMs: Long): String =
+    Instant.ofEpochMilli(epochMs).atZone(fileZone).format(fileTimeFmt)
+
+/**
+ * 一条日志在**文件里**的样子（可能多行）。
+ *
+ * 日志格式的契约是「**一行一条**，每行都以 `HH:mm:ss.SSS [类] [tag] 级别` 开头」：导出包里
+ * `report.md` 的读法说明、收到日志的人 `grep 慢帧` / `grep [网络]`，全都建立在这上面。
+ *
+ * 而有些正文天生多行 —— 异常退出的调用栈（`ExitReport.kt`）。若直接 `append(message)`，文件里会
+ * 多出一批**没有表头的裸行**：`grep [异常退出]` 只会命中第一行，剩下的栈看起来像别人打的。
+ * 所以多行正文在这里统一逐行补表头，写盘、界面复制、导出兜底三处共用这一个函数。
+ */
+internal fun logFileLines(e: LogEntry): List<String> =
+    e.message.split('\n').map { text -> logFileHeader(e) + text }
+
+private fun logFileHeader(e: LogEntry): String =
+    formatLogTime(e.time) + " [${e.category.label}] [${e.tag}] ${e.level.name} "
 
 /** 写盘队列上限：日志**永远不许**阻塞业务线程，满了就丢最旧的。 */
 private const val APPEND_QUEUE_MAX = 512
@@ -370,7 +391,8 @@ private class FileAppender(private val root: File) {
                 // 见 openLogFileForAppend 的注释）
                 openLogFileForAppend(file).use { out ->
                     while (entry != null) {
-                        out.append(line(entry)).append('\n')
+                        // 多行正文（异常退出的栈）**逐行补表头**，见 logFileLines
+                        logFileLines(entry).forEach { out.append(it).append('\n') }
                         pending.decrementAndGet()
                         entry = queue.poll()
                     }
@@ -397,8 +419,4 @@ private class FileAppender(private val root: File) {
         file.parentFile?.mkdirs()
         cleanupOldLogDays(File(root, LOG_ROOT), target)
     }
-
-    private fun line(e: LogEntry): String =
-        Instant.ofEpochMilli(e.time).atZone(fileZone).format(fileTimeFmt) +
-            " [${e.category.label}] [${e.tag}] ${e.level.name} ${e.message}"
 }

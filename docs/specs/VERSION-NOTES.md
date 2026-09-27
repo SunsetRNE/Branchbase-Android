@@ -74,7 +74,71 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.1.11 → 1.0.22）
+## 二、`versionName` 流水（1.1.12 → 1.0.22）
+
+### 1.1.12
+
+**「莫名其妙的闪退」查不出原因 —— 因为 App 从来没记过自己是怎么死的。补上「异常退出上报」：启动时向系统读回上一程的退出记录（原因 / 时间 / 进程与内存 / 系统留下的栈），进 `branchbase.log` 与导出包。**
+
+① 2026-09-27 早上用户反馈闪退并导出日志包（`branchbase-logs-20260927-091250.zip`，1.1.10 / `1a9fad3`）：
+包内 39 条日志、`ERROR 0`、`WARN 0`，但原始日志最后一条是 `09:12:24.205 [网络] [缓存] DEBUG L1 直出（含过期）repo-list:releases:SunsetRNE/Branchbase-Android`（前一条是 `09:12:24.179 切换到「发布」`），
+下一条已经是 `09:12:28.890 [UI] [启动] INFO 启动 ▸ 日志初始化` —— 中间 **4.685 秒**进程直接没了、一个字都没留。
+查清了为什么留不下：被 `SIGKILL`（LMK / 系统杀）时 Java 层没机会执行任何代码；未捕获异常与新装的
+native 崩溃也都没人接（App **从未安装** `Thread.setDefaultUncaughtExceptionHandler`，也没有 native 信号处理器）；
+ANR 只会进系统那份 traces。取证通道同样不给力：容器里拿不到 logcat / tombstone（设备 shell 通道未授权），
+用户也不可能为偶发闪退去抓 bugreport。**结论：唯一的活路是事后问系统。**
+（顺带确认这次闪退**不是本仓库当天的面包屑改动引入的**：崩溃的包是 1.1.10 / `1a9fad3`，面包屑提交 `3f9262c` 是 1.1.11、当时还没装到用户机器上。）
+
+② 用 `ActivityManager.getHistoricalProcessExitReasons(pkg, 0, n)`（API 30+，minSdk 24 所以运行时守卫）
+读回系统在进程死亡时就写好的记录，落成新文件 `app/src/main/java/com/branchbase/ui/log/ExitReport.kt`
+（`ExitWatch.report(context)` 插在 `BranchbaseApp.onCreate` 的 `LogManager.init(this)` 之后 —— 写盘线程已就绪，
+是启动路径上唯一稳定早于业务代码的插入点）。三层设计：
+- **抄字段**：`ApplicationExitInfo` 是 final 类、单测里造不出来，先抄成纯数据类
+  `ExitFacts(timestampMs, reason, importance, pid, processName, description, pssKb, rssKb, trace)`；
+  `pss`/`rss` 单位是 **kB**（AOSP 注释原话「in kB」，打印时才换算 MB）。
+- **纯函数**（可脱离真机钉死）：`exitReasonLabel(reason)` 把原因码 `0..16` 翻成人话（数值对着
+  `platforms/android-35/android.jar` 的 `javap -constants android.app.ApplicationExitInfo` 核过；
+  表外落「未知原因码 N」，不崩也不装懂）；`isAbnormalExit(reason)` 排掉 `1` 自己退出、`8` 权限变更、
+  `10` 用户划掉、`11` 被强制停止、`12` 依赖被卸载、`14` 被冻结、`15`/`16` 包状态与装新包；
+  `exitImportanceLabel(importance)` 说明「在什么处境下被杀的」；`decodeExitTrace` / `printableRuns`
+  处理栈；`exitTraceLines` 与 `exitReportMessage` 造正文。
+- **去重与回溯**：`pickExitFacts(facts, reportedUpto, limit = 3)` 报**所有**比上次报过的时间戳新的异常退出，
+  **刻意不是「只报最新一条」** —— 用户装上新包时旧进程会以 `REASON_PACKAGE_UPDATED(16)` 结束，它才是最新一条，
+  只报最新一条会**悄无声息地丢掉真正的闪退**（而且看起来功能还在工作）。「报到哪一刻了」记在**独立的** prefs
+  （`log_runtime` / `exit_reported_upto`）里：它是运行时状态不是设置项，塞进 `branchbase` 命名空间会污染
+  「设置键只在 `SettingsKeys.kt` 里声明」这条规矩；标记推到「现在」而不是「最后一条记录的时间」，
+  这次启动之前的退出都已处理、之后的退出必然带更大时间戳，不会被吞掉。
+- **栈的三种形态**：文本（Java 崩溃栈 / ANR traces）直接按 UTF-8 读；API 31+ 的 `REASON_CRASH_NATIVE`
+  给的是 **protobuf tombstone**（序列化地址丢进日志就是乱码），检测到 NUL 就改抽 ASCII 可打印串
+  （`signal 11 (SIGSEGV)`、崩溃地址、`backtrace:` 后面的符号本来就在可打印段里）；系统也可能压根没留
+  （trace 在另一个全局环形缓冲里，会被别家的崩溃覆盖）—— 那时正文明说「系统没有留下栈」，
+  而不是让读者以为「这次没崩溃」。三道截断：读文件 64KB、栈 60 行、8000 字，丢掉的量在末尾交代
+  （`…（还有 40 行没记：只留前 60 行 / 8000 字）`）。
+- 两条刻意的选择：类别用 **`本地`** 而不是 `UI`（`LogManager.lastUiMessage` 拿 UI 类当慢帧的「页面」注脚，
+  一条异常退出混进去会让慢帧归因走偏）、级别用 **`ERROR`**（导出的 `report.md` 会统计出「ERROR 1」，
+  用户一眼看出这次导出里有事故）；`EXIT_LOG_TAG = "异常退出"` 登记进 `LOG_ANCHORS`，`report.md` 的锚点表
+  自动带上它，收到日志的人 grep `异常退出` 即可。
+
+③ 多行正文撞上了「一行一条日志」的格式契约（导出包读法、用户 `grep 慢帧` / `grep [网络]` 全建立在
+「每行都以 `HH:mm:ss.SSS [类] [tag] 级别` 开头」上），于是新增 `Logging.kt` 的 `logFileLines(e)`（`:228`，
+逐行补表头）并把原先**三处各拼一遍**的行格式收敛成一处真源：写盘（`FileAppender`，`:395`）、
+界面点行复制 / RAW 搜索 / 全量复制（`LogScreen.logLine`，现在就是 `logFileLines(e).joinToString("\n")`）、
+导出兜底（`LogExporter.currentLogText`）。「点行复制的内容 = `branchbase.log` 的行格式」这条验收项
+从此逐字节一致。时间格式也一并收敛为 `Logging.kt` 的 `formatLogTime`（`:215`），`LogScreen.formatTime`
+改为委托（`LogScreen.kt` 里原先那份 `DateTimeFormatter` 与三个 `java.time` import 一并删掉）。
+
+④ 新增 `docs/specs/exit-report-design.md`（起因与三行铁证、五档方案对比为何选 `ApplicationExitInfo`、
+字段表、原因码表、异常判定、回溯与去重的理由、栈的三种形态与三道截断、格式契约收敛表、插入点与类别选择、
+五条已知边界）与 `ExitReportTest` 24 例（`app/src/test/java/com/branchbase/ui/log/ExitReportTest.kt`）：
+原因码映射与未知码、异常判定两向、`pickExitFacts` 四例（**装新包杀旧进程不挤掉真闪退** / 上限取最近 3 条 /
+全报过就不报）、栈的四种形态与两种截断（含「太短的可打印碎片丢掉」）、正文要素齐全、
+**行格式（正文几行文件里就几行、且每行都带表头，`logLine` 与 `logFileLines` 逐字节一致）**、
+以及源码级接线（锚点登记 / 独立 prefs 且不碰 `SettingsKeys`（断言前先剥注释，否则把坑写在注释里会变成假红）/
+标记必须推进 / API 30 守卫 / 旧的单行拼法已删 / `ExitWatch.report(this)` 在 `LogManager.init(this)` 之后）。
+全量 119 suites / 1067 tests 全绿；本版**没有新增字符串键**（正文里的中文都进日志，不进资源表），
+i18n 覆盖率仍 100%。**真机未验证**：容器里装不上包、也读不到 logcat / tombstone，
+「真的拿到闪退栈」只能靠用户装上这一版后复现（见 `exit-report-design.md` §五：出事后先导出日志包，
+卸载重装会连系统那份退出历史一起清掉）。
 
 ### 1.1.11
 
@@ -3248,7 +3312,7 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（217 → 129）
+## 三、`versionCode` 流水（218 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
@@ -3260,6 +3324,13 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 > - **129**：主题彻底收敛（A+B+C 全量收角色 + 两道源码级钉子）（一次提交，故 +1）
 > - **142**：慢帧守望（帧级定位）+ 日志追加写修复 + 设置行图标居中（一次发布，故 +1）
 > - **146**：设置页账户卡头像改走统一 Avatar（真实图标 + 圆形裁切）+ 账号头像地址回落会话（一次提交，故 +1）
+
+- **218**：异常退出上报 —— 启动时读系统留的上一程退出记录（`ActivityManager.getHistoricalProcessExitReasons`，
+API 30+），把原因 / 时间 / 进程与内存 / 系统留下的栈（文本栈或 native tombstone 的可打印串）写进
+`branchbase.log`（新文件 `ExitReport.kt` + 纯函数 `exitReasonLabel`/`isAbnormalExit`/`pickExitFacts`/
+`exitTraceLines`/`exitReportMessage`；独立 prefs `log_runtime` 记「报到哪一刻」，**装新包杀旧进程不挤掉真闪退**；
+多行正文逐行补表头，`logFileLines` 把写盘 / 点行复制 / 导出兜底三处行格式收敛成一处；
+`ExitReportTest` 24 例 + 设计稿 `exit-report-design.md`）（一次提交，故 +1）
 
 - **217**：代码页路径显示面板（面包屑）返工 —— 根 = `/`、不再画 `owner/repo`，路径长时整层折行、
 折行处行尾挂 `…` 续排（拆层 `breadcrumbLayers` / 折行 `wrapCrumbs` / 落位表 `crumbRows` 三个纯函数 + `CrumbFlow` 自定义 Layout，

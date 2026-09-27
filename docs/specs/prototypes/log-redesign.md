@@ -185,7 +185,8 @@ UI→`accent`、网络→`success`、远端→`done`、本地→`warning`。计�
 
 行号 gutter + `ui-monospace` + `white-space: pre` + `overflow-x: auto`，
 内容就是 `FileAppender` 的落盘行格式：`HH:mm:ss.SSS [类别] [tag] LEVEL message`
-（与 `Logging.kt:99` 逐字一致，所以「看到的」= 「文件里的」）。
+（唯一真源是 `Logging.kt` 的 `logFileLines` —— 写盘、点行复制、RAW 视图三处共用，所以「看到的」= 「文件里的」；
+多行正文（例如异常退出的调用栈，见 `exit-report-design.md`）同样**逐行补表头**，文件里不许出现没有表头的裸行）。
 
 长日志**分块渲染**（每块 240 行，滚到底自动续，也给了「继续加载（还有 N 行）」按钮）：
 现状整段拼字符串丢给 `Text` 的写法在几 MB 时会整块测量。
