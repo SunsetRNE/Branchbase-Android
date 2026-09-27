@@ -169,6 +169,7 @@ internal val LOG_ANCHORS: List<Pair<String, String>> = listOf(
     "Git工作台" to "Git 面板：进 / 退档与返回退档、动作点击（记稳定的 action.key）、三档取数条数与失败原因、深链接与设置列表的进入",
     "合并" to "本地合并：合的是哪个分支、四条出口的结果、冲突文件数与「仓库停在合并中」、放弃合并",
     "代码页文件树" to "代码页每次列目录：项数、目录数与渲染顺序（前 6 项名字）—— 排序规则（文件夹优先 / `.` 开头最前 / A→Z）是否生效看这一条",
+    HangWatch.MAIN_THREAD_LOG_TAG to "主线程卡住：探针超时的下界时长、当时页面、主线程调用栈；恢复时补一条真实卡顿时长（见 `HangWatch.kt`）",
     EXIT_LOG_TAG to "上一程是怎么结束的：原因（自己退出 / 被杀 / LMK / 闪退 / ANR）、时间、进程与内存、系统留下的栈（见 `ExitReport.kt`）",
 )
 

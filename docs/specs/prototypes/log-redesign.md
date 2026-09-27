@@ -331,7 +331,8 @@ UI→`accent`、网络→`success`、远端→`done`、本地→`warning`。计�
 
 > **2026-09 追记（落地核实）**：上表是设计当时的计划。实际落地**没有拆出那 5 个新文件** ——
 > `app/src/main/java/com/branchbase/ui/log/` 现在只有 `LogScreen.kt` / `Logging.kt` / `LogExporter.kt` /
-> `LogFileProvider.kt` / `FrameWatch.kt` / `DeviceProfile.kt`，chips、单行网格、原始视图都收在
+> `LogFileProvider.kt` / `FrameWatch.kt` / `DeviceProfile.kt` / `ExitReport.kt`（1.1.12 异常退出上报）/
+> `HangWatch.kt`（1.1.13 主线程卡顿守望），chips、单行网格、原始视图都收在
 > `LogScreen.kt` 与 `Logging.kt` 里。设计意图（单行网格 / 底栏 / chips / 原始视图）保留在上文。
 
 顺带一起修（第一节列出的 app 侧问题）：

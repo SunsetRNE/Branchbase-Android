@@ -20,6 +20,7 @@ import com.branchbase.core.NetworkWatch
 import com.branchbase.ui.auth.LoginFlow
 import com.branchbase.ui.log.DeviceProfile
 import com.branchbase.ui.log.FrameWatch
+import com.branchbase.ui.log.HangWatch
 import com.branchbase.ui.log.LogManager
 import com.branchbase.ui.settings.frameWatchEnabled
 import com.branchbase.ui.log.Logger
@@ -60,6 +61,11 @@ class MainActivity : ComponentActivity() {
         // 默认值随编译通道（Beta 开、正式版关），用户可在「设置 → 关于与诊断 → 慢帧日志」改
         Logger.startupOnce("prefs-first-load", "启动 ▸ 首选项首次加载（整份 XML 在主线程解析）")
         FrameWatch.setEnabled(frameWatchEnabled(applicationContext))
+
+        // 主线程卡顿守望：后台每秒投一枚探针，卡住时**从守望线程**写下主线程的调用栈。
+        // 慢帧守望抓不到「那一帧根本没画完」的情形 —— 用户报的两次闪退正是如此（切到「发布」
+        // Tab 后进程静默消失、日志里一个 ERROR 都没有），见 HangWatch 类注释。
+        HangWatch.install()
 
         // 清理超期短任务记录（后台，不阻塞启动）
         Thread {
