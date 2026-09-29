@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.1.6**）
-与 §三 `versionCode` 流水（129 → **212**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.1.20**）
+与 §三 `versionCode` 流水（129 → **226**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,23 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.1.19 → 1.0.22）
+## 二、`versionName` 流水（1.1.20 → 1.0.22）
+
+### 1.1.20
+
+**写「页面」的仪表不止一个 —— 前两个靠各自调用点点名排除，第三个没有位置，于是慢帧的注脚被仪表自己的日志顶掉。这一版把「谁算仪表」从调用点的私有约定做成集中登记。**
+
+① 现象与判据（真机日志，不是推测）：慢帧与卡顿的页脚会附一句「页面「<最近一条 UI 类日志>」」，用来回答「刚才卡在哪一屏」。为核验接线临时插入第三个写 UI 类日志的仪表后，真机上读到的注脚变成 `慢帧 523.4ms（…） · 页面「接线探针｜组…`，汇总行的页面名同样被顶：`近 62s 慢帧 84 次（最慢 649.9ms，接线探针｜组件进入组合：ReadmeWebView｜…）`。同一日志文件内 `页面「接线探针` 命中 **12** 次 —— 该时间窗内的慢帧注脚**全部**失效，不是偶发。
+
+② 根因：`LogManager.lastUiMessage(excludeTag)` 取的是缓冲里「最近一条 `UI_RENDER` 类日志」，所以任何写 UI 类日志的仪表都会顶替页面名。当时的排除名单只活在调用点：`FrameWatch.kt:176/184` 传 `FrameWatch.TAG`、`HangWatch.kt:131/139` 传 `MAIN_THREAD_LOG_TAG` —— 两处各自点名的私有约定；再多一个仪表，写调用点的人不会知道要在这里补一笔。
+
+③ 修法：`Logging.kt` 新增 `instrumentTags`（`CopyOnWriteArraySet`）与 `LogManager.registerInstrumentTag(tag)`；`lastUiMessage` 在调用方点名的 `excludeTag` 之外，**再跳过所有登记过的仪表 tag**；仪表在自己的类初始化处登记自己。以后新增仪表是「自己声明一次」，而不是「记得去改别人的调用点」。
+
+④ **刻意没有改成 `vararg excludeTags`**：`FrameWatch.kt:176/184`、`HangWatch.kt:131/139` 与源码级钉 `FrameWatchFormatTest.kt:86` 用的都是具名参数 `excludeTag = …`，换成可变参数要同时改调用形态和那条断言 —— 登记表是加法，不动既有约定。
+
+⑤ 验证（真机闭环）：同一日志文件按时间窗切分后，修复前窗口 `页面「接线探针` **12** 次、修复后窗口 **0** 次；汇总行的页面名恢复成注入的启动标记 —— `近 63s 慢帧 71 次（最慢 535.0ms，启动 ■ 首帧已上屏（含建窗 1018.2ms））`。两包慢帧率（235/1298 → 171/1259）**不可直接对比**：走查路径相近不相同、都是 Debug 冷路径、没有控制变量，这一版只主张「注脚归位」，不主张性能变化。
+
+⑥ 单测：全量 **125 suites / 1110 tests / 0 failures / 0 errors**；编译零新警告。
 
 ### 1.1.19
 
@@ -3428,7 +3444,7 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（225 → 129）
+## 三、`versionCode` 流水（226 → 129）
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 
@@ -3441,6 +3457,7 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 > - **142**：慢帧守望（帧级定位）+ 日志追加写修复 + 设置行图标居中（一次发布，故 +1）
 > - **146**：设置页账户卡头像改走统一 Avatar（真实图标 + 圆形裁切）+ 账号头像地址回落会话（一次提交，故 +1）
 
+- **226**：慢帧 / 卡顿页脚的「页面」名不再被仪表自己的日志顶掉 —— `LogManager.lastUiMessage` 取的是「最近一条 UI 类日志」，原先只有 `FrameWatch` / `HangWatch` 在各自调用点用 `excludeTag` 点名排除，第三个写 UI 类日志的仪表（为核验接线临时插入的探针）没有位置，真机上慢帧注脚整窗失效（同一日志文件 `页面「接线探针` 命中 12 次）；改为 `Logging.kt` 内 `instrumentTags` 登记表 + `LogManager.registerInstrumentTag(tag)`，仪表在类初始化处自己登记、`lastUiMessage` 跳过全部已登记仪表 tag；刻意不改 `vararg`（`FrameWatch.kt:176/184`、`HangWatch.kt:131/139`、`FrameWatchFormatTest.kt:86` 用的都是具名参数 `excludeTag = …`）；真机闭环：修复前窗口 12 次 / 修复后窗口 0 次，汇总行页面名恢复为启动标记；`125 suites / 1110 tests / 0 failures`（一次提交，故 +1）
 - **225**：分组头定高行的第三半 —— `height(20.dp)` → `heightIn(min = 20.dp)`，动作标签 `lineHeight = 14.sp`
 + 上下内边距 3dp → 2dp（不折行也放不下：22.7dp 塞进 20dp 的行约束，`.clip()` 把字形顶端削掉 3px，
 真机 1x 下就可见，同尺寸标题 10px / 动作 7px）；顺带把行尾分支 chip 从只读标记做成可选目标分支的按钮

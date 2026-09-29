@@ -103,10 +103,33 @@ object LogManager {
      * [excludeTag] 用来把**慢帧自己打的日志**排掉：它也是 UI 类日志，不排掉的话下一条慢帧
      * 会把上一条慢帧的正文当成「页面」，越套越深（真机日志里出现过五层套娃）。
      *
+     * 除了调用方点名的 [excludeTag]，[instrumentTags] 里登记过的仪表 tag 也一律跳过：
+     * 仪表写的也是 UI 类日志，但它**不是页面事件**，漏排就会顶替掉「页面」注脚
+     * （真机日志实测：`页面「接线探针｜组件进入组合：…」`，那行注脚就再也读不出真实页面）。
+     *
      * 表头 = 最新（`addFirst`），所以正常情况下第一个元素就命中。
      */
     fun lastUiMessage(excludeTag: String? = null): String? = synchronized(buffer) {
-        buffer.firstOrNull { it.category == LogCategory.UI_RENDER && it.tag != excludeTag }?.message
+        buffer.firstOrNull {
+            it.category == LogCategory.UI_RENDER &&
+                it.tag != excludeTag &&
+                it.tag !in instrumentTags
+        }?.message
+    }
+
+    /**
+     * 仪表 tag 登记处：写 UI 类日志、但**不是页面事件**的仪表，自己登记进来。
+     *
+     * 为什么要有这一层而不是在 [lastUiMessage] 里硬编码：体检/插桩用的仪表是临时件，
+     * 登记表让它们**自己**声明身份，删掉仪表文件即回滚，`Logging` 里不会留下对已删
+     * 文件的悬垂引用。
+     *
+     * 仪表在文件加载时登记即可 —— 过滤发生在**读**的时候，早于第一条慢帧/卡顿报告就行。
+     */
+    private val instrumentTags = java.util.concurrent.CopyOnWriteArraySet<String>()
+
+    fun registerInstrumentTag(tag: String) {
+        instrumentTags.add(tag)
     }
 
     fun clear() = synchronized(buffer) { buffer.clear() }
