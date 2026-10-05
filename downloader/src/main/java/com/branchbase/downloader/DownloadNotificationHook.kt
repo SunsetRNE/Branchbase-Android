@@ -8,9 +8,9 @@ import androidx.core.app.NotificationCompat
  *
  * ## 为什么要把这些字段写进 extras
  *
- * 「灵动岛 / 实时活动」的官方接入几乎都要**厂商白名单**（小米焦点通知权限、ColorOS 实况通知、
- * Android 16 的 promoted ongoing 都算），没批下来时通知只会以普通形态显示。
- * 这时用户唯一的补救办法是装第三方模块（LSPosed / Xposed 之类）去把通知「改造成岛」。
+ * Android 16 实时更新走公开 API，厂商专有协议可能还需要额外授权。
+ * 系统未提升通知时，普通下载通知仍保留。
+ * 第三方模块也可以读取这些字段，但它不是公开实时更新 API 的前置条件。
  * 而那些模块只看得到 `Notification.extras` —— 如果进度只存在于 `setProgress()` 的
  * 标准字段里，Hook 拿不到「这是哪条任务、下到哪了、还能不能续」，只能靠猜标题。
  *

@@ -89,8 +89,9 @@ class BranchbaseApp : Application(), ImageLoaderFactory {
                 auth = AuthProvider { url -> authorizationForHost(url) },
                 // 下载进度除了通知栏，再尝试投到厂商的「灵动岛 / 实时活动」：
                 // 谷歌实时更新（Android 16）/ 小米超级岛 / OPPO 实况通知。
-                // 三家都要白名单或额外依赖，扩展内部各自判断可用性；不可用时保持普通通知。
+                // Android 16 走公开实时更新 API；厂商专有扩展不可用时保持普通通知。
                 islandExtensions = VendorIslandExtensions.defaults(),
+                notificationLog = { Logger.local(it, "下载通知") },
             ),
         )
     }

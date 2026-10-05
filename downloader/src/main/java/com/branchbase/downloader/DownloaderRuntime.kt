@@ -31,6 +31,8 @@ data class DownloaderConfig(
      * （[DownloaderRuntime.registerIslandExtension]）。
      */
     val islandExtensions: List<DownloadIslandExtension> = emptyList(),
+    /** 中文通知诊断，由 App 接入现有日志；不得影响下载。 */
+    val notificationLog: (String) -> Unit = {},
 )
 
 /**

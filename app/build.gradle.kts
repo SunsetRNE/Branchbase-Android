@@ -67,7 +67,7 @@ val releaseKeystoreFile: File? = releaseKeystoreBase64?.let { b64 ->
 
 android {
     namespace = "com.branchbase"
-    compileSdk = 35
+    compileSdk = 36
 
     /**
      * 语言资源目录即语言清单：`values-en/`、`values-ja/` … 存在哪些目录，

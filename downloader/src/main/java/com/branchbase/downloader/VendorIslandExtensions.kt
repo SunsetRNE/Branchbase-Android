@@ -56,11 +56,9 @@ object VendorIslandExtensions {
 /**
  * Android 16 的「实时更新」（promoted ongoing notification）。
  *
- * 官方做法是 `NotificationCompat.ProgressStyle` + `Builder.setRequestPromotedOngoing(true)`
- * —— 这两个 API 从 **androidx.core 1.17.0** 才有，而本模块当前依赖 1.10.1。
- * 所以这里用**反射**调用：
- * - 依赖哪天升上去，不需要改这个文件就自动生效（`isAvailable` 会开始返回 true）；
- * - 现在则静默跳过，通知退回普通形态（这正是预期行为，不是降级 bug）。
+ * 使用 AndroidX Core 1.17 的公开 ProgressStyle 与提升请求 API。
+ * Android 16 以下保留原有普通进度通知；提升请求不是显示保证，
+ * 用户开关、渠道设置与系统策略仍参与最终决定。
  *
  * 另外清单里必须声明 `POST_PROMOTED_NOTIFICATIONS`，否则 Android 16 上系统不会把通知提升为实时更新。
  */
@@ -71,15 +69,12 @@ class GoogleLiveUpdateExtension(
     override val id: String get() = ID
     override val vendor: IslandVendor get() = IslandVendor.GOOGLE
 
-    private val progressStylePresent: Boolean by lazy {
-        runCatching { Class.forName(PROGRESS_STYLE_CLASS) }.isSuccess
-    }
 
     @Volatile
     private var cachedSupport: Boolean? = null
 
     override fun isAvailable(context: Context): Boolean = cachedSupport ?: (
-        Build.VERSION.SDK_INT >= API_36 && progressStylePresent
+        Build.VERSION.SDK_INT >= API_36
         ).also { cachedSupport = it }
 
     override fun decorate(
@@ -91,30 +86,20 @@ class GoogleLiveUpdateExtension(
             runCatching { it.attach(context, builder, state) }.getOrDefault(false)
         } ?: false
         if (attached) return
-        runCatching { applyProgressStyle(builder, state) }
-    }
-
-    private fun applyProgressStyle(builder: NotificationCompat.Builder, state: DownloadNotificationState) {
-        val styleClass = Class.forName(PROGRESS_STYLE_CLASS)
-        val style = styleClass.getDeclaredConstructor().newInstance()
-        val percent = state.percent
-        if (percent != null) {
-            styleClass.getMethod("setProgress", Int::class.javaPrimitiveType).invoke(style, percent)
-        } else {
-            styleClass.getMethod("setProgressIndeterminate", Boolean::class.javaPrimitiveType)
-                .invoke(style, true)
-        }
-        val styleBase = Class.forName(STYLE_CLASS)
-        builder.javaClass.getMethod("setStyle", styleBase).invoke(builder, style)
-        builder.javaClass.getMethod("setRequestPromotedOngoing", Boolean::class.javaPrimitiveType)
-            .invoke(builder, true)
+        val style = NotificationCompat.ProgressStyle()
+            .setProgressSegments(listOf(NotificationCompat.ProgressStyle.Segment(100)))
+            .setProgress(state.percent ?: 0)
+            .setProgressIndeterminate(state.indeterminate)
+        builder.setStyle(style)
+            .setRequestPromotedOngoing(true)
+            .setShortCriticalText(state.percent?.let { "$it%" } ?: "下载中")
+            .setOngoing(true)
+            .setColorized(true)
     }
 
     internal companion object {
         internal const val ID = "google.live_update"
         private const val API_36 = 36
-        private const val PROGRESS_STYLE_CLASS = "androidx.core.app.NotificationCompat\$ProgressStyle"
-        private const val STYLE_CLASS = "androidx.core.app.NotificationCompat\$Style"
     }
 }
 
@@ -241,11 +226,9 @@ internal object XiaomiIslandPayload {
 /**
  * ColorOS「实况通知 / 流体云」。
  *
- * 现状（不要假装能做到）：OPPO **没有公开**三方接入文档，能力开放走开放平台申请，
- * 拿到白名单后才给 SDK。所以这里做两件事：
- * 1. 在 ColorOS 设备上把通知规范成「常驻 + 进度 + 不重复提醒」的形态 —— 这是实况通知最基础的载体，
- *    白名单批下来后系统即可识别；
- * 2. 留 [attacher] 注入点：官方 SDK 到位后由 `:app` 接进来，不需要改下载模块。
+ * 此扩展只保留普通通知基线和厂商 SDK 的 [attacher] 注入点，不声称已经接入专有协议。
+ * Android 16 通用实时更新由 [GoogleLiveUpdateExtension] 在所有 API 36 设备上请求，
+ * 是否映射为 ColorOS 流体云需实机验证；不将用户授权开关等同于厂商 SDK 接入。
  *
  * **不写任何私有的 `oplus.*` extras**：字段名没有公开来源，猜错既没用还可能干扰系统。
  */

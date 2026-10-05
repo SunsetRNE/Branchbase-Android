@@ -24,7 +24,7 @@ plugins {
  */
 android {
     namespace = "com.branchbase.translate"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         minSdk = 24

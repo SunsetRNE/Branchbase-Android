@@ -5,7 +5,7 @@
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
 **每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.1.23**）
-与 §三 `versionCode` 流水（129 → **230**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+与 §三 `versionCode` 流水（129 → **231**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,17 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.1.24 → 1.0.22）
+## 二、`versionName` 流水（1.2.0 → 1.0.22）
+
+### 1.2.0
+
+**接入 Android 16 通用实时更新下载通知，并补齐中文发布诊断。**
+
+① 下载通知使用 AndroidX Core 1.17 的公开 `ProgressStyle` 与 promoted ongoing API；API 36 设备请求实时更新，低版本继续使用普通进度通知。
+
+② 增加中文诊断日志，记录通知权限、渠道重要度、实时更新提升请求、系统允许状态、通知提升标志、提交失败和通知撤下；诊断状态去重并限制系统查询频率。
+
+③ 增加通知构造与诊断状态测试，并修复液态玻璃导航栏在 AGP/Kotlin 编译中的 `matchParentSize` 无法解析问题。
 
 ### 1.1.24
 
@@ -3486,7 +3496,9 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（230 → 129）
+## 三、`versionCode` 流水（231 → 129）
+
+- **231**：接入 Android 16 通用实时更新下载通知与中文发布诊断；增加通知构造、诊断状态测试，并修复 `GlassNavigationBar` 的 `matchParentSize` 编译错误（一次提交，故 +1）。
 
 - **230**：参考 DouyinLiquidGlass 的 MIT 液态玻璃视觉管线，新增 `LiquidGlassSurface` 并将其嵌入 `GlassNavigationBar` 的 AndroidView 背景层；保留 Compose 导航交互，API 31+ 使用 `RenderEffect` 增强，低版本保留渐变、高光和描边（一次提交，故 +1）。
 

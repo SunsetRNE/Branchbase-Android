@@ -252,7 +252,7 @@ DownloaderRuntime.install(
 | `DownloadNotificationState.kt` | 一帧通知态快照（百分比 / 不确定态 / 字节文案 / 状态键，纯数据可单测）—— 通知栏与各厂商岛共用同一份语义 |
 | `DownloadNotificationHook.kt` | 给第三方 Hook 读的稳定 extras（`com.branchbase.download.*`，键名即对外契约） |
 | `DownloadIslandExtension.kt` | 「上岛」扩展点接口 + 注册表（派发全程 `runCatching`，厂商 SDK 崩了也不能影响下载） |
-| `VendorIslandExtensions.kt` | 三家内置实现：小米超级岛（extras）、谷歌实时更新（反射调 androidx.core 1.17+ API）、OPPO（基线形态 + 官方 SDK 注入点） |
+| `VendorIslandExtensions.kt` | 三家内置实现：小米超级岛（extras）、Android 16 实时更新（直接调用 Core 1.17 公开 API）、OPPO（基线形态 + 官方 SDK 注入点） |
 | `NotificationPermission.kt` | 系统通知权限与总开关状态、申请与跳设置（**通知板块也复用它**） |
 | `DownloadPaths.kt` | 落盘目录、文件名净化、`.part` 原子改名、sha256 校验（纯函数可单测） |
 | `DownloadActions.kt` | 安装 APK / 打开 / 分享 / 在文件管理器里显示（FileProvider + 逐级兜底） |
@@ -280,16 +280,18 @@ DownloaderRuntime.install(
 
 ### 灵动岛 / 实时活动（`上岛`）
 
-下载进度会顺带尝试投到厂商的「灵动岛 / 实时活动」，三家都**可能因为没被加上白名单而不显示**，
-这时通知退回普通形态（不是 bug，也不影响下载）：
+下载进度尝试请求实时更新；用户设置、通知资格和系统策略决定最终展示，不能把未显示统一归因为白名单。
+Android 16 使用公开 API，低版本保持普通进度通知：
 
 | 厂商 | 形态 | 本项目怎么接 | 前置条件 |
 |------|------|-------------|---------|
-| 谷歌 | Android 16 Live Updates（promoted ongoing） | `NotificationCompat.ProgressStyle` + `setRequestPromotedOngoing`（**反射**调用，依赖是 1.10.1 时静默跳过） | `POST_PROMOTED_NOTIFICATIONS`（已声明）+ 系统 16 |
+| 谷歌 | Android 16 Live Updates（promoted ongoing） | Core 1.17 公开 `ProgressStyle` + `setRequestPromotedOngoing` + `setColorized(true)` | `POST_PROMOTED_NOTIFICATIONS`（已声明）+ 系统 16 |
 | 小米 | 超级岛 / 焦点通知 | 通知 extras 里挂 `miui.focus.param`（JSON，`XiaomiIslandPayload`） | 焦点通知权限（`notification_focus_protocol ≥ 2`） |
 | OPPO | ColorOS 实况通知（流体云） | 把通知规范成常驻 + 进度 + 不重复提醒；官方 SDK 走 `OppoLiveAlertExtension(attacher = …)` 注入 | 开放平台白名单 / 官方 SDK |
 
-没白名单还想上岛，只能靠第三方模块 Hook 通知 —— 所以进度通知上固定带一份
+通知发布诊断通过 `DownloaderConfig.notificationLog` 接入现有中文日志（本地任务 / 下载通知）。
+后台有界队列串行处理，系统查询最多每两秒一次，只记录状态变化；区分请求、资格、用户允许与系统返回的提升标志。
+提交成功与返回提升标志均不保证具体流体云视觉形态。进度通知还固定带一份
 `com.branchbase.download.*` 的 extras（任务 id / 标题 / 状态 / 已下载 / 总量 / 百分比 / 是否常驻），
 键名一经发布不再改（见 `DownloadNotificationHook`）。
 

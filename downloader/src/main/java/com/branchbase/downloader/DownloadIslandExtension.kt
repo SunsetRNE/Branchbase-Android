@@ -9,9 +9,9 @@ import java.util.concurrent.CopyOnWriteArrayList
  *
  * ## 为什么是「扩展点」而不是「内置三家实现」
  *
- * 三家厂商的能力都建立在**自家系统**上，而且都要白名单：
+ * Android 16 提供公开实时更新 API；厂商专有能力还受其接入协议与授权限制：
  *
- * | 厂商 | 官方形态 | 落地方式 | 没白名单时 |
+ * | 厂商 | 官方形态 | 落地方式 | 未获提升时 |
  * |------|---------|---------|-----------|
  * | 谷歌 | Android 16 Live Updates（promoted ongoing） | `NotificationCompat.ProgressStyle` + `setRequestPromotedOngoing`（androidx.core ≥ 1.17） | 普通通知 |
  * | 小米 | 超级岛 / 焦点通知 | 通知 extras 里塞 `miui.focus.param`（JSON） | 普通通知 |
@@ -21,7 +21,7 @@ import java.util.concurrent.CopyOnWriteArrayList
  * 1. **留接口**（本文件）：通知构建过程中按顺序回调已注册的扩展，扩展可以往同一条通知上
  *    叠加 extras / style；
  * 2. **给默认实现**（[VendorIslandExtensions]）：能纯 extras 做到的（小米）直接做，
- *    需要新依赖的（谷歌）用反射做「依赖到位即生效」，需要厂商 SDK 的（OPPO）留注入点。
+ *    Android 16 使用公开 AndroidX API，需要厂商 SDK 的（OPPO）留注入点。
  *
  * 三条硬约束：
  * - **扩展永远不能影响下载**：注册表对每次派发都 `runCatching`，厂商 SDK 抛异常只丢这一帧；

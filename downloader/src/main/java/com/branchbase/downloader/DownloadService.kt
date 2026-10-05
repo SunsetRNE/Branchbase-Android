@@ -39,16 +39,20 @@ import kotlinx.coroutines.launch
 class DownloadService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val diagnosticJob = SupervisorJob()
+    private val diagnosticScope = CoroutineScope(diagnosticJob + Dispatchers.IO)
     private val queue = Channel<String>(Channel.UNLIMITED)
     private val pending = AtomicInteger(0)
 
     private lateinit var notifications: DownloadNotifications
+    private lateinit var notificationDiagnostics: DownloadNotificationDiagnostics
     private lateinit var engine: HttpDownloadEngine
 
     override fun onCreate() {
         super.onCreate()
         val config = DownloaderRuntime.config
         notifications = DownloadNotifications(this, config.smallIconRes)
+        notificationDiagnostics = DownloadNotificationDiagnostics(this, config.notificationLog, diagnosticScope)
         notifications.ensureChannel()
         engine = HttpDownloadEngine(config.auth, config.userAgent)
         scope.launch {
@@ -82,6 +86,8 @@ class DownloadService : Service() {
 
     override fun onDestroy() {
         scope.cancel()
+        if (::notificationDiagnostics.isInitialized) notificationDiagnostics.close()
+        diagnosticJob.complete()
         super.onDestroy()
     }
 
@@ -187,19 +193,27 @@ class DownloadService : Service() {
     }
 
     private fun startForegroundCompat(notification: Notification) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                DownloadNotifications.FOREGROUND_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
-            )
-        } else {
-            startForeground(DownloadNotifications.FOREGROUND_ID, notification)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    DownloadNotifications.FOREGROUND_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+                )
+            } else {
+                startForeground(DownloadNotifications.FOREGROUND_ID, notification)
+            }
+        } catch (error: Exception) {
+            notificationDiagnostics.failed(error)
+            throw error
         }
+        notificationDiagnostics.published(notification)
     }
 
     private fun stopSelfSafely() {
         runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+            .onSuccess { notificationDiagnostics.removed() }
+            .onFailure { notificationDiagnostics.failed(it) }
         stopSelf()
     }
 

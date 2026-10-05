@@ -22,7 +22,7 @@ plugins {
  */
 android {
     namespace = "com.branchbase.downloader"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         minSdk = 24
