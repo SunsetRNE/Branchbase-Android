@@ -5,7 +5,7 @@
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
 **每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.1.20**）
-与 §三 `versionCode` 流水（129 → **226**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+与 §三 `versionCode` 流水（129 → **227**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,19 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.1.20 → 1.0.22）
+## 二、`versionName` 流水（1.1.21 → 1.0.22）
+
+### 1.1.21
+
+**玻璃悬浮导航栏接入：统一承载槽、主题化半透明表面与第三方声明补齐。**
+
+① `NavigationShell` 的导航栏槽位统一增加横向与纵向间距，为普通底栏、玻璃悬浮栏和气泡栏提供一致的承载边界，不改三处页面调用点与路由切换结构。
+
+② `GlassNavigationBar` 改用主题色板的半透明 `BackgroundSecondary` 与 `Border` 描边，避免固定白色背景破坏深色主题；当前仍是 Compose 原生拟态玻璃，不引入新的运行时库。
+
+③ `THIRD-PARTY-NOTICES.md` 增加玻璃导航栏实现声明，明确当前无新增第三方依赖；若未来接入真实 backdrop blur / RenderEffect 库，需按维护规则登记版本、许可证、上游与引入位置。
+
+④ `.gitignore` 将本地一次性 `i18n-audit/` 输出目录加入黑名单，避免审计生成物再次进入版本状态。
 
 ### 1.1.20
 
@@ -3444,7 +3456,9 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（226 → 129）
+## 三、`versionCode` 流水（227 → 129）
+
+- **227**：玻璃悬浮导航栏接入：`NavigationShell` 统一承载槽增加间距，`GlassNavigationBar` 使用主题化半透明表面与描边；补充无新增第三方依赖的声明；同时将本地 `i18n-audit/` 输出目录加入 `.gitignore`（一次提交，故 +1）。
 
 `versionCode` 每次提交前递增：**有多少次提交变更多少次版本码**（一次发布也算一次提交）。
 

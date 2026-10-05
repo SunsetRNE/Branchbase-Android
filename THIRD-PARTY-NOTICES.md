@@ -53,7 +53,11 @@
   restriction coming from the use of this file」。本项目通过 `git2` crate 以 `.so` 方式链接、
   **未修改** libgit2 源码 —— 其余 GPL 限制（改库、单独分发库）本项目都不涉及。
 
-### 2.2 其余依赖（均为宽松许可，非 MIT 的照样列）
+### 2.2 玻璃悬浮导航栏实现声明
+
+当前导航栏采用项目自有 Jetpack Compose 实现：`GlassNavigationBar.kt` 使用半透明表面、描边、圆角裁剪与选中态色板模拟玻璃层；未引入新的第三方库或运行时二进制，因此不新增第三方许可证义务。真正的 backdrop blur / RenderEffect 尚未启用；若后续引入 Haze、Blur、Liquid Glass 等外部实现，必须在本节和 §三维护规则中补充组件版本、许可证、上游仓库与引入位置。
+
+### 2.3 其余依赖（均为宽松许可，非 MIT 的照样列）
 
 | 组件 | 版本 | 许可证 | 上游仓库 |
 |---|---|---|---|

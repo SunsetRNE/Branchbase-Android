@@ -2,6 +2,7 @@ package com.branchbase.ui.navigation
 
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,7 +36,8 @@ fun GlassNavigationBar(
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(28.dp))
-            .background(Color.White.copy(alpha = 0.35f))
+            .background(Primer.BackgroundSecondary.copy(alpha = 0.78f))
+            .border(1.dp, Primer.Border.copy(alpha = 0.65f), RoundedCornerShape(28.dp))
             .padding(6.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,

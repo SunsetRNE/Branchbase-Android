@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -80,7 +81,16 @@ fun NavigationShell(
                 shrinkTowards = Alignment.Top,
             ) + fadeOut(tween(ElementMotion.REVEAL_MS)),
         ) {
-            bar()
+            // 悬浮/玻璃形态的统一承载槽：内容仍可从栏下方穿过，
+            // 但导航栏距屏幕边缘与手势条由槽位集中声明，避免各实现重复补 inset。
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                contentAlignment = Alignment.BottomCenter,
+            ) {
+                bar()
+            }
         }
     }
 }
