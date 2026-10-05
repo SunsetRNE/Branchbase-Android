@@ -3,6 +3,9 @@ package com.branchbase.ui.settings
 import android.content.Context
 import android.content.SharedPreferences
 import com.branchbase.BuildConfig
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * 设置项落盘键的**唯一声明处**（设计规范 `docs/specs/settings-design.md` §8.1）。
@@ -20,6 +23,20 @@ import com.branchbase.BuildConfig
  * > 例外：主题走 `ThemeMode.storageKey`（小写短名 `system` / `light` / `dark`）。
  * > 那是历史约定，**不要**为了「统一」而迁移它 —— 迁移会让老用户的主题设置读不回来。
  */
+object GlassNavigationRuntime {
+    private val _enabled = MutableStateFlow(false)
+    val enabled: StateFlow<Boolean> = _enabled.asStateFlow()
+
+    fun init(context: Context) {
+        _enabled.value = glassNavigationEnabled(context)
+    }
+
+    fun set(context: Context, enabled: Boolean) {
+        setGlassNavigationEnabled(context, enabled)
+        _enabled.value = enabled
+    }
+}
+
 object SettingsKeys {
 
     /** App 级设置共用的 SharedPreferences 文件名。 */

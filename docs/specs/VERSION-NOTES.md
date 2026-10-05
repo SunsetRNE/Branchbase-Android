@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.1.22**）
-与 §三 `versionCode` 流水（129 → **228**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.1.23**）
+与 §三 `versionCode` 流水（129 → **229**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,17 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.1.22 → 1.0.22）
+## 二、`versionName` 流水（1.1.23 → 1.0.22）
+
+### 1.1.23
+
+**修复设置页悬浮玻璃导航栏开关不驱动主界面切换的问题。**
+
+① 原实现只在主界面进入时读取一次 `SharedPreferences`，设置页点击后虽然写入了 `glass_navigation`，主界面却没有订阅运行时变化，因此返回后仍显示原导航栏。
+
+② 新增 `GlassNavigationRuntime`，以进程内 `StateFlow` 收口持久化设置；`MainActivity` 启动时初始化，设置页通过 `set` 发布变化，`MainScreen` 通过 `collectAsState()` 订阅，在传统底栏和玻璃导航栏之间即时切换。
+
+③ 保留默认关闭和重启恢复行为，避免升级后改变已有用户的导航体验。
 
 ### 1.1.22
 
@@ -3466,7 +3476,9 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（228 → 129）
+## 三、`versionCode` 流水（229 → 129）
+
+- **229**：修复悬浮玻璃导航栏开关只写入本地、未驱动主界面切换的问题；新增 `GlassNavigationRuntime` 状态流并接入启动初始化、设置页发布和主界面订阅（一次提交，故 +1）。
 
 - **228**：设置页新增悬浮玻璃导航栏开关，使用 `SettingsKeys.GLASS_NAVIGATION` 持久化，主界面按偏好在传统底栏与玻璃导航栏之间切换；补齐中英文文案和设置结构测试（一次提交，故 +1）。
 

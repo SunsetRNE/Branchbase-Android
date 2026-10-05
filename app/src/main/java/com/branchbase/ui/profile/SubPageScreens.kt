@@ -99,7 +99,7 @@ import com.branchbase.ui.settings.gitProxy
 import com.branchbase.ui.settings.languagePickerAvailable
 import com.branchbase.ui.settings.languageRowValue
 import com.branchbase.ui.settings.setFrameWatchEnabled
-import com.branchbase.ui.settings.setGlassNavigationEnabled
+import com.branchbase.ui.settings.GlassNavigationRuntime
 import com.branchbase.ui.settings.supportedAppLanguages
 import com.branchbase.translate.TranslateSettings
 import com.branchbase.core.AccountStore
@@ -644,7 +644,7 @@ fun SettingsScreen(
                     checked = glassNavigation,
                     onCheckedChange = {
                         glassNavigation = it
-                        setGlassNavigationEnabled(context, it)
+                        GlassNavigationRuntime.set(context, it)
                     },
                     divider = false,
                 )

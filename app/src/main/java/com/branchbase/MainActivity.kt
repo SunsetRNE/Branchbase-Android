@@ -123,6 +123,7 @@ class MainActivity : ComponentActivity() {
 
         // 主题档位在启动时同步一次；之后由 ThemeRuntime 驱动（开关无需层层传参）
         ThemeRuntime.init(applicationContext)
+        com.branchbase.ui.settings.GlassNavigationRuntime.init(applicationContext)
         // 通知显示模式同理：消息页与「设置 → 通知」是两个入口，靠同一份运行时状态收口。
         // 与主题一样要在 setContent **之前**同步 —— 否则存了「按仓库分组」的用户会先闪一帧平铺
         NotifLayoutRuntime.init(applicationContext)
