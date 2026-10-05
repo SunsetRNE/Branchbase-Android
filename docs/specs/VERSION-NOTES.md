@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.1.23**）
-与 §三 `versionCode` 流水（129 → **232**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.2.2**）
+与 §三 `versionCode` 流水（129 → **233**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,23 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.2.1 → 1.0.22）
+## 二、`versionName` 流水（1.2.2 → 1.0.22）
+
+### 1.2.2
+
+**玻璃导航栏：删掉一条从没接上的模糊路径，并把玻璃颜色交回主题 —— 顺带解掉 `LAYER_TYPE_SOFTWARE` 的性能负担。**
+
+① **`blurRadiusPx` 是个假开关**：`LiquidGlassSurface` 从 1.1.24 起带 `var blurRadiusPx` 与它的 setter 里的 `setRenderEffect(createBlurEffect(...))`，但全工程**没有任何调用点给它赋过值**（源码里只有定义本身命中）。而属性初始化写的是 backing field、不经过 setter —— 所以 `setRenderEffect` 一次都没执行过，运行时模糊半径恒为 0。删掉它，理由是留着比删掉更糟：它让人以为「模糊已经做了」。
+
+② **它本来也做不出 backdrop blur**：`RenderEffect` 作用于**本 View 自己的渲染结果**，看不到身后的 Compose 内容。真正的背景模糊必须采样栏后面的页面像素，而今天 `NavigationShell` 是 `Column` 上下分行（内容区 + 导航槽位），**栏后面根本没有内容可采**。所以「给玻璃层加个模糊半径」这条路无论怎么调都是无效的。要做真玻璃，前置条件是布局改成「内容铺满 + 栏覆盖」，那会动到 `NavigationShell` 与三处调用点的内边距契约 —— **本版刻意不做**。
+
+③ 不再强制 `LAYER_TYPE_SOFTWARE`：本 View 只画渐变与圆角描边，硬件管线完全够用；软件层只是把这一层的合成从 GPU 挪回 CPU，是这个「悬浮 + 半透明」表面上纯粹的负担。
+
+④ **玻璃色组改为主题下发**：原先 `onDraw` 里写死一组 `Color.argb(172,255,255,255)` 之类的白/冷灰渐变，与 `ui/theme/` 的角色脱节 —— 同一个值叠在深色页面上就是一条亮带。现在新增 `LiquidGlassSurface.Tint`（上/中/下/底四段 + 顶部高光 + 上下描边，共 7 个已含 alpha 的 ARGB），由 `GlassNavigationBar` 从 `Primer.BackgroundSecondary` / `Primer.TextPrimary` 按 `LocalIsDarkTheme` 算好后经 `AndroidView.update` 下发；没有主题时的占位值是**全透明**，宁可少画一帧也不闪一帧白。
+
+⑤ 钉子 `GlassNavigationSurfaceTest` 3 例：`LiquidGlassSurface` 不许再出现 `RenderEffect` / `blurRadiusPx` / `LAYER_TYPE_SOFTWARE`；`onDraw` 不许再写死 `Color.argb(`；`GlassNavigationBar` 必须把主题色真的接到玻璃层（`Primer.BackgroundSecondary` + `LocalIsDarkTheme` + `it.tint =`）—— 只钉「有个 Tint 类」挡不住「谁都没给它赋值」，那正是 ① 的翻版，所以「算」和「传」两端都钉。
+
+⑥ **边界（这一版没有主张的部分）**：**玻璃观感本身没有变化主张**。本版只删无效路径、把颜色并回主题，不改栏的尺寸（104dp × 56dp）、圆角、按钮布局、开关行为与默认值；「玻璃质感不对」里属于布局契约的那一半（栏后面没有内容可透出、因此没有背景可模糊）留待后续版本，需要真机截图确认后再动。
 
 ### 1.2.1
 
@@ -3502,7 +3518,9 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（232 → 129）
+## 三、`versionCode` 流水（233 → 129）
+
+- **233**：玻璃导航栏稳定性收口 —— 删除 `LiquidGlassSurface` 上从未被赋值的 `blurRadiusPx` / `RenderEffect` 死路径与强制 `LAYER_TYPE_SOFTWARE`（前者一次都没执行过，后者把这一层的合成从 GPU 挪回 CPU）；玻璃色组改为 `Tint` 由 `GlassNavigationBar` 按 `LocalIsDarkTheme` + `Primer.BackgroundSecondary` / `Primer.TextPrimary` 下发，替掉 `onDraw` 里写死的白/冷灰 `Color.argb` 渐变；新增 `GlassNavigationSurfaceTest` 3 例钉住这三件事（一次提交，故 +1）。
 
 - **232**：修复悬浮玻璃导航栏背景 `AndroidView` 使用 `fillMaxSize()` 导致父级导航槽位被撑满的问题，改为固定 104dp × 56dp 的背景层尺寸（一次提交，故 +1）。
 

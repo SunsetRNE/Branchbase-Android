@@ -55,9 +55,9 @@
 
 ### 2.2 玻璃悬浮导航栏实现声明
 
-液态玻璃视觉管线参考 [SyntaxJester/DouyinLiquidGlass](https://github.com/SyntaxJester/DouyinLiquidGlass)（MIT），参考内容包括分层渐变、顶部高光、渐隐描边与 Android 12+ 模糊思路；本仓库未复制其 LSPosed/Xposed 注入、抖音视图定位或独立模块代码。
+液态玻璃视觉管线参考 [SyntaxJester/DouyinLiquidGlass](https://github.com/SyntaxJester/DouyinLiquidGlass)（MIT），**实际移植的是它的分层渐变、顶部高光与渐隐描边**——这三样就是 `LiquidGlassSurface.onDraw` 的全部内容。其 Android 12+ 模糊思路**没有落地**（原因见下）；本仓库未复制其 LSPosed/Xposed 注入、抖音视图定位或独立模块代码。
 
-Branchbase 内的 `GlassNavigationBar.kt` 与 `LiquidGlassSurface.kt` 是项目自有实现，使用 Compose 按钮层承载导航交互，并在 Android 12+ 使用系统 `RenderEffect` 作为可选模糊增强；低版本退化为渐变、高光和描边，不新增外部运行时依赖。上游来源、MIT 许可证与本仓库落点在本节登记。
+Branchbase 内的 `GlassNavigationBar.kt` 与 `LiquidGlassSurface.kt` 是项目自有实现：Compose 按钮层承载导航交互，原生 `View` 只负责按主题角色（`Primer`）画色组，不新增外部运行时依赖。**当前版本不包含任何模糊实现** —— 那个 `RenderEffect` 分支从 1.1.24 引入起就没有任何调用点赋值（半径恒为 0，`setRenderEffect` 一次都没执行），1.2.2 已删除；真正的 backdrop blur 需要先让页面内容铺到栏下方再采样，属于后续的布局改动（见 [`docs/specs/VERSION-NOTES.md`](docs/specs/VERSION-NOTES.md) 1.2.2）。
 
 ### 2.3 其余依赖（均为宽松许可，非 MIT 的照样列）
 
