@@ -491,6 +491,9 @@
     <string name="note_clone_hint">点击「拉取仓库」将仓库克隆到本地</string>
     <string name="error_nothing_to_commit">工作区没有改动可提交</string>
     <string name="label_theme">主题</string>
+    <string name="label_glass_navigation">悬浮玻璃导航栏</string>
+    <string name="note_glass_navigation_enabled">主界面使用悬浮玻璃导航栏；关闭后恢复传统底部导航栏。</string>
+    <string name="note_glass_navigation_disabled">使用传统底部导航栏；开启后主界面切换为悬浮玻璃样式。</string>
     <string name="toast_deleted_branch">已删除分支 %1$s</string>
     <string name="action_create_and_switch">创建并切换</string>
     <string name="label_code_commit_group">代码与提交</string>

@@ -94,10 +94,12 @@ import com.branchbase.core.AuthKind
 import com.branchbase.core.RepoCredentialStore
 import com.branchbase.ui.settings.currentAppLanguageTag
 import com.branchbase.ui.settings.frameWatchEnabled
+import com.branchbase.ui.settings.glassNavigationEnabled
 import com.branchbase.ui.settings.gitProxy
 import com.branchbase.ui.settings.languagePickerAvailable
 import com.branchbase.ui.settings.languageRowValue
 import com.branchbase.ui.settings.setFrameWatchEnabled
+import com.branchbase.ui.settings.setGlassNavigationEnabled
 import com.branchbase.ui.settings.supportedAppLanguages
 import com.branchbase.translate.TranslateSettings
 import com.branchbase.core.AccountStore
@@ -540,6 +542,8 @@ fun SettingsScreen(
     var confirmLogout by remember { mutableStateOf(false) }
     // 慢帧日志开关：只在这里读一次盘（默认值来自编译通道），之后由用户点击驱动
     var frameWatch by remember { mutableStateOf(frameWatchEnabled(context)) }
+    // 玻璃导航栏开关：缺失时关闭，保持升级前的传统底栏行为。
+    var glassNavigation by remember { mutableStateOf(glassNavigationEnabled(context)) }
 
     // 错误数只取一次快照：设置页不做高频重组，没必要给「日志」行挂订阅
     val logErrors = remember { LogManager.all().count { it.level == LogLevel.ERROR } }
@@ -630,6 +634,20 @@ fun SettingsScreen(
                         onClick = onOpenLanguage,
                     )
                 }
+                SwitchRow(
+                    icon = Icons.Filled.Tune,
+                    name = stringResource(R.string.label_glass_navigation),
+                    sub = stringResource(
+                        if (glassNavigation) R.string.note_glass_navigation_enabled
+                        else R.string.note_glass_navigation_disabled,
+                    ),
+                    checked = glassNavigation,
+                    onCheckedChange = {
+                        glassNavigation = it
+                        setGlassNavigationEnabled(context, it)
+                    },
+                    divider = false,
+                )
             }
         }
 

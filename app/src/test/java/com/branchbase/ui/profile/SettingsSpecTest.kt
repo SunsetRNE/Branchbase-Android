@@ -21,6 +21,7 @@ import org.junit.Test
  * | 5 | 枚举存 `name` 不存 `ordinal` | §8.2 |
  * | 6 | 二级页返回目标唯一（回设置主页，不是回个人主页） | §3.1 |
  * | 7 | 落盘键只在唯一文件里声明 | §8.1 |
+ * | 8 | 玻璃导航栏开关走 SettingsKeys 且设置页提供 SwitchRow | §5.2 / §8.1 |
  */
 class SettingsSpecTest {
 
@@ -263,7 +264,7 @@ class SettingsSpecTest {
         val keysPath = "src/main/java/com/branchbase/ui/settings/SettingsKeys.kt"
         assertTrue("设置键必须集中声明（规范 §8.1）", File(keysPath).exists())
 
-        val literals = listOf("\"commit_mode\"", "\"git_proxy\"", "\"notif_layout\"")
+        val literals = listOf("\"commit_mode\"", "\"git_proxy\"", "\"notif_layout\"", "\"glass_navigation\"")
         literals.forEach { literal ->
             settingsTree.forEach { path ->
                 if (path == keysPath) return@forEach
@@ -275,7 +276,7 @@ class SettingsSpecTest {
         }
 
         val keys = source(keysPath)
-        listOf("COMMIT_MODE", "GIT_PROXY", "NOTIF_LAYOUT").forEach {
+        listOf("COMMIT_MODE", "GIT_PROXY", "NOTIF_LAYOUT", "GLASS_NAVIGATION").forEach {
             assertTrue("SettingsKeys 缺少 $it", keys.contains("const val $it"))
         }
     }

@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import com.branchbase.ui.home.FrequentReposScreen
 import com.branchbase.ui.home.HomeScreen
 import com.branchbase.ui.navigation.BranchbaseNavigationBar
+import com.branchbase.ui.navigation.GlassNavigationBar
 import com.branchbase.ui.navigation.BackDisposition
 import com.branchbase.ui.navigation.backDisposition
 import com.branchbase.ui.navigation.NavDestination
@@ -40,6 +41,8 @@ import com.branchbase.ui.repository.RepoPage
 import com.branchbase.ui.repository.RepositoryScreen
 import com.branchbase.ui.search.SearchScreen
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.settings.glassNavigationEnabled
+import com.branchbase.ui.settings.setGlassNavigationEnabled
 import androidx.compose.ui.platform.LocalContext
 
 /**
@@ -72,8 +75,13 @@ fun MainScreen(
     sessionJson: String,
     onLogout: () -> Unit,
 ) {
+    val context = LocalContext.current
     var selected by remember { mutableStateOf(NavDestination.Home) }
     var showProfile by remember { mutableStateOf(false) }
+    var glassNavigation by remember { mutableStateOf(glassNavigationEnabled(context)) }
+    LaunchedEffect(glassNavigation) {
+        setGlassNavigationEnabled(context, glassNavigation)
+    }
 
     // 「添加账号」的登录页整屏接管时，state 一变这棵子树会被销毁；返回时重建，
     // 导航状态全丢 —— 用户从「设置 → 账号管理」进去的，回来却落在别处。
@@ -158,11 +166,18 @@ fun MainScreen(
     // 栏只在「该出现」时进出（进子页自己收起）。
     NavigationShell(
         bar = {
-            BranchbaseNavigationBar(
-                selected = selected,
-                onSelect = { selected = it },
-                badgeCounts = mapOf(NavDestination.Notifications to notifUnread),
-            )
+            if (glassNavigation) {
+                GlassNavigationBar(
+                    selected = selected,
+                    onSelect = { selected = it },
+                )
+            } else {
+                BranchbaseNavigationBar(
+                    selected = selected,
+                    onSelect = { selected = it },
+                    badgeCounts = mapOf(NavDestination.Notifications to notifUnread),
+                )
+            }
         },
         // 只有 Tab 骨架有底部导航；仓库详情 / 个人页 / 搜索都是全屏页
         barVisible = route is MainRoute.Tabs,

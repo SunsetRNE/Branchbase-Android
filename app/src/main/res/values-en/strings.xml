@@ -487,6 +487,9 @@
     <string name="note_clone_hint">Tap “Clone repository” to clone one locally</string>
     <string name="error_nothing_to_commit">No changes in the working tree to commit</string>
     <string name="label_theme">Theme</string>
+    <string name="label_glass_navigation">Floating glass navigation</string>
+    <string name="note_glass_navigation_enabled">Use floating glass navigation on the main screen; turn off to restore the classic bottom bar.</string>
+    <string name="note_glass_navigation_disabled">Use the classic bottom bar; turn on to switch the main screen to the floating glass style.</string>
     <string name="toast_deleted_branch">Deleted branch %1$s</string>
     <string name="action_create_and_switch">Create and switch</string>
     <string name="label_code_commit_group">Code and commits</string>

@@ -42,6 +42,9 @@ object SettingsKeys {
      */
     const val NOTIF_DISCARDED = "notif_discarded"
 
+    /** 是否启用主界面的悬浮玻璃导航栏；缺失时保持传统底部导航栏。 */
+    const val GLASS_NAVIGATION = "glass_navigation"
+
     /**
      * 慢帧日志开关（`FrameWatch`）。
      *
@@ -72,6 +75,15 @@ object SettingsKeys {
      */
     fun prefs(context: Context): SharedPreferences =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+}
+
+/** 读取是否启用悬浮玻璃导航栏；默认关闭，保持旧版行为。 */
+fun glassNavigationEnabled(context: Context): Boolean =
+    SettingsKeys.prefs(context).getBoolean(SettingsKeys.GLASS_NAVIGATION, false)
+
+/** 写入悬浮玻璃导航栏开关。 */
+fun setGlassNavigationEnabled(context: Context, enabled: Boolean) {
+    SettingsKeys.prefs(context).edit().putBoolean(SettingsKeys.GLASS_NAVIGATION, enabled).apply()
 }
 
 /** 读取已保存的 Git 代理（空串 = 不使用代理）。键与读取口都在这里，避免第二个真源。 */

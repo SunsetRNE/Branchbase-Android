@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.1.20**）
-与 §三 `versionCode` 流水（129 → **227**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.1.22**）
+与 §三 `versionCode` 流水（129 → **228**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,17 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.1.21 → 1.0.22）
+## 二、`versionName` 流水（1.1.22 → 1.0.22）
+
+### 1.1.22
+
+**设置页补齐悬浮玻璃导航栏开关，并将偏好接入主界面导航切换。**
+
+① 外观设置新增「悬浮玻璃导航栏」开关，默认关闭，升级后保持传统底部导航栏行为；开关状态写入集中管理的 `SettingsKeys.GLASS_NAVIGATION`。
+
+② 主界面读取该偏好，在传统 `BranchbaseNavigationBar` 与 `GlassNavigationBar` 之间切换；玻璃导航栏使用现有主题化半透明表面与描边实现，不新增第三方依赖。
+
+③ 增加中英文设置文案，并扩展 `SettingsSpecTest`，钉住设置键唯一声明和设置树接线。
 
 ### 1.1.21
 
@@ -3456,7 +3466,9 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（227 → 129）
+## 三、`versionCode` 流水（228 → 129）
+
+- **228**：设置页新增悬浮玻璃导航栏开关，使用 `SettingsKeys.GLASS_NAVIGATION` 持久化，主界面按偏好在传统底栏与玻璃导航栏之间切换；补齐中英文文案和设置结构测试（一次提交，故 +1）。
 
 - **227**：玻璃悬浮导航栏接入：`NavigationShell` 统一承载槽增加间距，`GlassNavigationBar` 使用主题化半透明表面与描边；补充无新增第三方依赖的声明；同时将本地 `i18n-audit/` 输出目录加入 `.gitignore`（一次提交，故 +1）。
 
