@@ -1,12 +1,12 @@
 package com.branchbase.ui.navigation
 
-import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -15,17 +15,18 @@ import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import com.branchbase.ui.theme.selectionColor
+import androidx.compose.ui.viewinterop.AndroidView
 import com.branchbase.ui.theme.Primer
+import com.branchbase.ui.theme.selectionColor
 
 /**
- * 悬浮玻璃球导航栏（基础形态 ②）。
+ * 液态玻璃悬浮导航栏。
  *
- * 规格：胶囊 56dp·圆角 28dp·离底 12dp，内项 44dp 圆。
- * 毛玻璃用半透明背景模拟（真正的 backdrop blur 后续可用 RenderEffect / haze 库实现）。
+ * 背景由 [LiquidGlassSurface] 负责绘制，按钮仍由 Compose 承担，保证点击、语义
+ * 和导航状态不被视觉层影响。
  */
 @Composable
 fun GlassNavigationBar(
@@ -33,31 +34,42 @@ fun GlassNavigationBar(
     onSelect: (NavDestination) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(28.dp))
-            .background(Primer.BackgroundSecondary.copy(alpha = 0.78f))
-            .border(1.dp, Primer.Border.copy(alpha = 0.65f), RoundedCornerShape(28.dp))
-            .padding(6.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center,
     ) {
-        NavDestination.entries.forEach { dest ->
-            val isSelected = dest == selected
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(selectionColor(isSelected, on = Primer.Blue500))
-                    .clickable { onSelect(dest) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    dest.icon,
-                    contentDescription = stringResource(dest.labelRes),
-                    tint = selectionColor(isSelected, on = Color.White, off = Primer.IconPrimary),
-                    modifier = Modifier.size(22.dp),
-                )
+        AndroidView(
+            factory = { LiquidGlassSurface(it) },
+            modifier = Modifier.matchParentSize(),
+        )
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(28.dp))
+                .padding(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            NavDestination.entries.forEach { dest ->
+                val isSelected = dest == selected
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(selectionColor(isSelected, on = Primer.Blue500))
+                        .clickable { onSelect(dest) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        dest.icon,
+                        contentDescription = stringResource(dest.labelRes),
+                        tint = selectionColor(
+                            isSelected,
+                            on = Color.White,
+                            off = Primer.IconPrimary,
+                        ),
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
             }
         }
     }

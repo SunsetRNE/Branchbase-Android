@@ -5,7 +5,7 @@
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
 **每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.1.23**）
-与 §三 `versionCode` 流水（129 → **229**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+与 §三 `versionCode` 流水（129 → **230**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,17 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.1.23 → 1.0.22）
+## 二、`versionName` 流水（1.1.24 → 1.0.22）
+
+### 1.1.24
+
+**参考 DouyinLiquidGlass 的液态玻璃渲染管线，升级 Branchbase 悬浮导航栏表面。**
+
+① 新增 `LiquidGlassSurface`，采用分层冷色渐变、顶部高光、渐隐亮边和 API 31+ 的 `RenderEffect` 增强，不引入 LSPosed/Xposed 或抖音专用注入逻辑。
+
+② `GlassNavigationBar` 保留 Compose 按钮与导航语义，将视觉层与交互层分离，低版本退化为渐变、高光和描边。
+
+③ `THIRD-PARTY-NOTICES.md` 登记 [SyntaxJester/DouyinLiquidGlass](https://github.com/SyntaxJester/DouyinLiquidGlass) 的 MIT 参考来源和实际移植边界。
 
 ### 1.1.23
 
@@ -3476,7 +3486,9 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（229 → 129）
+## 三、`versionCode` 流水（230 → 129）
+
+- **230**：参考 DouyinLiquidGlass 的 MIT 液态玻璃视觉管线，新增 `LiquidGlassSurface` 并将其嵌入 `GlassNavigationBar` 的 AndroidView 背景层；保留 Compose 导航交互，API 31+ 使用 `RenderEffect` 增强，低版本保留渐变、高光和描边（一次提交，故 +1）。
 
 - **229**：修复悬浮玻璃导航栏开关只写入本地、未驱动主界面切换的问题；新增 `GlassNavigationRuntime` 状态流并接入启动初始化、设置页发布和主界面订阅（一次提交，故 +1）。
 

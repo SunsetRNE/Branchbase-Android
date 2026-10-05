@@ -55,7 +55,9 @@
 
 ### 2.2 玻璃悬浮导航栏实现声明
 
-当前导航栏采用项目自有 Jetpack Compose 实现：`GlassNavigationBar.kt` 使用半透明表面、描边、圆角裁剪与选中态色板模拟玻璃层；未引入新的第三方库或运行时二进制，因此不新增第三方许可证义务。真正的 backdrop blur / RenderEffect 尚未启用；若后续引入 Haze、Blur、Liquid Glass 等外部实现，必须在本节和 §三维护规则中补充组件版本、许可证、上游仓库与引入位置。
+液态玻璃视觉管线参考 [SyntaxJester/DouyinLiquidGlass](https://github.com/SyntaxJester/DouyinLiquidGlass)（MIT），参考内容包括分层渐变、顶部高光、渐隐描边与 Android 12+ 模糊思路；本仓库未复制其 LSPosed/Xposed 注入、抖音视图定位或独立模块代码。
+
+Branchbase 内的 `GlassNavigationBar.kt` 与 `LiquidGlassSurface.kt` 是项目自有实现，使用 Compose 按钮层承载导航交互，并在 Android 12+ 使用系统 `RenderEffect` 作为可选模糊增强；低版本退化为渐变、高光和描边，不新增外部运行时依赖。上游来源、MIT 许可证与本仓库落点在本节登记。
 
 ### 2.3 其余依赖（均为宽松许可，非 MIT 的照样列）
 
