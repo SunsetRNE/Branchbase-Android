@@ -6,7 +6,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -19,6 +18,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
 import com.branchbase.ui.theme.Primer
 import com.branchbase.ui.theme.selectionColor
 
@@ -40,7 +41,10 @@ fun GlassNavigationBar(
     ) {
         AndroidView(
             factory = { LiquidGlassSurface(it) },
-            modifier = Modifier.fillMaxSize(),
+            // AndroidView 不能参与父级测量，否则会把导航槽位撑满；尺寸必须与下方 Row 一致。
+            modifier = Modifier
+                .width((NavDestination.entries.size * 44 + (NavDestination.entries.size - 1) * 4 + 12).dp)
+                .height(56.dp),
         )
         Row(
             modifier = Modifier

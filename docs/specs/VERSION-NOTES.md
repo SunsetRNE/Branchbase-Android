@@ -5,7 +5,7 @@
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
 **每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.1.23**）
-与 §三 `versionCode` 流水（129 → **231**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+与 §三 `versionCode` 流水（129 → **232**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,13 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.2.0 → 1.0.22）
+## 二、`versionName` 流水（1.2.1 → 1.0.22）
+
+### 1.2.1
+
+**修复悬浮玻璃导航栏背景层撑满父布局的问题。**
+
+`GlassNavigationBar` 的背景 `AndroidView` 原先使用 `fillMaxSize()`，会参与父级测量并把导航槽位撑满，导致玻璃背景与按钮层尺寸脱节。现在背景层按两个导航按钮、间距和内边距使用固定尺寸（104dp × 56dp），只承担视觉绘制，不再改变导航栏布局；已通过 `:app:compileDebugKotlin` 验证。
 
 ### 1.2.0
 
@@ -3496,7 +3502,9 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（231 → 129）
+## 三、`versionCode` 流水（232 → 129）
+
+- **232**：修复悬浮玻璃导航栏背景 `AndroidView` 使用 `fillMaxSize()` 导致父级导航槽位被撑满的问题，改为固定 104dp × 56dp 的背景层尺寸（一次提交，故 +1）。
 
 - **231**：接入 Android 16 通用实时更新下载通知与中文发布诊断；增加通知构造、诊断状态测试，并修复 `GlassNavigationBar` 的 `matchParentSize` 编译错误（一次提交，故 +1）。
 
