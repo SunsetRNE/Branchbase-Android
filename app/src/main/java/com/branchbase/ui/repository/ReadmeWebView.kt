@@ -30,6 +30,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.branchbase.core.RustBridge
 import com.branchbase.imageviewer.ImageViewerDialog
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.navigation.LiveBackdropGate
 import com.branchbase.ui.theme.LocalIsDarkTheme
 import com.branchbase.translate.TranslateBridge
 import com.branchbase.translate.TranslatePage
@@ -239,6 +240,14 @@ fun ReadmeWebView(
             if (holder != null) holder.webView = created
             created
         }
+    }
+
+    // 本视图在屏期间把「有 interop 正文」登记给玻璃栏的安全阀（见 LiveBackdropGate）：
+    // WebView 的画面一帧只能被消费一次，而玻璃栏的采样会把内容每帧画两遍 ——
+    // 不拦住的话自述文件那一块会闪。切走 / 离开页面时自动注销，活采样回来。
+    DisposableEffect(Unit) {
+        LiveBackdropGate.enter()
+        onDispose { LiveBackdropGate.exit() }
     }
 
     // 桥必须在页面脚本执行前注册（脚本里会调用 window.BBTranslate.request）

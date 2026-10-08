@@ -262,6 +262,9 @@ dependencies {
     implementation(libs.coil.svg)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
+    // 液态玻璃（backdrop 采样 + AGSL 折射）：只被 ui/navigation 的玻璃栏用；
+    // 选型与版本理由见 gradle/libs.versions.toml 的 kyantBackdrop，来源登记在 THIRD-PARTY-NOTICES.md
+    implementation(libs.kyant.backdrop)
     ksp(libs.androidx.room.compiler)
     testImplementation(libs.junit)
     // JVM 单测里 android.jar 的 org.json 是空壳（方法抛 not mocked），补真实实现

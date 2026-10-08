@@ -54,6 +54,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -93,6 +94,8 @@ import com.branchbase.ui.decision.UnpushedCommit
 import com.branchbase.ui.decision.UpstreamSetupScreen
 import com.branchbase.ui.decision.parseGitStatus
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.navigation.GlassBar
+import com.branchbase.ui.navigation.GlassBarItem
 import com.branchbase.ui.navigation.NavigationShell
 import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.LoadState
@@ -106,6 +109,7 @@ import com.branchbase.ui.profile.CommitMode
 import com.branchbase.ui.profile.CommitModePickerDialog
 import com.branchbase.ui.profile.commitMode
 import com.branchbase.ui.profile.saveCommitMode
+import com.branchbase.ui.settings.GlassNavigationRuntime
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.async
@@ -231,6 +235,9 @@ fun RepositoryScreen(
     var jobDetailStep by remember { mutableStateOf<Long?>(null) }
     var showBranchSync by remember { mutableStateOf(false) }
     var bubbleExpanded by remember { mutableStateOf(false) }
+    // 悬浮玻璃导航栏（设置 → 外观）：与主界面**同一个开关、同一份运行时状态**，
+    // 开关一动这里立刻跟着换栏，不需要退出重进。
+    val glassNavigation by GlassNavigationRuntime.enabled.collectAsState()
     // 分支切换弹窗（原先是一条占满整行的分支横条，现收进顶部栏胶囊）
     var showBranchDialog by remember { mutableStateOf(false) }
     // 改分支：null = 默认分支；分支列表懒加载；refreshTick 触发强制刷新
@@ -706,36 +713,68 @@ fun RepositoryScreen(
     // 现在栏只在该出现时进出（进子页自己收起），页面切换只动页面内容。
     NavigationShell(
         bar = {
-            RepoBottomBar(
-                selected = page,
-                canPush = repoCanPush,
-                onSelect = {
-                    page = it
-                    Logger.ui("切换到「${it.logLabel}」", "Compose")
-                },
-                bubbleExpanded = bubbleExpanded,
-                onBubbleToggle = {
-                    bubbleExpanded = it
-                    Logger.ui(if (it) "展开 ⋮ 气泡菜单" else "关闭 ⋮ 气泡菜单", "Compose")
-                },
-                onBubbleItem = {
-                    bubbleExpanded = false
-                    page = it
-                    Logger.ui("打开「${it.logLabel}」", "Compose")
-                },
-                onBubbleAction = { key ->
-                    bubbleExpanded = false
-                    when (key) {
-                        BUBBLE_ACTION_BRANCH_SYNC -> {
-                            showBranchSync = true
-                            Logger.ui("打开「分支同步」", "Compose")
+            if (glassNavigation) {
+                GlassRepoBar(
+                    selected = page,
+                    canPush = repoCanPush,
+                    onSelect = {
+                        page = it
+                        Logger.ui("切换到「${it.logLabel}」", "Compose")
+                    },
+                    bubbleExpanded = bubbleExpanded,
+                    onBubbleToggle = {
+                        bubbleExpanded = it
+                        Logger.ui(if (it) "展开 ⋮ 气泡菜单" else "关闭 ⋮ 气泡菜单", "Compose")
+                    },
+                    onBubbleItem = {
+                        bubbleExpanded = false
+                        page = it
+                        Logger.ui("打开「${it.logLabel}」", "Compose")
+                    },
+                    onBubbleAction = { key ->
+                        bubbleExpanded = false
+                        when (key) {
+                            BUBBLE_ACTION_BRANCH_SYNC -> {
+                                showBranchSync = true
+                                Logger.ui("打开「分支同步」", "Compose")
+                            }
                         }
-                    }
-                },
-            )
+                    },
+                )
+            } else {
+                RepoBottomBar(
+                    selected = page,
+                    canPush = repoCanPush,
+                    onSelect = {
+                        page = it
+                        Logger.ui("切换到「${it.logLabel}」", "Compose")
+                    },
+                    bubbleExpanded = bubbleExpanded,
+                    onBubbleToggle = {
+                        bubbleExpanded = it
+                        Logger.ui(if (it) "展开 ⋮ 气泡菜单" else "关闭 ⋮ 气泡菜单", "Compose")
+                    },
+                    onBubbleItem = {
+                        bubbleExpanded = false
+                        page = it
+                        Logger.ui("打开「${it.logLabel}」", "Compose")
+                    },
+                    onBubbleAction = { key ->
+                        bubbleExpanded = false
+                        when (key) {
+                            BUBBLE_ACTION_BRANCH_SYNC -> {
+                                showBranchSync = true
+                                Logger.ui("打开「分支同步」", "Compose")
+                            }
+                        }
+                    },
+                )
+            }
         },
         // 只有 Tab 骨架有底部导航；详情 / 文件 / 决策页都是全屏页
         barVisible = route is RepoRoute.Tab,
+        // 玻璃形态用覆盖层（内容铺到栏下方才有背景可采）；关掉开关就回到占位形态
+        floating = glassNavigation,
         modifier = Modifier.fillMaxSize(),
     ) { contentPadding ->
         Box(
@@ -2260,30 +2299,99 @@ private fun RepoBottomBar(
         bottomTabs.forEach { (p, icon) ->
             BottomTab(p, icon, p == selected, onSelect)
         }
-        // ⋮ 手柄 + 气泡
-        Box(contentAlignment = Alignment.Center) {
-            Icon(
-                Icons.Filled.MoreVert,
-                contentDescription = stringResource(R.string.action_more),
-                tint = if (entries.any { it is BubbleEntry.Page && it.page == selected }) Primer.Blue500 else Primer.IconPrimary,
-                modifier = Modifier
-                    .size(46.dp)
-                    .clickable { onBubbleToggle(!bubbleExpanded) }
-                    .padding(10.dp),
+        RepoMoreHandle(
+            entries = entries,
+            highlighted = entries.any { it is BubbleEntry.Page && it.page == selected },
+            expanded = bubbleExpanded,
+            onToggle = onBubbleToggle,
+            onItem = onBubbleItem,
+            onAction = onBubbleAction,
+        )
+    }
+}
+
+/**
+ * 仓库页的悬浮玻璃导航栏 —— 只在设置里开了「悬浮玻璃导航栏」时用它（关着时用 [RepoBottomBar]）。
+ *
+ * 5 个 Tab + 右侧 ⋮ 手柄 = **6 个槽位**（296dp），与主界面、个人页共用 [GlassBar] 那一份实现：
+ * 形状、两档模糊、折射、透镜拉长、API 降级都在那边，这里只负责「有哪些项、哪个选中」。
+ *
+ * 有一处是本页特有的：**页面落在 ⋮ 菜单里时透镜要落到手柄上**（议题/流程/发布之外的
+ * PR / 提交 / 设置都从菜单进）。不这么办，那些页面上会出现「一个都不高亮」的空档。
+ */
+@Composable
+private fun GlassRepoBar(
+    selected: RepoPage,
+    canPush: Boolean,
+    onSelect: (RepoPage) -> Unit,
+    bubbleExpanded: Boolean,
+    onBubbleToggle: (Boolean) -> Unit,
+    onBubbleItem: (RepoPage) -> Unit,
+    onBubbleAction: (String) -> Unit,
+) {
+    val entries = remember(canPush) { bubbleEntries(canPush) }
+    val inBubble = entries.any { it is BubbleEntry.Page && it.page == selected }
+
+    GlassBar(
+        items = bottomTabs.map { (p, icon) ->
+            GlassBarItem(
+                icon = icon,
+                labelRes = p.labelRes,
+                selected = p == selected,
+                onClick = { onSelect(p) },
             )
-            DropdownMenu(expanded = bubbleExpanded, onDismissRequest = { onBubbleToggle(false) }) {
-                entries.forEach { entry ->
-                    DropdownMenuItem(
-                        text = { Text(stringResource(entry.labelRes)) },
-                        leadingIcon = { Icon(entry.icon, null, tint = Primer.IconSecondary, modifier = Modifier.size(18.dp)) },
-                        onClick = {
-                            when (entry) {
-                                is BubbleEntry.Page -> onBubbleItem(entry.page)
-                                is BubbleEntry.Action -> onBubbleAction(entry.key)
-                            }
-                        },
-                    )
-                }
+        },
+        showLabels = true,
+        trailing = {
+            RepoMoreHandle(
+                entries = entries,
+                highlighted = inBubble,
+                expanded = bubbleExpanded,
+                onToggle = onBubbleToggle,
+                onItem = onBubbleItem,
+                onAction = onBubbleAction,
+            )
+        },
+    )
+}
+
+/**
+ * ⋮ 手柄 + 它的下拉菜单 —— **两种栏共用**（传统整宽栏与玻璃胶囊各挂一次）。
+ *
+ * 抽出来的理由不是省几行：菜单里的项（`bubbleEntries`）与「哪些页面算落在菜单里」是
+ * 路由知识，写两份迟早分家 —— 表现就是「传统栏里菜单是这几项、玻璃栏里少一项」。
+ */
+@Composable
+private fun RepoMoreHandle(
+    entries: List<BubbleEntry>,
+    highlighted: Boolean,
+    expanded: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onItem: (RepoPage) -> Unit,
+    onAction: (String) -> Unit,
+) {
+    Box(contentAlignment = Alignment.Center) {
+        Icon(
+            Icons.Filled.MoreVert,
+            contentDescription = stringResource(R.string.action_more),
+            tint = selectionColor(highlighted, on = Primer.Blue500, off = Primer.IconPrimary),
+            modifier = Modifier
+                .size(46.dp)
+                .clickable { onToggle(!expanded) }
+                .padding(10.dp),
+        )
+        DropdownMenu(expanded = expanded, onDismissRequest = { onToggle(false) }) {
+            entries.forEach { entry ->
+                DropdownMenuItem(
+                    text = { Text(stringResource(entry.labelRes)) },
+                    leadingIcon = { Icon(entry.icon, null, tint = Primer.IconSecondary, modifier = Modifier.size(18.dp)) },
+                    onClick = {
+                        when (entry) {
+                            is BubbleEntry.Page -> onItem(entry.page)
+                            is BubbleEntry.Action -> onAction(entry.key)
+                        }
+                    },
+                )
             }
         }
     }

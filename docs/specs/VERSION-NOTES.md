@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.2.2**）
-与 §三 `versionCode` 流水（129 → **233**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.2.3**）
+与 §三 `versionCode` 流水（129 → **234**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,45 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.2.2 → 1.0.22）
+## 二、`versionName` 流水（1.2.3 → 1.0.22）
+
+### 1.2.3
+
+**真玻璃落地：`NavigationShell` 增加悬浮形态，玻璃材质与采样改由上游 `io.github.kyant0:backdrop`（Apache-2.0，与酷安 16.6.4 同源）承担；选中项是透明液态玻璃（2dp + 折射）、未选中是磨砂（24dp），滑块弹簧驱动并会拉长 —— 1.2.2 里那条「需要先改布局契约」的边界，这一版还账。**
+
+① **采样是布局问题，不是模糊半径问题**：`RenderEffect` / `Modifier.blur` 作用在**自己的渲染结果**上；给玻璃那一层加半径，糊的是它自己画的渐变，身后有什么它一无所知。唯一可行的路是「先把栏身后的页面像素变成一张可回放的图层，再让栏去采」。所以 `NavigationShell` 新增 `floating` 形态：内容铺满、栏**盖**在底部（占位形态一行未改，三处调用点只有主界面传了 `floating = glassNavigation`）。这是 1.2.2 ⑥ 写下的前置条件，当时刻意不做，本版做掉。
+
+② **第一版自研采样是错的（本版内的第二次返工，值得记下来）**：第一版自己写了「`GraphicsLayer.record` 录整页 → 下发图层与录制原点 → `translate(录制原点 − 自身原点)` 回放 → `Modifier.blur`」。**能出模糊，但出不了玻璃** —— 真正的液态玻璃差在三件事，而三件都要 AGSL `RuntimeShader`：**折射**（按圆角 SDF 把边缘像素位移，`coord + d * grad`）、**边缘高光**（SDF 法线点乘光源、`pow(abs(d), falloff)` 出的一条沿圆角流动的高光带）、**厚度阴影**（内阴影，不是描边）。照着补这三样等于把这套 SDF/着色器管线重写一遍。
+
+③ **于是改依赖上游，理由是「同源」而不是「省事」**：把酷安 16.6.4 的 APK 拆开取证（`/root/Project-Integrated-Workspace/apk-lab/out/酷安-液态玻璃-取证报告.md`）后确认，它的 `com.coolapk.market.widget.compose.liquid` 用的就是 [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)（Maven `io.github.kyant0:backdrop`）—— 我们从它 dex 里抠出的两段着色器与上游 `internal/Shaders.kt` 的 `DefaultHighlightShaderString` / `AmbientHighlightShaderString` **逐字相同**，`Glass:backdrop` 的 Kotlin 模块名也直接叫 backdrop。版本选 **1.0.6** 是硬约束：它依赖 `kotlin-stdlib 2.3.10`（= 本工程 Kotlin，元数据同代，不会报 "compiled by a newer Kotlin"）与 `androidx.compose 1.10.3`（本工程 BOM 给 1.10.2，差一个补丁位；2.0.x 换成 kotlin-stdlib 2.4.10 + CMP 1.12，会要求升 Kotlin，属于另一件事）。Apache-2.0，已登记 `THIRD-PARTY-NOTICES.md` §2.2 / §2.3。
+
+④ **`LiquidGlassSurface.kt` 与其钉子 `GlassNavigationSurfaceTest` 一并删除**：那个原生 `View` 只画分层渐变与描边，而这几样上游的 highlight / shadow 更完整；留着就是「一条栏上两套材质」。相应的颜色职责换成 `GlassNavigationBar` 里的 Compose 叠层（`glassTint` / `glassSheen`），色值仍然只从 `Primer` 角色来。
+
+⑤ **录制被 `barVisible` 门控**：录制是一次额外的整页离屏绘制，是全项目最贵的一笔；栏都收了还在录，就是拿滚动帧率换一个没人看的图层。所以 `layerBackdrop` 只在栏可见时挂。
+
+⑥ **悬浮形态刻意不给内容留白（0 内边距）**：三处调用点拿到 `PaddingValues` 后都写成 `Box(Modifier.fillMaxSize().padding(...))`，那是**容器级**内边距 —— 一旦非 0，页面会被整个顶到栏上方，录制图层在栏身后什么都没有，玻璃采到的是一块纯色：花了整页离屏绘制，观感却和「不采样」一模一样。所以内容从栏下方穿过去。「滚到底时最后一条能不能从栏后面滚出来」归**各页自己列表的 `contentPadding`**（滚动容器的尾部留白不改变视口高度），壳子替不了 —— 这是本形态的已知边界。
+
+⑦ **选中项是透明液态玻璃、未选中是模糊态 —— 同一份采样、两档参数**：整条栏的底面 `blur(24dp)`（磨砂），被选中那一项上再压一块 `blur(2dp)` + `lens(refractionHeight = 12dp, refractionAmount = 16dp, depthEffect = true)` 的滑块（几乎不糊、边缘还会折）。这一层对比是这一版的全部意义，两个坑都不会编译报错：滑块与底面用**同一个**半径 ⇒ 分不出选中项、滑块那层白做；滑块下还留着原来那层实心 `Blue500` 胶囊 ⇒ 透明玻璃被盖死，看起来和 1.2.2 的实心胶囊没区别（所以选中态改由滑块自己表达，图标在采样可用时改 `Blue500`，白图标在浅色页面上会直接消失）。
+
+⑧ **「液态」是运动，不是颜色**：滑块位置由 `Animatable` + `spring(阻尼 0.72)` 驱动，滑动途中按「项索引」取 `min/max` 在两项之间**拉长**成胶囊、到站收成圆（`RoundedCornerShape(50%)` 静止即圆）——只做位移的话它只是个会移动的圆圈。
+
+⑨ **底色让位给背景**：有背景可采时 `glassTint(sampled = true)` 把四段底色压到 55%（顶部高光 `glassSheen` **不降** —— 那是玻璃的材质，与身后是什么无关）。底色不降，采进来的背景会被自己盖住，那次整页离屏绘制就白花了。
+
+⑩ **能力分档与酷安同一套**：上游的效果各自带版本门控 —— `blur` 需 API 31、`lens`（AGSL）需 API 33。本版只在 API 31+ 才挂 `drawBackdrop`，更低版本退回「主题色玻璃 + 实心选中胶囊」，观感与 1.2.2 一致。**低版本不采是刻意的**：`Modifier.blur` 在那时是空操作，硬采会透出一张清晰的原图，比不采更糟。
+
+⑪ **顺手修掉一条叠内边距的隐患**：壳子**只在悬浮形态**补 `navigationBarsPadding()`。占位形态一条都不补 —— M3 `NavigationBar` 自带 `NavigationBarDefaults.windowInsets`，`RepoBottomBar` 与 `ProfileBubbleNavigationBar` 也各自取了，壳子再加就是叠两层（栏凭空变高一段）。
+
+⑫ 钉子 `GlassBackdropTest` 重写为 9 例，钉的对象从「我们怎么录」换成「**库有没有接对、两档参数有没有传对、低版本有没有老实降级**」：录/下发两端齐全、栏不可见时不挂录制、**悬浮形态不许把内容挤出栏外**、**占位形态不许补系统栏内边距**、必须 `drawBackdrop` + `lens(` + 判版本、**两档半径必须真的不一样（直接读出数值比大小）且选中项不许被实心色盖死**、滑块必须弹簧驱动并会拉长、颜色只能从主题角色来且折射参数只有一处真源。
+
+⑬ **三处底部导航共用一份实现，且跟随同一个开关**：上一版只有主界面用玻璃（实现就长在 `GlassNavigationBar` 里）。仓库页（5 Tab + ⋮ 手柄）与个人页（3 Tab + ⋮ 手柄）接入时，如果再抄两遍，意味着「两档模糊 / 折射参数 / 透镜拉长 / API 降级」各写三份 —— 改一处观感要改三个文件，而且必然有两份会漏。所以抽出 `ui/navigation/GlassBar.kt`：**按槽位布局**（每个槽位固定 44dp，透镜位置直接由槽位序号算出，不需要测每一项坐标），`GlassNavigationBar` 收敛成薄包装（只把 `NavDestination` 翻译成 `GlassBarItem`）。行为一致性由**运行时开关**保证：三处都订阅 `GlassNavigationRuntime.enabled.collectAsState()`（不是各读各的 `SharedPreferences` —— 那样会重演 1.1.23 修过的「设置页刚改、返回没生效」），开关一动三处同时换栏。
+
+⑭ **两处页面的特有约定各留了一份**：仓库页把「页面落在 ⋮ 菜单里时透镜落到手柄槽」写在 `GlassRepoBar`（PR / 提交 / 设置都从菜单进，不这么办那些页会「一个都不高亮」）；个人页把「整宽栏 / 玻璃胶囊」做成同一个组合函数的两种容器（`glass = true / false`），⋮ 手柄与 More 气泡抽成 `ProfileMoreHandle` **两种容器共用** —— 菜单项与气泡定位写两份迟早分家。
+
+⑮ **修掉「自述文件那一块在闪」（1.2.3 装机现场）**：开了玻璃栏之后，壳子会把整页内容**每帧画两遍**（一遍上屏、一遍录进采样图层给栏当背景）。普通 Compose 内容画两遍是幂等的，无所谓；但 `WebView` 的画面来自 Chromium 的渲染 functor，**一帧只能被消费一次** —— 同一帧里画第二遍时拿到的是空的或上一帧，观感就是「自述文件那一块在闪」。修法是新增 `LiveBackdropGate`：正文 WebView 在挂载期间登记（`DisposableEffect` enter/exit），壳子据此**停掉录制**，并把采样层换成一个画主题底色的**静止底**（`rememberCanvasBackdrop`）—— 栏仍然拿到 `drawBackdrop` 的全部材质（边缘高光、投影、圆角折射、模糊），只是身后不再透出正文；切走 Tab / 离开仓库页时活采样自动回来。这条是**结构性**的（谁用 `ReadmeWebView` 谁被覆盖），不维护「哪些页面有 WebView」的名单 —— 那种名单迟早会漏，而漏掉的表现就是闪。
+
+⑯ **为什么不用 `setLayerType(LAYER_TYPE_HARDWARE)` 顶过去**（记一笔，免得下次又想到它）：给 WebView 加硬件层是「重复绘制」类闪烁的常见解法，但正文 WebView 的高度等于整篇内容高度（`MAX_README_HEIGHT` 允许到 **20 万 dp**），远超 GPU 纹理上限，硬件层会整块渲染不出来 —— 拿「闪」换「白」是更糟的交换。同理，「让壳子只录栏背后那一条」也做不到：上游的录制是**节点级**的，缩小节点救不了子视图被画两遍。
+
+⑪ **边界**：采样只发生在悬浮形态与 API 31+；低版本与占位形态的行为不变。本轮**没有真机截图确认**观感（24dp / 2dp 两档、55% 底色、0.12 的选中色、阻尼 0.72 都是按「看得出是背景但读不出内容 / 看得出选中但别太抢」选的档位），也没有做逐帧性能基线 —— 悬浮形态每帧多一次整页离屏绘制，是否需要在滚动时降级（例如滚动中降半径或退化为纯色）要看真机数据再定。
 
 ### 1.2.2
 
@@ -3518,7 +3556,9 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（233 → 129）
+## 三、`versionCode` 流水（234 → 129）
+
+- **234**：真玻璃落地 —— `NavigationShell` 新增 `floating` 悬浮形态（内容铺满 + 栏覆盖，内容侧内边距**刻意回 0**，否则页面被顶到栏上方就没有背景可采）并用 `GraphicsLayer` 录下整页内容，经新增的 `LocalBackdrop` / `BackdropState` 把「图层 + 录制原点」下发给玻璃栏；`GlassNavigationBar` 按原点平移回放图层，底面 `Modifier.blur(24dp)` 做磨砂、选中项压一块 `2dp` 的透明液态滑块（弹簧驱动、滑动中在两项之间拉长），有背景可采时底色压到 55%、选中态不再叠实心胶囊，API 31 以下不采；占位形态不再叠系统栏内边距；新增 `GlassBackdropTest` 8 例（一次提交，故 +1）。
 
 - **233**：玻璃导航栏稳定性收口 —— 删除 `LiquidGlassSurface` 上从未被赋值的 `blurRadiusPx` / `RenderEffect` 死路径与强制 `LAYER_TYPE_SOFTWARE`（前者一次都没执行过，后者把这一层的合成从 GPU 挪回 CPU）；玻璃色组改为 `Tint` 由 `GlassNavigationBar` 按 `LocalIsDarkTheme` + `Primer.BackgroundSecondary` / `Primer.TextPrimary` 下发，替掉 `onDraw` 里写死的白/冷灰 `Color.argb` 渐变；新增 `GlassNavigationSurfaceTest` 3 例钉住这三件事（一次提交，故 +1）。
 

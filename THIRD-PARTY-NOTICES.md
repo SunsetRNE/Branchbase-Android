@@ -55,9 +55,17 @@
 
 ### 2.2 玻璃悬浮导航栏实现声明
 
-液态玻璃视觉管线参考 [SyntaxJester/DouyinLiquidGlass](https://github.com/SyntaxJester/DouyinLiquidGlass)（MIT），**实际移植的是它的分层渐变、顶部高光与渐隐描边**——这三样就是 `LiquidGlassSurface.onDraw` 的全部内容。其 Android 12+ 模糊思路**没有落地**（原因见下）；本仓库未复制其 LSPosed/Xposed 注入、抖音视图定位或独立模块代码。
+**液态玻璃的材质与采样来自上游 [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)（Apache-2.0，Maven `io.github.kyant0:backdrop`，见 §2.3）**，作为**未修改的 Gradle 依赖**引入，源码不在本仓库。
 
-Branchbase 内的 `GlassNavigationBar.kt` 与 `LiquidGlassSurface.kt` 是项目自有实现：Compose 按钮层承载导航交互，原生 `View` 只负责按主题角色（`Primer`）画色组，不新增外部运行时依赖。**当前版本不包含任何模糊实现** —— 那个 `RenderEffect` 分支从 1.1.24 引入起就没有任何调用点赋值（半径恒为 0，`setRenderEffect` 一次都没执行），1.2.2 已删除；真正的 backdrop blur 需要先让页面内容铺到栏下方再采样，属于后续的布局改动（见 [`docs/specs/VERSION-NOTES.md`](docs/specs/VERSION-NOTES.md) 1.2.2）。
+它的选型理由是同源与合规：酷安 `16.6.4`（`com.coolapk.market`）的液态玻璃用的就是这套，AGSL 着色器逐字相同（取证见 `/root/Project-Integrated-Workspace/apk-lab/out/酷安-液态玻璃-取证报告.md`）——折射、边缘高光、厚度阴影三件事都在上游的 `RuntimeShader` 里。**本仓库未复制其源码，也未复制酷安的代码与素材。**
+
+Branchbase 自己的部分只有薄薄一层，落在 `ui/navigation/`：
+
+- `Backdrop.kt`：`LocalBackdrop`（把上游 `LayerBackdrop` 下发给栏）+ 玻璃参数的真源（`BlurRadius` / `LensBlurRadius` / `Refraction*`）；
+- `NavigationShell.kt`：**悬浮形态** —— 内容铺满、栏覆盖，给内容挂上游的 `layerBackdrop`；栏不可见时不挂（省掉一次整页离屏绘制）；
+- `GlassBar.kt`：**三处底部导航共用的玻璃胶囊** —— 形状、两档效果（未选中 `blur(24dp)` 磨砂 / 选中 `blur(2dp)` + `lens(...)` 透明液态）、主题色叠层、透镜动效与 API 降级（`blur` 31+ / `lens` 33+，更低版本退回主题色玻璃）。主界面 / 仓库页 / 个人页都走它，`GlassNavigationBar` 只是薄包装。
+
+**1.1.24–1.2.2 的 `LiquidGlassSurface.kt` 已删除**：那个原生 `View` 只画分层渐变与描边，而这几样上游的 highlight / shadow 都做得更完整；留着等于一条栏上两套材质。它与 [SyntaxJester/DouyinLiquidGlass](https://github.com/SyntaxJester/DouyinLiquidGlass)（MIT）的关系随文件一并退出历史（当时只移植了「分层渐变 / 顶部高光 / 渐隐描边」，未复制其 LSPosed/Xposed 注入与抖音视图定位）。
 
 ### 2.3 其余依赖（均为宽松许可，非 MIT 的照样列）
 
@@ -65,6 +73,8 @@ Branchbase 内的 `GlassNavigationBar.kt` 与 `LiquidGlassSurface.kt` 是项目�
 |---|---|---|---|
 | AndroidX：core-ktx / activity-compose / lifecycle / Room | `1.10.1` / `1.8.0` / `2.6.1` / `2.8.4` | Apache-2.0 | [androidx/androidx](https://github.com/androidx/androidx) |
 | Jetpack Compose（BOM）、Material 3、Material Icons（core / extended） | `2026.01.01` | Apache-2.0 | 同上 |
+| **Backdrop（液态玻璃：backdrop 采样 + AGSL 折射 / 高光）** | `1.0.6` | **Apache-2.0** | [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) |
+| shapes（上面的传递依赖：圆角形状） | `1.2.0` | Apache-2.0 | 同上 |
 | Coil（图片加载，含 SVG） | `2.7.0` | Apache-2.0 | [coil-kt/coil](https://github.com/coil-kt/coil) |
 | kotlinx-coroutines | `1.9.0` | Apache-2.0 | [Kotlin/kotlinx.coroutines](https://github.com/Kotlin/kotlinx.coroutines) |
 | OpenSSL（随 `openssl` crate vendored 编译，供 HTTPS） | `3.6.3` | Apache-2.0 | [openssl/openssl](https://github.com/openssl/openssl) |

@@ -175,8 +175,10 @@ fun MainScreen(
                 )
             }
         },
-        // 只有 Tab 骨架有底部导航；仓库详情 / 个人页 / 搜索都是全屏页
+        // 只有 Tab 骨架有底部导航；仓库详情 / 个人页 / 搜索都是全屏页。
+        // 玻璃模式使用覆盖层，不再让 NavigationShell 的传统底栏占位行固定留在底部。
         barVisible = route is MainRoute.Tabs,
+        floating = glassNavigation,
         modifier = Modifier.fillMaxSize(),
     ) { contentPadding ->
         Box(

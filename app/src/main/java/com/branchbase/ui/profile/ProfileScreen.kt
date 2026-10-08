@@ -56,6 +56,7 @@ import androidx.annotation.StringRes
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -79,6 +80,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import com.branchbase.R
 import com.branchbase.ui.LocalizedText
 import com.branchbase.ui.settings.GitProxyScreen
+import com.branchbase.ui.settings.GlassNavigationRuntime
 import com.branchbase.ui.settings.LanguageScreen
 import com.branchbase.ui.settings.RepoCredentialsScreen
 import com.branchbase.ui.repository.repoRelationOf
@@ -91,6 +93,8 @@ import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.AvatarCache
+import com.branchbase.ui.navigation.GlassBar
+import com.branchbase.ui.navigation.GlassBarItem
 import com.branchbase.ui.navigation.NavigationShell
 import com.branchbase.ui.navigation.PageLevel
 import com.branchbase.ui.navigation.PageSwitcher
@@ -250,6 +254,9 @@ fun ProfileScreen(
     val publicRepos = user?.optLong("public_repos") ?: 0L
 
     var tab by remember { mutableStateOf(ProfileTab.Overview) }
+    // 悬浮玻璃导航栏（设置 → 外观）：与主界面、仓库页**同一个开关、同一份运行时状态**，
+    // 开关一动这里立刻跟着换栏，不需要退出重进。
+    val glassNavigation by GlassNavigationRuntime.enabled.collectAsState()
     // 初始值取自寄存点（一次性）：消费后回调宿主清空，避免下次又被拽回来
     var subPage by remember { mutableStateOf(initialSubPage) }
     LaunchedEffect(Unit) {
@@ -277,16 +284,21 @@ fun ProfileScreen(
     // 把「切页面时导航栏上下跳」带出来的：旧栏上移、新栏上浮、两栏错位叠着）。
     NavigationShell(
         bar = {
-            // 气泡导航栏（基础形态 ④）：3 主项 + 右侧手柄弹出 More 菜单
+            // 同一个组合函数两种容器：`glass = true` 时走悬浮玻璃胶囊（3 主项 + ⋮ 手柄 = 4 个槽位，
+            // 与主界面、仓库页共用 GlassBar），否则还是原来的整宽气泡栏。
+            // 手柄与 More 气泡在两种容器里是**同一份**（见 ProfileMoreHandle）。
             ProfileBubbleNavigationBar(
                 selected = tab,
                 onSelect = { tab = it; Logger.ui("切换到「${it.logLabel}」", "Compose") },
                 onLogout = onLogout,
                 onNavigate = { subPage = it; Logger.ui("打开「${it.label}」", "Compose") },
+                glass = glassNavigation,
             )
         },
         // 只有个人主页有底部导航；星标 / 设置 / 任务等子页都是全屏页
         barVisible = route is ProfileRoute.Main,
+        // 玻璃形态用覆盖层（内容铺到栏下方才有背景可采）；关掉开关就回到占位形态
+        floating = glassNavigation,
         modifier = Modifier.fillMaxSize(),
     ) { contentPadding ->
         Box(
@@ -1666,16 +1678,50 @@ private fun ProfileBubbleNavigationBar(
     onSelect: (ProfileTab) -> Unit,
     onLogout: () -> Unit,
     onNavigate: (SubPage) -> Unit,
+    glass: Boolean = false,
 ) {
     // 用户意图（手柄图标、日志用它）；实际渲染的 Popup 由 popupState 托管到退场动画结束
     val popupState = remember { MutableTransitionState(false) }
     val expanded = popupState.targetState
 
+    // ⋮ 手柄 + More 气泡：**两种栏共用同一份** —— 菜单项、登出项、逐条错峰入场与定位
+    // 都只在这一个地方，不然「整宽栏里菜单是这几项、玻璃栏里少一项」是迟早的事。
+    val handle: @Composable () -> Unit = {
+        ProfileMoreHandle(
+            expanded = expanded,
+            onToggle = {
+                popupState.targetState = !expanded
+                Logger.ui(if (popupState.targetState) "展开 More 菜单" else "关闭 More 菜单", "Compose")
+            },
+            popupState = popupState,
+            onLogout = onLogout,
+            onNavigate = onNavigate,
+        )
+    }
+
+    if (glass) {
+        // 悬浮玻璃胶囊（设置 → 外观那个开关）：3 主项 + 手柄 = 4 个槽位，
+        // 与主界面、仓库页共用 `GlassBar` —— 形状、两档模糊、折射、透镜拉长、API 降级都在那一份里。
+        GlassBar(
+            items = ProfileTab.entries.map { t ->
+                GlassBarItem(
+                    icon = t.icon,
+                    labelRes = t.labelRes,
+                    selected = t == selected,
+                    onClick = { onSelect(t) },
+                )
+            },
+            showLabels = true,
+            trailing = handle,
+        )
+        return
+    }
+
+    // 整宽栏（默认形态）：
     // 外层 Box 固定 60dp 高：气泡作为悬浮层向上溢出，不参与导航栏高度计算，避免点击后抬高导航栏。
     // `.navigationBarsPadding()` 放在 `.height()` 之前：系统手势条那块留白算在 60dp 之外、
     // 沿用壳子底色（原来由外层 Column 的 navigationBarsPadding 提供）—— 栏自己负责这条内边距。
     Box(Modifier.fillMaxWidth().navigationBarsPadding().height(60.dp)) {
-        // 主项 + 手柄
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1691,48 +1737,63 @@ private fun ProfileBubbleNavigationBar(
                     modifier = Modifier.weight(1f),
                 )
             }
-
-            // 圆形手柄（三点）：按下缩放 + 展开时旋转 90°
-            val press = rememberPressFeedback()
-            val rotation = animateFloatAsState(
-                targetValue = if (expanded) 90f else 0f,
-                animationSpec = tween(ElementMotion.ICON_MS),
-                label = "more-rotation",
-            )
-            Box(
-                modifier = Modifier
-                    .padding(end = 10.dp)
-                    .size(40.dp)
-                    .graphicsLayer {
-                        scaleX = press.scale.value
-                        scaleY = press.scale.value
-                    }
-                    .clip(CircleShape)
-                    .border(
-                        1.dp,
-                        selectionColor(expanded, on = Primer.Blue500, off = Primer.BorderEmphasis),
-                        CircleShape,
-                    )
-                    .background(selectionColor(expanded, on = Primer.Blue500, off = Primer.Gray150))
-                    .clickable(
-                        interactionSource = press.interaction,
-                        indication = LocalIndication.current,
-                    ) {
-                        popupState.targetState = !expanded
-                        Logger.ui(if (popupState.targetState) "展开 More 菜单" else "关闭 More 菜单", "Compose")
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Filled.MoreHoriz,
-                    contentDescription = if (expanded) stringResource(R.string.action_collapse_more_menu) else stringResource(R.string.action_more),
-                    tint = selectionColor(expanded, on = Color.White, off = Primer.IconPrimary),
-                    modifier = Modifier
-                        .size(22.dp)
-                        .graphicsLayer { rotationZ = rotation.value },
-                )
-            }
+            // 手柄与右边缘的间距：整宽栏自己留；玻璃形态下由槽位负责，不重复留
+            Box(Modifier.padding(end = 10.dp)) { handle() }
         }
+    }
+}
+
+/**
+ * 个人页的 ⋮ 手柄 + More 气泡 —— **两种栏共用**（整宽栏与玻璃胶囊各挂一次）。
+ *
+ * 里面两件事都不该有第二份：
+ * 1. 菜单项（`moreBubbleItems`）与登出项的顺序、配色、逐条错峰入场；
+ * 2. 气泡定位（[moreBubblePosition]：右对齐锚点、底边贴在手柄上方）。
+ *
+ * 气泡挂在手柄自己的节点下，所以定位锚点就是手柄 —— 玻璃形态下它会出现在胶囊右端上方。
+ */
+@Composable
+private fun ProfileMoreHandle(
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    popupState: MutableTransitionState<Boolean>,
+    onLogout: () -> Unit,
+    onNavigate: (SubPage) -> Unit,
+) {
+    val press = rememberPressFeedback()
+    val rotation = animateFloatAsState(
+        targetValue = if (expanded) 90f else 0f,
+        animationSpec = tween(ElementMotion.ICON_MS),
+        label = "more-rotation",
+    )
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .graphicsLayer {
+                scaleX = press.scale.value
+                scaleY = press.scale.value
+            }
+            .clip(CircleShape)
+            .border(
+                1.dp,
+                selectionColor(expanded, on = Primer.Blue500, off = Primer.BorderEmphasis),
+                CircleShape,
+            )
+            .background(selectionColor(expanded, on = Primer.Blue500, off = Primer.Gray150))
+            .clickable(
+                interactionSource = press.interaction,
+                indication = LocalIndication.current,
+            ) { onToggle() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Icons.Filled.MoreHoriz,
+            contentDescription = if (expanded) stringResource(R.string.action_collapse_more_menu) else stringResource(R.string.action_more),
+            tint = selectionColor(expanded, on = Color.White, off = Primer.IconPrimary),
+            modifier = Modifier
+                .size(22.dp)
+                .graphicsLayer { rotationZ = rotation.value },
+        )
 
         // 气泡：Popup 独立窗口（可点空白 / 返回键关闭），但**位置锚定在手柄上**、动画完全自控。
         // 只有「已展开或正在收起」时才挂载 —— 收起动画播完（isIdle）即卸载，不留透明窗口吃点击。

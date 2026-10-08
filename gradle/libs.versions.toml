@@ -22,6 +22,14 @@ soraEditor = "0.23.6"
 # 协程：:translate 不依赖 Compose，拿不到传递依赖，必须自己声明。
 # 版本与 :app 侧解析结果对齐，避免同一份 kotlinx-coroutines 出现两个版本。
 coroutines = "1.9.0"
+# 液态玻璃（backdrop 采样 + AGSL 折射 / 高光）。选它的理由是**同源**：
+# 酷安 16.6.4 的 `com.coolapk.market.widget.compose.liquid` 就是基于它（着色器逐字相同，
+# 取证见 /root/Project-Integrated-Workspace/apk-lab/out/酷安-液态玻璃-取证报告.md）。
+#
+# 版本只能停在 1.0.x：1.0.6 依赖 kotlin-stdlib **2.3.10**（= 本工程 Kotlin，元数据同代）+
+# androidx.compose **1.10.3**（本工程 BOM 给 1.10.2）；2.0.x 换成 kotlin-stdlib 2.4.10 +
+# Compose Multiplatform 1.12，会要求升 Kotlin，属于另一件事。
+kyantBackdrop = "1.0.6"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -54,6 +62,8 @@ sora-editor = { group = "io.github.Rosemoe.sora-editor", name = "editor", versio
 sora-editor-textmate = { group = "io.github.Rosemoe.sora-editor", name = "language-textmate", version.ref = "soraEditor" }
 # 协程：:translate 的串行闸门 / 退避重试 / 磁盘缓存都要用（见 translate/build.gradle.kts）
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+# 液态玻璃：见 [versions] 里 kyantBackdrop 的说明（Apache-2.0，登记在 THIRD-PARTY-NOTICES.md §2.3）
+kyant-backdrop = { group = "io.github.kyant0", name = "backdrop", version.ref = "kyantBackdrop" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
