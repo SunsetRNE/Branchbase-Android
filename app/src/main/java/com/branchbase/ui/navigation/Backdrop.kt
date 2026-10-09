@@ -25,8 +25,7 @@ import com.kyant.backdrop.Backdrop
  * 上游 [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)（Maven
  * `io.github.kyant0:backdrop`，Apache-2.0）把这三件事都用 AGSL `RuntimeShader` 做完了，
  * 而且它的采样链路（录整页 → 按两个节点的 `localPositionOf` 自己算偏移）与我们自研那版同构。
- * 酷安 16.6.4 的 `com.coolapk.market.widget.compose.liquid` 用的就是它（着色器逐字相同，
- * 取证见 `/root/Project-Integrated-Workspace/apk-lab/out/酷安-液态玻璃-取证报告.md`）。
+ * 酷安 16.6.4 的 `com.coolapk.market.widget.compose.liquid` 用的就是它（着色器逐字相同）。
  * 结论：**这一层不再自研**，改由库持有；我们只负责「给什么形状、糊多狠、染什么色、怎么降级」。
  *
  * ## 谁提供它
@@ -89,56 +88,115 @@ object LiveBackdropGate {
 }
 
 /**
- * 玻璃表面的可调参数（**唯一真源**；栏与源码级钉子都读这里）。
+ * 液态玻璃栏的可调参数（**唯一真源**；栏、物理层与源码级钉子都读这里）。
  *
- * 前几个是上游 `drawBackdrop` 的效果入参 —— 上游**不给默认值**（都要显式传），
- * 所以这里就是「我们的取值」：改观感只改这一处。
+ * ## 取值出处：上游 catalog 的 `LiquidBottomTabs` + `LiquidBottomTab`
+ *
+ * 圆整到上游 `65ab177`（tag `2.0.1`）那一版的示例值，**不是我们拍的**：
+ * 64dp 容器 / 56dp 滑块、4dp 内边距、`vibrancy() → blur(8dp) → lens(24dp, 24dp)` 的容器、
+ * `lens(10dp, 14dp, chromaticAberration)` 的滑块、按压时 `78/56` 的横向拉伸与 `1.2` 的图标放大。
+ *
+ * 上游 `drawBackdrop` 的效果入参**没有默认值**（都要显式传），所以这些数字必须有个家；
+ * 散在调用点就必然改漏一处 —— 这个对象就是那个家。
+ *
+ * ## 与 1.2.3 那版「两档模糊」的关系
+ *
+ * 旧版把「选中 / 未选中」的差别做成 `blur(24dp)` 与 `blur(2dp)` 两个半径。移植后
+ * **选中态不再靠模糊档位表达**：滑块几乎不糊，它把身后那张「染成强调色的录制层」折射出来，
+ * 于是选中项是**彩色 + 边缘色散**的，未选项是**去色磨砂**的 —— 对比更强，而且不用两套半径。
+ * 底色那档（[ContainerBlurRadius]）仍在，管的是整条栏的磨砂。
  */
 object GlassBackdrop {
 
-    /**
-     * **未选中态**的模糊半径：整条栏的底面，把身后的页面像素糊掉多少。
-     *
-     * 24dp 是「看得出是背景、但读不出内容」的档位。再大会把背景糊成一块纯色，
-     * 玻璃就退回成不透明色块；再小则会在玻璃里读出正文，喧宾夺主。
-     */
-    val BlurRadius: Dp = 24.dp
+    // ── 尺寸 ────────────────────────────────────────────────────────────────
+
+    /** 容器高度（含上下各 [BarPadding]）—— 上游 `LiquidBottomTabs` 的 64dp。 */
+    val ContainerHeight: Dp = 64.dp
+
+    /** 滑块高度 —— 上游的 56dp，正好等于容器减去上下内边距。 */
+    val PillHeight: Dp = 56.dp
+
+    /** 内容与容器边缘的留白 —— 上游的 4dp，三处共用。 */
+    val BarPadding: Dp = 4.dp
+
+    // ── 容器（整条栏的玻璃） ────────────────────────────────────────────────
 
     /**
-     * **选中态**（液态滑块）的模糊半径：几乎不糊，只留一点柔化。
+     * 容器模糊半径：整条栏的底面把身后的页面像素糊掉多少。
      *
-     * 「选中项透明、其余磨砂」那层对比就来自这里 —— 滑块与底面用的是**同一份采样**，
-     * 差别只在这个半径与下面那组折射参数。0dp 像在栏上挖了个洞，2dp 才像贴在页面上的清玻璃。
+     * 上游取 8dp（比 1.2.3 那版的 24dp 轻得多）——因为这一版的层次感由**滑块折射**给，
+     * 底面糊太狠会把整页背景压成一块纯色，滑块折射出来的彩色也就没东西可衬。
      */
-    val LensBlurRadius: Dp = 2.dp
+    val ContainerBlurRadius: Dp = 8.dp
+
+    /** 容器折射带宽度：从圆角边缘往里多少距离内做位移（上游 24dp）。 */
+    val ContainerRefractionHeight: Dp = 24.dp
+
+    /** 容器折射位移量：边缘像素最多被推开多少（上游 24dp）。 */
+    val ContainerRefractionAmount: Dp = 24.dp
 
     /**
-     * 折射带宽度：从圆角边缘往里多少距离内做位移；超出这条带的像素**原样透出**。
+     * 容器底色不透明度（主题色的 alpha 系数）—— 上游 `Color(0xFFFAFAFA).copy(0.4f)` / `0xFF121212`。
      *
-     * 56dp 高的胶囊取 12dp ≈ 五分之一，边缘那圈才有厚度感；取满高会把整块玻璃糊成凸透镜。
+     * 底色不降下来，采进来的背景会被自己盖住，那次整页离屏绘制就白花了。
      */
-    val RefractionHeight: Dp = 12.dp
+    const val ContainerColorAlpha: Float = 0.4f
+
+    /** 按住整条栏时横向拉伸到 `pressedScale` 的倍率（上游 `78f / 56f`）。 */
+    const val PressScaleFactor: Float = 78f / 56f
 
     /**
-     * 折射位移量：边缘像素最多被推开多少。
+     * 按住时整条栏**横向**多出来的宽度（上游 `16.dp`）。
      *
-     * 16dp 是「看得出弯、但背景不会明显错位」的档位。它比 [RefractionHeight] 大是故意的 ——
-     * 上游 `lens()` 用 `circleMap` 做非线性映射，位移峰值出现在折射带中段。
+     * 它加在宽度上、再换算成缩放比，所以窄屏不会变成铁板、宽屏不会变成橡皮筋。
      */
-    val RefractionAmount: Dp = 16.dp
+    val PressStretch: Dp = 16.dp
+
+    // ── 滑块（液态透镜） ────────────────────────────────────────────────────
 
     /**
-     * 是否叠「厚度方向」的折射分量（把位移再朝中心偏一点）。
+     * 滑块折射带宽度（静止时为 0，按下后乘上 pressProgress）。
      *
-     * 开：像一块有厚度的板，边缘弯曲更立体；关：像一层贴纸。代价是同一像素多算一次法线。
+     * 静止时滑块**不折射**：它只是把身后那张染色录制层原样透出来；一按下才开始弯，
+     * 于是「按下去有厚度」这件事由折射的**出现**表达，而不是由颜色变化表达。
      */
-    const val RefractionDepthEffect: Boolean = true
+    val PillRefractionHeight: Dp = 10.dp
 
-    /**
-     * 滑块滑动时的弹簧阻尼比：略小于 1，收尾带一点回弹。
-     *
-     * 液态观感一半来自**拉长**（见 `GlassNavigationBar` 的 lo/hi），一半来自这条收尾；
-     * 再小会晃得像弹球，=1 则是机械地匀速停住。
-     */
-    const val LensDampingRatio: Float = 0.72f
+    /** 滑块折射位移量（按下时乘上 pressProgress）。 */
+    val PillRefractionAmount: Dp = 14.dp
+
+    /** 按下时被滑块的图标放大倍率（上游 `lerp(1f, 1.2f, pressProgress)`）。 */
+    const val TabPressedScale: Float = 1.2f
+
+    /** 拖动时整条栏跟随位移的最大值（上游 `4.dp * fraction.sign * EaseOut(abs(fraction))`）。 */
+    val PanelShift: Dp = 4.dp
+
+    /** 静止时压在滑块上的中性薄层 alpha（上游浅色用黑 0.1、深色用白 0.1）。 */
+    const val PillScrimAlpha: Float = 0.1f
+
+    /** 按下时追加的黑色薄层 alpha（上游 `0.03f * progress`）。 */
+    const val PillPressScrimAlpha: Float = 0.03f
+
+    /** 滑块内阴影半径（上游 `8.dp * pressProgress`）—— 「厚度」的向内那一半。 */
+    val PillInnerShadowRadius: Dp = 8.dp
+
+    // ── 物理 ────────────────────────────────────────────────────────────────
+
+    /** 滑块位移弹簧的可见阈值。 */
+    const val VisibilityThreshold: Float = 0.001f
+
+    /** 按下形变的 X 阻尼比（上游 `spring(0.6f, 250f)`）—— 略欠阻尼，横向回弹更明显。 */
+    const val ScaleXDampingRatio: Float = 0.6f
+
+    /** 按下形变的 Y 阻尼比（上游 `spring(0.7f, 250f)`）—— 比 X 收得快，形变才像被拉长。 */
+    const val ScaleYDampingRatio: Float = 0.7f
+
+    /** 指针高光的面亮度基准（上游 AGSL 版 `Color.White.copy(0.08f * progress)`）。 */
+    const val HighlightFillAlpha: Float = 0.08f
+
+    /** 指针高光的圆斑亮度基准（上游 `Color.White.copy(0.15f * progress)`）。 */
+    const val HighlightSpotAlpha: Float = 0.15f
+
+    /** 指针高光半径系数（上游 AGSL 版 `size.minDimension * 1.5f`）。 */
+    const val HighlightSpotRadiusFactor: Float = 1.5f
 }

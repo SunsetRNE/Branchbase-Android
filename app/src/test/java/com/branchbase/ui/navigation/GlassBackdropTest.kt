@@ -83,6 +83,7 @@ class GlassBackdropTest {
     private val repoPath = "src/main/java/com/branchbase/ui/repository/RepositoryScreen.kt"
     private val profilePath = "src/main/java/com/branchbase/ui/profile/ProfileScreen.kt"
     private val backdropPath = "src/main/java/com/branchbase/ui/navigation/Backdrop.kt"
+    private val dragPath = "src/main/java/com/branchbase/ui/navigation/LiquidGlassDrag.kt"
 
     /**
      * 第一条：壳子必须把内容录进库的图层，并在栏那层下发。
@@ -140,9 +141,18 @@ class GlassBackdropTest {
             floating.contains("content(PaddingValues(0.dp))"),
         )
         assertTrue(
-            "悬浮形态不许再引入按栏高/手势条推算的尾部留白（barHeight / WindowInsets.navigationBars）" +
-                "—— 那正是把内容挤出栏外的那条路",
-            !floating.contains("barHeight") && !floating.contains("WindowInsets.navigationBars"),
+            "悬浮形态不许按栏高去改**内容**的内边距（`PaddingValues(barHeight…)` / " +
+                "`padding(bottom = barHeight…)` 都不许出现）—— 要给的是「让位高度」这个数，" +
+                "不是把内容顶上去",
+            !floating.contains("PaddingValues(barHeight") &&
+                !floating.contains("padding(bottom = barHeight"),
+        )
+        assertTrue(
+            "让位高度必须**量**出来（`onSizeChanged` 上报 `barHeightPx`，再 `.toDp()` 下发）：" +
+                "栏自己带着 `navigationBarsPadding()`，手势条高度、分屏、横屏都会改这个数 —— " +
+                "量一次就永远对，按 80dp 推算会让贴底件底边落在栏沿以下",
+            floating.contains("onSizeChanged { barHeightPx = it.height }") &&
+                floating.contains("barHeightPx.toDp()"),
         )
     }
 
@@ -186,6 +196,18 @@ class GlassBackdropTest {
             bar.contains("lens("),
         )
         assertTrue(
+            "必须传 vibrancy()（增色）—— 移植后的容器链是 vibrancy → blur → lens（上游 catalog 同序）；" +
+                "少了增色，采进来的页面像素会发灰，滑块里那张染色层也立不起来",
+            bar.contains("vibrancy()"),
+        )
+        assertTrue(
+            "滑块必须带上 Highlight / Shadow / InnerShadow（边缘高光与厚度）—— 这三样是「玻璃」与" +
+                "「半透明色板」的分界，且都由按下进度驱动",
+            bar.contains("Highlight.Default") &&
+                bar.contains("Shadow(alpha") &&
+                bar.contains("InnerShadow("),
+        )
+        assertTrue(
             "采样必须判版本（Build.VERSION / SDK_INT）—— blur 在 Android 12 以下是空操作，" +
                 "硬采会透出一张清晰的原图，比不采更糟",
             bar.contains("Build.VERSION") || bar.contains("SDK_INT"),
@@ -200,33 +222,38 @@ class GlassBackdropTest {
      * - 滑块下还留着那层实心选中色 ⇒ 透明玻璃被盖死，看起来和实心胶囊没区别。
      */
     @Test
-    fun `选中态与未选中态必须是两档且不许被实心色盖死`() {
+    fun `三层结构必须在场：容器、染色录制层、采样合体滑块`() {
         val bar = code(barPath)
+
+        // ② 染色录制层：看不见（alpha 0）但真的被画一遍，且被染成强调色 ——
+        // 少了 `layerBackdrop(tabsBackdrop)`，滑块采到的就是空图层（滑块变成一块灰玻璃）；
+        // 少了 `ColorFilter.tint(`，滑块里透出的图标与屏幕上一模一样，等于白录。
         assertTrue(
-            "底面必须用 GlassBackdrop.BlurRadius（磨砂档）",
-            bar.contains("blur(GlassBackdrop.BlurRadius"),
-        )
-        assertTrue(
-            "滑块必须用 GlassBackdrop.LensBlurRadius（清玻璃档）——" +
-                "两档半径写成一个，滑块那层就等于白做",
-            bar.contains("blur(GlassBackdrop.LensBlurRadius"),
-        )
-        assertTrue(
-            "选中项在采样可用时不许再叠实心选中色（判据是 `<项>.selected && !sampled`）—— " +
-                "叠上去就把透明玻璃盖死了",
-            bar.contains(".selected && !sampled"),
+            "必须有染色录制层：alpha(0f) + layerBackdrop(tabsBackdrop) + ColorFilter.tint(强调色) 三件套",
+            bar.contains(".alpha(0f)") &&
+                bar.contains("layerBackdrop(tabsBackdrop)") &&
+                bar.contains("ColorFilter.tint("),
         )
 
-        // 两档必须真的**不一样**，否则「选中透明、其余磨砂」根本不存在。
-        val backdrop = code(backdropPath)
-        fun radius(name: String): Float? =
-            Regex("""val $name:\s*Dp\s*=\s*([0-9.]+)\.dp""").find(backdrop)?.groupValues?.get(1)?.toFloat()
-        val base = radius("BlurRadius")
-        val lens = radius("LensBlurRadius")
-        assertTrue("Backdrop.kt 里读不出两个模糊半径（base=$base lens=$lens）", base != null && lens != null)
+        // ③ 滑块必须采样「页面 × 染色层」的合体，而不是只采页面 ——
+        // 只采页面的话，滑块里透出的就是未染色的原始像素，选中态没有任何颜色来源。
         assertTrue(
-            "选中态必须比未选中态清楚（滑块半径 $lens 必须 < 底面半径 $base）",
-            lens!! < base!!,
+            "滑块必须用 rememberCombinedBackdrop(page, tabsBackdrop) 采合体图层",
+            bar.contains("rememberCombinedBackdrop("),
+        )
+
+        // 可见的那一层不许再叠实心选中色（只在没有采样时才允许）——叠上去就把玻璃盖死了。
+        assertTrue(
+            "可见层必须按 `<项>.selected && !sampled` 决定要不要实心选中色",
+            bar.contains("item.selected && !sampled"),
+        )
+
+        // 容器与滑块必须是**两个** drawBackdrop 调用点（容器一层、滑块一层、录制层一层）。
+        val backdropCalls = Regex("""drawBackdrop\(""").findAll(bar).count()
+        assertTrue(
+            "GlassBar 里应当有 3 处 drawBackdrop（容器 / 录制层 / 滑块），实际 $backdropCalls 处 —— " +
+                "少一处就少一层：没有容器的磨砂、没有录制层的染色、或没有滑块的折射",
+            backdropCalls == 3,
         )
     }
 
@@ -237,21 +264,68 @@ class GlassBackdropTest {
      * 少了拉长，它就只是一个会平移的圆圈 —— 那是「动画」，不是「液态」。
      */
     @Test
-    fun `滑块必须是弹簧驱动的液态拉长`() {
+    fun `滑块必须是上游那套四弹簧物理`() {
         val bar = code(barPath)
         assertTrue(
-            "滑块位置必须由 Animatable 弹簧驱动（不是硬切）",
-            bar.contains("Animatable(") && bar.contains("spring("),
+            "滑块必须挂上游移植过来的 DampedDragAnimation（位移 / 按压 / 形变 / 速度四个弹簧）——" +
+                "只留一个位移弹簧的话，它会「滑过去」但不会「被拉长、被甩扁」",
+            bar.contains("DampedDragAnimation("),
         )
         assertTrue(
-            "滑块必须按「项索引」在两值之间取 min/max 算出拉长量 —— " +
-                "拉长是液态的关键；只做位移的话它就只是个会移动的圆",
-            bar.contains("min(lensIndex.value") && bar.contains("max(lensIndex.value"),
+            "拖动必须真的驱动内部槽位（onDrag → updateValue）并落位后回调（onDragStopped → animateToValue）",
+            bar.contains("updateValue(") && bar.contains("animateToValue("),
         )
         assertTrue(
-            "滑块必须按选中槽位变化重启动画（LaunchedEffect(lensSlot …)）——" +
-                "少了它，位置永远停在初始那一项，点第二项不会滑",
-            bar.contains("LaunchedEffect(lensSlot"),
+            "按下形变与折射必须由 pressProgress 驱动 —— 少了它，按下去栏面纹丝不动",
+            bar.contains("drag.pressProgress"),
+        )
+        assertTrue(
+            "滑块折射必须开色散（chromaticAberration = true）—— 上游 catalog 就开了；" +
+                "关掉的话边缘只是位移，没有「液体边缘那圈彩边」",
+            bar.contains("chromaticAberration = true"),
+        )
+        assertTrue(
+            "滑块必须按速度做非等比压扁（scaleX /= … velocity …, scaleY *= …）—— " +
+                "这是「甩动像一滴液体」与「一个方块平移」的差别",
+            bar.contains("drag.velocity") && bar.contains("scaleX /="),
+        )
+        assertTrue(
+            "拖动时整条栏必须跟着位移（panelOffset / panelShiftAnimation）",
+            bar.contains("panelShiftAnimation") && bar.contains("translationX = panelOffset"),
+        )
+    }
+
+    /**
+     * 第十一条：物理层必须真的被移植进来，且**唯一那处降级要留痕**。
+     *
+     * 上游 `InteractiveHighlight` 用 `com.kyant.backdrop.RuntimeShader` 画指针高光团；
+     * 本项目锁定的 `backdrop` 1.0.6 **没有导出** `RuntimeShader`（javap 实测只有
+     * `RuntimeShaderCache` / `ShadersKt`），所以改用 `Brush.radialGradient` + `BlendMode.Plus`
+     * 复现同一件事。这条钉住「移植了」与「降级在注释里写明」，避免下一个人以为漏抄了。
+     */
+    @Test
+    fun `运动物理层必须移植到位且降级留痕`() {
+        val drag = code(dragPath)
+        assertTrue(
+            "必须移植拖动识别器（inspectDragGestures）—— 上游不等 touchSlop，按下即开始形变",
+            drag.contains("inspectDragGestures"),
+        )
+        assertTrue(
+            "必须移植 awaitFrame（抬手后等一帧再收形变）",
+            drag.contains("suspend fun awaitFrame()"),
+        )
+        assertTrue(
+            "指针高光必须用 Compose 原生画法（Brush.radialGradient + BlendMode.Plus）—— " +
+                "这正是 1.0.6 缺 RuntimeShader 的降级路径",
+            drag.contains("Brush.radialGradient(") && drag.contains("BlendMode.Plus"),
+        )
+        assertTrue(
+            "降级理由必须写在源码注释里（注释里要提到 RuntimeShader）",
+            source(dragPath).contains("RuntimeShader"),
+        )
+        assertTrue(
+            "指针高光必须与手势分离：画在表面上（modifier）、跟踪在滑块上（gestureModifier）",
+            drag.contains("val modifier: Modifier") && drag.contains("val gestureModifier: Modifier"),
         )
     }
 
@@ -265,8 +339,8 @@ class GlassBackdropTest {
     fun `颜色从主题来且参数只有一处真源`() {
         val bar = code(barPath)
         assertTrue(
-            "GlassNavigationBar 的底色必须从 Primer 角色取（不许写死色值）",
-            bar.contains("Primer.BackgroundSecondary") && bar.contains("Primer.TextPrimary"),
+            "GlassNavigationBar 的底色与图标色必须从 Primer 角色取（不许写死色值）",
+            bar.contains("Primer.BackgroundSecondary") && bar.contains("Primer.IconPrimary"),
         )
         assertTrue(
             "必须按深浅主题分档取色（LocalIsDarkTheme）",
@@ -274,15 +348,28 @@ class GlassBackdropTest {
         )
         val backdrop = code(backdropPath)
         assertTrue(
-            "Backdrop.kt 必须声明唯一的一组玻璃参数（BlurRadius / LensBlurRadius / Refraction*）",
-            backdrop.contains("val BlurRadius") &&
-                backdrop.contains("val LensBlurRadius") &&
-                backdrop.contains("val RefractionHeight") &&
-                backdrop.contains("val RefractionAmount"),
+            "Backdrop.kt 必须声明唯一的一组玻璃参数（容器尺寸 / 容器折射 / 滑块折射 / 形变）",
+            backdrop.contains("val ContainerHeight") &&
+                backdrop.contains("val ContainerBlurRadius") &&
+                backdrop.contains("val ContainerRefractionHeight") &&
+                backdrop.contains("val ContainerRefractionAmount") &&
+                backdrop.contains("val PillRefractionHeight") &&
+                backdrop.contains("val PillRefractionAmount") &&
+                backdrop.contains("val PressStretch") &&
+                backdrop.contains("val PillInnerShadowRadius"),
         )
         assertTrue(
-            "折射参数必须由栏从 GlassBackdrop 读，不许在调用点写死 dp 数",
-            bar.contains("GlassBackdrop.RefractionHeight") && bar.contains("GlassBackdrop.RefractionAmount"),
+            "折射与拉伸参数必须由栏从 GlassBackdrop 读，不许在调用点写死 dp 数",
+            bar.contains("GlassBackdrop.ContainerRefractionHeight") &&
+                bar.contains("GlassBackdrop.ContainerRefractionAmount") &&
+                bar.contains("GlassBackdrop.PillRefractionHeight") &&
+                bar.contains("GlassBackdrop.PillRefractionAmount") &&
+                bar.contains("GlassBackdrop.PressStretch") &&
+                bar.contains("GlassBackdrop.PillInnerShadowRadius"),
+        )
+        assertTrue(
+            "强调色必须来自主题角色（Primer.Blue500）—— 它是滑块里那张染色层的唯一颜色来源",
+            bar.contains("Primer.Blue500"),
         )
     }
 
@@ -363,6 +450,96 @@ class GlassBackdropTest {
         assertTrue(
             "静止底必须在 live 为假时提供给栏（LocalBackdrop provides if (live) … else flatBackdrop）",
             floating.contains("else flatBackdrop"),
+        )
+    }
+
+    /**
+     * 第十二条：**虚拟屏上复现出来的两条**（2026-10-08，安装态 `com.branchbase`）。
+     *
+     * 两条都不会编译报错、单测也不会红，但都会在设备上看得见：
+     *
+     * 1. **静止态滑块是一块纯蓝方块、里面没有图标** —— 录制层被当成了「降级样式」去画
+     *    （实心 `Primer.Blue500` 底 + 白色图标），而外层又整片 `ColorFilter.tint(强调色)`，
+     *    于是白图标被染成强调色、压在强调色底上 = 看不见。录制层必须只录**图标本身**。
+     * 2. **回调判据读的是快照** —— `LaunchedEffect(drag)` 启动那一刻的 `selectedSlot`，
+     *    `0 != 0` 不成立就被吞掉。判据必须读 `rememberUpdatedState` 里的**最新**选中项。
+     * 3. **滑块停在上一个槽位不走，并把那一格的点按吃掉**（主 Tab ↔ 消息 Tab 回不来的真因）：
+     *    `currentSlot` 用 `remember(selectedSlot)` 作 key，外部选中项一变就换掉 state 对象，
+     *    而长活的 `snapshotFlow { currentSlot }` 观察的是旧对象 ⇒ 永不重发 ⇒ `animateToValue`
+     *    不被调用 ⇒ 滑块不动；滑块又带着 pointerInput 压在那一格上 ⇒ 点按被它吃掉，
+     *    日志里连页面切换记录都没有。所以：state 不许带 key，手势不许挂在滑块上。
+     */
+    @Test
+    fun `录制层不许用降级样式且滑块不许吃掉点按`() {
+        val bar = code(barPath)
+        assertTrue(
+            "染色录制层必须按「有采样」的正常样式画（`GlassBarCells(…, sampled = true, …)`）—— " +
+                "传 false 会让单元格画成实心强调色底 + 白图标，再被 tint 整片染色，滑块里就只剩一块纯色",
+            bar.contains("GlassBarCells(items, showLabels, sampled = true, trailing = trailing)"),
+        )
+
+        val guard = bar.substringAfter("LaunchedEffect(drag)").substringBefore("val highlight = remember")
+        assertTrue(
+            "回调判据必须读最新选中项（`latestSelectedSlot.value`）—— " +
+                "读快照 `selectedSlot` 会让「点回原来的那一项」被静默吞掉",
+            guard.contains("latestSelectedSlot.value"),
+        )
+        assertTrue(
+            "判据里不许再出现快照比较 `slot != selectedSlot`",
+            !guard.contains("slot != selectedSlot"),
+        )
+
+        assertTrue(
+            "`currentSlot` 必须用 `remember { … }`（不许带 selectedSlot 当 key）—— " +
+                "带 key 会换掉 state 对象，长活 snapshotFlow 观察旧对象永不重发，滑块就此不动",
+            bar.contains("var currentSlot by remember { mutableIntStateOf(selectedSlot) }") &&
+                !bar.contains("remember(selectedSlot) { mutableIntStateOf"),
+        )
+        assertTrue(
+            "手势照上游挂在滑块上（`drag.modifier` / `highlight.gestureModifier` 各一处）—— " +
+                "所以「滑块必须始终跟着真实选中项」是硬约束：它一旦落后一格，" +
+                "被 pointerInput 吃掉的就是**另一格**的点按",
+            Regex("""\bdrag\.modifier""").findAll(bar).count() == 1 &&
+                bar.contains(".then(drag.modifier)") &&
+                bar.contains(".then(highlight.gestureModifier)"),
+        )
+    }
+
+    /**
+     * 第十三条：**栏是覆盖层，页面贴底的浮动件必须自己让位**。
+     *
+     * 悬浮形态下内容铺满全屏、栏盖在底部，页面里 `bottom = 18.dp` 之类的位置正好在栏后面。
+     * 2026-10-08 用户报告：消息页的筛选悬浮球被悬浮导航栏遮挡。
+     *
+     * 契约有三段，缺一段就会出现「有的让了、有的还挡着」：
+     * 1. 壳子算出「栏占掉多高」并下发（含手势条）；
+     * 2. 页面读它，而不是写死 80dp（写死会在换机型/换形态时错）；
+     * 3. 同页**所有**贴底件一起让位（球、面板、多选条、撤销条）—— 只抬球，面板就压在栏后面。
+     */
+    @Test
+    fun `消息页贴底浮动件必须让开悬浮栏`() {
+        val shell = code(shellPath)
+        assertTrue(
+            "壳子必须声明让位高度（`FloatingBarReservedHeight`）与下发通道（`LocalFloatingBarReservedHeight`）",
+            shell.contains("val FloatingBarReservedHeight: Dp =") &&
+                shell.contains("val LocalFloatingBarReservedHeight = staticCompositionLocalOf") &&
+                shell.contains("LocalFloatingBarReservedHeight provides"),
+        )
+
+        val notif = code("src/main/java/com/branchbase/ui/notification/NotificationScreen.kt")
+        assertTrue(
+            "消息页必须读壳子下发的让位高度（不许自己写 80dp）",
+            notif.contains("LocalFloatingBarReservedHeight.current"),
+        )
+        assertTrue(
+            "筛选球必须抬到栏之上（`bottom = 18.dp + barReserved`）—— 这就是用户报的那一处",
+            notif.contains("bottom = 18.dp + barReserved"),
+        )
+        assertTrue(
+            "面板、多选条、撤销条必须一起让位，否则球抬了、它们还压在栏后面",
+            notif.contains("bottom = 78.dp + barReserved") &&
+                notif.contains("padding(bottom = barReserved)") &&
+                notif.contains("barReserved + if (inSelection)"),
         )
     }
 }

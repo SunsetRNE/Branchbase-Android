@@ -55,15 +55,26 @@
 
 ### 2.2 玻璃悬浮导航栏实现声明
 
-**液态玻璃的材质与采样来自上游 [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)（Apache-2.0，Maven `io.github.kyant0:backdrop`，见 §2.3）**，作为**未修改的 Gradle 依赖**引入，源码不在本仓库。
+**液态玻璃的材质与采样来自上游 [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)（Apache-2.0）**：库本体 `io.github.kyant0:backdrop` 作为**未修改的 Gradle 依赖**引入（见 §2.3），**栏的结构与运动**则按 §2.2.1 从同一仓库的 catalog 示例**移植进来并做了修改**。
 
-它的选型理由是同源与合规：酷安 `16.6.4`（`com.coolapk.market`）的液态玻璃用的就是这套，AGSL 着色器逐字相同（取证见 `/root/Project-Integrated-Workspace/apk-lab/out/酷安-液态玻璃-取证报告.md`）——折射、边缘高光、厚度阴影三件事都在上游的 `RuntimeShader` 里。**本仓库未复制其源码，也未复制酷安的代码与素材。**
+它的选型理由是同源与合规：酷安 `16.6.4`（`com.coolapk.market`）的液态玻璃用的就是这套，AGSL 着色器逐字相同（取证见 `/root/Project-Integrated-Workspace/apk-lab/out/酷安-液态玻璃-取证报告.md`）——折射、边缘高光、厚度阴影三件事都在上游的 `RuntimeShader` 里。**酷安的代码与素材未被复制。**
+
+### 2.2.1 栏的**结构**：上游 catalog 的移植（Apache-2.0，含修改）
+
+上游发布物只有库（采样 + 效果）。**「液态」的另一半 —— 栏的三层结构与运动物理 —— 只存在于上游 catalog 示例工程里**，没有 Maven 坐标，因此按 §2.3 的 Apache-2.0 条款移植，并**固定在上游 commit `65ab177`（tag `2.0.1`）**：
+
+| 本仓库文件 | 上游来源 | 改动 |
+|---|---|---|
+| `ui/navigation/GlassBar.kt` | `app/src/commonMain/.../catalog/components/LiquidBottomTabs.kt`、`LiquidBottomTab.kt` | 改为按 `GlassBarItem` 列表驱动（上游是索引 + 调用方 `content`）；末尾手柄（⋮）作为额外一格、不是滑块目标；配色改走 Primer 主题角色；无采样层时退回实心胶囊 |
+| `ui/navigation/LiquidGlassDrag.kt` | `.../catalog/utils/DampedDragAnimation.kt`、`DragGestureInspector.kt`、`InteractiveHighlight.kt`、`Coroutines.kt` | 速度时间戳改用 `SystemClock.uptimeMillis()`（不引实验性 `kotlin.time.Clock`）；**指针高光的画法降级**（见下） |
+
+指针高光的降级不是选择而是被版本逼的：上游 `InteractiveHighlight` 用 `com.kyant.backdrop.RuntimeShader` 写 AGSL 画高光团，而本项目锁定的 `backdrop` `1.0.6` **没有导出** `RuntimeShader` / `asComposeShader` / `isRuntimeShaderSupported`（`javap` 实测公开面只有 `RuntimeShaderCache`、`ShadersKt`）。故改用 Compose 原生 `Brush.radialGradient` + `BlendMode.Plus` 复现同一件事：位置、半径、颜色、加色混合与按下同步一致，只有衰减曲线由 `smoothstep` 变为线性。降级理由同样写在 `LiquidGlassDrag.kt` 的文件头与 `GlassBackdropTest` 的钉子注释里。
 
 Branchbase 自己的部分只有薄薄一层，落在 `ui/navigation/`：
 
-- `Backdrop.kt`：`LocalBackdrop`（把上游 `LayerBackdrop` 下发给栏）+ 玻璃参数的真源（`BlurRadius` / `LensBlurRadius` / `Refraction*`）；
+- `Backdrop.kt`：`LocalBackdrop`（把上游 `LayerBackdrop` 下发给栏）+ 玻璃参数的真源（容器尺寸 / 容器折射 / 滑块折射 / 形变与物理）；
 - `NavigationShell.kt`：**悬浮形态** —— 内容铺满、栏覆盖，给内容挂上游的 `layerBackdrop`；栏不可见时不挂（省掉一次整页离屏绘制）；
-- `GlassBar.kt`：**三处底部导航共用的玻璃胶囊** —— 形状、两档效果（未选中 `blur(24dp)` 磨砂 / 选中 `blur(2dp)` + `lens(...)` 透明液态）、主题色叠层、透镜动效与 API 降级（`blur` 31+ / `lens` 33+，更低版本退回主题色玻璃）。主界面 / 仓库页 / 个人页都走它，`GlassNavigationBar` 只是薄包装。
+- `GlassBar.kt`：**三处底部导航共用的玻璃胶囊** —— 三层结构（容器玻璃 / 染色录制层 / 采样合体的液态滑块）、主题色叠层、拖动与按压物理、API 降级（`blur` 31+ / `lens` 33+，更低版本退回主题色胶囊）。主界面 / 仓库页 / 个人页都走它，`GlassNavigationBar` 只是薄包装。
 
 **1.1.24–1.2.2 的 `LiquidGlassSurface.kt` 已删除**：那个原生 `View` 只画分层渐变与描边，而这几样上游的 highlight / shadow 都做得更完整；留着等于一条栏上两套材质。它与 [SyntaxJester/DouyinLiquidGlass](https://github.com/SyntaxJester/DouyinLiquidGlass)（MIT）的关系随文件一并退出历史（当时只移植了「分层渐变 / 顶部高光 / 渐隐描边」，未复制其 LSPosed/Xposed 注入与抖音视图定位）。
 

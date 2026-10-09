@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.2.3**）
-与 §三 `versionCode` 流水（129 → **234**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.2.4**）
+与 §三 `versionCode` 流水（129 → **235**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,31 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.2.3 → 1.0.22）
+## 二、`versionName` 流水（1.2.4 → 1.0.22）
+
+### 1.2.4
+
+**运动物理层移植：选中态从「两档模糊」改成「有没有颜色」，栏/录制层/滑块三层结构与四个弹簧落地；并修掉装机实测的三个缺陷 —— 静止滑块是纯蓝方块、点回原 Tab 被吞、以及贴底浮动件被悬浮栏压住（1.2.3 留下的三条，这一版还账）。**
+
+① **两档模糊这个前提本身不成立**：1.2.3 的选中态靠 `blur(2dp) + lens(...)` 与底面 `blur(24dp)` 的差别，但浅色背景下两档都是「糊的白」，肉眼分不出 —— 于是必须再叠一层实心色才看得出选中，而那层实心色正好把采进来的背景盖死，「玻璃」和「半透明塑料」就没区别了。改成上游 catalog 的结构：**选中态不再靠模糊档位，改靠「有没有颜色」**（`docs/specs/liquid-glass-nav-design.md` §一）。
+
+② **三层结构是刚性的，换一换就不成立**：① 可见 `Row` + `drawBackdrop(vibrancy → blur → lens)` 是整条栏的玻璃；② `alpha(0f)` + `layerBackdrop(tabsBackdrop)` + `ColorFilter.tint(Primer.Blue500)` 把「染成强调色的内容」录进**第二个**图层，屏幕上看不见；③ 滑块 `drawBackdrop(rememberCombinedBackdrop(页面, ②))` 采样合体，于是滑块里透出**强调色图标 + 边缘色散**，滑块外仍是灰图标。这不是给图标换 tint —— 那只换得了滑块内外其中一边。②的 `alpha(0f)` 是判据所在：录制发生在 `alpha` 图层内层，录到的是不透明内容、屏幕上什么都不显示；删掉它滑块采到空图层，删掉 `ColorFilter.tint(` 滑块透出的和屏幕上一模一样，两次都是白录（钉子第五、六、七条）。
+
+③ **「液态」是四个弹簧，不是一条位移**：`valueAnimation`（停哪个槽）之外还有 `pressProgressAnimation`（按下进度，折射 / 高光 / 阴影 / 图标放大都乘它）、`scaleX/YAnimation`（按下拉伸，X 阻尼 0.6、Y 0.7）、`velocityAnimation`（拖动速度，X 吃三倍于 Y 的压扁量）。只有位移的话滑块只会「滑过去」、不会形变，液态感少一半。拖动识别器**不走 `touchSlop`**（上游 `inspectDragGestures`，按下即形变，框架的 `detectDragGestures` 慢半拍）；指针高光画在**表面**上、`gestureModifier` 挂在**滑块**上 —— 两件都挂滑块，滑块一动高光就跟着自己跑。
+
+④ **参数只有一处真源**：全部收在 `Backdrop.kt` 的 `GlassBackdrop`（容器 64dp / 滑块 56dp / 内边距 4dp、容器 `blur 8dp` + `lens(24dp, 24dp)`、滑块 `lens(10dp×press, 14dp×press, chromaticAberration)`、按压拉伸 `78/56` 与 `16dp`、图标放大 `1.2`、面板位移 `4dp`、内阴影 `8dp`、高光四个 alpha）。钉子第八条同时钉「声明」与「读取」——只钉一边挡不住「定义了没人用」。
+
+⑤ **`InteractiveHighlight` 的 AGSL 路径被迫降级，理由写进文件头**：上游用 `com.kyant.backdrop.RuntimeShader` 写着色器，而本项目锁定的 `backdrop` **1.0.6 没有导出它**（`javap` 实测公开面只有 `RuntimeShaderCache` / `ShadersKt`）。改用 `Brush.radialGradient` + `BlendMode.Plus`：位置、半径、颜色、加色混合、按下同步都一致，只有衰减曲线由 `smoothstep` 变线性（钉子第十一条）。**不静默失效**是这条的重点 —— 降级必须被钉住，而不是编译不报错地什么都不画。
+
+⑥ **装机实测缺陷 1：静止态选中滑块是一块纯蓝方块，里面没有图标**（设备 `LENOVO TB321FU` / Android 16 / SDK 36）。录制层被写成「降级样式」（`sampled = false`）：单元格画实心 `Blue500` 底 + **白色**图标，紧接着外层 `ColorFilter.tint(accentColor)` 整片染色 → 白图标变强调色、压在强调色底上等于消失。修：录制层改传 `sampled = true`，只录图标本身，颜色交给外层 tint。
+
+⑦ **装机实测缺陷 2/3：点回原 Tab 被吞，滑块留在上一格并把那一格的点按吃掉**。缺陷 2 是 `LaunchedEffect(drag)` 闭包读到的是**启动那一刻**的 `selectedSlot`：第 0 → 第 1 项时 `1 != 0` 成立、切换成功；再点回第 0 项算的是 `0 != 0`、不成立，`onClick` 被吞 —— 判据改读 `rememberUpdatedState(selectedSlot).value`。缺陷 3 是**真因**：`remember(selectedSlot) { mutableIntStateOf(…) }` 把外部选中项当成了 `remember` 的 key，选中项一变 **state 对象被换掉**，而长活的 `snapshotFlow { currentSlot }` 观察的是**旧对象** ⇒ 流永不重发 ⇒ `animateToValue` 不被调用 ⇒ 滑块不动；滑块带 `pointerInput`，Compose 命中测试取最上层节点，于是那一格的点按被它吃掉。设备证据：切到消息页后点主 Tab 位置，应用日志**没有产生任何页面切换记录**，同帧栏像素统计显示蓝色仍集中在**左格**。修：`remember { mutableIntStateOf(selectedSlot) }`（state 对象必须稳定）；由此得出一条约束并写进钉子第十二条 —— **手势挂在滑块上，所以滑块必须始终跟住真实选中项**。
+
+⑧ **贴底浮动件必须让开悬浮栏（覆盖层契约补第三段）**：消息页右下的筛选悬浮球（`NotifFilterFab`）被悬浮栏压住 —— 根因不是那个球写错了，而是悬浮形态下壳子回传的内容内边距**刻意是 0**（内容要铺到栏下方，玻璃才有像素可采），于是页面里 `bottom = 18.dp` 正好落在栏后面。契约补成三段：① 壳子用 `onSizeChanged` **量**出栏占掉多高（含 `navigationBarsPadding()` + 上下 8dp + 栏高 64dp）；② 经 `LocalFloatingBarReservedHeight` 下发，**占位形态恒为 0、栏收起也回落 0**；③ 页面读它给所有贴底件让位（筛选球 `18.dp + barReserved`、面板 `78.dp + barReserved`、多选条 `padding(bottom = barReserved)`、撤销条 `barReserved + (inSelection ? 66.dp : 12.dp)`）。**为什么是「量」不是推算**：手势条高度随机型 / 分屏 / 横屏变，`FloatingBarReservedHeight`（= 80dp）只作首帧名义值；页面一律读 CompositionLocal，不许写死 80dp —— 写死的那份迟早与栏对不上（钉子第十三条）。
+
+⑨ **原「悬浮形态不许出现 WindowInsets」的钉子被改写而不是删掉**：它防的是「把内容顶上去」，不是禁止测量；改成「内容内边距必须仍是 0，但让位高度必须量出来」，原意保住、新能力才进得来。
+
+⑩ **三处调用点一行都没动**：`GlassBar(items, showLabels, trailing)` 签名与语义保持不变，`GlassNavigationBar` / `GlassRepoBar` / `ProfileBubbleNavigationBar` 未改 —— 这是这次移植能**整块回退**的前提（回滚只需恢复 4 个文件，见 §六）。
 
 ### 1.2.3
 
@@ -3556,7 +3580,9 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（234 → 129）
+## 三、`versionCode` 流水（235 → 129）
+
+- **235**：运动物理层移植 —— 选中态从「两档模糊」改成「有没有颜色」：栏改为**三层刚性结构**（① 可见 `Row` + `drawBackdrop(vibrancy → blur → lens)`；② `alpha(0f)` + `layerBackdrop` + `ColorFilter.tint(Blue500)` 的染色录制层；③ 采 `rememberCombinedBackdrop(页面, ②)` 的滑块，于是滑块内透出强调色图标、滑块外仍灰）；新增 `ui/navigation/LiquidGlassDrag.kt`（370 行）承载四个弹簧（位移 / 按下进度 / 按压拉伸 / 拖动速度）与不走 `touchSlop` 的拖动识别器，指针高光画在表面、`gestureModifier` 挂滑块；参数全部收进 `Backdrop.kt` 的 `GlassBackdrop` 单点真源；上游 `InteractiveHighlight` 的 AGSL 路径因锁定的 `backdrop` 1.0.6 未导出 `RuntimeShader`（`javap` 实测）降级为 `radialGradient` + `BlendMode.Plus`（仅衰减曲线由 `smoothstep` 变线性），降级理由写在文件头并被钉子钉住；装机实测三缺陷一并修复 —— 录制层 `sampled=false` 导致静止滑块是纯蓝方块（改 `sampled=true`）、`LaunchedEffect` 闭包读快照导致点回原 Tab 被吞（改读 `rememberUpdatedState`）、`remember(selectedSlot)` 把外部选中项当 key 导致 state 对象被换掉、`snapshotFlow` 盯旧对象、滑块停在原格并吃掉那一格点按（改 `remember { mutableIntStateOf(selectedSlot) }`）；新增消息页覆盖层契约第三段 —— `NavigationShell` 用 `onSizeChanged` **量**出栏占掉的高度并经 `LocalFloatingBarReservedHeight` 下发（占位形态恒 0、栏收起回落 0），消息页筛选球 / 面板 / 多选条 / 撤销条一起让位；`GlassBackdropTest` 11 例扩到 13 例（一次提交，故 +1）。
 
 - **234**：真玻璃落地 —— `NavigationShell` 新增 `floating` 悬浮形态（内容铺满 + 栏覆盖，内容侧内边距**刻意回 0**，否则页面被顶到栏上方就没有背景可采）并用 `GraphicsLayer` 录下整页内容，经新增的 `LocalBackdrop` / `BackdropState` 把「图层 + 录制原点」下发给玻璃栏；`GlassNavigationBar` 按原点平移回放图层，底面 `Modifier.blur(24dp)` 做磨砂、选中项压一块 `2dp` 的透明液态滑块（弹簧驱动、滑动中在两项之间拉长），有背景可采时底色压到 55%、选中态不再叠实心胶囊，API 31 以下不采；占位形态不再叠系统栏内边距；新增 `GlassBackdropTest` 8 例（一次提交，故 +1）。
 

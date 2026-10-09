@@ -17,10 +17,17 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.branchbase.ui.theme.ElementMotion
 import com.branchbase.ui.theme.Primer
@@ -33,6 +40,23 @@ private val FloatingSlotHorizontal = 12.dp
 
 /** 悬浮槽位的纵向留白（栏与内容区 / 手势条的距离）。 */
 private val FloatingSlotVertical = 8.dp
+
+/**
+ * 悬浮栏在屏幕底部**实际占掉的高度**：栏高 + 上下留白（不含系统手势条）。
+ *
+ * 悬浮形态下栏是覆盖层（内容铺满、栏盖在底部），所以页面里贴底的浮动件
+ * —— 消息页的筛选悬浮球、它上方的面板、多选条、撤销条 —— 必须自己让开这一段，
+ * 否则会被栏压住（2026-10-08：消息页筛选球被悬浮导航栏遮挡）。
+ *
+ * 上下那 8dp 留白不是装饰：栏自己就带着它，页面只让到 `ContainerHeight` 仍会与栏贴脸。
+ */
+val FloatingBarReservedHeight: Dp = FloatingSlotVertical * 2 + GlassBackdrop.ContainerHeight
+
+/**
+ * 把 [FloatingBarReservedHeight] 下发给页面内容；**占位形态下是 0**
+ * （栏已独占一行、内容区本来就在栏上方，页面不长）。页面一律读这个值，不要自己写死 80dp。
+ */
+val LocalFloatingBarReservedHeight = staticCompositionLocalOf { 0.dp }
 
 /**
  * 带底部导航栏的页面骨架：**导航栏的槽位在这里，不在页面切换器里**。
@@ -183,14 +207,31 @@ private fun FloatingNavigationShell(
     val live = LiveBackdropGate.allowed
     val record = live && barVisible && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
+    // 栏占掉多高：**量**出来的，不是推出来的 —— 栏自己带着 `navigationBarsPadding()`，
+    // 手势条高度、分屏、横屏都会改这个数，量一次就永远对。首帧还没量到时退回名义值
+    // [FloatingBarReservedHeight]（栏高 + 上下留白），所以第一帧不会跳。
+    var barHeightPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val reservedBottom = if (!barVisible) {
+        0.dp
+    } else {
+        with(density) { if (barHeightPx > 0) barHeightPx.toDp() else FloatingBarReservedHeight }
+    }
+
     Box(modifier = modifier.fillMaxSize().background(containerColor)) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .then(if (record) Modifier.layerBackdrop(liveBackdrop) else Modifier),
         ) {
-            // 刻意回传 0：内容必须铺到栏下方，录制图层里才有可采的像素（见文件头）。
-            content(PaddingValues(0.dp))
+            // 内容照旧铺到栏下方（见文件头），但把「栏占掉多高」下发给页面：
+            // 贴底浮动件（筛选球等）按它抬起，列表尾部留白也按它算。
+            CompositionLocalProvider(
+                LocalFloatingBarReservedHeight provides reservedBottom,
+            ) {
+                // 刻意回传 0：内容必须铺到栏下方，录制图层里才有可采的像素（见文件头）。
+                content(PaddingValues(0.dp))
+            }
         }
 
         AnimatedVisibility(
@@ -203,6 +244,9 @@ private fun FloatingNavigationShell(
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
+                    // 量出「栏到底占了多少」：含手势条内边距 + 上下留白 + 栏高，
+                    // 这个数经 `LocalFloatingBarReservedHeight` 下发给页面（见上）。
+                    .onSizeChanged { barHeightPx = it.height }
                     .padding(
                         horizontal = FloatingSlotHorizontal,
                         vertical = FloatingSlotVertical,

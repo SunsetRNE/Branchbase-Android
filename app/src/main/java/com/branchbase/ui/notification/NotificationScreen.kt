@@ -115,6 +115,7 @@ import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.navigation.LocalFloatingBarReservedHeight
 import com.branchbase.ui.resolve
 import com.branchbase.ui.theme.Primer
 import java.net.URLEncoder
@@ -905,6 +906,10 @@ fun NotificationScreen(
         }
     }
 
+    // 悬浮玻璃栏是**覆盖层**：页面里贴底的浮动件要按壳子下发的高度让位（占位形态下为 0）。
+    // 不让位就会被栏压住 —— 2026-10-08 用户报告：消息页筛选悬浮球被悬浮导航栏遮挡。
+    val barReserved = LocalFloatingBarReservedHeight.current
+
     Box(Modifier.fillMaxSize().background(Primer.BackgroundPrimary)) {
         Column(Modifier.fillMaxSize()) {
             // ── 顶部：普通态 / 多选态 ──
@@ -1027,7 +1032,8 @@ fun NotificationScreen(
             visible = panelOpen,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 12.dp, bottom = 78.dp)
+                // 面板锚在 FAB 正上方 ⇒ 与 FAB 同步抬高，否则球抬起来了、面板还压在栏后面
+                .padding(end = 12.dp, bottom = 78.dp + barReserved)
                 .width(panelWidthFor(LocalConfiguration.current.screenWidthDp)),
         ) {
             NotifPanel(
@@ -1076,7 +1082,8 @@ fun NotificationScreen(
             onClick = { panelOpen = !panelOpen },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 14.dp, bottom = 18.dp),
+                // 抬到悬浮栏之上：栏是覆盖层，18dp 那个位置正好落在栏后面（旧版就是被它挡住的）
+                .padding(end = 14.dp, bottom = 18.dp + barReserved),
         )
 
         // ── 多选底部操作条（进入/退出多选时列表原地不动）──
@@ -1084,7 +1091,9 @@ fun NotificationScreen(
             visible = inSelection,
             enter = slideInVertically { it },
             exit = slideOutVertically { it },
-            modifier = Modifier.align(Alignment.BottomCenter),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = barReserved),
         ) {
             NotifSelectionBar(
                 selectedCount = selected.size,
@@ -1104,7 +1113,11 @@ fun NotificationScreen(
             state = undo,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(start = 12.dp, end = 12.dp, bottom = if (inSelection) 66.dp else 12.dp),
+                .padding(
+                    start = 12.dp,
+                    end = 12.dp,
+                    bottom = barReserved + if (inSelection) 66.dp else 12.dp,
+                ),
             onDismiss = { undo = null },
         )
     }
