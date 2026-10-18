@@ -315,7 +315,7 @@ fun GlassBar(
                 .graphicsLayer { translationX = panelOffset }
                 .then(containerModifier)
                 .then(if (sampled) highlight.modifier else Modifier)
-                .height(GlassBackdrop.ContainerHeight)
+                .height(navPlan.height)
                 .fillMaxWidth()
                 .padding(GlassBackdrop.BarPadding),
             verticalAlignment = Alignment.CenterVertically,
@@ -360,7 +360,7 @@ fun GlassBar(
                             onDrawSurface = { drawRect(containerColor) },
                         )
                         .then(highlight.modifier)
-                        .height(GlassBackdrop.PillHeight)
+                        .height(navPlan.pillHeight)
                         .fillMaxWidth()
                         .padding(horizontal = GlassBackdrop.BarPadding)
                         .graphicsLayer { colorFilter = ColorFilter.tint(accentColor) },
@@ -443,7 +443,7 @@ fun GlassBar(
                             drawRect(Color.Black.copy(alpha = GlassBackdrop.PillPressScrimAlpha * progress))
                         },
                     )
-                    .height(GlassBackdrop.PillHeight)
+                    .height(navPlan.pillHeight)
                     .fillMaxWidth(1f / cellCount),
             )
         }

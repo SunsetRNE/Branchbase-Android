@@ -1,9 +1,16 @@
 package com.branchbase.ui.adaptive
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 
@@ -63,4 +70,35 @@ fun ProvideAdaptiveLayout(content: @Composable () -> Unit) {
     val window = rememberWindowSpec()
     val plan = remember(window) { AdaptiveLayoutPolicy.plan(window) }
     CompositionLocalProvider(LocalLayoutPlan provides plan, content = content)
+}
+
+/**
+ * 页面内容容器：把整页内容约束在可读宽度内并居中。
+ *
+ * 紧凑屏（maxWidth = null）保持原来的整宽行为；平板横屏 840dp / 竖屏 760dp，
+ * 多出来的宽度留在两侧，而不是把卡片/正文/列表一起拉宽。
+ *
+ * **只约束内容区**：底部导航栏、系统栏仍由各自的壳子处理；本容器只负责
+ * “页面正文的最大行宽”。
+ */
+@Composable
+fun AdaptiveContent(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val maxWidth = LocalLayoutPlan.current.content.maxWidth
+    if (maxWidth == null) {
+        Box(modifier.fillMaxSize()) { content() }
+    } else {
+        Box(modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            Box(
+                Modifier
+                    .fillMaxHeight()
+                    .widthIn(max = maxWidth)
+                    .fillMaxWidth(),
+            ) {
+                content()
+            }
+        }
+    }
 }

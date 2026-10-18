@@ -73,4 +73,25 @@ class AdaptiveLayoutPolicyTest {
         assertEquals(840f, AdaptiveLayoutPolicy.plan(window(1280)).content.maxWidth?.value ?: 0f, 0.01f)
         assertEquals(32f, AdaptiveLayoutPolicy.plan(window(1280)).content.horizontalPadding.value, 0.01f)
     }
+
+    @Test
+    fun `portrait tablet uses narrower content than landscape`() {
+        val portrait = AdaptiveLayoutPolicy.plan(WindowSpec(900, 1200, 2f, 1f))
+        val landscape = AdaptiveLayoutPolicy.plan(WindowSpec(1280, 800, 2f, 1f))
+
+        assertEquals(760f, portrait.content.maxWidth?.value ?: 0f, 0.01f)
+        assertEquals(840f, landscape.content.maxWidth?.value ?: 0f, 0.01f)
+        assertEquals(64f, portrait.nav.height.value, 0.01f)
+    }
+
+    @Test
+    fun `phone landscape shrinks the floating bar`() {
+        val plan = AdaptiveLayoutPolicy.plan(WindowSpec(800, 360, 2f, 1f))
+
+        // 宽度是 Medium（600–839），高度紧凑：栏高/滑块/上下留白一起收窄。
+        assertEquals(56f, plan.nav.height.value, 0.01f)
+        assertEquals(48f, plan.nav.pillHeight.value, 0.01f)
+        assertEquals(4f, plan.nav.verticalSlot.value, 0.01f)
+        assertEquals(720f, plan.content.maxWidth?.value ?: 0f, 0.01f)
+    }
 }

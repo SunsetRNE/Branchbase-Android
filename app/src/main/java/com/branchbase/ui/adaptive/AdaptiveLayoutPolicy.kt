@@ -34,6 +34,9 @@ object AdaptiveLayoutPolicy {
             // 中/大屏不做“整宽等分”，一律封顶后居中。
             WidthClass.Medium, WidthClass.Expanded -> TabletBarMaxWidth
         }
+        // 手机横屏（height <480dp）竖向空间紧：栏与上下留白一起收窄，正文多留一点高度。
+        val compactHeight = window.heightClass == HeightClass.Compact
+        val barHeight = if (compactHeight) 56.dp else 64.dp
         val nav = NavPlan(
             maxWidth = maxWidth,
             maxCellWidth = when (window.widthClass) {
@@ -42,14 +45,19 @@ object AdaptiveLayoutPolicy {
             },
             idealCellWidth = 88.dp,
             containerPadding = 4.dp,
-            height = 64.dp,
-            iconSize = when (window.widthClass) {
-                WidthClass.Compact -> 22.dp
-                WidthClass.Medium, WidthClass.Expanded -> 24.dp
+            height = barHeight,
+            pillHeight = barHeight - 8.dp,
+            verticalSlot = if (compactHeight) 4.dp else 8.dp,
+            iconSize = when {
+                compactHeight -> 20.dp
+                window.widthClass == WidthClass.Compact -> 22.dp
+                else -> 24.dp
             },
-            labelTextSize = when (window.widthClass) {
-                WidthClass.Compact -> 10.sp
-                WidthClass.Medium, WidthClass.Expanded -> 11.sp
+            labelTextSize = when {
+                compactHeight -> 10.sp
+                window.widthClass == WidthClass.Compact -> 10.sp
+                window.widthClass == WidthClass.Medium -> 11.sp
+                else -> 12.sp
             },
             horizontalMargin = margin,
         )
@@ -57,7 +65,8 @@ object AdaptiveLayoutPolicy {
             maxWidth = when (window.widthClass) {
                 WidthClass.Compact -> null
                 WidthClass.Medium -> 720.dp
-                WidthClass.Expanded -> 840.dp
+                // 平板横屏给 840dp（列表/卡片），竖屏收一点到 760dp（长文更好读）。
+                WidthClass.Expanded -> if (window.isLandscape) 840.dp else 760.dp
             },
             horizontalPadding = when (window.widthClass) {
                 WidthClass.Compact -> 16.dp

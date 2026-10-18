@@ -29,6 +29,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.branchbase.ui.adaptive.AdaptiveContent
+import com.branchbase.ui.adaptive.LocalLayoutPlan
 import com.branchbase.ui.theme.ElementMotion
 import com.branchbase.ui.theme.Primer
 import com.kyant.backdrop.backdrops.layerBackdrop
@@ -138,7 +140,10 @@ fun NavigationShell(
 
     Column(modifier = modifier.fillMaxSize().background(containerColor)) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            content(PaddingValues(0.dp))
+            // 平板横/竖屏都把正文约束在可读宽度内；紧凑屏不变（maxWidth = null）。
+            AdaptiveContent {
+                content(PaddingValues(0.dp))
+            }
         }
 
         // 进出用纵向展开/收起而不是位移：位移不改布局尺寸，栏会让出一块空白再"啪"地消失；
@@ -194,6 +199,8 @@ private fun FloatingNavigationShell(
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val liveBackdrop = rememberLayerBackdrop()
+    // 栏高/上下留白由布局判定引擎给：横屏手机收窄，平板保持 64dp。
+    val navPlan = LocalLayoutPlan.current.nav
     // 静止底：正文 WebView 在屏时用它顶上（见 [LiveBackdropGate]）——
     // 材质（高光 / 投影 / 折射 / 模糊）照旧走 `drawBackdrop`，只是身后换成主题底色。
     // 用 `remember(containerColor)` 把 lambda 钉住，否则每次重组都会新建一个 Backdrop。
@@ -215,7 +222,9 @@ private fun FloatingNavigationShell(
     val reservedBottom = if (!barVisible) {
         0.dp
     } else {
-        with(density) { if (barHeightPx > 0) barHeightPx.toDp() else FloatingBarReservedHeight }
+        with(density) {
+            if (barHeightPx > 0) barHeightPx.toDp() else navPlan.height + navPlan.verticalSlot * 2
+        }
     }
 
     Box(modifier = modifier.fillMaxSize().background(containerColor)) {
@@ -230,7 +239,9 @@ private fun FloatingNavigationShell(
                 LocalFloatingBarReservedHeight provides reservedBottom,
             ) {
                 // 刻意回传 0：内容必须铺到栏下方，录制图层里才有可采的像素（见文件头）。
-                content(PaddingValues(0.dp))
+                AdaptiveContent {
+                    content(PaddingValues(0.dp))
+                }
             }
         }
 
@@ -249,7 +260,7 @@ private fun FloatingNavigationShell(
                     .onSizeChanged { barHeightPx = it.height }
                     .padding(
                         horizontal = FloatingSlotHorizontal,
-                        vertical = FloatingSlotVertical,
+                        vertical = navPlan.verticalSlot,
                     ),
                 contentAlignment = Alignment.BottomCenter,
             ) {

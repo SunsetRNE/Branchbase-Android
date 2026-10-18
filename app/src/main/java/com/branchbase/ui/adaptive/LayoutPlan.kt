@@ -35,6 +35,10 @@ data class NavPlan(
     val containerPadding: Dp,
     /** 栏高（玻璃容器高度）。 */
     val height: Dp,
+    /** 滑块高度；横屏手机（高度紧凑）会随栏一起收窄。 */
+    val pillHeight: Dp,
+    /** 悬浮栏与内容区的纵向留白；横屏手机收窄，给正文腾高度。 */
+    val verticalSlot: Dp,
     /** 基准图标尺寸；最终尺寸会乘压缩比例并 clamp。 */
     val iconSize: Dp,
     /** 文字标签字号；只有 [NavMetrics.showLabels] 为 true 时才绘制。 */
