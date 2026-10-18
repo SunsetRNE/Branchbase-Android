@@ -10,6 +10,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import com.branchbase.ui.adaptive.ProvideAdaptiveLayout
 import com.branchbase.ui.translate.LocalTranslateBubbleHost
 import com.branchbase.ui.translate.TranslateBubble
 import com.branchbase.ui.translate.TranslateBubbleHost
@@ -135,14 +136,18 @@ class MainActivity : ComponentActivity() {
         setContent {
             val themeMode by ThemeRuntime.mode.collectAsState()
             BranchbaseTheme(mode = themeMode) {
-                // 沉浸式翻译的悬浮球 / 工具面板是**原生覆盖层**（见 ui/translate/TranslateBubble.kt）：
-                // 会话在这里建一次，正文页（ReadmeWebView）通过 CompositionLocal 绑上来，
-                // 控件画在最上层 —— 位置锚定窗口，不受正文 WebView 高度影响。
-                val translateHost = remember { TranslateBubbleHost() }
-                CompositionLocalProvider(LocalTranslateBubbleHost provides translateHost) {
-                    Box(Modifier.fillMaxSize()) {
-                        LoginFlow()
-                        TranslateBubble(translateHost)
+                // 窗口尺寸在这里收敛成一份 LayoutPlan，下面所有页面/导航栏只消费它；
+                // 页面不再各自读 screenWidthDp 写断点（见 ui/adaptive/AdaptiveLayout.kt）。
+                ProvideAdaptiveLayout {
+                    // 沉浸式翻译的悬浮球 / 工具面板是**原生覆盖层**（见 ui/translate/TranslateBubble.kt）：
+                    // 会话在这里建一次，正文页（ReadmeWebView）通过 CompositionLocal 绑上来，
+                    // 控件画在最上层 —— 位置锚定窗口，不受正文 WebView 高度影响。
+                    val translateHost = remember { TranslateBubbleHost() }
+                    CompositionLocalProvider(LocalTranslateBubbleHost provides translateHost) {
+                        Box(Modifier.fillMaxSize()) {
+                            LoginFlow()
+                            TranslateBubble(translateHost)
+                        }
                     }
                 }
             }

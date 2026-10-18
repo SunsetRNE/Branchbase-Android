@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -50,11 +51,15 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.fastRoundToInt
 import androidx.compose.ui.util.lerp
+import com.branchbase.ui.adaptive.AdaptiveLayoutPolicy
+import com.branchbase.ui.adaptive.LocalLayoutPlan
 import com.branchbase.ui.theme.LocalIsDarkTheme
 import com.branchbase.ui.theme.Primer
 import com.kyant.backdrop.Backdrop
@@ -158,15 +163,22 @@ fun GlassBar(
     // 但它**不是**滑块的目标 —— 滑块只在真正的导航项之间移动。
     val cellCount = (tabsCount + if (trailing != null) 1 else 0).coerceAtLeast(1)
 
+    // 栏宽/格宽/压缩比由布局判定引擎给出：平板上栏封顶后居中，槽位少时栏自然收窄，
+    // 不再用“可用宽 / 槽位数”把每个图标摊到 600dp 的格子里。
+    val navPlan = LocalLayoutPlan.current.nav
+    val metrics = AdaptiveLayoutPolicy.metrics(navPlan, cellCount, showLabels)
+
     val selectedSlot = items.indexOfFirst { it.selected }.coerceAtLeast(0)
     val tabsBackdrop = rememberLayerBackdrop()
     val animationScope = rememberCoroutineScope()
 
-    BoxWithConstraints(modifier, contentAlignment = Alignment.CenterStart) {
+    BoxWithConstraints(
+        modifier = modifier.width(metrics.barWidth),
+        contentAlignment = Alignment.CenterStart,
+    ) {
         val density = LocalDensity.current
-        val tabWidth = with(density) {
-            (constraints.maxWidth.toFloat() - (GlassBackdrop.BarPadding * 2).toPx()) / cellCount
-        }
+        // 格宽已经由引擎算好（含压缩比），这里只做 dp→px 换算。
+        val tabWidth = with(density) { metrics.cellWidth.toPx() }
         // 拖动时整条栏跟着位移一点（上游的 `panelOffset`）：位移量与拖动比例同号、
         // 用 EaseOut 收口，越拖越推不动 —— 观感是「栏被手指拽着走，但拽不动」。
         val panelShiftAnimation = remember { Animatable(0f) }
@@ -308,7 +320,14 @@ fun GlassBar(
                 .padding(GlassBackdrop.BarPadding),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            GlassBarCells(items, showLabels, sampled, trailing)
+            GlassBarCells(
+                items = items,
+                showLabels = metrics.showLabels,
+                sampled = sampled,
+                trailing = trailing,
+                iconSize = metrics.iconSize,
+                labelSize = navPlan.labelTextSize,
+            )
         }
 
         // ② 录制层：把「染成强调色的内容」录进采样图层。屏幕上完全看不见（alpha(0f)），
@@ -353,7 +372,14 @@ fun GlassBar(
                     // 「强调色画在强调色上」→ 屏幕上看不见图标，滑块静止时就是一块**纯蓝方块**
                     // （2026-10-08 虚拟屏复现：静止态蓝色胶囊里没有房子图标）。
                     // 正确做法是只录**图标本身**（正常色），让外层的 tint 去上色。
-                    GlassBarCells(items, showLabels, sampled = true, trailing = trailing)
+                    GlassBarCells(
+                        items = items,
+                        showLabels = metrics.showLabels,
+                        sampled = true,
+                        trailing = trailing,
+                        iconSize = metrics.iconSize,
+                        labelSize = navPlan.labelTextSize,
+                    )
                 }
             }
         }
@@ -436,9 +462,17 @@ private fun RowScope.GlassBarCells(
     showLabels: Boolean,
     sampled: Boolean,
     trailing: (@Composable () -> Unit)?,
+    iconSize: Dp,
+    labelSize: TextUnit,
 ) {
     items.forEach { item ->
-        GlassBarCell(item = item, showLabels = showLabels, sampled = sampled)
+        GlassBarCell(
+            item = item,
+            showLabels = showLabels,
+            sampled = sampled,
+            iconSize = iconSize,
+            labelSize = labelSize,
+        )
     }
     if (trailing != null) {
         Box(
@@ -454,6 +488,8 @@ private fun RowScope.GlassBarCell(
     item: GlassBarItem,
     showLabels: Boolean,
     sampled: Boolean,
+    iconSize: Dp,
+    labelSize: TextUnit,
 ) {
     val scale = LocalGlassTabScale.current
     val label = stringResource(item.labelRes)
@@ -485,12 +521,12 @@ private fun RowScope.GlassBarCell(
             contentDescription = label,
             // 有滑块时，选中态由**滑块折射出来的染色内容**表达；这里再涂一层强调色会打架。
             tint = if (solidSelection) Color.White else Primer.IconPrimary,
-            modifier = Modifier.size(if (showLabels) 22.dp else 24.dp),
+            modifier = Modifier.size(iconSize),
         )
         if (showLabels) {
             Text(
                 label,
-                fontSize = 10.sp,
+                fontSize = labelSize,
                 color = if (solidSelection) Color.White else Primer.TextTertiary,
                 fontWeight = if (item.selected) FontWeight.SemiBold else FontWeight.Normal,
                 maxLines = 1,
