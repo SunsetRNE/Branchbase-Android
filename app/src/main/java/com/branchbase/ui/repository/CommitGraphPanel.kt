@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -272,7 +272,7 @@ fun CommitGraphPanel(
             return@Column
         }
 
-        LazyColumn(
+        BranchbaseLazyColumn(
             state = rememberLazyListState(),
             // 取满内容区的剩余高度（宿主的盒子是固定高的，列表不再自己限高：
             // 限高会让「3 条提交」和「30 条提交」在面板里长得一样高，而那正是要修的跳动来源）

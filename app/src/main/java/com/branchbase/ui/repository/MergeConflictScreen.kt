@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -218,7 +218,7 @@ internal fun MergeConflictScreen(
         if (remaining == 0) {
             DecisionNote(stringResource(R.string.state_all_conflicts_resolved))
         } else {
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 460.dp)) {
+            BranchbaseLazyColumn(Modifier.fillMaxWidth().heightIn(max = 460.dp)) {
                 items(st.conflicts, key = { it.path }) { file ->
                     ConflictFileCard(
                         file = file,
@@ -380,7 +380,7 @@ private fun ConflictFileCard(
             else -> {
                 val lines = remember(detail.patch) { parseUnifiedDiff(detail.patch) }
                 Column(Modifier.fillMaxWidth().heightIn(max = 240.dp)) {
-                    LazyColumn(Modifier.fillMaxWidth()) {
+                    BranchbaseLazyColumn(Modifier.fillMaxWidth()) {
                         items(lines) { line -> DiffLineRow(line) }
                     }
                 }

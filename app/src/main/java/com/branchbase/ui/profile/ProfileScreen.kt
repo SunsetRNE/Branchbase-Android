@@ -18,7 +18,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
+import com.branchbase.ui.navigation.LocalFloatingBarReservedHeight
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -478,7 +479,7 @@ private fun ProfileOverview(
     // 长按头像强制刷新后 +1，驱动 Avatar 重读本地缓存
     var avatarTick by remember { mutableIntStateOf(0) }
 
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
+    BranchbaseLazyColumn(modifier = Modifier.fillMaxSize()) {
         // 用户信息
         item {
             Column(Modifier.fillMaxWidth().padding(16.dp, 16.dp, 16.dp, 12.dp)) {
@@ -595,12 +596,12 @@ private fun ProfileRepositories(repos: List<RepoItem>, loading: Boolean, onOpenR
             // 骨架屏：搜索框与语言筛选是**不依赖数据**的静态结构，照常渲染（用户能先看清这页有什么）；
             // 只把下面的列表换成与 [RepoCard] 同构的占位卡，数据到达时列表在原位长出来。
             ProvideShimmer {
-                LazyColumn {
+                BranchbaseLazyColumn {
                     items(PROFILE_REPO_SKELETON_COUNT) { RepoCardSkeleton() }
                 }
             }
         } else {
-            LazyColumn {
+            BranchbaseLazyColumn {
                 items(repos.filter { filter == null || it.language == filter }) { repo ->
                     RepoCard(repo, onClick = { onOpenRepo(repo.fullName) })
                 }
@@ -1101,7 +1102,13 @@ private fun ProfileActivity(
     // ProvideShimmer 仍然只包一层：整页所有骨架区块共用一条微光动画
     // （每个区块各挂一条无限动画是 Motion.kt 点名的坑）。
     ProvideShimmer {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        val barReserved = LocalFloatingBarReservedHeight.current
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = barReserved + 16.dp),
+        ) {
             // ── ① 概览统计（数据源：贡献日历 GraphQL）──
             // 未就绪时给骨架值条，**不给 0**：0 也是「内容」，用户会先读到它，
             // 再从 0 跳到真实值 —— 这是这一屏第三处小闪。失败（stats == null）时给「—」而不是 0。

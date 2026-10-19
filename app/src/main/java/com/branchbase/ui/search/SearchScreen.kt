@@ -28,7 +28,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -532,7 +532,7 @@ fun SearchScreen(
             } else {
                 Column {
                     Text(resultCountText(total, codeResults.size, stringResource(R.string.label_code_results)), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-                    LazyColumn {
+                    BranchbaseLazyColumn {
                         items(codeResults) { code -> CodeResultCard(code) { openTarget(code.target) } }
                         pagingFooter(codeResults.size)
                     }
@@ -546,7 +546,7 @@ fun SearchScreen(
             } else {
                 Column {
                     Text(resultCountText(total, pullResults.size, stringResource(R.string.label_pull_results)), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-                    LazyColumn {
+                    BranchbaseLazyColumn {
                         items(pullResults) { pull -> PullCard(pull) { openTarget(pull.target) } }
                         pagingFooter(pullResults.size)
                     }
@@ -560,7 +560,7 @@ fun SearchScreen(
             } else {
                 Column {
                     Text(resultCountText(total, commitResults.size, stringResource(R.string.label_commit_results)), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-                    LazyColumn {
+                    BranchbaseLazyColumn {
                         items(commitResults) { commit -> CommitCard(commit) { openTarget(commit.target) } }
                         pagingFooter(commitResults.size)
                     }
@@ -574,7 +574,7 @@ fun SearchScreen(
             } else {
                 Column {
                     Text(resultCountText(total, topicResults.size, stringResource(R.string.label_topic_results)), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-                    LazyColumn {
+                    BranchbaseLazyColumn {
                         item { TopicCard(topicResults) { openTarget(it.target) } }
                         pagingFooter(topicResults.size)
                     }
@@ -587,7 +587,7 @@ fun SearchScreen(
         } else {
             Column {
                 Text(resultCountText(total, results.size, stringResource(R.string.label_results)), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-                LazyColumn {
+                BranchbaseLazyColumn {
                     items(results) { item -> SearchItemCard(item) { openTarget(item.target) } }
                     pagingFooter(results.size)
                 }

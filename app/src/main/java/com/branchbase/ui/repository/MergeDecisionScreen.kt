@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -188,7 +188,7 @@ internal fun MergeDecisionScreen(
                 }
             }
             list.isEmpty() -> DecisionNote(stringResource(R.string.state_merge_no_branches))
-            else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
+            else -> BranchbaseLazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
                 items(list, key = { (if (it.isRemote) "r:" else "l:") + it.name }) { option ->
                     DecisionOptionRow(
                         title = if (option.isRemote) "origin/${option.name}" else option.name,

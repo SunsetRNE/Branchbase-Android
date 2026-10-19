@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
@@ -162,7 +162,7 @@ fun FrequentReposScreen(sessionJson: String, onBack: () -> Unit) {
                 Text(stringResource(R.string.state_no_my_repos), fontSize = 13.sp, color = Primer.TextTertiary)
             }
 
-            else -> LazyColumn(modifier = Modifier.weight(1f)) {
+            else -> BranchbaseLazyColumn(modifier = Modifier.weight(1f)) {
                 items(repos, key = { it.fullName }) { repo ->
                     PinnableRepoRow(
                         repo = repo,

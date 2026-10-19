@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -271,7 +271,7 @@ fun HomeScreen(
         SearchBarRow(login = login, avatarUrl = avatarUrl, onProfileClick = onProfileClick, onSearchClick = onSearchClick)
 
         // 内容：仪表盘式分区（待处理 → 进行中 → 常用 → 浏览）
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
+        BranchbaseLazyColumn(modifier = Modifier.fillMaxSize()) {
             item { GreetingRow(login) }
 
             // ① 待处理：需要你动手的

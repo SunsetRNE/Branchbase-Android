@@ -18,7 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -166,7 +166,7 @@ fun AccountsScreen(
                 }
             }
         } else {
-            LazyColumn(Modifier.weight(1f)) {
+            BranchbaseLazyColumn(Modifier.weight(1f)) {
                 items(accounts, key = { it.id }) { a ->
                     AccountCard(
                         account = a,

@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -671,7 +671,7 @@ fun FileViewerScreen(
                 }
                 else -> {
                     val highlightRange = remember(highlightLines) { parseLineRange(highlightLines) }
-                    LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+                    BranchbaseLazyColumn(Modifier.weight(1f).fillMaxWidth()) {
                         itemsIndexed(content.lines()) { i, line ->
                             val lineNo = i + 1
                             val highlighted = highlightRange?.contains(lineNo) == true
