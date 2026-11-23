@@ -18,7 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -378,7 +378,7 @@ fun RepositoryCodeContent(
             loading -> ListLoading()
             error != null -> ListError(error!!) { retryTick++ }
             items.isEmpty() -> ListEmpty(stringResource(R.string.state_empty_directory))
-            else -> LazyColumn(Modifier.fillMaxSize()) {
+            else -> BranchbaseLazyColumn(Modifier.fillMaxSize()) {
                 // 「上一层」是列表首行的 `..`（不是只靠面包屑那段蓝字）：点进任意子目录后总有一个
                 // 明确、整行可点的回退入口 —— 返回键也走同一个目标（见 codeFolderBackTarget）
                 if (path.isNotBlank()) {
@@ -660,7 +660,7 @@ fun IssueListContent(sessionJson: String, owner: String, repo: String, refreshTi
         loading -> ListLoading()
         error != null -> ListError(error!!) { retryTick++ }
         items.isEmpty() -> ListEmpty(stringResource(R.string.state_no_issues))
-        else -> LazyColumn(Modifier.fillMaxSize()) {
+        else -> BranchbaseLazyColumn(Modifier.fillMaxSize()) {
             // issue number 在仓库内唯一
             items(items, key = { it.number }) { IssueRow(it) { onItemClick(it) } }
         }
@@ -737,7 +737,7 @@ fun PullListContent(sessionJson: String, owner: String, repo: String, branch: St
         loading -> ListLoading()
         error != null -> ListError(error!!) { retryTick++ }
         items.isEmpty() -> ListEmpty(stringResource(R.string.state_no_pull_requests))
-        else -> LazyColumn(Modifier.fillMaxSize()) {
+        else -> BranchbaseLazyColumn(Modifier.fillMaxSize()) {
             // PR number 在仓库内唯一
             items(items, key = { it.number }) { PullRow(it) { onItemClick(it) } }
         }
@@ -814,7 +814,7 @@ fun CommitListContent(sessionJson: String, owner: String, repo: String, branch: 
         loading -> ListLoading()
         error != null -> ListError(error!!) { retryTick++ }
         items.isEmpty() -> ListEmpty(stringResource(R.string.state_no_commits))
-        else -> LazyColumn(Modifier.fillMaxSize()) {
+        else -> BranchbaseLazyColumn(Modifier.fillMaxSize()) {
             // commit sha 唯一
             items(items, key = { it.sha }) { CommitRow(it) { onItemClick(it) } }
         }
@@ -889,7 +889,7 @@ fun WorkflowListContent(sessionJson: String, owner: String, repo: String, branch
         loading -> ListLoading()
         error != null -> ListError(error!!) { retryTick++ }
         items.isEmpty() -> ListEmpty(stringResource(R.string.state_no_workflows))
-        else -> LazyColumn(Modifier.fillMaxSize()) {
+        else -> BranchbaseLazyColumn(Modifier.fillMaxSize()) {
             // workflow id 唯一
             items(items, key = { if (it.id != 0L) it.id else it.name }) {
                 WorkflowRow(it, onClick = { onItemClick(it) }, onLongClick = { onLongPress(it) })
@@ -1019,7 +1019,7 @@ fun ReleaseListContent(
     when {
         loading -> ListLoading()
         error != null -> ListError(error!!) { retryTick++ }
-        else -> LazyColumn(Modifier.fillMaxSize()) {
+        else -> BranchbaseLazyColumn(Modifier.fillMaxSize()) {
             // 新建入口从「占满整行的描边空框」收成标题行右侧的圆形「+」。
             // 原来那个按钮没有任何信息，却永远压在列表最上面，进页面第一眼是个空框；
             // 收进标题行后入口还在（有写权限时才出现），但不再吃一整行。
@@ -1225,8 +1225,8 @@ fun PeopleListScreen(
             error != null -> ListError(error!!, onRetry = { tick++ })
             type == "fork" && forks.isEmpty() -> ListEmpty(stringResource(R.string.state_no_forks))
             type != "fork" && users.isEmpty() -> ListEmpty(stringResource(R.string.state_no_content))
-            type == "fork" -> LazyColumn(Modifier.fillMaxSize()) { items(forks) { ForkRow(it) } }
-            else -> LazyColumn(Modifier.fillMaxSize()) { items(users) { UserRow(it) } }
+            type == "fork" -> BranchbaseLazyColumn(Modifier.fillMaxSize()) { items(forks) { ForkRow(it) } }
+            else -> BranchbaseLazyColumn(Modifier.fillMaxSize()) { items(users) { UserRow(it) } }
         }
     }
 }
@@ -1412,7 +1412,7 @@ fun RepositorySettingsContent(
             true,
         ),
     )
-    LazyColumn(Modifier.fillMaxSize()) {
+    BranchbaseLazyColumn(Modifier.fillMaxSize()) {
         // 决策页带回来的结果（成功 / 失败）就显示在这里 —— 沿用决策页同一条反馈行，不另造提示组件
         feedback?.let { (msg, error) -> item { FeedbackLine(msg, error = error) } }
         items(entries) { (name, target, enabled) ->

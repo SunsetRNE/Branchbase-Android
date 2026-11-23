@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -294,7 +294,7 @@ fun BranchManageScreen(
             error != null && branches.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(error!!, fontSize = 13.sp, color = Primer.TextTertiary)
             }
-            else -> LazyColumn(Modifier.fillMaxSize()) {
+            else -> BranchbaseLazyColumn(Modifier.fillMaxSize()) {
                 items(branches, key = { it.name }) { b ->
                     BranchManageRow(
                         branch = b,

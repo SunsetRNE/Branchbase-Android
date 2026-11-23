@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -162,7 +162,7 @@ fun WorkflowRunsContent(
             loading -> CenterLoading()
             error != null -> ListError(error!!) { retryTick++ }
             runs.isEmpty() -> CenterText(stringResource(R.string.state_no_runs))
-            else -> LazyColumn(Modifier.fillMaxSize()) {
+            else -> BranchbaseLazyColumn(Modifier.fillMaxSize()) {
                 items(runs) { run -> WorkflowRunRow(run) { onOpenRun(run.id) } }
             }
         }

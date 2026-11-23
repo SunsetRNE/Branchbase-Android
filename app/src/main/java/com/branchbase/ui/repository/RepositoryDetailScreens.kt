@@ -15,7 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -196,7 +196,7 @@ fun PullDetailScreen(
             when {
                 loading -> CenterLoading()
                 d == null -> CenterText(stringResource(R.string.error_load_failed))
-                else -> LazyColumn(Modifier.fillMaxSize()) {
+                else -> BranchbaseLazyColumn(Modifier.fillMaxSize()) {
                     item { PullHead(d) }
                     // 合并入口：仅 open 且未合并的 PR 露出；不可自动合并时置灰 + 给一句原因
                     val entry = pullMergeEntry(d.state, d.merged, d.mergeable, d.headRef, d.baseRef)
@@ -503,7 +503,7 @@ fun CommitDetailScreen(
         when {
             loading -> CenterLoading()
             detail == null -> CenterText(stringResource(R.string.error_load_failed))
-            else -> LazyColumn(Modifier.fillMaxSize()) {
+            else -> BranchbaseLazyColumn(Modifier.fillMaxSize()) {
                 item { CommitHead(detail!!) }
                 items(detail!!.files) { f -> CommitFileBlock(f) }
             }

@@ -28,7 +28,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -1368,7 +1368,7 @@ private fun NotificationList(
         )
     }
 
-    LazyColumn(
+    BranchbaseLazyColumn(
         state = listState,
         modifier = Modifier
             .fillMaxSize()

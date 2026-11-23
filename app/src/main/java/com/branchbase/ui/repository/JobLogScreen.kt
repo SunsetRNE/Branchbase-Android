@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -256,7 +256,7 @@ fun JobLogScreen(
                 }
 
                 Box(Modifier.weight(1f).background(CodeSyntax.CodeBg)) {
-                    LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                    BranchbaseLazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                         itemsIndexed(visible) { index, item ->
                             when (item) {
                                 is LogItem.Header -> SegmentHeaderRow(

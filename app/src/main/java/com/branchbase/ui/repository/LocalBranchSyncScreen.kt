@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -264,7 +264,7 @@ fun LocalBranchSyncScreen(
             loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Primer.Blue500)
             }
-            else -> LazyColumn(Modifier.fillMaxSize()) {
+            else -> BranchbaseLazyColumn(Modifier.fillMaxSize()) {
                 item {
                     Column(
                         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)

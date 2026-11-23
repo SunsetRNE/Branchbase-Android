@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
@@ -225,7 +225,7 @@ fun GitFileHistoryPanel(
             return@Column
         }
 
-        LazyColumn(
+        BranchbaseLazyColumn(
             state = rememberLazyListState(),
             // 取满剩余高度（宿主的内容区是固定高的，列表不再自己限高）
             modifier = Modifier.fillMaxWidth().weight(1f),

@@ -26,7 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.foundation.lazy.LazyColumn
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -276,7 +276,7 @@ fun LogScreen(onBack: () -> Unit) {
             if (filtered.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(stringResource(R.string.state_no_matching_logs), color = Primer.TextTertiary, fontSize = 13.sp) }
             } else {
-                LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+                BranchbaseLazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
                     items(filtered, key = ::logItemKey) { e ->
                         LogStreamItem(e, onClick = { clipboard.setText(AnnotatedString(logLine(e))) })
                     }
@@ -300,7 +300,7 @@ fun LogScreen(onBack: () -> Unit) {
                         modifier = Modifier.padding(14.dp),
                     )
                 } else {
-                    LazyColumn(Modifier.fillMaxSize().padding(vertical = 8.dp)) {
+                    BranchbaseLazyColumn(Modifier.fillMaxSize().padding(vertical = 8.dp)) {
                         items(filtered, key = ::logItemKey) { e ->
                             Text(
                                 logLine(e),

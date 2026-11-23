@@ -24,7 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -460,7 +460,7 @@ fun IssueDetailScreen(
             loading && detail == null -> IssueLoading()
             detail == null -> IssueCenteredText(stringResource(R.string.error_load_failed))
             else -> {
-                LazyColumn(
+                BranchbaseLazyColumn(
                     state = listState,
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                     contentPadding = PaddingValues(bottom = 12.dp),

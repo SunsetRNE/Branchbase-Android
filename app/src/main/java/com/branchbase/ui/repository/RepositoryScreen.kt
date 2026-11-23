@@ -22,7 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -2148,7 +2148,7 @@ private fun BranchSwitchDialog(
                             color = Primer.TextTertiary,
                             modifier = Modifier.padding(vertical = 10.dp),
                         )
-                        else -> LazyColumn(Modifier.fillMaxSize()) {
+                        else -> BranchbaseLazyColumn(Modifier.fillMaxSize()) {
                             items(filtered, key = { it.name }) { b ->
                                 BranchRow(
                                     item = b,

@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -205,7 +205,7 @@ fun TaskScreen(onBack: () -> Unit) {
                             }
                         }
                     } else {
-                        LazyColumn(Modifier.weight(1f)) {
+                        BranchbaseLazyColumn(Modifier.weight(1f)) {
                             items(shown, key = { it.id }) { t ->
                                 // 任务完成/删除时让整行平滑收起，而不是「啪」地消失
                                 Box(Modifier.animateItem()) {

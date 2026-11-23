@@ -20,7 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -346,7 +346,7 @@ fun StarsScreen(sessionJson: String, onBack: () -> Unit, onOpenRepo: (String) ->
         } else if (repos.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text(stringResource(R.string.state_no_starred), fontSize = 13.sp, color = Primer.TextTertiary) }
         } else {
-            LazyColumn {
+            BranchbaseLazyColumn {
                 items(repos) { repo -> StarredRepoCard(repo, onClick = { onOpenRepo(repo.fullName) }) }
             }
         }
@@ -447,7 +447,7 @@ fun ProjectsScreen(sessionJson: String, onBack: () -> Unit) {
         } else if (projects.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text(stringResource(R.string.state_no_projects), fontSize = 13.sp, color = Primer.TextTertiary) }
         } else {
-            LazyColumn {
+            BranchbaseLazyColumn {
                 items(projects) { project -> ProjectCard(project) }
             }
         }
@@ -559,7 +559,7 @@ fun SettingsScreen(
     val languageTag = remember(uiLocale) { currentAppLanguageTag(context) }
     val languageSupported = remember(uiLocale) { supportedAppLanguages(context) }
 
-    LazyColumn(
+    BranchbaseLazyColumn(
         // 惰性化：设置页有 8 组卡片、二十多行，`Column + verticalScroll` 会在**首帧**
         // 把整棵树组合出来（真机实测「进入设置页」首帧 43~89ms，其中重组≈绘制）；
         // 换成 LazyColumn 后首帧只组合可见的那几组，剩下的滚到才建。
@@ -1619,7 +1619,7 @@ fun LocalRepoScreen(
                 }
             }
         } else {
-            LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+            BranchbaseLazyColumn(Modifier.weight(1f).fillMaxWidth()) {
                 items(repos) { name ->
                     LocalRepoRow(
                         name = name,
@@ -1668,7 +1668,7 @@ fun LocalRepoScreen(
                             fontSize = 13.sp,
                             color = Primer.TextTertiary,
                         )
-                        LoadState.Ready -> LazyColumn(Modifier.fillMaxSize()) {
+                        LoadState.Ready -> BranchbaseLazyColumn(Modifier.fillMaxSize()) {
                             items(myRepos) { repo ->
                                 Row(
                                     Modifier.fillMaxWidth()
@@ -1911,7 +1911,7 @@ private fun BranchesScreen(
             )
         }
 
-        LazyColumn(Modifier.weight(1f)) {
+        BranchbaseLazyColumn(Modifier.weight(1f)) {
             items(branches) { b ->
                 Row(
                     Modifier.fillMaxWidth()
