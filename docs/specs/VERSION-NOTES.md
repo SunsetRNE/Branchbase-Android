@@ -5,7 +5,7 @@
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
 **每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.2.5**）
-与 §三 `versionCode` 流水（129 → **253**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+与 §三 `versionCode` 流水（129 → **254**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,43 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.2.10 → 1.0.22）
+## 二、`versionName` 流水（1.2.11 → 1.0.22）
+
+### 1.2.11
+
+**发布链路：`signature.txt` 的指纹改为从实际 APK 现算；文档政策反转 —— 设计草图与审计件开始入库；README 英文化（中文仍是权威）。**
+
+① **`signature.txt` 的指纹此前是写死的常量**（beta 一条 `AC:AB:…`、release 一条 `B3:72:…`）。它看起来像
+「校验」，其实只是把一句话抄进文件：换钥、配错钥、或产物被替换时，它仍会「证明」旧指纹。现在两个流水线都在
+**build 阶段**用 `apksigner verify --print-certs` 从**实际 APK** 现算（build-tools 由 AGP 在构建时装好，
+找不到时按 `$ANDROID_HOME/build-tools/*/apksigner` 兜底），生成 `dist/signature.txt` 作为产物上传；
+publish 阶段只负责把它放进 `verify/`（beta）或根目录（release）。本地对现有 APK 复算过：
+管线输出与旧硬编码值**逐字符一致**（`AC:AB:BC:…`），说明换算法前后指纹不变、只是不再靠人抄。
+- 为什么放 build 阶段：publish 是独立 job、没有 Android SDK；`archive: false` 的产物只能是单个文件，
+  所以 `signature.txt` 单独传一个 artifact；
+- 失败可见：读不出指纹时 `::error` 直接失败，不再静默写一个常量。
+
+② **文档政策反转（决策）**：`/design/`（原型草图）与 `/review/`（契约审计 / 文档体检 / 排查记录）
+**自 2026-11-24 起入库**，内容逐步补全。
+- `.gitignore` 移除两条目录忽略，并写明「再出现即政策回退」；
+- 新增 `design/README.md` / `review/README.md`（放什么、命名、与 `docs/specs/` 的分工、现有清单）；
+- `docs/README.md` 的收纳规则（§一 地图、§二 判据表、§三 黑名单现状、§四 引用规则）全部改写：
+  **结论仍以 `docs/specs/` 为权威**，草图 / 过程材料入库但分工不变（草图看观感、文档下结论）；
+- 同步修正 `screens-design.md` / `settings-design.md` / `specs/prototypes/*.md` 里「原型不入库」的表述
+  —— 这些地方此前都在给一条已经不再成立的政策作证。
+
+③ **README 英文化（决策）**：`README.md` 改为英文（面向外部读者：下载安装、快速上手、功能一览、
+技术栈与目录、构建、文档入口、反馈、许可证与第三方声明），原中文版保留为 `README.zh.md`。
+- **中文仍是权威**：两份文件头部互相声明 —— 英文是读者向摘要，`docs/specs/` 与 `README.zh.md` 的中文
+  优先维护、冲突以中文为准；
+- 目录表已反映新政策（`design/` `review/` 入库）。
+
+④ **验证**：工作流 YAML 用 `yaml` 解析器校验通过（三个文件）；`apksigner` 指纹管线在本地对现有 APK
+复算，与旧值逐字符一致；本版**不改代码**，`compileDebugKotlin` / 单测沿用前一版结果；CI 会实际跑一遍
+新流水线（beta 发布成功即证明「产物上传 → 移动 → 提交」三段都通）。
+
+⑤ **边界**：历史设计草图与审计文件**尚未迁入**（「逐步补全」）—— 现在入库的是目录说明与政策；
+`specs/prototypes/*` 已标注「历史草图迁入前，此处只有说明文档」。
 
 ### 1.2.10
 
@@ -3811,13 +3847,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（253 → 129）
+## 三、`versionCode` 流水（254 → 129）
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 
 - **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
 
 - **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **254**：发布链路 `signature.txt` 改为 build 阶段用 `apksigner` 从实际 APK 现算（作为 artifact 传给 publish，不再写死指纹）；文档政策反转 —— `/design/` 与 `/review/` 移出 `.gitignore` 并入库（新增两个目录 README，`docs/README.md` 收纳规则与各原型说明同步）；README 英文化（`README.md` 英文门面、`README.zh.md` 中文权威）；工作流 YAML 解析校验通过（一次提交，故 +1）。
 
 - **253**：死代码清收（行为不变）—— 删除不可达的 2FA 链路（`NeedTwoFactor` / `TwoFactorScreen` / `verifyTwoFactor` / `validateTwoFactor` 包装 / `LoginFailStep.TWO_FACTOR` / `LoginRetry` / `retryFor`）、无人引用的 `LoggedInScreen.kt`、无调用点的 `cancel()` / `dismissError()`；`retry()` 直接重新发起授权；`NAVIGATION-NOTES.md` §四 与 features/ui 文档同步；`KeyLoginTest` 去掉对应用例（一次提交，故 +1）。
 

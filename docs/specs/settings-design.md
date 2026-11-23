@@ -6,7 +6,7 @@
 > **谁该读**：任何要往设置里加一行的人；任何要改 `SubPageScreens.kt` / `TranslateSettingsScreen.kt` /
 > `AccountsScreen.kt` / `CommitModeScreen.kt` 的人；以及 review 这些改动的人。
 >
-> **配套原型**：`design/settings-redesign/`（可点草图，不入库），
+> **配套原型**：`design/settings-redesign/`（可点草图，2026-11-24 起入库），
 > 说明副本见 [`prototypes/settings-redesign.md`](prototypes/settings-redesign.md)。
 >
 > **状态**：v4（见 §十三）· 依据 2026-09 的现状测绘（§一）。规范里标 **必须 / 应该 / 禁止** 的是硬约束，

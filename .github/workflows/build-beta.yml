@@ -86,6 +86,29 @@ jobs:
           cp app/build/outputs/apk/perfBeta/*.apk dist/ || true
           cp app/src/main/jniLibs/arm64-v8a/libbranchbase_core.so dist/ || true
           ls -la dist/
+      # 签名指纹必须从**实际产物**现算：写死的常量在换钥 / 配错钥时会继续「证明」旧指纹。
+      # 放在 build 阶段是因为这里才有 Android SDK（apksigner 随 build-tools 由 AGP 装好）。
+      - name: Generate signature file（现算指纹）
+        run: |
+          set -euo pipefail
+          APKSIGNER=$(command -v apksigner || true)
+          if [ -z "$APKSIGNER" ]; then
+            APKSIGNER=$(ls "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"/build-tools/*/apksigner 2>/dev/null | tail -1 || true)
+          fi
+          APK=$(ls dist/*-debug.apk | head -1)
+          FPRINT=$("$APKSIGNER" verify --print-certs "$APK" \
+            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 \
+            | tr '[:lower:]' '[:upper:]' | sed -E 's/(..)/\1:/g; s/:$//')
+          if [ -z "$FPRINT" ]; then
+            echo "::error title=signature::无法从 $APK 读出签名指纹"
+            exit 1
+          fi
+          {
+            echo "variant=beta"
+            echo "version=${{ steps.ver.outputs.standardVersion }}"
+            echo "fingerprint=$FPRINT"
+          } > dist/signature.txt
+          cat dist/signature.txt
 
       # ── 产物上传：**一个 APK 一个 artifact，且不打包** ──
       #
@@ -128,6 +151,14 @@ jobs:
           if-no-files-found: error
           archive: false
 
+      - name: Upload artifacts（signature.txt，不打包）
+        uses: actions/upload-artifact@v7
+        with:
+          path: dist/signature.txt
+          retention-days: 30
+          if-no-files-found: error
+          archive: false
+
   publish:
     runs-on: ubuntu-latest
     needs: build
@@ -152,13 +183,15 @@ jobs:
           pattern: '*'
           merge-multiple: true
 
-      - name: Generate signature file
+      # 指纹由 build 阶段从**实际 APK** 现算并作为产物上传（见那一步的注释）。
+      # 这里只把它放回 verify/，供提交到 beta 分支与发布页使用。
+      - name: Collect signature file（build 阶段现算）
         run: |
+          test -s signature.txt || { echo "::error::缺少 build 阶段产出的 signature.txt"; exit 1; }
           mkdir -p verify
           rm -f verify/signature.txt
-          echo "variant=beta" > verify/signature.txt
-          echo "version=${{ needs.build.outputs.standardVersion }}" >> verify/signature.txt
-          echo "fingerprint=AC:AB:BC:09:9F:91:81:8B:58:C5:45:DD:7F:D6:4D:E5:E2:8D:13:31:9E:63:E6:E3:73:02:2B:BB:90:19:F3:DD" >> verify/signature.txt
+          mv signature.txt verify/signature.txt
+          cat verify/signature.txt
 
       - name: Generate beta tag
         id: tag

@@ -1,5 +1,5 @@
 <!-- 入库副本：正文与 design/log-redesign/README.md 一致，未做删改，仅加本段头。 -->
-> **来源**：`design/log-redesign/README.md`（原型本体 `index.html` / `style.css` / `app.js` / `smoke.js` / `theme-audit.js` 在 `/design/log-redesign/` 下，按仓库约定**不入库**；DSH 侧边栏「原型预览」面板可直接打开）
+> **来源**：`design/log-redesign/README.md`（原型本体 `index.html` / `style.css` / `app.js` / `smoke.js` / `theme-audit.js` 在 `/design/log-redesign/` 下，2026-11-24 起随仓库入库、逐步补全（历史草图迁入前，此处只有说明文档）；DSH 侧边栏「原型预览」面板可直接打开）
 > **为什么只把文档抽进来**：原型 HTML 是一次性草图，跟具体实现绑死、很快过期；
 > 而这份文档里的**现状测绘、压缩账、令牌映射与落地清单**是跨时间有效的设计结论，代码注释会引用它。
 > **维护**：原型再改时请把这份副本一并更新，别让两边分叉；文中提到的文件名相对原始目录。
@@ -10,7 +10,7 @@
 > 「依据：`xxx.kt`（N 行）」都不会随代码演进更新（只有少数几处加了「2026-09 追记」）。
 > 判断当前行为请以代码与 `docs/specs/` 下的规格为准；落地清单里未落地的项只表示「当时计划过」。
 
-> 目录：`design/log-redesign/`（`/design/` 在 `.gitignore` 里：原型草图不入库）
+> 目录：`design/log-redesign/`（`/design/` 自 2026-11-24 起入库、逐步补全；历史草图迁入前，此处只有说明文档）
 > 本文档的**入库副本**：`docs/specs/prototypes/log-redesign.md`（改完这里请同步那份）
 > 对象页面：`app/src/main/java/com/branchbase/ui/log/LogScreen.kt`（设置 →「日志」）
 

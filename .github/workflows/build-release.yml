@@ -67,6 +67,28 @@ jobs:
           mkdir -p dist
           cp app/build/outputs/apk/release/*.apk dist/ || true
           ls -la dist/
+      # 签名指纹必须从**实际产物**现算：写死的常量在换钥 / 配错钥时会继续「证明」旧指纹。
+      - name: Generate signature file（现算指纹）
+        run: |
+          set -euo pipefail
+          APKSIGNER=$(command -v apksigner || true)
+          if [ -z "$APKSIGNER" ]; then
+            APKSIGNER=$(ls "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"/build-tools/*/apksigner 2>/dev/null | tail -1 || true)
+          fi
+          APK=$(ls dist/*.apk | head -1)
+          FPRINT=$("$APKSIGNER" verify --print-certs "$APK" \
+            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 \
+            | tr '[:lower:]' '[:upper:]' | sed -E 's/(..)/\1:/g; s/:$//')
+          if [ -z "$FPRINT" ]; then
+            echo "::error title=signature::无法从 $APK 读出签名指纹"
+            exit 1
+          fi
+          {
+            echo "variant=release"
+            echo "version=${{ needs.build.outputs.versionName }}"
+            echo "fingerprint=$FPRINT"
+          } > dist/signature.txt
+          cat dist/signature.txt
 
       # 一个 APK 一个 artifact，且**不打包**（理由与两条硬约束同 build-beta.yml：
       # 产物是发布页之外的第二条取包通道；`archive: false` 只能传单个文件，
@@ -75,6 +97,14 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           path: dist/*.apk
+          retention-days: 30
+          if-no-files-found: error
+          archive: false
+
+      - name: Upload artifacts（signature.txt，不打包）
+        uses: actions/upload-artifact@v7
+        with:
+          path: dist/signature.txt
           retention-days: 30
           if-no-files-found: error
           archive: false
@@ -114,11 +144,11 @@ jobs:
           echo "previous=$(cat previous-tag.txt)" >> "$GITHUB_OUTPUT"
           cat release-body.md
 
-      - name: Generate signature file
+      # 指纹由 build 阶段从**实际 APK** 现算并作为产物上传（理由同 build-beta.yml 同一步）。
+      - name: Verify signature file（build 阶段现算）
         run: |
-          echo "variant=release" > signature.txt
-          echo "version=${{ needs.build.outputs.versionName }}" >> signature.txt
-          echo "fingerprint=B3:72:AB:52:EE:47:A0:8E:45:26:6F:1C:11:E0:75:6D:86:E3:83:A0:74:BE:EB:A3:77:FD:3E:BA:7C:F7:99:94" >> signature.txt
+          test -s signature.txt || { echo "::error::缺少 build 阶段产出的 signature.txt"; exit 1; }
+          cat signature.txt
 
       - name: 代码变更整合（生成源码包）
         run: git archive --format=tar.gz -o "source-${{ needs.build.outputs.versionName }}.tar.gz" HEAD
