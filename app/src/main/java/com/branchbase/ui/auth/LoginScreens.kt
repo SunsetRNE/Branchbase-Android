@@ -14,7 +14,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +44,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -112,6 +112,8 @@ private fun PrimaryButton(
     enabled: Boolean = true,
     busy: Boolean = false,
     busyText: String = stringResource(R.string.state_checking),
+    /** 半宽按钮要收窄横向内边距，否则中文标签在 320dp 屏上会换行、被 48dp 定高裁掉。 */
+    contentPadding: PaddingValues = ButtonDefaults.ContentPadding,
 ) {
     val press = rememberPressFeedback()
     Button(
@@ -134,6 +136,7 @@ private fun PrimaryButton(
             disabledContentColor = Color.White,
         ),
         interactionSource = press.interaction,
+        contentPadding = contentPadding,
     ) {
         AsyncActionLabel(
             busy = busy,
@@ -162,6 +165,7 @@ private fun OutlineButton(
     enabled: Boolean = true,
     busy: Boolean = false,
     busyText: String = stringResource(R.string.state_checking),
+    contentPadding: PaddingValues = ButtonDefaults.ContentPadding,
 ) {
     val press = rememberPressFeedback()
     OutlinedButton(
@@ -181,6 +185,7 @@ private fun OutlineButton(
             disabledContentColor = Primer.TextTertiary,
         ),
         interactionSource = press.interaction,
+        contentPadding = contentPadding,
     ) {
         AsyncActionLabel(
             busy = busy,
@@ -550,11 +555,13 @@ private fun AuthIntroScaffold(
                 text = secondaryText,
                 onClick = onSecondary,
                 modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 10.dp),
             )
             PrimaryButton(
                 text = primaryText,
                 onClick = onStart,
                 modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 10.dp),
                 busy = busy,
                 // 挂起态文案：授权登录说「正在打开授权页」，其余走通用短名
                 busyText = busyText ?: stringResource(R.string.state_checking),
@@ -904,104 +911,116 @@ fun KeyInputScreen(
     // 而晚的那一帧正好是「展开动画已经开始、里面还没有字」—— 会看到一段空盒子先撑开。
     if (error != null && error != lastError) lastError = error
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Primer.BackgroundPrimary)
-            .statusBarsPadding()
-            .navigationBarsPadding(),
-    ) {
-        SubPageHeader(stringResource(R.string.login_access_key), onBack)
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Primer.BackgroundPrimary)
+                .statusBarsPadding()
+                .navigationBarsPadding(),
+        ) {
+            SubPageHeader(stringResource(R.string.login_access_key), onBack)
 
-        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = HorizontalPadding)) {
-            Text(
-                stringResource(R.string.note_paste_key),
-                fontSize = 12.5.sp,
-                color = Primer.TextTertiary,
-                lineHeight = 19.sp,
-            )
-            Spacer(Modifier.height(14.dp))
-
-            OutlinedTextField(
-                value = token,
-                onValueChange = { token = it },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !busy,
-                // 失败时输入框自己也变色：只靠下方一行小字，用户很容易把这次失败读成「没反应」
-                isError = error != null,
-                singleLine = true,
-                label = { Text(stringResource(R.string.label_access_key), fontSize = 12.sp) },
-                placeholder = { Text(stringResource(R.string.hint_key_placeholder), fontSize = 13.sp, color = Primer.TextTertiary) },
-                visualTransformation = if (visible) {
-                    VisualTransformation.None
-                } else {
-                    PasswordVisualTransformation()
-                },
-                trailingIcon = {
-                    Text(
-                        if (visible) stringResource(R.string.action_hide) else stringResource(R.string.action_show),
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Primer.Blue500,
-                        modifier = Modifier
-                            .clickable { visible = !visible }
-                            .padding(horizontal = 10.dp, vertical = 4.dp),
-                    )
-                },
-                textStyle = TextStyle(fontSize = 13.5.sp),
-            )
-
-            AnimatedVisibility(
-                visible = error != null,
-                enter = revealEnter(),
-                exit = revealExit(),
-            ) {
+            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = HorizontalPadding)) {
                 Text(
-                    lastError,
+                    stringResource(R.string.note_paste_key),
+                    fontSize = 12.5.sp,
+                    color = Primer.TextTertiary,
+                    lineHeight = 19.sp,
+                )
+                Spacer(Modifier.height(14.dp))
+
+                OutlinedTextField(
+                    value = token,
+                    onValueChange = { token = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !busy,
+                    // 失败时输入框自己也变色：只靠下方一行小字，用户很容易把这次失败读成「没反应」
+                    isError = error != null,
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.label_access_key), fontSize = 12.sp) },
+                    placeholder = { Text(stringResource(R.string.hint_key_placeholder), fontSize = 13.sp, color = Primer.TextTertiary) },
+                    visualTransformation = if (visible) {
+                        VisualTransformation.None
+                    } else {
+                        PasswordVisualTransformation()
+                    },
+                    trailingIcon = {
+                        Text(
+                            if (visible) stringResource(R.string.action_hide) else stringResource(R.string.action_show),
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Primer.Blue500,
+                            modifier = Modifier
+                                .clickable { visible = !visible }
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                        )
+                    },
+                    textStyle = TextStyle(fontSize = 13.5.sp),
+                )
+
+                AnimatedVisibility(
+                    visible = error != null,
+                    enter = revealEnter(),
+                    exit = revealExit(),
+                ) {
+                    Text(
+                        lastError,
+                        fontSize = 11.5.sp,
+                        color = Primer.Red500,
+                        lineHeight = 17.sp,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+
+                Spacer(Modifier.height(12.dp))
+                // 直接跳到「新建经典密钥」页并预填权限，省得用户自己找、自己勾
+                Text(
+                    stringResource(R.string.action_generate_key_web),
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Primer.Blue500,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(keyTokenCreateUrl())),
+                                )
+                            }
+                        }
+                        .padding(vertical = 6.dp),
+                )
+
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    stringResource(R.string.login_key_scopes_bullets),
                     fontSize = 11.5.sp,
-                    color = Primer.Red500,
-                    lineHeight = 17.sp,
-                    modifier = Modifier.padding(top = 8.dp),
+                    color = Primer.TextTertiary,
+                    lineHeight = 18.sp,
                 )
             }
 
-            Spacer(Modifier.height(12.dp))
-            // 直接跳到「新建经典密钥」页并预填权限，省得用户自己找、自己勾
-            Text(
-                stringResource(R.string.action_generate_key_web),
-                fontSize = 12.5.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Primer.Blue500,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .clickable {
-                        runCatching {
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse(keyTokenCreateUrl())),
-                            )
-                        }
-                    }
-                    .padding(vertical = 6.dp),
-            )
-
-            Spacer(Modifier.height(10.dp))
-            Text(
-                stringResource(R.string.login_key_scopes_bullets),
-                fontSize = 11.5.sp,
-                color = Primer.TextTertiary,
-                lineHeight = 18.sp,
-            )
+            Column(Modifier.padding(horizontal = HorizontalPadding)) {
+                PrimaryButton(
+                    text = stringResource(R.string.action_sign_in),
+                    onClick = { onSubmit(token) },
+                    enabled = token.isNotBlank(),
+                    busy = busy,
+                    busyText = stringResource(R.string.state_checking),
+                )
+                Spacer(Modifier.height(12.dp))
+            }
         }
 
-        Column(Modifier.padding(horizontal = HorizontalPadding)) {
-            PrimaryButton(
-                text = stringResource(R.string.action_sign_in),
-                onClick = { onSubmit(token) },
-                enabled = token.isNotBlank(),
-                busy = busy,
-                busyText = stringResource(R.string.state_checking),
+        // 2026-11-24 决策二：密钥校验统一成**整屏覆盖**的加载态（与授权进度页同一观感），
+        // 不再只有按钮里那一下转圈 —— 校验是一次网络往返，令牌短则一两百毫秒，
+        // 长的会被读成「点完没反应」。覆盖层同时吃掉点击，避免校验中误触下面的链接。
+        if (busy) {
+            LoginBusyOverlay(
+                title = stringResource(R.string.state_verifying_key),
+                note = stringResource(R.string.note_verifying_key),
             )
-            Spacer(Modifier.height(12.dp))
         }
     }
 }
@@ -1090,7 +1109,7 @@ fun TwoFactorScreen(
 @Composable
 fun AuthorizingScreen(
     authorizeUrl: String,
-    onCancel: () -> Unit,
+    onBack: () -> Unit,
 ) {
     val context = LocalContext.current
     // 进这一屏就拉起浏览器；`authorizeUrl` 变了（重新授权）会再拉一次
@@ -1099,13 +1118,26 @@ fun AuthorizingScreen(
         title = stringResource(R.string.state_opening_auth_page),
         note = stringResource(R.string.note_complete_code_in_browser),
     ) {
-        OutlineButton(
-            text = stringResource(R.string.action_reopen_auth_page),
-            onClick = { openAuthPage(context, authorizeUrl) },
-        )
-        Spacer(Modifier.height(4.dp))
-        TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
-            Text(stringResource(R.string.action_cancel), fontSize = 14.sp, color = Primer.TextTertiary)
+        // 2026-11-24 决策一：原来的「取消」改成「返回上一页」——退回去的是**授权登录的
+        // 流程要点页**（`loginBackTarget`），不是欢迎页；两个动作各占一半、等高平齐，
+        // 与介绍页底部同一套版式（左 = 退一步，右 = 继续）。
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlineButton(
+                text = stringResource(R.string.action_back_previous),
+                onClick = onBack,
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 10.dp),
+            )
+            PrimaryButton(
+                text = stringResource(R.string.action_reopen_auth_page),
+                onClick = { openAuthPage(context, authorizeUrl) },
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 10.dp),
+            )
         }
     }
 }
@@ -1114,6 +1146,53 @@ fun AuthorizingScreen(
 @Composable
 fun ExchangingTokenScreen() {
     LoginWaitingScreen(title = stringResource(R.string.state_verifying_auth))
+}
+
+/**
+ * 整屏覆盖的加载态（密钥校验等**留在原页**的异步动作）。
+ *
+ * 与 `LoginWaitingScreen`（整页等待）的区别：那一屏是「页面身份换了」，这里是
+ * 「同一个页面、正在等结果」—— 所以不能换页（换了会丢掉已输入的内容），
+ * 用一层不透明覆盖 + 点击拦截达到同样的「整屏在忙」观感。
+ */
+@Composable
+private fun LoginBusyOverlay(title: String, note: String? = null) {
+    val swallow = remember { MutableInteractionSource() }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Primer.BackgroundPrimary.copy(alpha = 0.97f))
+            // 吃掉点击：覆盖层下面的链接（去网页端生成密钥）不该在「正在校验」时被误触
+            .clickable(interactionSource = swallow, indication = null) {},
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            AppIcon(size = 72.dp, shape = RoundedCornerShape(20.dp))
+            Spacer(Modifier.height(18.dp))
+            CircularProgressIndicator(color = Primer.Blue500)
+            Spacer(Modifier.height(14.dp))
+            Text(
+                title,
+                fontSize = 12.5.sp,
+                color = Primer.TextTertiary,
+                textAlign = TextAlign.Center,
+                lineHeight = 18.sp,
+            )
+            if (note != null) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    note,
+                    fontSize = 11.5.sp,
+                    color = Primer.TextTertiary,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 17.sp,
+                )
+            }
+        }
+    }
 }
 
 /**

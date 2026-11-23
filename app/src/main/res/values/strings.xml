@@ -923,6 +923,13 @@
     <string name="github_doc_security_title">安全提醒</string>
     <string name="github_doc_security_body">收到自己没申请过的验证码，说明密码可能已经泄露 —— 立刻改密码，并在 GitHub 里检查会话与安全日志。</string>
     <string name="github_doc_open">打开 GitHub 原文</string>
+    <string name="action_back_previous">返回上一页</string>
+    <string name="state_verifying_key">正在校验访问密钥…</string>
+    <string name="note_verifying_key">校验通过后会自动进入应用；密钥只发给 GitHub，不经过任何第三方。</string>
+    <string name="error_oauth_not_configured">这个安装包没有注入 OAuth 的 client_secret（本地构建未配置 local.properties），授权登录无法完成。请改用「密钥登录」，或安装 CI 构建的 Beta 包。</string>
+    <string name="error_oauth_client_credentials">OAuth 应用凭据不匹配（incorrect_client_credentials）：这个安装包没有注入 client_secret，或 OAuth App 的 secret 已被重置。请改用密钥登录，或从 CI 构建的 Beta 包重试。</string>
+    <string name="error_oauth_bad_code">授权码无效或已过期（code 只能使用一次）。请重新授权。</string>
+    <string name="error_oauth_redirect_mismatch">回调地址与 OAuth App 的配置不一致（redirect_uri_mismatch）。请检查 OAuth App 的 Callback URL。</string>
     <string name="login_key_scopes_bullets">• 经典密钥：勾选 repo / read:user / read:org / notifications 四项\n• 细粒度密钥：至少给 Contents、Issues、Pull requests、Notifications 读权限（含 Metadata）\n• 登录时不要求数字口令验证；密钥可随时在网页端撤销</string>
     <string name="label_access_key">访问密钥</string>
     <string name="action_switch_to_key">改用密钥</string>

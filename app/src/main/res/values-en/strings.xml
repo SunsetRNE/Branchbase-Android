@@ -920,6 +920,13 @@
     <string name="github_doc_security_title">Security note</string>
     <string name="github_doc_security_body">If you receive a code you did not request, your password may be compromised. Change it immediately and review your sessions and security log on GitHub.</string>
     <string name="github_doc_open">Open the GitHub page</string>
+    <string name="action_back_previous">Back</string>
+    <string name="state_verifying_key">Verifying the access key…</string>
+    <string name="note_verifying_key">You will be taken in automatically once it passes. The key is sent only to GitHub, never to a third party.</string>
+    <string name="error_oauth_not_configured">This build has no OAuth client_secret (local builds need local.properties), so OAuth sign-in cannot complete. Use an access key instead, or install the CI-built Beta.</string>
+    <string name="error_oauth_client_credentials">The OAuth app credentials do not match (incorrect_client_credentials): this build has no client_secret injected, or the OAuth app secret was reset. Use an access key, or retry with the CI-built Beta.</string>
+    <string name="error_oauth_bad_code">The authorization code is invalid or expired (codes are single use). Please authorize again.</string>
+    <string name="error_oauth_redirect_mismatch">The callback URL does not match the OAuth app configuration (redirect_uri_mismatch). Check the app callback URL.</string>
     <string name="login_key_scopes_bullets">• Classic keys: tick all four of repo / read:user / read:org / notifications\n• Fine-grained keys: at least read access to Contents, Issues, Pull requests and Notifications (including Metadata)\n• No numeric code is required to sign in; the key can be revoked on the website at any time</string>
     <string name="label_access_key">Access key</string>
     <string name="action_switch_to_key">Use key</string>

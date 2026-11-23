@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.branchbase.BuildConfig
+import com.branchbase.R
 import com.branchbase.core.AccountStore
 import com.branchbase.core.AuthKind
 import com.branchbase.core.AvatarCache
@@ -129,9 +130,22 @@ sealed interface LoginState : PageLevel {
 data class OAuthCredentials(
     val clientId: String = "Ov23lizD94xBmHkhyyG6",
     val redirectUri: String = BuildConfig.GITHUB_REDIRECT_URI,
+    /** 编译期注入（`local.properties` → BuildConfig）；本地构建没配时是空串。 */
+    val clientSecret: String = BuildConfig.BRANCHBASE_CLIENT_SECRET,
     val host: String = "github.com",
     val scopes: List<String> = listOf("repo", "read:user", "read:org", "notifications"),
 )
+
+/**
+ * 这个安装包能不能走 OAuth？
+ *
+ * 不能的时候**不要发起**：否则用户会经历「开浏览器 → 授权 → 回 App → 报一个
+ * incorrect_client_credentials」的完整一圈，最后只看到一句原始报文（2026-11-24 真机现场）。
+ * `client_secret` 是编译期从 `local.properties` 注入的（CI 走仓库 secret），
+ * 本地直接 `assembleDebug` 时为**空串** —— 那一次 OAuth 必然失败。
+ */
+internal fun oauthConfigured(credentials: OAuthCredentials): Boolean =
+    credentials.clientId.isNotBlank() && credentials.clientSecret.isNotBlank()
 
 class LoginViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -213,7 +227,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
 
             val newTokenJson = RustBridge.refreshToken(
                 clientId = credentials.clientId,
-                clientSecret = BuildConfig.BRANCHBASE_CLIENT_SECRET,
+                clientSecret = credentials.clientSecret,
                 host = credentials.host,
                 refreshToken = refreshToken
             )
@@ -373,6 +387,17 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun startOAuth() {
         if (_oauthBusy.value) return
+        if (!oauthConfigured(credentials)) {
+            Logger.net(
+                "OAuth 未发起：client_secret 为空（本地构建未配置 local.properties）",
+                "OAuth",
+            )
+            _state.value = LoginState.Error(
+                getApplication<Application>().getString(R.string.error_oauth_not_configured),
+                LoginFailStep.OAUTH_START,
+            )
+            return
+        }
         _oauthBusy.value = true
         viewModelScope.launch {
             try {
@@ -429,7 +454,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val session = RustBridge.exchangeCode(
                 clientId = credentials.clientId,
-                clientSecret = BuildConfig.BRANCHBASE_CLIENT_SECRET,
+                clientSecret = credentials.clientSecret,
                 redirectUri = credentials.redirectUri,
                 host = credentials.host,
                 code = code,
@@ -438,7 +463,18 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
             Logger.net("POST /login/oauth/access_token → ${if (session.startsWith("ERROR:")) "失败" else "200"}", "OAuth")
             when {
                 session.startsWith("ERROR:") -> {
-                    _state.value = LoginState.Error(session.removePrefix("ERROR:"), LoginFailStep.OAUTH_EXCHANGE)
+                    val raw = session.removePrefix("ERROR:")
+                    Logger.net("POST /login/oauth/access_token → 失败：${raw.take(300)}", "OAuth")
+                    val message = when (val failure = classifyOAuthFailure(raw)) {
+                        OAuthFailure.ClientCredentials ->
+                            getApplication<Application>().getString(R.string.error_oauth_client_credentials)
+                        OAuthFailure.BadCode ->
+                            getApplication<Application>().getString(R.string.error_oauth_bad_code)
+                        OAuthFailure.RedirectMismatch ->
+                            getApplication<Application>().getString(R.string.error_oauth_redirect_mismatch)
+                        is OAuthFailure.Other -> failure.raw
+                    }
+                    _state.value = LoginState.Error(message, LoginFailStep.OAUTH_EXCHANGE)
                 }
                 session.isBlank() -> {
                     _state.value = LoginState.Error("token 交换失败", LoginFailStep.OAUTH_EXCHANGE)

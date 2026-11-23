@@ -91,15 +91,47 @@ internal fun retryFor(step: LoginFailStep): LoginRetry = when (step) {
  */
 internal fun loginBackTarget(current: LoginState, addingAccount: Boolean = false): LoginState = when (current) {
     is LoginState.KeyInput -> LoginState.KeyIntro
-    // 新增流程里的「介绍页 / 授权中 / 换 token / 2FA / 出错」按返回 → 回**新增欢迎页**。
-    // 少了这一支就会掉到未登录的 Idle 欢迎页：用户本来登录着，却看到一个「去登录」的界面，
-    // 而且 Idle 不拦返回键 —— 再按一下直接退出 App。
-    is LoginState.OAuthIntro, is LoginState.KeyIntro,
-    is LoginState.Authorizing, is LoginState.ExchangingToken,
-    is LoginState.NeedTwoFactor, is LoginState.Error,
+    // 授权进度（授权中 / 换 token / 2FA）的「上一页」是**授权登录的流程要点页**，
+    // 而不是欢迎页（2026-11-24 决策）：用户刚看过那一页才点的「开始授权」，
+    // 退回去应当能看到同一套说明 + 重新开始，而不是被扔回两种方式的选择屏。
+    // 新增账号流程仍回新增欢迎页（下面两支各自处理）。
+    is LoginState.Authorizing, is LoginState.ExchangingToken, is LoginState.NeedTwoFactor ->
+        if (addingAccount) LoginState.AddAccountWelcome else LoginState.OAuthIntro
+    // 介绍页 / 出错页按返回 → 回欢迎页（未登录）或新增欢迎页（新增流程）。
+    // 少了 `addingAccount` 这一支就会掉到未登录的 Idle 欢迎页：用户本来登录着，却看到一个
+    // 「去登录」的界面，而且 Idle 不拦返回键 —— 再按一下直接退出 App。
+    is LoginState.OAuthIntro, is LoginState.KeyIntro, is LoginState.Error,
     -> if (addingAccount) LoginState.AddAccountWelcome else LoginState.Idle
     // 「新增账号」的欢迎页在这里只交回 Idle，**真实会话由 [LoginViewModel.back] 走 endAddAccount 补上**；
     // 纯函数读不到 prefs，若在这里写 `LoggedIn("")` 会把一个空会话送进 LoggedInGate。
     is LoginState.AddAccountWelcome -> LoginState.Idle
     else -> LoginState.Idle
+}
+
+/**
+ * OAuth 换 token 失败时，Rust 侧给的是**原始报文**（`GitHub 错误 (status): {"error":...}`）。
+ * 直接贴给用户等于没说 —— 这里把它分成三类「能照着做的事」，其余原样保留。
+ *
+ * 为什么单独成纯函数：分类规则要能单测（文案与判定分开），而且错分一次就会把
+ * 「凭据没配」说成「网络问题」，用户会一直重试。
+ */
+internal sealed interface OAuthFailure {
+    /** 没注入 client_secret，或 OAuth App 的 secret 被重置 —— 换安装包/改配置，重试无用。 */
+    data object ClientCredentials : OAuthFailure
+
+    /** code 无效或已用过（只能用一次）—— 重新授权即可。 */
+    data object BadCode : OAuthFailure
+
+    /** 回调地址与 OAuth App 配置不一致。 */
+    data object RedirectMismatch : OAuthFailure
+
+    /** 其它（网络 / 未知）—— 原样展示，便于贴日志。 */
+    data class Other(val raw: String) : OAuthFailure
+}
+
+internal fun classifyOAuthFailure(raw: String): OAuthFailure = when {
+    raw.contains("incorrect_client_credentials") -> OAuthFailure.ClientCredentials
+    raw.contains("bad_verification_code") || raw.contains("invalid_grant") -> OAuthFailure.BadCode
+    raw.contains("redirect_uri_mismatch") -> OAuthFailure.RedirectMismatch
+    else -> OAuthFailure.Other(raw)
 }

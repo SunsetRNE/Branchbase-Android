@@ -114,4 +114,30 @@ class LoginIntroLayoutTest {
             src.contains("ModalBottomSheet("),
         )
     }
+
+    @Test
+    fun `授权进度页两个按钮各占一半且返回在左`() {
+        val src = source(path)
+        val at = src.indexOf("fun AuthorizingScreen(")
+        assertTrue("找不到 AuthorizingScreen", at >= 0)
+        val body = src.substring(at).substringBefore("\n/** 换取 token 中")
+        val outline = callBlocks(body, "OutlineButton")
+        val primary = callBlocks(body, "PrimaryButton")
+        assertTrue("授权进度页应恰好一个「返回」按钮", outline.size == 1)
+        assertTrue("授权进度页应恰好一个「重新打开」按钮", primary.size == 1)
+        assertTrue(
+            "两个按钮必须各占一半（`Modifier.weight(1f)`）—— 一宽一窄就不叫平齐了",
+            outline.single().contains("Modifier.weight(1f)") &&
+                primary.single().contains("Modifier.weight(1f)"),
+        )
+        assertTrue(
+            "「返回」必须在左、「重新打开」在右（与介绍页同一套版式）",
+            body.indexOf("OutlineButton(") < body.indexOf("PrimaryButton("),
+        )
+        assertTrue(
+            "左侧按钮的文案必须是「返回上一页」（2026-11-24：原来的「取消」）",
+            outline.single().contains("action_back_previous"),
+        )
+        assertTrue("「取消」不该再出现在这一屏", !body.contains("action_cancel"))
+    }
 }

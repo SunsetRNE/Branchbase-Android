@@ -5,7 +5,7 @@
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
 **每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.2.5**）
-与 §三 `versionCode` 流水（129 → **251**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+与 §三 `versionCode` 流水（129 → **252**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,42 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.2.8 → 1.0.22）
+## 二、`versionName` 流水（1.2.9 → 1.0.22）
+
+### 1.2.9
+
+**授权进度页与加载态归一化；OAuth 失败不再吐原始报文，没注入 secret 的构建也不会再白跑一趟 GitHub。**
+
+① **授权进度页（决策一）**：「取消」改成「返回上一页」，目标从欢迎页改成**授权登录的流程要点页**
+（`loginBackTarget`：`Authorizing` / `ExchangingToken` / `NeedTwoFactor` → `OAuthIntro`；新增账号流程
+仍回新增欢迎页）。两个动作换成与介绍页同一套版式 —— 各占一半、等高平齐，**左「返回上一页」、
+右「重新打开授权页」**（`LoginIntroLayoutTest` 钉住）。
+
+② **加载态归一化（决策二）**：密钥校验从「只有按钮里那一下转圈」改成**整屏覆盖**（`LoginBusyOverlay`：
+应用图标 + 转圈 +「正在校验访问密钥…」+ 一句「只发给 GitHub」的说明），与授权进度页同一观感。
+覆盖层同时吃掉点击，校验中不会误触下面的「去网页端生成密钥」。**刻意不换页** —— 换了会丢掉已输入的密钥。
+
+③ **「200 页面已登录成功」的排查结论：不是代码链路错。** 真机现场是：本地构建（没有 `local.properties`）的
+`BRANCHBASE_CLIENT_SECRET` 是**空串**，GitHub 对 OAuth 换 token 返回 HTTP 200 +
+`{"error":"incorrect_client_credentials"}`；Rust 侧（`core/src/auth/oauth.rs:87`）已经把 `"error"` 判为失败、
+**不写会话**，所以那次 OAuth 并没有登录成功 —— 用户看到的「已登录」是**之前就存在的令牌会话**。
+两处改进：
+- **没配就不发起**：`oauthConfigured()` 在 `startOAuth` 入口检查 `clientId` / `clientSecret`，空的话直接给
+  可行动的失败页（「这个安装包没有注入 client_secret…改用密钥登录或安装 CI 构建的 Beta」），
+  不再让用户跑完一圈浏览器授权才看到原始报文；
+- **失败报文折成人话**：新增纯函数 `classifyOAuthFailure`，把 `incorrect_client_credentials` /
+  `bad_verification_code` / `invalid_grant` / `redirect_uri_mismatch` 映射成三条可行动文案
+  （中英资源），其余原样保留并记日志（便于贴出来排查）。
+
+④ **顺手修半宽按钮的小屏风险**：`PrimaryButton` / `OutlineButton` 增加 `contentPadding`，介绍页与授权进度页的
+两排半宽按钮用 10dp 横向内边距 —— 320dp 屏上「开始授权登录 / 重新打开授权页」不会换行后被 48dp 定高裁掉。
+
+⑤ **测试**：`KeyLoginTest` +2（OAuth 失败分类 4 类 + `oauthConfigured`），返回目标用例按新决策更新；
+`LoginIntroLayoutTest` +1（授权进度页两个按钮各占一半、返回在左、不再出现「取消」）；
+`check-i18n --min-coverage 100` 通过。`:app:testDebugUnitTest` 全量见「验证」。
+
+⑥ **边界**：**OAuth 只在注入了 secret 的构建里可用**（CI 的 Beta/正式包）；本地 `assembleDebug` 会走
+「未配置」提示 —— 这不是新限制，README 早就写明「自己出包需要自己的 GitHub OAuth App」。
 
 ### 1.2.8
 
@@ -3748,13 +3783,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（251 → 129）
+## 三、`versionCode` 流水（252 → 129）
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 
 - **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
 
 - **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **252**：授权进度页「取消 → 返回上一页」（回授权介绍页）且两个动作各占一半；密钥校验改整屏覆盖加载态（`LoginBusyOverlay`）；`startOAuth` 在没注入 `client_secret` 时直接给可行动失败页（`oauthConfigured`），换 token 失败按 `classifyOAuthFailure` 折成三类人话；半宽按钮加 `contentPadding` 防 320dp 换行；`KeyLoginTest` +2、`LoginIntroLayoutTest` +1（一次提交，故 +1）。
 
 - **251**：介绍页三条设计决策 —— 底部两个动作改 `Row` + 双 `weight(1f)`（切换在左、主操作在右，切换标签收敛成「改用密钥 / 改用授权」）；副标题与脚注不再渲染（资源保留）；文档引导换成 GitHub 图标按钮（`ic_github_mark` + 按压反馈）并加中英双语 `ModalBottomSheet`（五段整理自官方文档）；新增 `LoginIntroLayoutTest` 3 例（一次提交，故 +1）。
 

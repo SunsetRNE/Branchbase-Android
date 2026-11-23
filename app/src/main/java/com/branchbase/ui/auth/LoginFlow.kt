@@ -150,7 +150,7 @@ fun LoginFlow(
             // 否则用户取消授权再切回来，只能看到一个静止的「正在打开」。
             is LoginState.Authorizing -> AuthorizingScreen(
                 authorizeUrl = s.authorizeUrl,
-                onCancel = { viewModel.back() },
+                onBack = { viewModel.back() },
             )
 
             // 换取 token 中：自动完成，没有可点的东西

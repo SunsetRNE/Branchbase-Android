@@ -66,8 +66,12 @@ class KeyLoginTest {
         assertEquals(LoginState.KeyIntro, loginBackTarget(LoginState.KeyInput))
         assertEquals(LoginState.Idle, loginBackTarget(LoginState.KeyIntro))
         assertEquals(LoginState.Idle, loginBackTarget(LoginState.OAuthIntro))
-        assertEquals(LoginState.Idle, loginBackTarget(LoginState.Authorizing("u", "v")))
-        assertEquals(LoginState.Idle, loginBackTarget(LoginState.NeedTwoFactor))
+        // 授权进度（授权中 / 换 token / 2FA）的上一页是**授权登录的流程要点页**（2026-11-24）：
+        // 用户刚看过那一页才点的「开始授权」，退回去应当能接着看说明 / 重新开始
+        assertEquals(LoginState.OAuthIntro, loginBackTarget(LoginState.Authorizing("u", "v")))
+        assertEquals(LoginState.OAuthIntro, loginBackTarget(LoginState.ExchangingToken))
+        assertEquals(LoginState.OAuthIntro, loginBackTarget(LoginState.NeedTwoFactor))
+        // 出错页的「返回」仍是「换一种登录方式」→ 欢迎页
         assertEquals(LoginState.Idle, loginBackTarget(LoginState.Error("boom", LoginFailStep.OAUTH_EXCHANGE)))
         // 默认（不在新增流程里）退到未登录欢迎页 —— 上面这些就是既有行为，不能变
         assertEquals(LoginState.Idle, loginBackTarget(LoginState.AddAccountWelcome))
@@ -135,5 +139,43 @@ class KeyLoginTest {
                 loginBackTarget(LoginState.Error("boom", step)),
             )
         }
+    }
+
+    // ── OAuth 失败分类：把原始报文折成「能照着做」的三类 ──
+
+    @Test
+    fun `OAuth 失败分类能落到可行动的类别`() {
+        // 本地构建没注入 secret / OAuth App 的 secret 被重置 —— 都是这一条
+        assertEquals(
+            OAuthFailure.ClientCredentials,
+            classifyOAuthFailure(
+                """GitHub 错误 (200 OK): {"error":"incorrect_client_credentials"}""",
+            ),
+        )
+        // code 只能用一次；过期或重复使用都会撞上
+        assertEquals(
+            OAuthFailure.BadCode,
+            classifyOAuthFailure("""GitHub 错误 (200 OK): {"error":"bad_verification_code"}"""),
+        )
+        assertEquals(
+            OAuthFailure.BadCode,
+            classifyOAuthFailure("""GitHub 错误 (200 OK): {"error":"invalid_grant"}"""),
+        )
+        assertEquals(
+            OAuthFailure.RedirectMismatch,
+            classifyOAuthFailure("""GitHub 错误 (200 OK): {"error":"redirect_uri_mismatch"}"""),
+        )
+        // 未知错误保留原文，便于贴日志
+        val raw = "GitHub 错误 (500 Internal Server Error): upstream timeout"
+        assertEquals(OAuthFailure.Other(raw), classifyOAuthFailure(raw))
+    }
+
+    @Test
+    fun `没注入 client_secret 时不认为 OAuth 可用`() {
+        // 本地直接 assembleDebug（没有 local.properties）就是这个状态：
+        // 必须**不发请求**直接给可行动的提示，而不是让用户跑完一圈授权再报错
+        assertEquals(false, oauthConfigured(OAuthCredentials(clientSecret = "")))
+        assertEquals(true, oauthConfigured(OAuthCredentials(clientSecret = "abc")))
+        assertEquals(false, oauthConfigured(OAuthCredentials(clientId = "", clientSecret = "abc")))
     }
 }
