@@ -108,8 +108,19 @@ sealed interface LoginState : PageLevel {
         override val depth: Int get() = 3
     }
 
-    /** 出错 */
-    data class Error(val message: String) : LoginState {
+    /**
+     * 出错（异步链的失败端）。
+     *
+     * [failedAt] 决定失败页上「重试」重做哪一步（见 [LoginFailStep]）——
+     * 少了它，[retryFor] 无从判断，用户只能被扔回欢迎页从头再来。
+     *
+     * 它属于 payload：同一页里失败原因 / 步骤变了只换内容，不换页（`contentKey = it::class`）。
+     */
+    data class Error(
+        val message: String,
+        /** 失败发生在哪一步（**必填**：漏了它，「重试」就只能猜，见 [LoginFailStep]）。 */
+        val failedAt: LoginFailStep,
+    ) : LoginState {
         override val depth: Int get() = 2
     }
 }
@@ -146,6 +157,16 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
     /** 密钥校验失败原因（null = 无错误）。 */
     private val _keyError = MutableStateFlow<String?>(null)
     val keyError: StateFlow<String?> = _keyError.asStateFlow()
+
+    /**
+     * 正在发起授权（生成 PKCE / 拼授权 URL / 拉起浏览器）。
+     *
+     * 与 [keyBusy] 同一条纪律：**请求态不进页面状态**（进了就会被当成换页）。
+     * 此前这段没有挂起态，连点「开始授权登录」会生成两组 PKCE、开两个浏览器标签页 ——
+     * 而 `pkceVerifier` 只有后一组是活的，回调回来对不上。
+     */
+    private val _oauthBusy = MutableStateFlow(false)
+    val oauthBusy: StateFlow<Boolean> = _oauthBusy.asStateFlow()
 
     private val credentials = OAuthCredentials()
 
@@ -343,26 +364,53 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** 点击「登录」→ 生成 PKCE + 构建授权 URL → 进入授权态 */
+    /**
+     * 点击「开始授权登录」→ 生成 PKCE + 构建授权 URL → 进入授权态。
+     *
+     * [oauthBusy] 把这一段包起来：按钮在**点下的同一帧**就换成挂起态，
+     * 并挡住了「连点两次开两个浏览器标签页」这条路（第二次生成的 PKCE 会把第一次的 verifier 换掉）。
+     * 两个引擎调用都不慢，但它们是**跨 JNI 的同步调用**，在一台刚启动的机器上足够长到让用户再点一次。
+     */
     fun startOAuth() {
+        if (_oauthBusy.value) return
+        _oauthBusy.value = true
         viewModelScope.launch {
-            val pkce = RustBridge.generatePkce() ?: run {
-                _state.value = LoginState.Error("生成 PKCE 失败")
-                return@launch
+            try {
+                val pkce = RustBridge.generatePkce() ?: run {
+                    _state.value = LoginState.Error("生成 PKCE 失败", LoginFailStep.OAUTH_START)
+                    return@launch
+                }
+                pkceVerifier = pkce.verifier
+                Logger.debug(LogCategory.LOCAL_TASK, "PKCE", "生成 PKCE verifier/challenge")
+                val url = RustBridge.buildAuthorizeUrl(
+                    clientId = credentials.clientId,
+                    redirectUri = credentials.redirectUri,
+                    host = credentials.host,
+                    scopes = credentials.scopes,
+                    challenge = pkce.challenge
+                ) ?: run {
+                    _state.value = LoginState.Error("构建授权 URL 失败", LoginFailStep.OAUTH_START)
+                    return@launch
+                }
+                _state.value = LoginState.Authorizing(authorizeUrl = url, verifier = pkce.verifier)
+            } finally {
+                // 状态已经切走（Authorizing / Error）也要关掉，否则再进介绍页按钮永远是挂起态
+                _oauthBusy.value = false
             }
-            pkceVerifier = pkce.verifier
-            Logger.debug(LogCategory.LOCAL_TASK, "PKCE", "生成 PKCE verifier/challenge")
-            val url = RustBridge.buildAuthorizeUrl(
-                clientId = credentials.clientId,
-                redirectUri = credentials.redirectUri,
-                host = credentials.host,
-                scopes = credentials.scopes,
-                challenge = pkce.challenge
-            ) ?: run {
-                _state.value = LoginState.Error("构建授权 URL 失败")
-                return@launch
-            }
-            _state.value = LoginState.Authorizing(authorizeUrl = url, verifier = pkce.verifier)
+        }
+    }
+
+    /**
+     * 失败页的「重试」：重做失败的那一步（判定见 [retryFor]），不是一律回欢迎页。
+     *
+     * 原来这一页只有一个居中的红字，唯一的出口是看不见的系统返回键 ——
+     * 「授权完、换 token 失败」恰恰是用户最想再来一次的时刻。
+     */
+    fun retry() {
+        val error = _state.value as? LoginState.Error ?: return
+        when (retryFor(error.failedAt)) {
+            LoginRetry.RESTART_OAUTH -> startOAuth()
+            LoginRetry.TWO_FACTOR -> _state.value = LoginState.NeedTwoFactor
         }
     }
 
@@ -390,10 +438,10 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
             Logger.net("POST /login/oauth/access_token → ${if (session.startsWith("ERROR:")) "失败" else "200"}", "OAuth")
             when {
                 session.startsWith("ERROR:") -> {
-                    _state.value = LoginState.Error(session.removePrefix("ERROR:"))
+                    _state.value = LoginState.Error(session.removePrefix("ERROR:"), LoginFailStep.OAUTH_EXCHANGE)
                 }
                 session.isBlank() -> {
-                    _state.value = LoginState.Error("token 交换失败")
+                    _state.value = LoginState.Error("token 交换失败", LoginFailStep.OAUTH_EXCHANGE)
                 }
                 else -> {
                     // 登录成功：持久化会话，并登记到多账号表（设为当前账号）
@@ -466,7 +514,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
             // 格式有效；实际提交 2FA 由服务端在 OAuth 流程完成
             _state.value = LoginState.ExchangingToken
         } else {
-            _state.value = LoginState.Error("验证码格式错误（需 6 位数字）")
+            _state.value = LoginState.Error("验证码格式错误（需 6 位数字）", LoginFailStep.TWO_FACTOR)
         }
     }
 

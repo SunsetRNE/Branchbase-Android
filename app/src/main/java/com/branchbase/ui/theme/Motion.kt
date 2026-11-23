@@ -39,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.State
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -70,6 +71,7 @@ import kotlinx.coroutines.delay
  * | [selectionColor] 选中态 | 180ms | 颜色渐变 | 导航栏选中项、筛选 chip、开关式按钮 |
  * | [revealEnter] 出现/消失 | 220ms | 纵向展开 + 淡入 | 多选工具栏、撤销条、折叠区、底部操作条 |
  * | [AnimatedStateIcon] 图标切换 | 200ms | 交叉淡入 + 缩放 | 筛选 ↔ 关闭、全选 ↔ 取消、手柄 ↔ 关闭 |
+ * | [AsyncActionLabel] 异步动作挂起态 | 旧标签 80ms 退 / 新标签 160ms 进（延迟一个 OUT） | 交叉淡入 | 登录页主次按钮、密钥提交 |
  * | [PlaceholderSwap] 骨架 → 内容 | 延迟 120ms + 骨架 120ms 退 / 内容 160ms 进 | 就地替换 + 尺寸动画（**不是** `Crossfade`，理由见那个函数的注释） | 整页 / 分区骨架、贡献墙 |
  * | `CountBadge` 徽标 | 220ms | 缩放淡入 | 底部导航未读数（见 `ui/navigation/NavigationBar.kt`） |
  *
@@ -98,6 +100,17 @@ object ElementMotion {
 
     /** 骨架屏微光的单程时长。 */
     const val SHIMMER_MS = 700
+
+    /**
+     * 异步动作：**旧标签先退**的时长（见 [AsyncActionLabel]）。
+     *
+     * 与 [PLACEHOLDER_OUT_MS] 同一个理由：两段文字在同一块 48dp 高度里同时半透明地淡，
+     * 中段会看到「登录」与「校验中…」叠在一起 —— 先退干净再进，读起来是「换了个状态」。
+     */
+    const val ACTION_OUT_MS = 80
+
+    /** 异步动作：**新标签延迟一个 [ACTION_OUT_MS] 再进**的时长。 */
+    const val ACTION_IN_MS = 160
 
     /** 气泡弹层（从锚点角落缩放 + 淡入）的时长。 */
     const val BUBBLE_MS = 180
@@ -419,6 +432,61 @@ fun rememberPressFeedback(pressedScale: Float = ElementMotion.PRESS_SCALE): Pres
         label = "press-scale",
     )
     return PressFeedback(interaction, scale)
+}
+
+/**
+ * 异步动作的**挂起态 ⇄ 常态**标签切换（例：按钮里的「登录」⇄「校验中…」）。
+ *
+ * ## 为什么异步动作必须有自己的原语
+ *
+ * 一次要等结果的操作（校验密钥 / 换取令牌 / 提交）在界面上有三个时刻，
+ * 少一个就会被读成「点坏了」：
+ *
+ * | 时刻 | 该发生什么 | 谁负责 |
+ * |------|------------|--------|
+ * | 按下 | 形变 / 水波纹（跟手） | [rememberPressFeedback] |
+ * | 已发起、还没结果 | **同一帧**换成挂起态，且按钮不可再点 | 这里 + 调用方 `enabled = !busy` |
+ * | 结果 | 失败原因 / 成功提示**过渡**出现，而不是硬插入 | [revealEnter] / 页面级切换 |
+ *
+ * 老写法是 `if (busy) { 转圈 + 文案 } else { 文案 }`：文案**当帧**换掉，
+ * 字宽一变整块内容就跳一下 —— 越小的按钮越明显。这里让旧标签先退
+ * （[ElementMotion.ACTION_OUT_MS]）、新标签延迟一个 OUT 再进（[ElementMotion.ACTION_IN_MS]），
+ * 与「骨架 → 内容」同一个思路（见 [PlaceholderSwap]）：**先退干净，再进**。
+ *
+ * ## 为什么不做成「按钮」而是「标签」
+ *
+ * 挂起态的形状由调用方定（主按钮 / 次按钮 / 行内文字按钮），这里只管**两态之间的过渡**。
+ * 调用方要保证两段内容**同高**（按钮本身给 48dp 定高即可）—— 那是这条原语不跳版式的前提。
+ *
+ * ## 为什么不用 `Crossfade`
+ *
+ * 它两态同时半透明地叠着淡：在整行 48dp 的按钮里，中段会看到「登录」和「校验中…」
+ * 两段字糊在一起，读起来是「闪了一下」而不是「状态变了」。
+ */
+@Composable
+fun AsyncActionLabel(
+    busy: Boolean,
+    modifier: Modifier = Modifier,
+    idle: @Composable () -> Unit,
+    busyContent: @Composable () -> Unit,
+) {
+    AnimatedContent(
+        targetState = busy,
+        modifier = modifier,
+        transitionSpec = {
+            fadeIn(
+                tween(
+                    ElementMotion.ACTION_IN_MS,
+                    delayMillis = ElementMotion.ACTION_OUT_MS,
+                    easing = FastOutSlowInEasing,
+                ),
+            ) togetherWith fadeOut(tween(ElementMotion.ACTION_OUT_MS))
+        },
+        contentAlignment = Alignment.Center,
+        label = "async-action-label",
+    ) { isBusy ->
+        if (isBusy) busyContent() else idle()
+    }
 }
 
 /**

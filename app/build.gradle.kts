@@ -215,6 +215,88 @@ androidComponents {
     }
 }
 
+/**
+ * 打包护栏：arm64 的 Rust 核心（`libbranchbase_core.so`）必须在场。
+ *
+ * ## 为什么需要它（2026-11-24 的真实现场）
+ *
+ * `main` 分支按约定**不留 `.so`**（见 `docs/specs/BUILD-NOTES.md` §四：CI 交叉编译后把产物
+ * force-push 到 `beta` 分支，main 只放源码）。于是从干净克隆直接 `assembleDebug` 会产出一个
+ * **能装、能启动、但一进 `MainActivity` 就崩**的 APK：
+ *
+ * ```
+ * Caused by: java.lang.UnsatisfiedLinkError: dlopen failed: library "libbranchbase_core.so" not found
+ *     at com.branchbase.core.RustBridge.<clinit>(RustBridge.kt:39)
+ *     at com.branchbase.MainActivity.onCreate(MainActivity.kt:118)
+ * ```
+ *
+ * 因为 `RustBridge` 的类初始化第一句就是 `System.loadLibrary("branchbase_core")`，
+ * 而 `MainActivity.onCreate` 在 `setContent` **之前**就碰它 —— `Application` 都走不完，
+ * 应用内的日志页自然也起不来（现场只能靠 `adb logcat -b crash`）。
+ * 那天 `assembleDebug` 是**全绿**的：构建成功不等于产物可运行，这道检查补的就是这个空档。
+ *
+ * ## 两道互补的机制（都不能用 `doFirst`）
+ *
+ * 1. **硬保证**：把 `.so` 声明成打包任务的**输入文件**。缺文件时 Gradle 在任务执行前自己就会
+ *    失败 —— 这一层不受 configuration cache 影响（配置期被跳过时，输入快照照样会校验）；
+ * 2. **可操作的提示**：配置期检查「这次是不是要打 APK」，是的话直接抛一条中文错误，
+ *    给出两条恢复路径。
+ *
+ * ⚠️ **不要改回 `doFirst {}`**：Kotlin DSL 脚本里的任务动作会被 configuration cache 序列化，
+ * `doFirst` 抓到的脚本对象不可序列化，Gradle 9 会直接报
+ * `cannot serialize Gradle script object references`（实测）。上面这两道机制都不进任务动作，
+ * 所以与 configuration cache 兼容。
+ *
+ * ## 为什么只拦打包
+ *
+ * 改 Kotlin / UI、跑单测都不该被迫先编一遍 Rust（`compileDebugKotlin` / `testDebugUnitTest`
+ * 不受影响）；但**产出一个装不上的 APK** 必须当场拦下 —— 那才是会流到用户手机上的东西。
+ */
+val coreSoFile = layout.projectDirectory.file("src/main/jniLibs/arm64-v8a/libbranchbase_core.so").asFile
+val apkPackagingTaskNames = setOf("packageDebug", "packageRelease", "packagePerfBeta")
+
+// ① 硬保证：`.so` 是打包任务的输入。缺文件 ⇒ Gradle 的执行前校验必然失败。
+tasks.configureEach {
+    if (name in apkPackagingTaskNames) {
+        inputs.file(coreSoFile).withPropertyName("branchbaseCoreSo")
+    }
+}
+
+// ② 可操作的提示：只在「本次调用会产出一个 APK」时检查（配置期，不进任务动作）。
+// 读文件存在性会被 configuration cache 记进指纹：文件被删/放回都会让配置正确失效。
+fun requestsApkPackaging(taskPath: String): Boolean {
+    val name = taskPath.substringAfterLast(':')
+    if (name.contains("AndroidTest") || name.contains("UnitTest")) return false
+    // 「会产出 APK/AAB」的入口：assemble* / bundle* / install* / build。
+    // AndroidTest / UnitTest 变体不需要这个 .so（测试 APK 不打包应用的原生库），前面已排除。
+    return name == "build" ||
+        name.startsWith("assemble") || name.startsWith("bundle") || name.startsWith("install") ||
+        name in apkPackagingTaskNames
+}
+
+if (gradle.startParameter.taskNames.any(::requestsApkPackaging) &&
+    (!coreSoFile.exists() || coreSoFile.length() == 0L)
+) {
+    throw GradleException(
+        """
+        |缺少 Rust 核心（或文件是 0 字节）：${coreSoFile.path}
+        |
+        |没有它的 APK 一启动就崩（RustBridge.<clinit> 的 System.loadLibrary）：
+        |  UnsatisfiedLinkError: dlopen failed: library "libbranchbase_core.so" not found
+        |
+        |恢复（二选一）：
+        |  1) 只改了 Kotlin / UI —— 一条命令取同 commit 的产物（秒级）：
+        |       tools/build/fetch-core.sh
+        |     它会按 HEAD 的哈希找同名 Beta 包并解出 .so；找不到时退到 origin/beta 那份，
+        |     但会先算 core/ 与 RustBridge.kt 的差异 —— 对不上就拒绝写入（不悄悄换版本）。
+        |  2) 改了 core/ 或 RustBridge.kt —— 必须重编：
+        |       tools/build/build-core.sh        （本地需要 NDK sysroot，ARM64 约 18 分钟）
+        |
+        |.so 必须与 Kotlin 侧的 JNI 声明同代；拿旧 .so 顶替只会把崩点推到更晚。
+        """.trimMargin(),
+    )
+}
+
 // Force use of ARM64 binaries for AAPT2 in Proot environment
 configurations.all {
     resolutionStrategy.eachDependency {

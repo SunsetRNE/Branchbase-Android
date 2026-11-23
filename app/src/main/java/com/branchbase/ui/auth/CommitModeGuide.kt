@@ -36,6 +36,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.R
 import com.branchbase.ui.navigation.PageBackHandler
+import com.branchbase.ui.navigation.PageLevel
+import com.branchbase.ui.navigation.PageSwitcher
 import com.branchbase.ui.navigation.rememberTopLevelBackAction
 import com.branchbase.ui.main.MainScreen
 import com.branchbase.ui.profile.CommitMode
@@ -50,6 +52,18 @@ import com.branchbase.ui.theme.Primer
  *
  * 返回键：引导屏与主界面**顶层语义一致**（都是「再按一次退出应用」，见 TopLevelBack.kt）——
  * 会话已经建立，这里再回登录页同样是与登录状态不符的死状态。
+ *
+ * ## 为什么引导页 → 主界面要走嵌套 [PageSwitcher]，而不是 `if / else`
+ *
+ * 1. **这是首次访问链路的最后一步，也是唯一没有过渡的一步**：登录流程的每一步
+ *    （欢迎 → 介绍 → 填写 → 授权 → 主界面）都有动画，唯独「点确定 → 主界面」是硬切；
+ * 2. **返回键**：硬切没有「退场中的旧页」这个概念，而引导页挂着自己的顶层返回处理器。
+ *    换成 [PageSwitcher] 后它会自动给退场中的引导页下发 `LocalPageActive = false`，
+ *    那 200ms 里引导页的处理器放手，主界面的「再按一次退出」不会被吃掉
+ *    （这条机制见 `NAVIGATION-NOTES.md` 规则 1）。
+ *
+ * 主界面首帧重（首页取数 + 底部导航一起组合），所以 [GateRoute.Main] 标了
+ * `heavyFirstFrame`：过渡自动降级为 fade-through，不给方向位移（判据见 [PageLevel.heavyFirstFrame]）。
  */
 @Composable
 fun LoggedInGate(
@@ -60,21 +74,49 @@ fun LoggedInGate(
     val prefs = remember { SettingsKeys.prefs(context) }
     var configured by remember { mutableStateOf(prefs.getString(SettingsKeys.COMMIT_MODE, null) != null) }
 
-    if (!configured) {
-        val confirmExit = rememberTopLevelBackAction()
-        PageBackHandler(enabled = true) { confirmExit() }
-        CommitModeGuideScreen(
-            onConfirm = { mode ->
-                prefs.edit().putString(SettingsKeys.COMMIT_MODE, mode.name).apply()
-                configured = true
-            },
-            onSkip = { configured = true },
-        )
-    } else {
-        MainScreen(
-            sessionJson = sessionJson,
-            onLogout = onLogout,
-        )
+    PageSwitcher(
+        state = if (configured) GateRoute.Main else GateRoute.Guide,
+        // 兜底返回不在这里：两层各自最清楚自己要什么（引导页 / 主界面都是「再按一次退出」）
+        onBack = null,
+        modifier = Modifier.fillMaxSize(),
+        label = "logged-in-gate",
+    ) { route ->
+        when (route) {
+            GateRoute.Guide -> {
+                val confirmExit = rememberTopLevelBackAction()
+                PageBackHandler(enabled = true) { confirmExit() }
+                CommitModeGuideScreen(
+                    onConfirm = { mode ->
+                        prefs.edit().putString(SettingsKeys.COMMIT_MODE, mode.name).apply()
+                        configured = true
+                    },
+                    onSkip = { configured = true },
+                )
+            }
+
+            GateRoute.Main -> MainScreen(
+                sessionJson = sessionJson,
+                onLogout = onLogout,
+            )
+        }
+    }
+}
+
+/**
+ * 登录成功后的两格内容（引导页 / 主界面）。
+ *
+ * 与 `MainRoute` / `LoginState` 同一个写法：**页面身份收敛成一条路由**，
+ * 由 [PageSwitcher] 负责渲染与过渡，而不是在 `if` 里换 composable。
+ */
+private sealed interface GateRoute : PageLevel {
+    data object Guide : GateRoute {
+        override val depth: Int get() = 0
+    }
+
+    data object Main : GateRoute {
+        override val depth: Int get() = 1
+
+        override val heavyFirstFrame: Boolean get() = true
     }
 }
 

@@ -42,6 +42,48 @@ internal fun buildKeySession(host: String, token: String, user: JSONObject): Str
     .toString()
 
 /**
+ * 登录失败发生在**哪一步**。
+ *
+ * 失败页上的「重试」必须重做**失败的那一步**，而不是一律回欢迎页：
+ * 用户刚走完介绍页、点完授权，把他扔回欢迎页等于让他从头再来一遍。
+ * 所以失败原因与失败步骤一起进 [LoginState.Error]（payload 变了不算换页，
+ * 见 `LoginFlow` 的 `contentKey = { it::class }`）。
+ *
+ * 这个枚举是 `public` 的，因为它是公开的 [LoginState.Error] 的构造参数类型；
+ * `LoginRetry` / `retryFor` 只被 ViewModel 与单测使用，保持 `internal`。
+ */
+enum class LoginFailStep {
+    /** 还没拉起浏览器：生成 PKCE / 拼授权 URL 失败（通常是引擎侧问题）。 */
+    OAUTH_START,
+
+    /** 已经在网页端授权完、但换取令牌失败（code 过期 / 被取消 / 网络）。 */
+    OAUTH_EXCHANGE,
+
+    /** 双重验证码格式不对。 */
+    TWO_FACTOR,
+}
+
+/** 「重试」该重做的事（为什么要分开：见 [LoginFailStep]）。 */
+internal enum class LoginRetry {
+    /** 从头发起一次 OAuth（新 PKCE + 新授权 URL）。 */
+    RESTART_OAUTH,
+
+    /** 回到 2FA 输入页（口令是用户手上的东西，只需重输）。 */
+    TWO_FACTOR,
+}
+
+/**
+ * 失败步骤 → 重试动作（纯函数，[KeyLoginTest] 钉住）。
+ *
+ * 两档 OAuth 失败都走「重新发起」：`OAUTH_EXCHANGE` 的 code 是一次性的，
+ * 拿同一个 code 重试必然再失败；`OAUTH_START` 则是连 URL 都没拿到。
+ */
+internal fun retryFor(step: LoginFailStep): LoginRetry = when (step) {
+    LoginFailStep.OAUTH_START, LoginFailStep.OAUTH_EXCHANGE -> LoginRetry.RESTART_OAUTH
+    LoginFailStep.TWO_FACTOR -> LoginRetry.TWO_FACTOR
+}
+
+/**
  * 登录流程里「返回上一步」的目标状态。
  *
  * 只有密钥填写页有上一级（它从密钥介绍页进来）；其余中间态都直接回欢迎页。

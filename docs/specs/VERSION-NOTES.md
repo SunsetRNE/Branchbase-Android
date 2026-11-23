@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.2.4**）
-与 §三 `versionCode` 流水（129 → **235**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.2.5**）
+与 §三 `versionCode` 流水（129 → **248**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,99 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.2.4 → 1.0.22）
+## 二、`versionName` 流水（1.2.5 → 1.0.22）
+
+### 1.2.5
+
+**首次访问链路的异步行为补全：欢迎页分级入场、两个入口接上按下反馈；发起授权有了挂起态（不再连点开两个浏览器标签页）；授权中 / 换 token / 失败三处都有了可见出口（失败页取代原来那一行红字）；密钥页的按钮与失败原因都走过渡；登录成功进主界面不再硬切。**
+
+① **排查结论：这条「需要异步行为」的链路此前只做了一半。** 页面态与请求态分开这条纪律
+（`NAVIGATION-NOTES.md` §三）只在**密钥登录**一处置得对（`keyBusy` / `keyError` 是独立 StateFlow）。
+链路的其余三处是空的：`startOAuth()` **没有任何挂起态**（生成 PKCE、拼 URL 两次跨 JNI 调用期间
+按钮仍可点，连点两次会生成两组 PKCE、开两个浏览器标签页，而 `pkceVerifier` 只有后一组是活的 ——
+回调回来必然对不上）；`LoginState.Error` 是一屏居中的**红字**（无标题、无出口、无说明，唯一的出路
+是看不见的系统返回键）；`Authorizing` 那一屏在被浏览器盖住之前是静止的，用户取消授权再切回来
+看到的还是「正在打开 GitHub 授权页」，**一个可点的东西都没有**。而「完成」这一端在四处都是硬切：
+按钮文案（`if (busy) … else …`）、失败原因（当帧插入一行字，下面的说明整体下移）、换页、
+以及登录成功后 `LoggedInGate` 里 **引导页 → 主界面**的 `if / else`。
+
+② **新增元素级原语 `AsyncActionLabel`（`ui/theme/Motion.kt`）**：挂起态与常态之间不硬换 ——
+旧标签先退 80ms（`ACTION_OUT_MS`）、新标签延迟一个 OUT 再进 160ms（`ACTION_IN_MS`），
+与「骨架 → 内容」的 `PlaceholderSwap` 同一个思路：**先退干净，再进**。不用 `Crossfade` 的理由
+写进函数注释：两段文字在 48dp 的按钮里同时半透明地叠着淡，中段会糊成一块。规格与两条纪律
+（请求态不进页面状态、失败必须有出口）一起写进 `ui-design.md` §3 的新小节。
+
+③ **欢迎页是装完 App 的第一屏，此前是唯一没有入场动画的一屏**（它后面那两页介绍页反而逐条错峰）。
+现在按「品牌 → 入口① → 入口②」三段错峰出现（每段 +90ms，与介绍页同一节奏），只做淡入 +
+1/6 自身高度的上浮 —— **刻意不用 `expandVertically`**：这一列上下各有一个 `weight(1f)` 居中，
+展开会改变列高，整屏会在入场期间上下漂。两个入口同时接上 `rememberPressFeedback()`
+（此前只有 Material 水波纹）：这是用户在这个 App 里按下的第一批按钮。
+
+④ **失败端有了出口与「重跑失败的那一步」**：`LoginState.Error` 增加**必填**的 `failedAt`
+（`LoginFailStep`，`KeyLogin.kt`），失败页 = 标题 + 原始失败原因（原样保留，便于对日志）+
+「重试不会重复授权」的说明 + `重试` / `返回` 两个按钮。重试目标由纯函数 `retryFor` 决定：
+两档 OAuth 失败都**从头发起**（`OAUTH_EXCHANGE` 的 code 是一次性的，拿旧 code 重试必然再失败），
+2FA 只回到输入页重输。必填是刻意的：给了默认值，新加的失败点就会静默退化成「一律重新授权」。
+`KeyLoginTest` 新增 2 例（重试映射 + 返回目标不受失败步骤影响）。
+
+⑤ **授权中那一屏补了「重新打开授权页 / 取消」**：前者兜「浏览器被系统回收 / 没弹出来」，
+后者兜「我改主意了」。**刻意不自动判定「用户取消了授权」** —— 切回前台不等于没拿到授权码
+（用户可能只是切出去看一眼再回来），误判会把正常等待变成失败页；出口交给用户比猜用户可靠。
+两个等待屏（授权中 / 换 token）收进同一个 `LoginWaitingScreen`：内容居中等结果、动作贴底
+（用户真正看到它的时刻是切回来之后，动作要落在拇指够得到的地方），入场与欢迎页同节奏。
+
+⑥ **登录成功进主界面改成嵌套 `PageSwitcher`**（`CommitModeGuide.kt` 的 `GateRoute`）：这是首次访问
+链路里唯一没有过渡的一步；更要紧的是**返回键** —— 硬切没有「退场中的旧页」这个概念，而引导页
+自己挂着顶层返回处理器，那 200ms 里它会吃掉主界面的第一次返回。换成 `PageSwitcher` 后它自动给
+退场中的引导页下发 `LocalPageActive = false`（`NAVIGATION-NOTES.md` 规则 1）。主界面首帧要取数 +
+组合底部导航，所以 `GateRoute.Main` 标了 `heavyFirstFrame`，过渡自动降级为 fade-through。
+
+⑦ **边界**：`NeedTwoFactor` 页仍是不可达的（口令在网页端完成，README 如此约定），未动它；
+入场动画不读系统的「动画缩放」设置（与既有各页一致）；**观感没有真机截图确认** ——
+时长与错峰沿用既有节奏（220ms / 每段 90ms），80ms + 160ms 的标签切换是按「先退干净再进」
+定的，需要真机看一遍再调。
+
+⑧ **补一道打包护栏（当天那次交付事故的直接产物）**：本轮验证时我从本地打了一枚 debug APK 交出去，
+装上去**启动即闪退**。栈是 `UnsatisfiedLinkError: dlopen failed: library "libbranchbase_core.so" not found`
+（`RustBridge.<clinit>` → `MainActivity.onCreate`）：`main` 按约定不留 `.so`（CI 编好后只 force-push 到
+`beta`），而这台构建机是 aarch64 proot、NDK 的宿主机工具是 x86_64，**交叉编译不了 Android 的 Rust 核心** ——
+`assembleDebug` 却照样全绿。现在 `app/build.gradle.kts` 加了两道互补的护栏：① 把
+`src/main/jniLibs/arm64-v8a/libbranchbase_core.so` 声明成 `packageDebug` / `packageRelease` /
+`packagePerfBeta` 的**输入文件**（缺文件 ⇒ 执行前的输入校验必然失败，configuration cache 命中时也拦得住）；
+② 配置期检查「本次调用是否会产出 APK」，是的话抛中文错误，给出两条恢复路径
+（`tools/build/fetch-core.sh` 取同 commit 的产物 / `tools/build/build-core.sh` 重编）并注明旧 `.so` 顶替的代价。
+新增 `tools/build/fetch-core.sh`：按 HEAD 的哈希找同名 Beta 包并解出 `.so`（校验 AArch64 + JNI 符号），
+找不到时退到 `origin/beta`，但**先算 `core/` 与 `RustBridge.kt` 的差异**，对不上就拒绝 —— 显式 `--commit`
+时更不会退回别的版本（「取错 `.so`」正是这次事故的形态）。**只拦打包**：`compileDebugKotlin` /
+`testDebugUnitTest` 不受影响。第一版写成 `doFirst {}` 时被 configuration cache 顶掉
+（`cannot serialize Gradle script object references`），改成「输入 + 配置期检查」后不再进任务动作 ——
+这条坑与「缺文件 ≠ 符号不匹配」的区别一起记进 `BUILD-NOTES.md` §四。
+
+⑨ **本版同时并入平板自适应布局线**（`feat/adaptive-layout-engine`，6 个提交，分支上曾以
+versionCode 245/246/247 出过三个平板验证包）：① **自适应布局引擎** —— 新增 `ui/adaptive/`
+（`WindowSpec` / `LayoutPlan` / 纯函数 `AdaptiveLayoutPolicy` + JVM 矩阵单测），
+`ProvideAdaptiveLayout` 在 Activity 根部下发 plan，窗口尺寸变化只重组读取方；`GlassBar` 接入
+`NavMetrics`：栏宽与单格宽度封顶、按压缩比驱动图标/标签（手机窄屏维持整条栏可用，槽位过多时隐藏文字）。
+② **横竖屏内容宽度** —— `AdaptiveContent`：平板横屏 840dp / 竖屏 760dp 内容居中、紧凑屏保持整宽；
+横屏手机（heightClass=Compact）栏高 64→56dp、滑块 56→48dp、上下留白 8→4dp。③ **悬浮栏遮挡内容** ——
+新增 `BranchbaseLazyColumn`：只给滚动内容补底部留白、**不缩内容视口**（内容仍可从栏后穿过，玻璃采样
+不退化；滚到底时最后一项能滚到栏上方），规则是「栏可见时底部留白 = max(原值, 栏高 + 16dp)，栏不可见
+保持原值」；全项目 28 处 LazyColumn 统一接入，个人页「动态」的 `verticalScroll` 同步补齐，
+`FloatingBarAwareListsTest` 4 例。合入时还修掉一道**过期的字面量钉子**：`GlassBackdropTest` 原先直接
+`contains("GlassBarCells(items, showLabels, sampled = true, trailing = trailing)")`，而平板线给这个调用
+加了 `iconSize/labelSize` 并改成跨行 —— 事实（录制层传 `sampled = true`）没变、字面量过期了。改成按
+**括号配对**截出调用段再判 `sampled = true` / `sampled = sampled`（新增 `callBlocks` 帮助函数），
+以后加参数不会再假红。**版本码为什么是 248**：这条线在分支上占了 245/246/247，而 236–244
+没有对应提交（244 是用户平板上已安装的「安装基线」）—— 合入主线后统一取下一个未用值 **248**（见 §三）。
+
+⑩ **验证**：`:app:compileDebugKotlin` ✅；`:app:testDebugUnitTest` → **1136 例 / 1135 通过**。
+唯一失败的是 `ReleaseBranchTargetTest` 的「图标几何与设计稿一致」—— 它读 `../design/release-redesign/app.js`，
+而 `/design/` 按仓库政策**永久不入库**（`docs/README.md` §三），干净克隆上必然红，与本版无关。
+`KeyLoginTest` 8 → 10 例、平板线带来的 `AdaptiveLayoutPolicyTest` / `FloatingBarAwareListsTest` 均全绿。
+唯一失败的是 `ReleaseBranchTargetTest` 的「图标几何与设计稿的 ICONS_branch 一致」—— 它读
+`../design/release-redesign/app.js`，而 `/design/` 按仓库政策**永久不入库**（`docs/README.md` §三），
+干净克隆上必然红，与本版无关。`KeyLoginTest` 8 → 10 例全绿（新增「重试重做失败的那一步」
+与「返回目标不受失败步骤影响」两例）。
 
 ### 1.2.4
 
@@ -3580,7 +3672,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（235 → 129）
+## 三、`versionCode` 流水（248 → 129）
+
+- **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
+
+- **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
+
+- **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **248**：首次访问链路的异步行为补全 —— 新增元素级原语 `AsyncActionLabel`（旧标签先退 80ms、新标签延迟 80ms 进 160ms，替掉按钮里 `if (busy)` 的硬换字）；欢迎页三段错峰入场 + 两个入口接 `rememberPressFeedback`；`startOAuth` 增加独立挂起态 `oauthBusy`（连点不再生成两组 PKCE / 开两个浏览器标签页）；`Authorizing` 增加「重新打开授权页 / 取消」两个出口，与换 token 屏合并为 `LoginWaitingScreen`；`LoginState.Error` 增加必填 `failedAt`（`LoginFailStep`）与失败页（重试按 `retryFor` 重跑失败的那一步 + 返回），替代原来一行居中红字；密钥页按钮走 `AsyncActionLabel`、失败原因走 `revealEnter` 且输入框 `isError`；`LoggedInGate` 改为嵌套 `PageSwitcher`（`GateRoute`，主界面标 `heavyFirstFrame` 降级 fade-through），顺带让退场中的引导页放手返回键；新增**打包护栏**（`libbranchbase_core.so` 声明为打包任务输入 + 配置期中文提示；新增 `tools/build/fetch-core.sh` 按 commit 取产物、JNI 面不符就拒绝）—— 当天本地打出的 APK 因缺 `.so` 启动即闪退，构建却是全绿的；**同版并入平板自适应布局线**（`feat/adaptive-layout-engine` 6 个提交：`ui/adaptive/` 引擎、横竖屏内容宽度、悬浮栏底部清障，分支上的 245–247 验证包随本版进主线）；顺手把 `GlassBackdropTest` 的过期字面量钉子改成按括号配对判调用段（加参数不再假红）；`KeyLoginTest` 8 例 → 10 例（一次提交，故 +1）。
 
 - **235**：运动物理层移植 —— 选中态从「两档模糊」改成「有没有颜色」：栏改为**三层刚性结构**（① 可见 `Row` + `drawBackdrop(vibrancy → blur → lens)`；② `alpha(0f)` + `layerBackdrop` + `ColorFilter.tint(Blue500)` 的染色录制层；③ 采 `rememberCombinedBackdrop(页面, ②)` 的滑块，于是滑块内透出强调色图标、滑块外仍灰）；新增 `ui/navigation/LiquidGlassDrag.kt`（370 行）承载四个弹簧（位移 / 按下进度 / 按压拉伸 / 拖动速度）与不走 `touchSlop` 的拖动识别器，指针高光画在表面、`gestureModifier` 挂滑块；参数全部收进 `Backdrop.kt` 的 `GlassBackdrop` 单点真源；上游 `InteractiveHighlight` 的 AGSL 路径因锁定的 `backdrop` 1.0.6 未导出 `RuntimeShader`（`javap` 实测）降级为 `radialGradient` + `BlendMode.Plus`（仅衰减曲线由 `smoothstep` 变线性），降级理由写在文件头并被钉子钉住；装机实测三缺陷一并修复 —— 录制层 `sampled=false` 导致静止滑块是纯蓝方块（改 `sampled=true`）、`LaunchedEffect` 闭包读快照导致点回原 Tab 被吞（改读 `rememberUpdatedState`）、`remember(selectedSlot)` 把外部选中项当 key 导致 state 对象被换掉、`snapshotFlow` 盯旧对象、滑块停在原格并吃掉那一格点按（改 `remember { mutableIntStateOf(selectedSlot) }`）；新增消息页覆盖层契约第三段 —— `NavigationShell` 用 `onSizeChanged` **量**出栏占掉的高度并经 `LocalFloatingBarReservedHeight` 下发（占位形态恒 0、栏收起回落 0），消息页筛选球 / 面板 / 多选条 / 撤销条一起让位；`GlassBackdropTest` 11 例扩到 13 例（一次提交，故 +1）。
 

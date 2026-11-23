@@ -192,9 +192,30 @@ JNI 导出函数是**按名字 + 形参个数**硬匹配的：`RustBridge.native
 | 给某个 JNI 函数加/改形参（如接入 DeepSeek 时 `nativeTranslate` 由 3 参改 4 参） | 改完必须重建 `.so`：`tools/build/build-core.sh --mode=local`（ARM64 本机约 18 分钟） |
 | 只是加字段（不想动签名，也不想让旧 `.so` 报错） | 优先**传 JSON 参数**（如 `optionsJson`），Rust 侧 `serde` 解析、字段缺失走默认值 |
 | CI | `build-core.sh --mode=ci` 用 cargo-ndk 交叉编译，产物提交到 `beta` 分支；`main` 不留 `.so` |
+| 只想打 UI 包、不想编 Rust | `tools/build/fetch-core.sh`：按 HEAD 的七位哈希找同名 Beta APK、解出 `.so` 并校验 AArch64 + JNI 符号；找不到时退到 `origin/beta`，但**先算 `core/` 与 `RustBridge.kt` 的差异**，对不上就拒绝写入（`--from-beta` 可显式接受风险，`--commit <hash>` 可指定已发布版本，显式指定时**不会**退回别的版本） |
 
 > 本地验证顺序建议：`cargo test --lib`（纯逻辑）→ `cargo test --test deepseek_http`
 > （回环服务验证真实 HTTP 请求形状，不联网、不需要 Key）→ 重建 `.so` → `assembleDebug`。
+
+> **缺整个 `.so` 与「符号对不上」是两回事**（2026-11-24 的真机现场）：单个 native 调用找不到符号，
+> 会被 `RustBridge` 的 `runCatching` 兜成「引擎不可用」（功能哑、不崩）；而 `RustBridge` 的
+> **类初始化**里那行 `System.loadLibrary("branchbase_core")` 没有被兜 —— 缺文件时在
+> `MainActivity.onCreate`（`setContent` **之前**）直接抛 `UnsatisfiedLinkError`，**启动即闪退**，
+> 连应用内的日志页都起不来（现场只能靠 `adb logcat -b crash`）。而 `assembleDebug` 当时是**全绿**的：
+> 构建成功不等于产物可运行。
+>
+> 所以 `app/build.gradle.kts` 加了两道**互补**的护栏：
+>
+> 1. **硬保证**：把 `app/src/main/jniLibs/arm64-v8a/libbranchbase_core.so` 声明成打包任务
+>    （`packageDebug` / `packageRelease` / `packagePerfBeta`）的**输入文件** —— 缺文件时 Gradle
+>    在执行前的输入校验就会失败，configuration cache 命中时也拦得住；
+> 2. **可操作的提示**：配置期检查「本次调用是否会产出 APK」，是的话直接抛出中文错误，
+>    给出两条恢复路径（取上一个 Beta 的产物 / `tools/build/build-core.sh` 重编），
+>    并写明「拿旧 `.so` 顶替只会把崩点推到更晚」。
+>
+> ⚠️ **别改回 `doFirst {}`**：Kotlin DSL 脚本里的任务动作会被 configuration cache 序列化，
+> 抓到的脚本对象不可序列化，Gradle 9 直接报 `cannot serialize Gradle script object references`（实测）。
+> 编译与单测**不受影响** —— 改 UI 不该被迫先编 18 分钟 Rust，但产出一个装不上的 APK 必须当场拦下。
 
 ---
 

@@ -279,7 +279,9 @@ Canvas 绘制 lambda），它们改用 `TintRole` 角色表 / 在 composable 里
 | 选中态颜色 | `selectionColor(selected, on, off)` | 180ms | 底部导航（普通 / 玻璃球 / 侧边气泡 / 仓库底栏）、个人页气泡 Tab、筛选 chip、分段控件、日志过滤按钮、设置单选行、Issue 筛选胶囊、反应 chip |
 | 出现 / 消失 | `revealEnter()` / `revealExit()` | 220ms 展开 + 淡入 | 多选工具栏、撤销条、分组展开、阶段预取横幅 |
 | 气泡弹层 | `bubbleEnter()` / `bubbleExit(origin)` | 180ms 锚点缩放 + 淡入 | 个人页 More 气泡、侧边气泡导航 |
-| 按下反馈 | `rememberPressFeedback()` | 120ms 缩到 0.94 | 个人页气泡手柄与主项、气泡条目、侧边气泡手柄、Git 气泡手柄 |
+| 按下反馈 | `rememberPressFeedback()` | 120ms 缩到 0.94 | 个人页气泡手柄与主项、气泡条目、侧边气泡手柄、Git 气泡手柄、**登录页主 / 次按钮** |
+| **异步动作挂起态** | `AsyncActionLabel(busy, …)` | 旧标签 80ms 退干净 → 新标签延迟 80ms、160ms 进 | 登录页主 / 次按钮、密钥提交按钮 |
+| **异步结果提示** | `revealEnter()` / `revealExit()`（复用出现/消失） | 220ms 展开 + 淡入 | 密钥校验失败原因（输入框同时 `isError = true`） |
 | 图标形态切换 | `AnimatedStateIcon(icon, …)` | 200ms 交叉淡入 + 缩放 | 筛选 ↔ 关闭、全选 ↔ 取消、Git 手柄 ↔ 关闭 |
 | 图标形态切换（**结构可对应**） | `AnimatedMorphIcon(pair, target, …)` | 弹簧（默认 ζ=1.00，不过冲） | 检索页：下拉箭头 ↓⇄↑、高级筛选 +/−、过滤按钮（后者按台账降级回上一行） |
 | 数量徽标 | `CountBadge(count, …)` | 220ms 缩放淡入 | 底部导航未读数（含清零时的淡出） |
@@ -288,6 +290,30 @@ Canvas 绘制 lambda），它们改用 `TintRole` 角色表 / 在 composable 里
 | **浮层占位**（面板 / 弹窗） | `PlaceholderSwap(…, skeletonDelayMs = 0)` 或直接 `SkeletonRows(rows, rowHeight)` | **不延迟**；容器高度固定，骨架/空态/内容同尺寸 | Git 气泡面板四档、提交图 / 引用树 / 文件历史、本地仓库「＋拉取仓库」与分支选择弹窗 |
 | 列表增删 | `Modifier.animateItem()` | 默认 | 通知列表、任务列表、Issue 时间线、分支对比提交列表 |
 | 文本长度变化 | `Modifier.animateContentSize()` | 默认 | Issue 长评论展开 / 收起（不再让整条时间线弹跳） |
+
+#### 异步动作：「按下 → 挂起 → 结果」三个时刻（1.2.5）
+
+一次**要等结果**的操作（校验密钥 / 发起授权 / 换取令牌 / 提交）在界面上有三个时刻，
+少任何一个都会被读成「点坏了」。三个时刻各有归属，**不要在一处糊成一团**：
+
+| 时刻 | 该发生什么 | 真源 |
+|------|------------|------|
+| 按下 | 跟手的形变 / 水波纹 | `rememberPressFeedback()` |
+| 已发起、还没结果 | **同一帧**换成挂起态，且按钮不可再点（`enabled = !busy`） | `AsyncActionLabel` + 挂起态流（如 `LoginViewModel.oauthBusy` / `keyBusy`） |
+| 结果 | 失败原因**过渡**出现；成功要么换页（`PageSwitcher`）、要么给一句可见的完成提示 | `revealEnter()` / `PageSwitcher` |
+
+两条必须遵守的规则：
+
+1. **请求态不进页面状态**。塞进页面状态（`LoginState.KeyInput(busy, error)`）的话，状态值一变
+   就被当成换页 —— 多播一次切换动画，还会重建内容把用户刚粘的密钥丢掉。页面态用 `data object`，
+   请求态走独立 `StateFlow`（`NAVIGATION-NOTES.md` §三 同一条）。
+2. **失败必须有出口**。否则用户停在「一行红字」上，唯一的路是不可见的系统返回键 ——
+   失败页至少要有「重试（重跑**失败的那一步**，不是一律回首页）」与「返回（换一条路）」，
+   判定收在纯函数里（`retryFor` / `loginBackTarget`，`KeyLoginTest` 钉住）。
+
+> 挂起态**不是**「转圈就行」：它必须和按钮的可用性一起变（`enabled = !busy`），否则
+> 连点会发两次请求 —— 登录页那次是「生成两组 PKCE、开两个浏览器标签页」，
+> 而只有后一组的 verifier 是活的，回调回来必然对不上。
 
 #### 浮层里的占位：不许「边加载边长高」（1.1.2 的真机结论）
 

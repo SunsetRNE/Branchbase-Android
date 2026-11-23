@@ -884,6 +884,11 @@
     <string name="label_key_points">要点</string>
     <string name="action_switch_to_oauth">改用授权登录（一键授权）</string>
     <string name="action_start_oauth">开始授权登录</string>
+    <string name="state_starting_authorization">正在打开授权页…</string>
+    <string name="action_reopen_auth_page">重新打开授权页</string>
+    <string name="login_error_title">登录没有完成</string>
+    <string name="login_error_hint">可以「重新授权」再走一次，或返回欢迎页换一种登录方式。</string>
+    <string name="action_reauthorize">重新授权</string>
     <string name="login_key_scopes_bullets">• 经典密钥：勾选 repo / read:user / read:org / notifications 四项\n• 细粒度密钥：至少给 Contents、Issues、Pull requests、Notifications 读权限（含 Metadata）\n• 登录时不要求数字口令验证；密钥可随时在网页端撤销</string>
     <string name="label_access_key">访问密钥</string>
     <string name="action_switch_to_key">改用密钥登录（免口令）</string>

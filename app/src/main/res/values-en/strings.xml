@@ -881,6 +881,11 @@
     <string name="label_key_points">Key points</string>
     <string name="action_switch_to_oauth">Use OAuth instead (one tap)</string>
     <string name="action_start_oauth">Start OAuth sign-in</string>
+    <string name="state_starting_authorization">Opening the authorization page…</string>
+    <string name="action_reopen_auth_page">Open the authorization page again</string>
+    <string name="login_error_title">Sign-in did not finish</string>
+    <string name="login_error_hint">Authorize again, or go back and choose another sign-in method.</string>
+    <string name="action_reauthorize">Authorize again</string>
     <string name="login_key_scopes_bullets">• Classic keys: tick all four of repo / read:user / read:org / notifications\n• Fine-grained keys: at least read access to Contents, Issues, Pull requests and Notifications (including Metadata)\n• No numeric code is required to sign in; the key can be revoked on the website at any time</string>
     <string name="label_access_key">Access key</string>
     <string name="action_switch_to_key">Use an access key instead (no code)</string>

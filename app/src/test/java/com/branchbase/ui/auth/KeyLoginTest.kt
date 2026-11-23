@@ -56,7 +56,7 @@ class KeyLoginTest {
         assertEquals(2, LoginState.Authorizing("u", "v").depth)
         assertEquals(2, LoginState.ExchangingToken.depth)
         assertEquals(2, LoginState.NeedTwoFactor.depth)
-        assertEquals(2, LoginState.Error("x").depth)
+        assertEquals(2, LoginState.Error("x", LoginFailStep.OAUTH_START).depth)
         assertEquals(3, LoginState.LoggedIn("{}").depth)
     }
 
@@ -68,7 +68,7 @@ class KeyLoginTest {
         assertEquals(LoginState.Idle, loginBackTarget(LoginState.OAuthIntro))
         assertEquals(LoginState.Idle, loginBackTarget(LoginState.Authorizing("u", "v")))
         assertEquals(LoginState.Idle, loginBackTarget(LoginState.NeedTwoFactor))
-        assertEquals(LoginState.Idle, loginBackTarget(LoginState.Error("boom")))
+        assertEquals(LoginState.Idle, loginBackTarget(LoginState.Error("boom", LoginFailStep.OAUTH_EXCHANGE)))
         // 默认（不在新增流程里）退到未登录欢迎页 —— 上面这些就是既有行为，不能变
         assertEquals(LoginState.Idle, loginBackTarget(LoginState.AddAccountWelcome))
     }
@@ -83,7 +83,7 @@ class KeyLoginTest {
             LoginState.Authorizing("u", "v"),
             LoginState.ExchangingToken,
             LoginState.NeedTwoFactor,
-            LoginState.Error("boom"),
+            LoginState.Error("boom", LoginFailStep.OAUTH_EXCHANGE),
         ).forEach { from ->
             assertEquals(
                 "新增流程里 ${from::class.simpleName} 的返回目标应是 AddAccountWelcome",
@@ -111,5 +111,29 @@ class KeyLoginTest {
     fun `建密钥链接支持自定义权限（细粒度密钥场景）`() {
         val url = keyTokenCreateUrl(listOf("read:user", "repo"))
         assertTrue(url.contains("scopes=read:user,repo"))
+    }
+
+    // ── 失败端：重试重做「失败的那一步」，不是一律回欢迎页 ──
+
+    @Test
+    fun `失败页的重试重做失败的那一步`() {
+        // 两档 OAuth 失败都从头发起：`OAUTH_EXCHANGE` 的 code 是一次性的，
+        // 拿同一个 code 重试必然再失败；`OAUTH_START` 则连授权 URL 都没拿到。
+        assertEquals(LoginRetry.RESTART_OAUTH, retryFor(LoginFailStep.OAUTH_START))
+        assertEquals(LoginRetry.RESTART_OAUTH, retryFor(LoginFailStep.OAUTH_EXCHANGE))
+        // 2FA 只是口令格式不对：回到输入页重输，不该把用户扔回欢迎页从头再来
+        assertEquals(LoginRetry.TWO_FACTOR, retryFor(LoginFailStep.TWO_FACTOR))
+    }
+
+    @Test
+    fun `失败页的返回仍是欢迎页（与失败步骤无关）`() {
+        // 返回是「换一条路」，与「重试」是两件事：失败步骤不该影响返回目标
+        LoginFailStep.entries.forEach { step ->
+            assertEquals(
+                "failedAt = $step 时返回目标应仍是 Idle",
+                LoginState.Idle,
+                loginBackTarget(LoginState.Error("boom", step)),
+            )
+        }
     }
 }

@@ -1,56 +1,44 @@
 package com.branchbase.ui.auth
 
-import android.content.Intent
-import android.net.Uri
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.branchbase.R
-import com.branchbase.ui.log.Logger
 import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.navigation.PageSwitcher
 import com.branchbase.MainActivity
-import com.branchbase.ui.theme.AppIcon
-import com.branchbase.ui.theme.Primer
 
 /**
  * 登录流程入口：根据 [LoginState] 渲染对应界面，串联整个状态机。
+ *
+ * ## 这一层只做三件事
+ *
+ * 1. **把页面态交给 [PageSwitcher]**（换页的唯一机制，见 `LoginState` 的注释）；
+ * 2. **把请求态接到页面上**（密钥校验 `keyBusy` / `keyError`、发起授权的 `oauthBusy`）——
+ *    这些**不进** [LoginState]，否则状态值一变就会被当成换页（`NAVIGATION-NOTES.md` §三）；
+ * 3. **把状态机动作转成回调**（重试 / 取消 / 返回）。
+ *
+ * 具体怎么画、入场动画怎么排、挂起态怎么切，都在 `LoginScreens.kt` 里 ——
+ * 这一层刻意不写任何 `if (busy)`，也不 new 任何布局。
  */
 @Composable
 fun LoginFlow(
     viewModel: LoginViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsState()
-    // 密钥页的「请求态」独立于页面状态（见 LoginState.KeyInput 的注释）
+    // 两个请求态都独立于页面状态（见 LoginState.KeyInput / OAuthIntroScreen 的注释）
     val keyBusy by viewModel.keyBusy.collectAsState()
     val keyError by viewModel.keyError.collectAsState()
-    val context = LocalContext.current
+    val oauthBusy by viewModel.oauthBusy.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
 
     // 监听 ON_RESUME：OAuth 授权完成后从浏览器跳回 App，消费深链回调的授权码
@@ -133,11 +121,14 @@ fun LoginFlow(
                 onKeyLogin = { viewModel.showKeyIntro() },
             )
 
-            // 授权登录：流程要点介绍（含数字口令验证说明 + 渲染动画）
+            // 授权登录：流程要点介绍（含数字口令验证说明 + 渲染动画）。
+            // `busy` 是「发起授权」这一异步动作的挂起态：没有它，连点会开两个浏览器标签页，
+            // 而两次生成的 PKCE 只有后一组是活的（见 OAuthIntroScreen 的参数注释）。
             is LoginState.OAuthIntro -> OAuthIntroScreen(
                 onBack = { viewModel.back() },
                 onStart = { viewModel.startOAuth() },
                 onSwitchToKey = { viewModel.showKeyIntro() },
+                busy = oauthBusy,
             )
 
             // 密钥登录：流程要点介绍（网页端生成密钥 / 勾选权限 + 渲染动画）
@@ -147,7 +138,7 @@ fun LoginFlow(
                 onSwitchToOAuth = { viewModel.showOAuthIntro() },
             )
 
-            // 密钥填写与校验（错误留在本页）
+            // 密钥填写与校验（错误留在本页，不整页跳走 —— 否则要重新粘贴一次密钥）
             is LoginState.KeyInput -> KeyInputScreen(
                 busy = keyBusy,
                 error = keyError,
@@ -155,56 +146,15 @@ fun LoginFlow(
                 onSubmit = { token -> viewModel.loginWithKey(token) },
             )
 
-            is LoginState.Authorizing -> {
-                // 用系统浏览器打开 GitHub 授权页
-                LaunchedEffect(s.authorizeUrl) {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(s.authorizeUrl))
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    context.startActivity(intent)
-                }
-                // 打开浏览器期间显示过渡页（带应用图标，避免一整屏空白）
-                Column(
-                    Modifier.fillMaxSize().background(Primer.BackgroundPrimary),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    AppIcon(size = 72.dp, shape = RoundedCornerShape(20.dp))
-                    Spacer(Modifier.height(18.dp))
-                    Text(
-                        stringResource(R.string.state_opening_auth_page),
-                        color = Primer.TextTertiary
-                    )
-                    // 首次在新设备登录时，网页会要求「设备验证」或口令 —— 提前说清，避免以为卡住了
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        stringResource(R.string.note_complete_code_in_browser),
-                        fontSize = 11.5.sp,
-                        color = Primer.TextTertiary,
-                        textAlign = TextAlign.Center,
-                        lineHeight = 17.sp,
-                        modifier = Modifier.padding(horizontal = 32.dp),
-                    )
-                }
-            }
+            // 授权中：拉起系统浏览器 + 等深链回调。**这一屏必须有出口**（取消 / 重新打开），
+            // 否则用户取消授权再切回来，只能看到一个静止的「正在打开」。
+            is LoginState.Authorizing -> AuthorizingScreen(
+                authorizeUrl = s.authorizeUrl,
+                onCancel = { viewModel.back() },
+            )
 
-            is LoginState.ExchangingToken -> {
-                // 加载过渡页（换取 token 期间）
-                Column(
-                    Modifier.fillMaxSize().background(Primer.BackgroundPrimary),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    AppIcon(size = 72.dp, shape = RoundedCornerShape(20.dp))
-                    Spacer(Modifier.height(20.dp))
-                    CircularProgressIndicator(color = Primer.Blue500)
-                    Spacer(Modifier.height(14.dp))
-                    Text(
-                        stringResource(R.string.state_verifying_auth),
-                        fontSize = 11.5.sp,
-                        color = Primer.TextTertiary,
-                    )
-                }
-            }
+            // 换取 token 中：自动完成，没有可点的东西
+            is LoginState.ExchangingToken -> ExchangingTokenScreen()
 
             is LoginState.NeedTwoFactor -> {
                 TwoFactorScreen(onVerify = { code -> viewModel.verifyTwoFactor(code) })
@@ -218,11 +168,20 @@ fun LoginFlow(
                 )
             }
 
-            is LoginState.Error -> {
-                Box(Modifier.fillMaxSize().background(Primer.BackgroundPrimary), contentAlignment = Alignment.Center) {
-                    Text(s.message, color = Primer.Red500)
-                }
-            }
+            // 出错：异步链的**失败端**。原来是一行居中的红字（无标题 / 无出口），
+            // 现在给「重试（重跑失败的那一步）+ 返回（换一种方式）」两个出口。
+            is LoginState.Error -> LoginErrorScreen(
+                message = s.message,
+                retryLabel = stringResource(
+                    if (s.failedAt == LoginFailStep.OAUTH_EXCHANGE) {
+                        R.string.action_reauthorize
+                    } else {
+                        R.string.action_retry
+                    },
+                ),
+                onRetry = { viewModel.retry() },
+                onBack = { viewModel.back() },
+            )
         }
     }
 }

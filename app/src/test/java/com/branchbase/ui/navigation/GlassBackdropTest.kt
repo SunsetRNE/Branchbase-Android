@@ -77,6 +77,39 @@ class GlassBackdropTest {
 
     private fun code(path: String): String = stripComments(source(path))
 
+    /**
+     * 截出 `name(` 的完整调用段：按**括号配对**截，允许跨行与嵌套调用。
+     *
+     * 为什么需要它 —— 源码级钉子最容易写成「整行字面量」：参数一加、一换行就红，
+     * 而它本来要钉的是某个事实（例如「录制层传了 `sampled = true`」）。
+     * 按调用段取，参数增减不影响判定，语义变了才会红。
+     */
+    private fun callBlocks(src: String, name: String): List<String> {
+        val blocks = mutableListOf<String>()
+        var from = 0
+        while (true) {
+            val at = src.indexOf("$name(", from)
+            if (at < 0) break
+            var depth = 0
+            var i = at + name.length
+            var closed = false
+            while (i < src.length) {
+                when (src[i]) {
+                    '(' -> depth++
+                    ')' -> {
+                        depth--
+                        if (depth == 0) { i++; closed = true; break }
+                    }
+                }
+                i++
+            }
+            if (!closed) break
+            blocks += src.substring(at, i)
+            from = i
+        }
+        return blocks
+    }
+
     private val shellPath = "src/main/java/com/branchbase/ui/navigation/NavigationShell.kt"
     private val barPath = "src/main/java/com/branchbase/ui/navigation/GlassBar.kt"
     private val mainBarPath = "src/main/java/com/branchbase/ui/navigation/GlassNavigationBar.kt"
@@ -472,10 +505,15 @@ class GlassBackdropTest {
     @Test
     fun `录制层不许用降级样式且滑块不许吃掉点按`() {
         val bar = code(barPath)
+        // 钉的是**事实**（录制层传 `sampled = true`），不是某一行字面量：
+        // 平板线给 `GlassBarCells` 加了 iconSize / labelSize 并改成跨行调用，
+        // 原来的单行字符串钉子就红了 —— 而那两条调用的语义一个字都没变。
+        val cellsCalls = callBlocks(bar, "GlassBarCells")
         assertTrue(
-            "染色录制层必须按「有采样」的正常样式画（`GlassBarCells(…, sampled = true, …)`）—— " +
+            "染色录制层必须按「有采样」的正常样式画（`sampled = true` 那一处调用）—— " +
                 "传 false 会让单元格画成实心强调色底 + 白图标，再被 tint 整片染色，滑块里就只剩一块纯色",
-            bar.contains("GlassBarCells(items, showLabels, sampled = true, trailing = trailing)"),
+            cellsCalls.any { it.contains("sampled = true") } &&
+                cellsCalls.any { it.contains("sampled = sampled") },
         )
 
         val guard = bar.substringAfter("LaunchedEffect(drag)").substringBefore("val highlight = remember")
