@@ -102,6 +102,10 @@ class I18nUiTextTest {
         "src/main/java/com/branchbase/ui/settings/SettingsRow.kt",
         "src/main/java/com/branchbase/ui/task/TaskDatabase.kt",
         "src/main/java/com/branchbase/ui/repository/RepoRelation.kt",
+        // 登录链路（2026-11-24）：介绍页的步骤 / 权限说明此前写死中文，英文界面整页是中文。
+        // 现在全部走 @StringRes（AuthFlowStep.titleRes / descRes + keyScopeCopyRes），
+        // 加进清单 = 承诺这个文件不再出现界面中文。
+        "src/main/java/com/branchbase/ui/auth/LoginScreens.kt",
     )
 
     @Test

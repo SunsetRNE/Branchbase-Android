@@ -1,5 +1,6 @@
 package com.branchbase.ui.auth
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.border
@@ -354,8 +355,8 @@ fun ThemeModeSwitch(modifier: Modifier = Modifier) {
  */
 private data class AuthFlowStep(
     val icon: ImageVector,
-    val title: String,
-    val desc: String,
+    @StringRes val titleRes: Int,
+    @StringRes val descRes: Int,
     val tint: TintRole,
     val highlight: Boolean = false,
 )
@@ -364,27 +365,27 @@ private data class AuthFlowStep(
 private val oauthFlowSteps = listOf(
     AuthFlowStep(
         Icons.Filled.OpenInBrowser,
-        "打开 GitHub 授权页",
-        "用系统浏览器打开，在网页上确认这次授权",
+        R.string.login_step_oauth_open_title,
+        R.string.login_step_oauth_open_desc,
         TintRole.ACCENT,
     ),
     AuthFlowStep(
         Icons.Filled.VerifiedUser,
-        "点「Authorize」授权本应用",
-        "只授予列出的权限（仓库 / 用户 / 组织 / 通知），随时可在 GitHub 撤销",
+        R.string.login_step_oauth_authorize_title,
+        R.string.login_step_oauth_authorize_desc,
         TintRole.DONE,
     ),
     AuthFlowStep(
         Icons.Filled.Password,
-        "首次登录要过一次口令 / 设备验证",
-        "开没开双重验证都可能有这一步，且只在新设备首次登录时出现（详见下方说明）",
+        R.string.login_step_oauth_device_title,
+        R.string.login_step_oauth_device_desc,
         TintRole.WARNING,
         highlight = true,
     ),
     AuthFlowStep(
         Icons.Filled.CheckCircle,
-        "自动跳回 App，登录完成",
-        "授权码由系统自动带回，不需要手动复制任何内容",
+        R.string.login_step_oauth_done_title,
+        R.string.login_step_oauth_done_desc,
         TintRole.SUCCESS,
     ),
 )
@@ -393,27 +394,27 @@ private val oauthFlowSteps = listOf(
 private val keyFlowSteps = listOf(
     AuthFlowStep(
         Icons.Filled.Settings,
-        "在网页端生成密钥",
-        "GitHub → Settings → Developer settings → Personal access tokens",
+        R.string.login_step_key_create_title,
+        R.string.login_step_key_create_desc,
         TintRole.ACCENT,
     ),
     AuthFlowStep(
         Icons.Filled.Checklist,
-        "勾选权限后生成",
-        "经典密钥勾 repo / read:user / read:org / notifications 四项即可（下方已列出）",
+        R.string.login_step_key_scopes_title,
+        R.string.login_step_key_scopes_desc,
         TintRole.DONE,
         highlight = true,
     ),
     AuthFlowStep(
         Icons.Filled.ContentPaste,
-        "粘贴到 App 并确认",
-        "密钥只保存在本机，不上传、不写日志；可随时在网页端撤销",
+        R.string.login_step_key_paste_title,
+        R.string.login_step_key_paste_desc,
         TintRole.WARNING,
     ),
     AuthFlowStep(
         Icons.Filled.Shield,
-        "登录时无需数字口令验证",
-        "密钥本身就是凭证，这是密钥登录相比授权登录最直接的好处",
+        R.string.login_step_key_no_otp_title,
+        R.string.login_step_key_no_otp_desc,
         TintRole.SUCCESS,
         highlight = true,
     ),
@@ -425,15 +426,12 @@ private val keyFlowSteps = listOf(
  * code 来自 [KEY_LOGIN_SCOPES] 这个唯一来源：介绍页的清单、网页端链接的预填参数都用它，
  * 避免「文案里写了四项、链接里只填了三项」这类不一致。
  */
-private val keyScopeCopy = mapOf(
-    "repo" to "读写仓库（提交 / 分支 / PR）",
-    "read:user" to "读取账号资料",
-    "read:org" to "读取组织信息",
-    "notifications" to "读取与标记通知",
+private val keyScopeCopyRes: Map<String, Int> = mapOf(
+    "repo" to R.string.login_scope_repo,
+    "read:user" to R.string.login_scope_read_user,
+    "read:org" to R.string.login_scope_read_org,
+    "notifications" to R.string.login_scope_notifications,
 )
-
-private val keyScopes: List<Pair<String, String>> =
-    KEY_LOGIN_SCOPES.map { it to keyScopeCopy.getValue(it) }
 
 /**
  * 授权登录介绍页（流程要点 + 渲染动画）。
@@ -606,7 +604,7 @@ private fun FlowStepRow(index: Int, step: AuthFlowStep, last: Boolean) {
         Column(Modifier.weight(1f).padding(top = 1.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "$index. ${step.title}",
+                    "$index. ${stringResource(step.titleRes)}",
                     fontSize = 13.5.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Primer.TextPrimary,
@@ -628,7 +626,7 @@ private fun FlowStepRow(index: Int, step: AuthFlowStep, last: Boolean) {
                 }
             }
             Spacer(Modifier.height(2.dp))
-            Text(step.desc, fontSize = 11.5.sp, color = Primer.TextTertiary, lineHeight = 17.sp)
+            Text(stringResource(step.descRes), fontSize = 11.5.sp, color = Primer.TextTertiary, lineHeight = 17.sp)
         }
     }
 }
@@ -716,6 +714,8 @@ private fun DocLink(text: String, url: String) {
 /** 密钥登录的示意图：权限清单逐个打勾（经典 PAT 需要勾的四项）。 */
 @Composable
 private fun ScopeChecklist() {
+    // 权限是**契约**（与 KEY_LOGIN_SCOPES 同源），说明文案是**界面文案**（跟语言走）
+    val keyScopes = KEY_LOGIN_SCOPES.map { it to stringResource(keyScopeCopyRes.getValue(it)) }
     var ticked by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {

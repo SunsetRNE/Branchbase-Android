@@ -5,7 +5,7 @@
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
 **每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.2.5**）
-与 §三 `versionCode` 流水（129 → **248**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+与 §三 `versionCode` 流水（129 → **249**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,31 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.2.5 → 1.0.22）
+## 二、`versionName` 流水（1.2.6 → 1.0.22）
+
+### 1.2.6
+
+**登录介绍页的步骤与权限说明改成资源（英文界面不再整页中文），并把「已资源化」钉进测试；顺带修掉文档里两条过期 / 悬空的引用。**
+
+① **现场**：`LoginScreens.kt` 是 1.0.x 时代的骨架（文件头自己写着「骨架」）。`oauthFlowSteps` /
+`keyFlowSteps` 的标题与说明、`keyScopeCopy` 的权限解释全是**写死的中文**。界面切英文后，欢迎页、密钥页
+都是英文，唯独「流程要点介绍」整页中文 —— 而这一页恰恰是给新用户解释 OAuth / PAT 怎么走的地方。
+
+② **改法**：`AuthFlowStep` 的 `title` / `desc` 换成 `@StringRes titleRes` / `descRes`；权限说明从
+`code → 中文` 改成 `code → @StringRes`，`ScopeChecklist` 里按 code 取 `stringResource` ——
+**权限 code 仍与 `KEY_LOGIN_SCOPES` 同源**（契约不变），变的只是「说明跟语言走」。中英各 20 条新资源，
+`check-i18n.py --min-coverage 100` 通过。
+
+③ **钉子**：把 `LoginScreens.kt` 加进 `I18nUiTextTest.localizedFiles` —— 这个文件从此不许再出现界面中文
+（注释不受影响），漏译或退回中文会红。这正是那份测试注释里「往清单里加文件 = 承诺该文件已全部资源化」的用法。
+
+④ **顺带修文档**（两条都属于「注释/文档指向不存在的或已不成立的东西」）：`features-design.md` 说 OAuth 深链
+「目前既无单测也无文档（见 `review/01-契约审计.md` B5）」，但两处都过期 —— `OAuthDeepLinkTest` 其实
+**已经存在**（同时读清单与 `OAuthDeepLink` 的常量），而 `/review/` 按仓库政策**不入库**，与 `/design/`
+是同一类悬空引用（`docs/README.md` §三 专门警告过）。改成把结论直接写在正文里，不再外链。
+
+⑤ **边界**：个人页 / 仓库页 / 决策页仍有写死中文，属于 `i18n-migration.md` 的剩余工作，不在本版范围；
+本轮只收登录链路（最老的骨架）这一块。
 
 ### 1.2.5
 
@@ -3672,13 +3696,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（248 → 129）
+## 三、`versionCode` 流水（249 → 129）
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 
 - **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
 
 - **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **249**：登录介绍页 i18n —— `AuthFlowStep` 的标题/说明改 `@StringRes`、权限说明改资源（中英各 20 条），`LoginScreens.kt` 加入 `I18nUiTextTest` 的「已资源化」清单；顺带修掉 `features-design.md` 对不入库的 `review/` 的悬空引用与「OAuth 深链无单测」的过期说法（`OAuthDeepLinkTest` 早已存在）；`check-i18n.py --min-coverage 100` 通过（一次提交，故 +1）。
 
 - **248**：首次访问链路的异步行为补全 —— 新增元素级原语 `AsyncActionLabel`（旧标签先退 80ms、新标签延迟 80ms 进 160ms，替掉按钮里 `if (busy)` 的硬换字）；欢迎页三段错峰入场 + 两个入口接 `rememberPressFeedback`；`startOAuth` 增加独立挂起态 `oauthBusy`（连点不再生成两组 PKCE / 开两个浏览器标签页）；`Authorizing` 增加「重新打开授权页 / 取消」两个出口，与换 token 屏合并为 `LoginWaitingScreen`；`LoginState.Error` 增加必填 `failedAt`（`LoginFailStep`）与失败页（重试按 `retryFor` 重跑失败的那一步 + 返回），替代原来一行居中红字；密钥页按钮走 `AsyncActionLabel`、失败原因走 `revealEnter` 且输入框 `isError`；`LoggedInGate` 改为嵌套 `PageSwitcher`（`GateRoute`，主界面标 `heavyFirstFrame` 降级 fade-through），顺带让退场中的引导页放手返回键；新增**打包护栏**（`libbranchbase_core.so` 声明为打包任务输入 + 配置期中文提示；新增 `tools/build/fetch-core.sh` 按 commit 取产物、JNI 面不符就拒绝）—— 当天本地打出的 APK 因缺 `.so` 启动即闪退，构建却是全绿的；**同版并入平板自适应布局线**（`feat/adaptive-layout-engine` 6 个提交：`ui/adaptive/` 引擎、横竖屏内容宽度、悬浮栏底部清障，分支上的 245–247 验证包随本版进主线）；顺手把 `GlassBackdropTest` 的过期字面量钉子改成按括号配对判调用段（加参数不再假红）；`KeyLoginTest` 8 例 → 10 例（一次提交，故 +1）。
 

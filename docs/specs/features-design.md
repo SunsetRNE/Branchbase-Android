@@ -25,7 +25,11 @@
 - **会话 JSON 的字段名也是契约**：必须与 `sessionInfo()` / `AccountStore.accessTokenOf()` 对得上（`ui/auth/KeyLogin.kt:38`）；
   换字段名 = 全员掉线。
 - **OAuth 回调深链** `branchbase://oauth/callback`（`MainActivity.kt:137` + `AndroidManifest.xml:44-50`）——
-  scheme / host / path 三段与解析函数必须逐字一致，**目前既无单测也无文档**（见 `review/01-契约审计.md` B5）。
+  scheme / host / path 三段与解析函数必须逐字一致。两处声明由 `OAuthDeepLinkTest` 钉住
+  （它同时读清单与 `OAuthDeepLink` 的常量，改一边就会红）。
+  > 早前这里引用过 `review/01-契约审计.md` B5，但 `/review/` **不在版本库里**（与 `/design/`
+  > 同一类问题：注释指向一个不存在的文件，比没有注释更坏，见 `docs/README.md` §三）。
+  > 结论已改写成上面这句，不再外链。
 - 两种登录方式在欢迎页各有一个入口，点进去各有一页**带渲染动画的流程要点介绍**
   （授权登录：数字口令格依次点亮；密钥登录：权限清单逐个打勾 + 「无需口令验证」卖点呼吸高亮）。
 
