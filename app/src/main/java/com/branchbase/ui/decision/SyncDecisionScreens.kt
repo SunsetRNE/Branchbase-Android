@@ -1,5 +1,6 @@
 package com.branchbase.ui.decision
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,6 +21,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,6 +46,7 @@ import com.branchbase.ui.repository.upstreamNoteText
 import com.branchbase.ui.repository.upstreamStateLabelRes
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.theme.Primer
+import com.branchbase.ui.theme.revealEnter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -951,10 +954,21 @@ fun UndoCommitScreen(
 /** 决策页内反馈行。 */
 @Composable
 internal fun FeedbackLine(text: String, error: Boolean = false) {
-    Text(
-        text,
-        fontSize = 12.sp,
-        color = if (error) Primer.Red500 else Primer.TextTertiary,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-    )
+    // 出现时**展开 + 淡入**，而不是当帧插入一行字：
+    // 这些反馈都是「异步动作的结果」（运行中 / 失败原因 / 需要处理），硬插入会让下面的
+    // 按钮与说明当帧下移，读起来像「页面跳了一下」。节奏与元素级 `revealEnter()` 一致
+    // （220ms 展开 + 淡入），全项目 14 处决策页一起受益。
+    //
+    // 退场没有动画：调用方是 `if (busy) FeedbackLine(...)`，条件一撤就卸载 ——
+    // 要补退场，得让调用方常驻并传 visible（那是另一件事，别在这里悄悄假设）。
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { shown = true }
+    AnimatedVisibility(visible = shown, enter = revealEnter()) {
+        Text(
+            text,
+            fontSize = 12.sp,
+            color = if (error) Primer.Red500 else Primer.TextTertiary,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+    }
 }

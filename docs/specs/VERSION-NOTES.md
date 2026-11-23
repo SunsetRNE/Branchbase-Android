@@ -5,7 +5,7 @@
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
 **每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.2.5**）
-与 §三 `versionCode` 流水（129 → **249**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+与 §三 `versionCode` 流水（129 → **250**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,29 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.2.6 → 1.0.22）
+## 二、`versionName` 流水（1.2.7 → 1.0.22）
+
+### 1.2.7
+
+**欢迎页只留两个入口（隐藏两句定位说明）；决策页的反馈行从「硬插入」改成展开淡入。**
+
+① **文案评估的第一刀**：欢迎页两个按钮下方各有一句小字（`login_oauth_hint` / `login_key_hint`：
+「推荐 · 网页点一下授权即可…」「网页端生成密钥并勾选权限…」）。首屏同时承担「选择」与「解释」两件事，
+深色下这两行 11.5sp 的灰字更像噪音；而解释在点进去的「流程要点介绍」页里是完整的（还带渲染动画）。
+所以**隐藏、不删资源** —— 文案是删是改留待逐条评估；隐藏后两个按钮间距 14→12dp，入场分组不变。
+源码注释写清了「资源保留」，避免下一个人以为漏了。
+
+② **`FeedbackLine` 的出现有了过渡**（14 处决策页共用）：此前它就是一个 `Text` —— 运行中 / 失败原因 /
+需要处理这些**异步动作的结果**一出现，下面的按钮与说明当帧下移，读起来像「页面跳了一下」。
+现在统一走 `revealEnter()`（展开 + 淡入，220ms，与元素级规格同一份参数）。
+**退场刻意没做**：调用方是 `if (busy) FeedbackLine(...)`，条件一撤就卸载；要补退场得让调用方常驻并传
+`visible`，那是另一件事 —— 这条边界写进了函数注释，别在这里默默假设。
+
+③ **钉子** `DecisionFeedbackMotionTest`：钉住反馈行必须 `AnimatedVisibility` + `revealEnter()` +
+首帧翻 true（最后一条是这类动画最常见的空转写法：直接写 true，首帧即终态、动画不播）。
+
+④ **边界**：两句文案的资源仍在 `values/` 与 `values-en/`（`check-i18n.py --min-coverage 100` 不受影响）；
+其余页面的文案取舍等逐条评估结论。
 
 ### 1.2.6
 
@@ -3696,13 +3718,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（249 → 129）
+## 三、`versionCode` 流水（250 → 129）
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 
 - **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
 
 - **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **250**：欢迎页隐藏两句定位说明（`login_oauth_hint` / `login_key_hint`，资源保留、只不渲染，按钮间距 14→12dp）；决策页 `FeedbackLine` 改为 `AnimatedVisibility` + `revealEnter()` 出现（14 处共用），新增 `DecisionFeedbackMotionTest` 3 条源码级断言；修掉文案评估的第一批（一次提交，故 +1）。
 
 - **249**：登录介绍页 i18n —— `AuthFlowStep` 的标题/说明改 `@StringRes`、权限说明改资源（中英各 20 条），`LoginScreens.kt` 加入 `I18nUiTextTest` 的「已资源化」清单；顺带修掉 `features-design.md` 对不入库的 `review/` 的悬空引用与「OAuth 深链无单测」的过期说法（`OAuthDeepLinkTest` 早已存在）；`check-i18n.py --min-coverage 100` 通过（一次提交，故 +1）。
 

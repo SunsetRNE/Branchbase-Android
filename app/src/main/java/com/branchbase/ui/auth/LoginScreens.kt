@@ -253,29 +253,19 @@ fun WelcomeScreen(
             Spacer(Modifier.weight(1f))
 
             // ① 授权登录（OAuth）
+            // 按钮下方原有两句定位说明（`login_oauth_hint` / `login_key_hint`）。
+            // 2026-11-24 文案评估：首屏同时承担「选择」和「解释」两件事，两句小字在深色下
+            // 更像噪音；两个入口的名字已经说清是什么，细节在点进去的「流程要点介绍」页里
+            // （那里有完整说明 + 渲染动画）。所以**只隐藏、不删资源** —— 文案是否删除等评估结论。
             WelcomeBlock(entered, delayMs = 90) {
                 PrimaryButton(stringResource(R.string.login_oauth), onOAuthLogin)
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    stringResource(R.string.login_oauth_hint),
-                    fontSize = 11.5.sp,
-                    color = Primer.TextTertiary,
-                    lineHeight = 16.sp,
-                )
             }
 
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(12.dp))
 
             // ② 密钥登录（PAT）
             WelcomeBlock(entered, delayMs = 180) {
                 OutlineButton(stringResource(R.string.login_access_key), onKeyLogin)
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    stringResource(R.string.login_key_hint),
-                    fontSize = 11.5.sp,
-                    color = Primer.TextTertiary,
-                    lineHeight = 16.sp,
-                )
             }
 
             Spacer(Modifier.height(16.dp))
