@@ -5,7 +5,7 @@
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
 **每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.2.5**）
-与 §三 `versionCode` 流水（129 → **252**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+与 §三 `versionCode` 流水（129 → **253**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,35 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.2.9 → 1.0.22）
+## 二、`versionName` 流水（1.2.10 → 1.0.22）
+
+### 1.2.10
+
+**死代码清收（行为不变）：删掉整条不可达的 2FA 链路、无人引用的 `LoggedInScreen`、以及两个没有调用点的 ViewModel API。**
+
+① **2FA 链路是不可达的**：README 与 OAuth 流程都约定「口令 / 设备验证在网页端完成」，
+   代码里**没有任何地方**把状态置成 `LoginState.NeedTwoFactor` —— 于是 `TwoFactorScreen`、
+   `LoginViewModel.verifyTwoFactor`、`RustBridge.validateTwoFactor`（JNI 包装）整条链只能被理论路径触达。
+   本轮删除：状态、屏幕、VM 方法、JNI 包装（**Rust 侧的导出函数保留**：删它要改 `.so`，且不影响行为）。
+   连带删掉 `LoginFailStep.TWO_FACTOR`、`LoginRetry` 枚举与 `retryFor()` —— 只剩「重新发起授权」一种重试，
+   `retry()` 直接 `startOAuth()`。**行为不变**：失败页的「重试」本来就只做这件事，文案仍按 `failedAt`
+   区分（`OAUTH_EXCHANGE` →「重新授权」）。
+
+② **`LoggedInScreen.kt` 无人引用**：1.0.x 的「登录成功页」被 `LoggedInGate`（提交模式引导 → 主界面）
+   取代后留下的孤儿文件，删除。
+
+③ **两个没有调用点的 API**：`LoginViewModel.cancel()`（回 Idle）与 `dismissError()`（消费错误回 Idle）——
+   都没有调用点，错误页的出口早就统一走 `back()`。删除。
+
+④ **为什么先清这些**：它们属于「看着像有功能」的东西 —— 下一个人（或下一次自查）会把 2FA 当成一条真实链路
+   去修，或者以为错误页有两条退出路径。`NAVIGATION-NOTES.md` §四 的返回键契约同步改写
+   （授权中 / 换 token → 授权登录的流程要点页；介绍页 / 出错 → 欢迎页）。
+
+⑤ **测试**：`KeyLoginTest` 去掉 2FA 的层级 / 返回用例与 `retryFor` 用例
+   （`classifyOAuthFailure` / `oauthConfigured` 用例保留）；其余全绿。
+
+⑥ **边界**：`RustBridge.nativeValidateTwoFactor` 的 Rust 导出保留（二进制里那个符号还在，只是 Kotlin 不再
+   声明 / 调用）；OAuth、PAT、错误页等其余登录行为一行未动。
 
 ### 1.2.9
 
@@ -3783,13 +3811,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（252 → 129）
+## 三、`versionCode` 流水（253 → 129）
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 
 - **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
 
 - **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **253**：死代码清收（行为不变）—— 删除不可达的 2FA 链路（`NeedTwoFactor` / `TwoFactorScreen` / `verifyTwoFactor` / `validateTwoFactor` 包装 / `LoginFailStep.TWO_FACTOR` / `LoginRetry` / `retryFor`）、无人引用的 `LoggedInScreen.kt`、无调用点的 `cancel()` / `dismissError()`；`retry()` 直接重新发起授权；`NAVIGATION-NOTES.md` §四 与 features/ui 文档同步；`KeyLoginTest` 去掉对应用例（一次提交，故 +1）。
 
 - **252**：授权进度页「取消 → 返回上一页」（回授权介绍页）且两个动作各占一半；密钥校验改整屏覆盖加载态（`LoginBusyOverlay`）；`startOAuth` 在没注入 `client_secret` 时直接给可行动失败页（`oauthConfigured`），换 token 失败按 `classifyOAuthFailure` 折成三类人话；半宽按钮加 `contentPadding` 防 320dp 换行；`KeyLoginTest` +2、`LoginIntroLayoutTest` +1（一次提交，故 +1）。
 

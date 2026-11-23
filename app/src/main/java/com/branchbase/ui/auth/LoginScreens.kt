@@ -24,7 +24,6 @@ import androidx.compose.ui.unit.sp
 import com.branchbase.R
 import com.branchbase.ui.theme.color
 import com.branchbase.ui.theme.TintRole
-import com.branchbase.core.RustBridge
 import com.branchbase.ui.theme.AppIcon
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.DarkMode
@@ -1025,66 +1024,6 @@ fun KeyInputScreen(
     }
 }
 
-/**
- * 04 · 双重验证 TwoFactorScreen
- */
-@Composable
-fun TwoFactorScreen(
-    onVerify: (String) -> Unit,
-) {
-    var code by remember { mutableStateOf("") }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Primer.BackgroundPrimary)
-            .navigationBarsPadding()
-            .padding(horizontal = HorizontalPadding)
-            .padding(top = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(stringResource(R.string.label_two_factor), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
-        Spacer(Modifier.height(6.dp))
-        Text(stringResource(R.string.hint_enter_code), fontSize = 14.sp, color = Primer.TextTertiary)
-
-        Spacer(Modifier.height(28.dp))
-
-        // 6 格验证码输入（骨架：真实实现用 BasicTextField 或自定义）
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            repeat(6) { i ->
-                Box(
-                    modifier = Modifier
-                        .size(44.dp, 54.dp)
-                        .background(Primer.BackgroundPrimary, RoundedCornerShape(8.dp))
-                        .border(
-                            2.dp,
-                            if (i < code.length) Primer.Blue500 else Primer.Border,
-                            RoundedCornerShape(8.dp)
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        if (i < code.length) code[i].toString() else "",
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Primer.TextPrimary
-                    )
-                }
-            }
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        PrimaryButton(
-            text = stringResource(R.string.action_verify),
-            onClick = {
-                if (RustBridge.validateTwoFactor(code)) {
-                    onVerify(code)
-                }
-            },
-        )
-    }
-}
 
 // ───────────────────── 等待结果 / 失败：异步链的另外两端 ─────────────────────
 

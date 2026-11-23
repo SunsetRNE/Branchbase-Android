@@ -49,8 +49,7 @@ internal fun buildKeySession(host: String, token: String, user: JSONObject): Str
  * 所以失败原因与失败步骤一起进 [LoginState.Error]（payload 变了不算换页，
  * 见 `LoginFlow` 的 `contentKey = { it::class }`）。
  *
- * 这个枚举是 `public` 的，因为它是公开的 [LoginState.Error] 的构造参数类型；
- * `LoginRetry` / `retryFor` 只被 ViewModel 与单测使用，保持 `internal`。
+ * 这个枚举是 `public` 的，因为它是公开的 [LoginState.Error] 的构造参数类型。
  */
 enum class LoginFailStep {
     /** 还没拉起浏览器：生成 PKCE / 拼授权 URL 失败（通常是引擎侧问题）。 */
@@ -59,28 +58,6 @@ enum class LoginFailStep {
     /** 已经在网页端授权完、但换取令牌失败（code 过期 / 被取消 / 网络）。 */
     OAUTH_EXCHANGE,
 
-    /** 双重验证码格式不对。 */
-    TWO_FACTOR,
-}
-
-/** 「重试」该重做的事（为什么要分开：见 [LoginFailStep]）。 */
-internal enum class LoginRetry {
-    /** 从头发起一次 OAuth（新 PKCE + 新授权 URL）。 */
-    RESTART_OAUTH,
-
-    /** 回到 2FA 输入页（口令是用户手上的东西，只需重输）。 */
-    TWO_FACTOR,
-}
-
-/**
- * 失败步骤 → 重试动作（纯函数，[KeyLoginTest] 钉住）。
- *
- * 两档 OAuth 失败都走「重新发起」：`OAUTH_EXCHANGE` 的 code 是一次性的，
- * 拿同一个 code 重试必然再失败；`OAUTH_START` 则是连 URL 都没拿到。
- */
-internal fun retryFor(step: LoginFailStep): LoginRetry = when (step) {
-    LoginFailStep.OAUTH_START, LoginFailStep.OAUTH_EXCHANGE -> LoginRetry.RESTART_OAUTH
-    LoginFailStep.TWO_FACTOR -> LoginRetry.TWO_FACTOR
 }
 
 /**
@@ -91,11 +68,11 @@ internal fun retryFor(step: LoginFailStep): LoginRetry = when (step) {
  */
 internal fun loginBackTarget(current: LoginState, addingAccount: Boolean = false): LoginState = when (current) {
     is LoginState.KeyInput -> LoginState.KeyIntro
-    // 授权进度（授权中 / 换 token / 2FA）的「上一页」是**授权登录的流程要点页**，
+    // 授权进度（授权中 / 换 token）的「上一页」是**授权登录的流程要点页**，
     // 而不是欢迎页（2026-11-24 决策）：用户刚看过那一页才点的「开始授权」，
     // 退回去应当能看到同一套说明 + 重新开始，而不是被扔回两种方式的选择屏。
     // 新增账号流程仍回新增欢迎页（下面两支各自处理）。
-    is LoginState.Authorizing, is LoginState.ExchangingToken, is LoginState.NeedTwoFactor ->
+    is LoginState.Authorizing, is LoginState.ExchangingToken ->
         if (addingAccount) LoginState.AddAccountWelcome else LoginState.OAuthIntro
     // 介绍页 / 出错页按返回 → 回欢迎页（未登录）或新增欢迎页（新增流程）。
     // 少了 `addingAccount` 这一支就会掉到未登录的 Idle 欢迎页：用户本来登录着，却看到一个

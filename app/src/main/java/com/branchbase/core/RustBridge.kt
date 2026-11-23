@@ -86,7 +86,6 @@ object RustBridge {
 
     private external fun nativeSearchTopics(host: String, token: String, query: String, page: Int): String
 
-    private external fun nativeValidateTwoFactor(code: String): String
 
     private external fun nativeRefreshToken(
         clientId: String,
@@ -458,8 +457,6 @@ object RustBridge {
         withContext(Dispatchers.IO) {
             nativeSearchTopics(host, token, query, page).ifBlank { null }
         }
-
-    fun validateTwoFactor(code: String): Boolean = nativeValidateTwoFactor(code) == "1"
 
     suspend fun refreshToken(
         clientId: String,

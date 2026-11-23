@@ -23,7 +23,7 @@ import org.json.JSONObject
 /**
  * 登录状态机。
  *
- * 状态流转（Idle → Authorizing → ExchangingToken → NeedTwoFactor → LoggedIn / Error）：
+ * 状态流转（Idle → Authorizing → ExchangingToken → LoggedIn / Error）：
  * ```
  * Idle ──startOAuth──▶ Authorizing ──回调code──▶ ExchangingToken
  *                                                 ├──成功──▶ LoggedIn
@@ -99,11 +99,6 @@ sealed interface LoginState : PageLevel {
         override val depth: Int get() = 2
     }
 
-    /** 需要双因子验证 */
-    data object NeedTwoFactor : LoginState {
-        override val depth: Int get() = 2
-    }
-
     /** 已登录（sessionJson 为 Rust 返回的会话 JSON） */
     data class LoggedIn(val sessionJson: String) : LoginState {
         override val depth: Int get() = 3
@@ -113,7 +108,7 @@ sealed interface LoginState : PageLevel {
      * 出错（异步链的失败端）。
      *
      * [failedAt] 决定失败页上「重试」重做哪一步（见 [LoginFailStep]）——
-     * 少了它，[retryFor] 无从判断，用户只能被扔回欢迎页从头再来。
+     * 它区分「还没拉起浏览器」与「换 token 失败」—— 失败页的重试文案据此变化。
      *
      * 它属于 payload：同一页里失败原因 / 步骤变了只换内容，不换页（`contentKey = it::class`）。
      */
@@ -426,17 +421,16 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * 失败页的「重试」：重做失败的那一步（判定见 [retryFor]），不是一律回欢迎页。
+     * 失败页的「重试」：重新发起一次授权（新 PKCE + 新授权 URL）。
+     *
+     * 为什么不能「拿原 code 再换一次」：OAuth 的授权码是**一次性**的，
+     * 换 token 失败后旧 code 已经作废，只能从头发起。
      *
      * 原来这一页只有一个居中的红字，唯一的出口是看不见的系统返回键 ——
      * 「授权完、换 token 失败」恰恰是用户最想再来一次的时刻。
      */
     fun retry() {
-        val error = _state.value as? LoginState.Error ?: return
-        when (retryFor(error.failedAt)) {
-            LoginRetry.RESTART_OAUTH -> startOAuth()
-            LoginRetry.TWO_FACTOR -> _state.value = LoginState.NeedTwoFactor
-        }
+        if (_state.value is LoginState.Error) startOAuth()
     }
 
     /** 消费深链回调的授权码（由 MainActivity 解析后调用） */
@@ -544,16 +538,6 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** 2FA 验证 */
-    fun verifyTwoFactor(code: String) {
-        if (RustBridge.validateTwoFactor(code)) {
-            // 格式有效；实际提交 2FA 由服务端在 OAuth 流程完成
-            _state.value = LoginState.ExchangingToken
-        } else {
-            _state.value = LoginState.Error("验证码格式错误（需 6 位数字）", LoginFailStep.TWO_FACTOR)
-        }
-    }
-
     /** 游客浏览 */
     /** 登出（清除持久化会话） */
     fun logout() {
@@ -561,16 +545,11 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
         _state.value = LoginState.Idle
     }
 
-    /** 取消当前操作，回到初始态（欢迎页） */
-    fun cancel() {
-        _state.value = LoginState.Idle
-    }
-
     /**
      * 返回上一步（按状态层级，而不是一律回欢迎页）。
      *
      * - 密钥填写页 → 密钥介绍页（用户刚看过的那一页，返回应回到那里，而不是跳出整个流程）；
-     * - 介绍页 / 授权中 / 换 token / 2FA / 出错 → 欢迎页；
+     * - 授权中 / 换 token → 授权登录的流程要点页；介绍页 / 出错 → 欢迎页；
      * - 欢迎页本身不拦截返回（由系统的默认行为退出 App）。
      */
     fun back() {
@@ -584,8 +563,5 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
         _state.value = loginBackTarget(_state.value, addingAccount = _addingAccount.value)
     }
 
-    /** 消费错误后回到初始态 */
-    fun dismissError() {
-        _state.value = LoginState.Idle
-    }
+
 }

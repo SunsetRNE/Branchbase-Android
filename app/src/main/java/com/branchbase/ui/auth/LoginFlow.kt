@@ -56,7 +56,7 @@ fun LoginFlow(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    /** 登录流程的中间态（模式介绍 / 密钥填写 / 授权中 / 换 token / 2FA / 出错）算「子页」。 */
+    /** 登录流程的中间态（模式介绍 / 密钥填写 / 授权中 / 换 token / 出错）算「子页」。 */
     fun isLoginStep(s: LoginState): Boolean = s !is LoginState.Idle && s !is LoginState.LoggedIn
 
     // 登录流程内部也按层级切换（欢迎 0 → 介绍页 1 → 授权中/密钥填写 2 → 主界面 3）：
@@ -68,7 +68,7 @@ fun LoginFlow(
     // 页面身份只有「哪一步」这一层（见 LoginState 的注释：页面态与请求态分开），
     // 所以身份用 `::class` 恰好。
     // 返回键分两段，按「谁最清楚」划分职责：
-    // - 登录流程的中间态（模式介绍页 / 密钥填写 / 授权中 / 换 token / 2FA / 出错）→ 回欢迎页；
+    // - 登录流程的中间态（模式介绍页 / 密钥填写 / 授权中 / 换 token / 出错）→ 按 `loginBackTarget` 回上一页；
     // - **已登录的主界面 / 引导页 → 由它们自己处理顶层返回**（“再按一次退出应用”，
     //   见 ui/navigation/TopLevelBack.kt —— 不再回登录页：会话还在，回登录页是与真实
     //   登录状态不符的死状态）；
@@ -155,10 +155,6 @@ fun LoginFlow(
 
             // 换取 token 中：自动完成，没有可点的东西
             is LoginState.ExchangingToken -> ExchangingTokenScreen()
-
-            is LoginState.NeedTwoFactor -> {
-                TwoFactorScreen(onVerify = { code -> viewModel.verifyTwoFactor(code) })
-            }
 
             is LoginState.LoggedIn -> {
                 // 走到这里说明不在新增流程里（新增流程在上面就 return 了）

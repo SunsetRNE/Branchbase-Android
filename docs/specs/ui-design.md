@@ -309,7 +309,7 @@ Canvas 绘制 lambda），它们改用 `TintRole` 角色表 / 在 composable 里
    请求态走独立 `StateFlow`（`NAVIGATION-NOTES.md` §三 同一条）。
 2. **失败必须有出口**。否则用户停在「一行红字」上，唯一的路是不可见的系统返回键 ——
    失败页至少要有「重试（重跑**失败的那一步**，不是一律回首页）」与「返回（换一条路）」，
-   判定收在纯函数里（`retryFor` / `loginBackTarget`，`KeyLoginTest` 钉住）。
+   判定收在纯函数里（`loginBackTarget` / `classifyOAuthFailure`，`KeyLoginTest` 钉住）。
 
 > 挂起态**不是**「转圈就行」：它必须和按钮的可用性一起变（`enabled = !busy`），否则
 > 连点会发两次请求 —— 登录页那次是「生成两组 PKCE、开两个浏览器标签页」，
