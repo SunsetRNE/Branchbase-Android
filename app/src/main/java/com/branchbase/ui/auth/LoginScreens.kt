@@ -1,5 +1,9 @@
 package com.branchbase.ui.auth
 
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.ui.res.painterResource
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.ui.res.stringResource
@@ -444,9 +448,7 @@ fun OAuthIntroScreen(
 ) {
     AuthIntroScaffold(
         title = stringResource(R.string.login_oauth),
-        subtitle = stringResource(R.string.login_oauth_desc),
         steps = oauthFlowSteps,
-        footNote = stringResource(R.string.login_oauth_fit),
         primaryText = stringResource(R.string.action_start_oauth),
         busy = busy,
         busyText = stringResource(R.string.state_starting_authorization),
@@ -467,9 +469,7 @@ fun OAuthIntroScreen(
 fun KeyIntroScreen(onBack: () -> Unit, onStart: () -> Unit, onSwitchToOAuth: () -> Unit) {
     AuthIntroScaffold(
         title = stringResource(R.string.login_access_key),
-        subtitle = stringResource(R.string.login_key_desc),
         steps = keyFlowSteps,
-        footNote = stringResource(R.string.login_key_fit),
         primaryText = stringResource(R.string.action_enter_key),
         onBack = onBack,
         onStart = onStart,
@@ -488,9 +488,7 @@ fun KeyIntroScreen(onBack: () -> Unit, onStart: () -> Unit, onSwitchToOAuth: () 
 @Composable
 private fun AuthIntroScaffold(
     title: String,
-    subtitle: String,
     steps: List<AuthFlowStep>,
-    footNote: String,
     primaryText: String,
     onBack: () -> Unit,
     onStart: () -> Unit,
@@ -519,15 +517,9 @@ private fun AuthIntroScaffold(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = HorizontalPadding),
         ) {
-            AnimatedVisibility(
-                visible = entered,
-                enter = fadeIn(tween(ElementMotion.REVEAL_MS)) +
-                    slideInVertically(tween(ElementMotion.REVEAL_MS)) { it / 6 },
-            ) {
-                Text(subtitle, fontSize = 12.5.sp, color = Primer.TextTertiary, lineHeight = 19.sp)
-            }
-            Spacer(Modifier.height(14.dp))
-
+            // 2026-11-24 清爽化：副标题与脚注（「适合：…」）不再渲染 ——
+            // 页面标题 + 四条要点已经说清「是什么、怎么走」，小字只是在重复。
+            // 资源保留（文案是否删除等逐条评估结论）。
             steps.forEachIndexed { index, step ->
                 AnimatedVisibility(
                     visible = entered,
@@ -542,26 +534,33 @@ private fun AuthIntroScaffold(
             Spacer(Modifier.height(10.dp))
             // 该模式的「示意图」：授权登录是数字口令格，密钥登录是权限清单
             extra()
-
-            Spacer(Modifier.height(14.dp))
-            Text(footNote, fontSize = 11.5.sp, color = Primer.TextTertiary, lineHeight = 17.sp)
             Spacer(Modifier.height(16.dp))
         }
 
-        Column(Modifier.padding(horizontal = HorizontalPadding)) {
+        // 底部两个动作**各占一半、平齐**（2026-11-24 决策一）：
+        // 左边是「换一种登录方式」，右边才是主操作。原先主按钮整宽、切换入口是一条
+        // 整宽文字按钮，视线会先落在「换一个」上；现在主操作在右、切换在左，且尺寸对等。
+        // 标签因此必须够短：`action_switch_to_*` 已从「改用密钥登录（免口令）」收敛成「改用密钥」。
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = HorizontalPadding),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlineButton(
+                text = secondaryText,
+                onClick = onSecondary,
+                modifier = Modifier.weight(1f),
+            )
             PrimaryButton(
                 text = primaryText,
                 onClick = onStart,
+                modifier = Modifier.weight(1f),
                 busy = busy,
                 // 挂起态文案：授权登录说「正在打开授权页」，其余走通用短名
                 busyText = busyText ?: stringResource(R.string.state_checking),
             )
-            Spacer(Modifier.height(6.dp))
-            TextButton(onClick = onSecondary, modifier = Modifier.fillMaxWidth()) {
-                Text(secondaryText, fontSize = 13.sp, color = Primer.Blue500)
-            }
-            Spacer(Modifier.height(12.dp))
         }
+        Spacer(Modifier.height(12.dp))
     }
 }
 
@@ -625,6 +624,9 @@ private fun FlowStepRow(index: Int, step: AuthFlowStep, last: Boolean) {
 @Composable
 private fun CodeCellsRow() {
     var filled by remember { mutableIntStateOf(0) }
+    // 文档入口从「一行文字链接」换成 GitHub 图标按钮：更短、更像一个入口，
+    // 点下去是**就地弹出的整理版文档**（不再直接把人甩进浏览器）。
+    var showDoc by remember { mutableStateOf(false) }
     // 依次点亮 1→6 再从头开始：把「要输 6 位口令」这件事演出来
     LaunchedEffect(Unit) {
         while (true) {
@@ -639,7 +641,16 @@ private fun CodeCellsRow() {
             .background(Primer.Gray100)
             .padding(12.dp),
     ) {
-        Text(stringResource(R.string.label_code_prompt_example), fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                stringResource(R.string.label_code_prompt_example),
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Primer.TextSecondary,
+                modifier = Modifier.weight(1f),
+            )
+            GithubDocEntry(onClick = { showDoc = true })
+        }
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             repeat(6) { i ->
@@ -674,32 +685,142 @@ private fun CodeCellsRow() {
             color = Primer.TextTertiary,
             lineHeight = 17.sp,
         )
-        Spacer(Modifier.height(6.dp))
-        DocLink(stringResource(R.string.label_github_docs_device_verification), GITHUB_DEVICE_VERIFY_DOC)
     }
+
+    if (showDoc) {
+        GithubDocSheet(onDismiss = { showDoc = false })
+    }
+}
+
+/**
+ * GitHub 文档入口：**经典 GitHub 标记**的圆形图标按钮（2026-11-24 决策三）。
+ *
+ * 触感动画取元素级规格：[rememberPressFeedback] 的 120ms 按压缩放 + 圆形水波纹
+ * （`clickable(interactionSource = …, indication = LocalIndication.current)` 且 clip 在前，
+ * 与 `Motion.kt` 里那条用法一致）。整块 30dp 是点击区，图标 16dp。
+ */
+@Composable
+private fun GithubDocEntry(onClick: () -> Unit) {
+    val press = rememberPressFeedback()
+    Box(
+        modifier = Modifier
+            .size(30.dp)
+            .graphicsLayer {
+                scaleX = press.scale.value
+                scaleY = press.scale.value
+            }
+            .clip(CircleShape)
+            .background(Primer.BackgroundPrimary)
+            .border(1.dp, Primer.Border, CircleShape)
+            .clickable(
+                interactionSource = press.interaction,
+                indication = LocalIndication.current,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_github_mark),
+            contentDescription = stringResource(R.string.github_doc_entry),
+            tint = Primer.IconPrimary,
+            modifier = Modifier.size(16.dp),
+        )
+    }
+}
+
+/**
+ * GitHub 官方文档的**就地整理版**（中/英各一套资源，跟随界面语言）。
+ *
+ * 为什么不再直接跳浏览器：设备验证是首次登录最容易懵的一步，原文跳出去就回不来
+ * （授权流程还在等深链回调）。这里把「什么时候出现 / 怎么通过 / 收不到怎么办 /
+ * 能不能跳过 / 安全提醒」压成五段，读得完再决定；想看原文仍留了一个入口。
+ *
+ * 动效：M3 `ModalBottomSheet` 自带滑入 + 拖拽关闭；内容整块 `verticalScroll`，
+ * 长文在弹层里自己滚，不牵动页面。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GithubDocSheet(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 20.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_github_mark),
+                    contentDescription = null,
+                    tint = Primer.IconPrimary,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        stringResource(R.string.github_doc_title),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Primer.TextPrimary,
+                    )
+                    Text(
+                        stringResource(R.string.github_doc_source),
+                        fontSize = 11.sp,
+                        color = Primer.TextTertiary,
+                    )
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+
+            DocSection(R.string.github_doc_when_title, R.string.github_doc_when_body)
+            DocSection(R.string.github_doc_how_title, R.string.github_doc_how_body)
+            DocSection(R.string.github_doc_missing_title, R.string.github_doc_missing_body)
+            DocSection(R.string.github_doc_skip_title, R.string.github_doc_skip_body)
+            DocSection(R.string.github_doc_security_title, R.string.github_doc_security_body, danger = true)
+
+            OutlinedButton(
+                onClick = {
+                    runCatching {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(GITHUB_DEVICE_VERIFY_DOC)),
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(44.dp),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Primer.Blue500),
+            ) {
+                Text(stringResource(R.string.github_doc_open), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+/** 弹层里的一小节：标题 + 正文；安全提醒用危险色，避免和「操作说明」混成一片。 */
+@Composable
+private fun DocSection(@StringRes title: Int, @StringRes body: Int, danger: Boolean = false) {
+    Text(
+        stringResource(title),
+        fontSize = 13.5.sp,
+        fontWeight = FontWeight.Bold,
+        color = if (danger) Primer.Red500 else Primer.TextPrimary,
+    )
+    Spacer(Modifier.height(4.dp))
+    Text(
+        stringResource(body),
+        fontSize = 12.sp,
+        color = Primer.TextTertiary,
+        lineHeight = 19.sp,
+    )
+    Spacer(Modifier.height(14.dp))
 }
 
 /** GitHub 官方文档：登录时验证新设备（设备验证 / 口令）。 */
 private const val GITHUB_DEVICE_VERIFY_DOC =
     "https://docs.github.com/zh/authentication/keeping-your-account-and-data-secure/verifying-new-devices-when-signing-in"
-
-/** 一行「查看官方文档」链接（点击用系统浏览器打开）。 */
-@Composable
-private fun DocLink(text: String, url: String) {
-    val context = LocalContext.current
-    Text(
-        text,
-        fontSize = 11.5.sp,
-        fontWeight = FontWeight.SemiBold,
-        color = Primer.Link,
-        modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .clickable {
-                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
-            }
-            .padding(vertical = 4.dp),
-    )
-}
 
 /** 密钥登录的示意图：权限清单逐个打勾（经典 PAT 需要勾的四项）。 */
 @Composable
