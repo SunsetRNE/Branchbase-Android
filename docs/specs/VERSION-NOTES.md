@@ -5,7 +5,7 @@
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
 **每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.2.5**）
-与 §三 `versionCode` 流水（129 → **254**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+与 §三 `versionCode` 流水（129 → **255**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,27 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.2.11 → 1.0.22）
+## 二、`versionName` 流水（1.2.12 → 1.0.22）
+
+### 1.2.12
+
+**修 1.2.11 的 CI 失败：指纹现算改成「先落 apksigner 原始输出、再用 64 位十六进制正则抽取」。**
+
+① **1.2.11 的现场**：build 阶段的 `Generate signature file（现算指纹）` 失败，`publish` 被跳过。
+本地用同一段脚本 + build-tools 34/35/36 复现都是成功的（输出格式一致），所以是 CI 环境的差异；
+而旧写法把 apksigner 的 stdout 直接吞进 `sed`，失败时**看不到任何原始输出** ——
+只能看到我们自己那句「无法读出指纹」，等于把排查线索也一起吞了。
+
+② **改法**：
+- 取证步骤不再被 `set -e` 包住：`RAW=$(apksigner … 2>&1 || true)` 先落下来，打印前 8 行；
+- 指纹用 `grep -oE '[0-9a-fA-F]{64}'` 抽**第一段 64 位十六进制**（证书 SHA-256 的形态），
+  不依赖 apksigner 的行前缀 —— 那正是上一版失败的地方；
+- `apksigner` 的实际路径也打出来（`command -v` 为空时按 `$ANDROID_HOME/build-tools/*` 兜底）。
+
+③ **本地验证**：用构造的 apksigner 输出（含 WARNING 行）跑抽取逻辑，得到与旧硬编码一致的
+`AC:AB:…`；两个 workflow 用 yaml 解析器校验通过。
+
+④ **边界**：若 CI 再失败，日志里会直接有 apksigner 的原始输出，下一次就能定位；本版不改代码。
 
 ### 1.2.11
 
@@ -3847,13 +3867,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（254 → 129）
+## 三、`versionCode` 流水（255 → 129）
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 
 - **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
 
 - **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **255**：修 1.2.11 的 CI 签名步骤失败 —— 不再把 apksigner 输出直接吞进 sed：先落 `RAW`（`2>&1 || true`）并打印前 8 行，再用 `grep -oE '[0-9a-fA-F]{64}'` 抽证书 SHA-256；apksigner 路径一并打印（一次提交，故 +1）。
 
 - **254**：发布链路 `signature.txt` 改为 build 阶段用 `apksigner` 从实际 APK 现算（作为 artifact 传给 publish，不再写死指纹）；文档政策反转 —— `/design/` 与 `/review/` 移出 `.gitignore` 并入库（新增两个目录 README，`docs/README.md` 收纳规则与各原型说明同步）；README 英文化（`README.md` 英文门面、`README.zh.md` 中文权威）；工作流 YAML 解析校验通过（一次提交，故 +1）。
 

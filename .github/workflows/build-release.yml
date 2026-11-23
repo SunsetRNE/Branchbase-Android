@@ -70,17 +70,22 @@ jobs:
       # 签名指纹必须从**实际产物**现算：写死的常量在换钥 / 配错钥时会继续「证明」旧指纹。
       - name: Generate signature file（现算指纹）
         run: |
-          set -euo pipefail
+          set -uo pipefail
           APKSIGNER=$(command -v apksigner || true)
           if [ -z "$APKSIGNER" ]; then
             APKSIGNER=$(ls "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"/build-tools/*/apksigner 2>/dev/null | tail -1 || true)
           fi
+          echo "apksigner=${APKSIGNER:-<未找到>}"
           APK=$(ls dist/*.apk | head -1)
-          FPRINT=$("$APKSIGNER" verify --print-certs "$APK" \
-            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 \
+          # 不启用 -e：先把 apksigner 的实际输出打出来，再决定；否则失败时只剩下我们自己的一句话。
+          RAW=$("$APKSIGNER" verify --print-certs "$APK" 2>&1 || true)
+          echo "--- apksigner output（前 8 行）---"
+          printf '%s\n' "$RAW" | head -8
+          # 抽第一段 64 位十六进制（= 证书 SHA-256），不依赖 apksigner 的行前缀格式
+          FPRINT=$(printf '%s\n' "$RAW" | grep -oE '[0-9a-fA-F]{64}' | head -1 \
             | tr '[:lower:]' '[:upper:]' | sed -E 's/(..)/\1:/g; s/:$//')
           if [ -z "$FPRINT" ]; then
-            echo "::error title=signature::无法从 $APK 读出签名指纹"
+            echo "::error title=signature::无法从 $APK 读出签名指纹（见上面的 apksigner 输出）"
             exit 1
           fi
           {
