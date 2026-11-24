@@ -156,6 +156,29 @@ jobs:
             exit 1
           fi
 
+      # 交接物：编译元数据 + 各模块 build/ 一起打 tar。
+      # ⚠️ 必须带上 `.gradle`（任务执行历史 / 文件哈希）——只带 app/build 的话 Gradle
+      #    看不到「这几个任务上次跑过」，仍会按 out-of-date 重编，交接就白做了。
+      - name: 打包编译产物（供 package 节点直接复用）
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/node
+          existing=()
+          for p in .gradle app/build build downloader/build imageviewer/build editor/build translate/build joblogs/build; do
+            [ -e "$p" ] && existing+=("$p")
+          done
+          tar -czf /tmp/node/compiled.tgz "${existing[@]}"
+          du -h /tmp/node/compiled.tgz
+
+      - name: Upload compiled outputs（compile → package 的交接）
+        uses: actions/upload-artifact@v7
+        with:
+          name: compiled-${{ matrix.channel }}
+          path: /tmp/node/compiled.tgz
+          retention-days: 2
+          archive: false
+          if-no-files-found: error
+
   # ③ package —— 合并打包节点矩阵：dex / 资源链接 / 签名 / 出 APK。
   #    release 的 keystore 只在这一段注入（编译节点不接触签名材料）。
   package:
@@ -188,6 +211,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      # 解包 compile 节点的产物（含 .gradle 执行历史），让下面的 assembleX 直接 UP-TO-DATE。
+      # 放在 setup-branchbase-env 之前：项目级 .gradle 与 ~/.gradle 是两套，先后不影响正确性，
+      # 但先解包能保证配置阶段看到的就是编译节点留下的状态。
+      - name: Download compiled outputs（compile 节点产物）
+        uses: actions/download-artifact@v8
+        with:
+          name: compiled-${{ matrix.channel }}
+          path: /tmp/node
+
+      - name: Restore compiled outputs
+        run: |
+          set -euo pipefail
+          tar -xzf /tmp/node/compiled.tgz -C .
+          echo "已恢复 app/build：$(du -sh app/build 2>/dev/null | cut -f1)"
 
       - uses: ./.github/actions/setup-branchbase-env
         with:
@@ -325,10 +363,17 @@ jobs:
       # 取回 build 的产物。`@v8` 是 `archive: false` 的必要条件；
       # `merge-multiple` 让它直接落在工作区根目录（不加会被放进以 artifact 命名的子目录，
       # 下面的 `files:` 就找不到）。产物名就是文件名，取回来即 `Branchbase-<sv>.apk`。
-      - name: Download artifacts
+      # 只取发布需要的产物；`compiled-*` 是 compile→package 的中间交接物。
+      - name: Download APK artifacts
         uses: actions/download-artifact@v8
         with:
-          pattern: '*'
+          pattern: 'Branchbase-*'
+          merge-multiple: true
+
+      - name: Download signature artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: 'signature*'
           merge-multiple: true
 
       # 改动记录：锚定上一个**正式版**标签（排除 beta），逐条列出提交 + 完整对比链接。

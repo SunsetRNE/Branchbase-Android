@@ -329,9 +329,14 @@ ping 通 ≠ HTTP 能下（ICMP 被禁或走 CDN 的镜像上两者没有稳定�
 
 **三个必须知道的实现约束：**
 
-- **跨 job 的交接靠 Gradle 构建缓存**（`setup-gradle` 在 job 结束时落盘，`package` 按同一批 task 输入复用）。
-  ⚠️ 多个矩阵腿写同一个缓存键时是「先写者赢」，所以别的腿**可能拿不到缓存而重编** ——
-  这是**性能**问题、不是正确性问题；要彻底共享得换远程构建缓存后端（S3/GCS），暂未做。
+- **跨 job 的交接靠 artifact 传「编译元数据 + 各模块 build/」**（`compiled-<channel>.tgz`）。
+  只传 `app/build` 不够：Gradle 的「这个任务上次跑过」记在**项目级 `.gradle/`** 的
+  executionHistory / fileHashes 里，缺了它仍会按 out-of-date 重编。所以 tar 里必须同时有
+  `.gradle` 与 `app/build`（以及 `downloader/build` 等模块产物）。
+  ⚠️ 这是 1.4.7 实测补上的：第一版只靠 `setup-gradle` 的依赖缓存，`package` 里
+  `:app:compileDebugKotlin` 仍重跑（日志里不是 `FROM-CACHE`），墙钟 6m55s → 12m02s。
+  `publish` 只下载 `Branchbase-*` / `signature*` / `libbranchbase_core.so`，不会把
+  `compiled-*` 中间包也拖下来。
 - `mergeXJniLibFolders` 依赖 `.so`，所以 **compile 节点也必须先下载 core 产物**，不能只放在 package。
 - 任务名必须真实存在。改任务列表前先 dry-run 一次：
   `./gradlew --dry-run :app:compileXKotlin :app:mergeXResources :app:mergeXJniLibFolders`

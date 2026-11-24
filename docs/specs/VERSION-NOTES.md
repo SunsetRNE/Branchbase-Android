@@ -74,7 +74,24 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.7 → 1.0.22）
+## 二、`versionName` 流水（1.4.8 → 1.0.22）
+
+### 1.4.8
+
+**compile → package 的交接改成 artifact（编译元数据 + build/ 一起传），让最后一段不重编。**
+
+1.4.7 的节点拆分在可观测性上成立，但实测墙钟 6m55s → **12m02s**：`package` 里
+`:app:compileDebugKotlin` / `:app:mergeDebugResources` 仍是**重跑**（不是 `FROM-CACHE`），
+`setup-gradle` 那次只存了 15MB —— 依赖缓存不是构建缓存，app 的编译产物没跟过去。
+再加上 `package` 在矩阵层 `needs: compile` 要等最慢的 compile 腿，两件事叠成两倍时间。
+
+① `compile` 节点结束时把 **`.gradle` + `app/build` + 各模块 `build/`** 打进
+`compiled-<channel>.tgz` 作为 artifact（`retention-days: 2`，不参与发布）。
+② `package` 节点先解包再 `assembleX`：Gradle 依据恢复出来的 executionHistory 直接判
+UP-TO-DATE。**必须同时带 `.gradle`** —— 只带 `app/build` 的话「上次跑过」这条事实不在，
+照样重编。
+③ `publish` 的下载从 `pattern: '*'` 收窄成 `Branchbase-*` / `signature*` /
+`libbranchbase_core.so` 三类，避免把每条腿几百 MB 的 `compiled-*` 又拖一遍。
 
 ### 1.4.7
 
@@ -4178,13 +4195,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（267 → 129）
+## 三、`versionCode` 流水（268 → 129）
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 
 - **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
 
 - **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **268**：compile → package 改用 artifact 交接（`.gradle` + 各模块 build/ 打 tgz），让 package 直接 UP-TO-DATE；publish 下载收窄为 APK / signature / .so 三类（一次提交，故 +1）。
 
 - **267**：编译流水线节点化 —— beta/release 均拆成 `version/prepare → core → compile(矩阵) → package(矩阵) → publish`；release 签名材料只在 package(release) 注入；版本参数统一在 version/prepare 钉住；CI 的 i18n 独立成节点、变体矩阵补 release（一次提交，故 +1）。
 

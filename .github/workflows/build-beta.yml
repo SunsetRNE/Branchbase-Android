@@ -148,6 +148,29 @@ jobs:
             exit 1
           fi
 
+      # 交接物：编译元数据 + 各模块 build/ 一起打 tar。
+      # ⚠️ 必须带上 `.gradle`（任务执行历史 / 文件哈希）——只带 app/build 的话 Gradle
+      #    看不到「这几个任务上次跑过」，仍会按 out-of-date 重编，交接就白做了。
+      - name: 打包编译产物（供 package 节点直接复用）
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/node
+          existing=()
+          for p in .gradle app/build build downloader/build imageviewer/build editor/build translate/build joblogs/build; do
+            [ -e "$p" ] && existing+=("$p")
+          done
+          tar -czf /tmp/node/compiled.tgz "${existing[@]}"
+          du -h /tmp/node/compiled.tgz
+
+      - name: Upload compiled outputs（compile → package 的交接）
+        uses: actions/upload-artifact@v7
+        with:
+          name: compiled-${{ matrix.channel }}
+          path: /tmp/node/compiled.tgz
+          retention-days: 2
+          archive: false
+          if-no-files-found: error
+
   # ④ package —— **合并打包节点**（矩阵）：拿着编译节点暖过的缓存，只做
   #    「dex + 合并 jniLibs/资源 + 链接 + 签名 + 出 APK」。签名也在这一段完成，
   #    所以 release 的 keystore 只需要在这一段注入。
@@ -180,6 +203,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      # 解包 compile 节点的产物（含 .gradle 执行历史），让下面的 assembleX 直接 UP-TO-DATE。
+      # 放在 setup-branchbase-env 之前：项目级 .gradle 与 ~/.gradle 是两套，先后不影响正确性，
+      # 但先解包能保证配置阶段看到的就是编译节点留下的状态。
+      - name: Download compiled outputs（compile 节点产物）
+        uses: actions/download-artifact@v8
+        with:
+          name: compiled-${{ matrix.channel }}
+          path: /tmp/node
+
+      - name: Restore compiled outputs
+        run: |
+          set -euo pipefail
+          tar -xzf /tmp/node/compiled.tgz -C .
+          echo "已恢复 app/build：$(du -sh app/build 2>/dev/null | cut -f1)"
 
       - uses: ./.github/actions/setup-branchbase-env
         with:
@@ -277,11 +315,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download artifacts
+      # 只取发布需要的三类产物；`compiled-*` 是 compile→package 的中间交接物，不在这里下载。
+      - name: Download APK artifacts
         uses: actions/download-artifact@v8
         with:
-          pattern: '*'
+          pattern: 'Branchbase-*'
           merge-multiple: true
+
+      - name: Download signature artifact
+        uses: actions/download-artifact@v8
+        with:
+          pattern: 'signature*'
+          merge-multiple: true
+
+      - name: Download Rust core (.so)
+        uses: actions/download-artifact@v8
+        with:
+          name: libbranchbase_core.so
 
       # 指纹由 build 阶段从实际 APK 现算并上传；这里只把它放回 verify/ 供提交与发布。
       - name: Collect signature file
