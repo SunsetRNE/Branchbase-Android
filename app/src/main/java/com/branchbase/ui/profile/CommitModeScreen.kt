@@ -3,6 +3,7 @@ package com.branchbase.ui.profile
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -41,6 +43,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -49,17 +52,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.R
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.theme.Primer
 import com.branchbase.ui.theme.revealEnter
+import kotlin.math.roundToInt
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 /**
  * 提交模式独立子页（设置页规范见 `docs/specs/settings-design.md` §三）。
@@ -96,21 +106,10 @@ fun CommitModeScreen(onBack: () -> Unit) {
             },
         )
 
-        CommitMode.entries.forEach { m ->
-            ModeOptionRow(
-                // 卡片是整行，可以承载完整说明；状态位（设置页右侧值等）只用短名 m.labelRes
-                label = stringResource(m.titleRes),
-                desc = stringResource(m.descRes),
-                selected = mode == m,
-                bouncySelection = true,
-                onClick = {
-                    if (mode != m) {
-                        mode = m
-                        saveCommitMode(context, m)
-                        Logger.ui("提交模式改为 ${m.logLabel}", "Compose")
-                    }
-                },
-            )
+        CommitModeOptions(mode = mode) { m ->
+            mode = m
+            saveCommitMode(context, m)
+            Logger.ui("提交模式改为 ${m.logLabel}", "Compose")
         }
 
         Spacer(Modifier.height(16.dp))
@@ -186,6 +185,73 @@ private fun CurrentModeBadge(mode: CommitMode?, onClick: () -> Unit) {
             tint = fgColor,
             modifier = Modifier.size(14.dp),
         )
+    }
+}
+
+/**
+ * 三档选项 + **一条会滑动的高亮**。
+ *
+ * 为什么不是每行各自淡入淡出：快速连切时旧行的绿还没褪完、新行的绿已经开始进，
+ * 两行同时半绿就闪。改成「只有一块高亮，从旧行滑到新行」，任何时刻屏幕上只有一块绿；
+ * 位置与高度都从**实际测量**的坐标来，不假设三行等高（字体缩放 / 说明换行都安全）。
+ */
+@Composable
+private fun CommitModeOptions(mode: CommitMode?, onPick: (CommitMode) -> Unit) {
+    val modes = CommitMode.entries
+    val selectedIndex = modes.indexOf(mode)
+    val bounds = remember { mutableStateMapOf<Int, Pair<Float, Float>>() }
+    val highlightTop = remember { Animatable(0f) }
+    val highlightHeight = remember { Animatable(0f) }
+    var placed by remember { mutableStateOf(false) }
+
+    // 首次布局直接落位（不滑），之后的每次换档才用弹簧滑过去
+    LaunchedEffect(selectedIndex, bounds[selectedIndex]) {
+        if (selectedIndex < 0) return@LaunchedEffect
+        val b = bounds[selectedIndex] ?: return@LaunchedEffect
+        if (!placed) {
+            highlightTop.snapTo(b.first)
+            highlightHeight.snapTo(b.second)
+            placed = true
+        } else {
+            val spec = spring<Float>(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)
+            coroutineScope {
+                launch { highlightTop.animateTo(b.first, spec) }
+                launch { highlightHeight.animateTo(b.second, spec) }
+            }
+        }
+    }
+
+    Box(Modifier.fillMaxWidth()) {
+        if (placed && selectedIndex >= 0) {
+            val density = LocalDensity.current
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .offset { IntOffset(0, highlightTop.value.roundToInt()) }
+                    .height(with(density) { highlightHeight.value.toDp() })
+                    .background(Primer.SuccessSurface),
+            )
+        }
+        Column {
+            modes.forEachIndexed { index, m ->
+                ModeOptionRow(
+                    // 卡片是整行，可以承载完整说明；状态位（设置页右侧值等）只用短名 m.labelRes
+                    label = stringResource(m.titleRes),
+                    desc = stringResource(m.descRes),
+                    selected = mode == m,
+                    bouncySelection = true,
+                    // 底色由上面那块滑动高亮统一画；行里再画就会出现两行同时绿
+                    drawSelectionBackground = false,
+                    // 滑动高亮本身就是点击反馈，行里不再叠按压色
+                    pressFeedback = false,
+                    modifier = Modifier.onGloballyPositioned { c ->
+                        val b = c.positionInParent().y to c.size.height.toFloat()
+                        if (bounds[index] != b) bounds[index] = b
+                    },
+                    onClick = { if (mode != m) onPick(m) },
+                )
+            }
+        }
     }
 }
 

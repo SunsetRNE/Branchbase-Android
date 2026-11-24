@@ -980,6 +980,16 @@ internal fun ModeOptionRow(
     divider: Boolean = false,
     /** 选中反馈是否走弹簧（提交模式页用：三档之间的切换要「弹」一下）。 */
     bouncySelection: Boolean = false,
+    /**
+     * 是否由本行自己画选中底色。
+     *
+     * 提交模式页改成「一条高亮在行之间滑动」之后，底色由外层统一画，
+     * 行自己再画一层就会出现两行同时绿的闪 —— 那里传 false。
+     */
+    drawSelectionBackground: Boolean = true,
+    /** 是否画按压反馈（滑动高亮本身就承担了反馈时，行里不必再叠一层）。 */
+    pressFeedback: Boolean = true,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth()) {
@@ -992,14 +1002,14 @@ internal fun ModeOptionRow(
         // 已选中行被按压是 no-op，不该再变色（否则绿底叠一层偏灰的浅绿，看起来还是「闪灰」）；
         // 未选中行用**与选中底色完全相同**的绿做预览，读起来是「这一行正要被选中」。
         val pressTint by animateColorAsState(
-            targetValue = if (pressed && !selected) Primer.SuccessSurface else Color.Transparent,
+            targetValue = if (pressFeedback && pressed && !selected) Primer.SuccessSurface else Color.Transparent,
             animationSpec = tween(if (pressed) 90 else 220),
             label = "mode-option-press",
         )
         Row(
-            modifier = Modifier
+            modifier = modifier
                 .fillMaxWidth()
-                .background(selectionColor(selected, on = Primer.SuccessSurface))
+                .background(if (drawSelectionBackground) selectionColor(selected, on = Primer.SuccessSurface) else Color.Transparent)
                 .background(pressTint)
                 .clickable(interactionSource = interaction, indication = null) { onClick() }
                 .padding(horizontal = 16.dp, vertical = 12.dp),
