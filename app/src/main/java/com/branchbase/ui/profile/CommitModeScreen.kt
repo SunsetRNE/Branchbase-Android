@@ -49,6 +49,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
@@ -202,18 +203,28 @@ private fun CommitModeOptions(mode: CommitMode?, onPick: (CommitMode) -> Unit) {
     val bounds = remember { mutableStateMapOf<Int, Pair<Float, Float>>() }
     val highlightTop = remember { Animatable(0f) }
     val highlightHeight = remember { Animatable(0f) }
+    val highlightAlpha = remember { Animatable(1f) }
     var placed by remember { mutableStateOf(false) }
 
-    // 首次布局直接落位（不滑），之后的每次换档才用弹簧滑过去
+    // 进场：先落位、高度从 0 展开 + 淡入；之后每次换档用弹簧从旧行滑到新行。
     LaunchedEffect(selectedIndex, bounds[selectedIndex]) {
-        if (selectedIndex < 0) return@LaunchedEffect
+        if (selectedIndex < 0) {
+            placed = false
+            return@LaunchedEffect
+        }
         val b = bounds[selectedIndex] ?: return@LaunchedEffect
+        val spec = spring<Float>(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)
         if (!placed) {
+            // 首次进场：位置直接对准，高度 0 → 行高、透明度 0 → 1
             highlightTop.snapTo(b.first)
-            highlightHeight.snapTo(b.second)
+            highlightHeight.snapTo(0f)
+            highlightAlpha.snapTo(0f)
             placed = true
+            coroutineScope {
+                launch { highlightHeight.animateTo(b.second, spec) }
+                launch { highlightAlpha.animateTo(1f, tween(180)) }
+            }
         } else {
-            val spec = spring<Float>(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)
             coroutineScope {
                 launch { highlightTop.animateTo(b.first, spec) }
                 launch { highlightHeight.animateTo(b.second, spec) }
@@ -229,6 +240,7 @@ private fun CommitModeOptions(mode: CommitMode?, onPick: (CommitMode) -> Unit) {
                     .fillMaxWidth()
                     .offset { IntOffset(0, highlightTop.value.roundToInt()) }
                     .height(with(density) { highlightHeight.value.toDp() })
+                    .alpha(highlightAlpha.value)
                     .background(Primer.SuccessSurface),
             )
         }

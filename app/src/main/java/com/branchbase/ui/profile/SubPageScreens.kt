@@ -992,7 +992,10 @@ internal fun ModeOptionRow(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth()) {
+    // ⚠️ `modifier` 必须挂在这个**最外层 Column** 上，不能挂到里面的 Row：
+    //    滑动高亮用 `positionInParent()` 量每行的纵坐标，挂在 Row 上量到的是内层 Column 的
+    //    「相对父容器」坐标 —— 每行都是 0，高亮会永远停在第一行。
+    Column(Modifier.fillMaxWidth().then(modifier)) {
         if (divider) Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Gray200))
         // 按压反馈走**颜色动画**而不是 Material 的灰色涟漪：
         // 选中底色本身就是绿色，灰色涟漪在它淡入的过程中叠一层灰，看起来像「阴影闪一下」。
@@ -1007,7 +1010,7 @@ internal fun ModeOptionRow(
             label = "mode-option-press",
         )
         Row(
-            modifier = modifier
+            modifier = Modifier
                 .fillMaxWidth()
                 .background(if (drawSelectionBackground) selectionColor(selected, on = Primer.SuccessSurface) else Color.Transparent)
                 .background(pressTint)
