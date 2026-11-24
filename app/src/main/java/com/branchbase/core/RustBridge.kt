@@ -30,10 +30,13 @@ object RustBridge {
     /**
      * native 符号缺失（`.so` 未重编译 / 加载失败）时的统一原因串。
      *
-     * 它进的是**给用户看的一行反馈**（决策页 / 列表页的失败文案），所以措辞要与既有的
-     * 内联字面量一致 —— 这里只是把它提成常量，避免「同一件事两种说法」。
+     * 按引擎错误约定写成 `ERROR:<CODE>`：**界面文案由 [`engineErrorText`] 在提示边界解析**，
+     * 不在这一层写中文 —— 旧实现是 `"引擎不可用"`，英文界面下那句中文会原样弹出来
+     * （见 `docs/specs/i18n-migration.md` §14）。
+     *
+     * 调用方照旧判 `!= null` / `startsWith("ERROR:")`；两者对 `ERROR:` 前缀的语义不变。
      */
-    private const val ENGINE_UNAVAILABLE = "引擎不可用"
+    private const val ENGINE_UNAVAILABLE = "ERROR:ENGINE_UNAVAILABLE"
 
     init {
         System.loadLibrary("branchbase_core")
@@ -630,7 +633,7 @@ object RustBridge {
         try {
             err(nativePutJson(host, token, path, bodyJson))
         } catch (e: Throwable) {
-            "引擎不可用"
+            ENGINE_UNAVAILABLE
         }
     }
 
@@ -677,7 +680,7 @@ object RustBridge {
             }.toString()
             nativeWebPostForm(host, cookie, pagePath, postPath, json).ifBlank { null }
         } catch (e: Throwable) {
-            "引擎不可用"
+            ENGINE_UNAVAILABLE
         }
     }
 
@@ -699,7 +702,7 @@ object RustBridge {
             val payload = org.json.JSONObject().put("body", body).toString()
             err(nativePatchJson(host, token, "/repos/$owner/$repo/issues/comments/$commentId", payload))
         } catch (e: Throwable) {
-            "引擎不可用"
+            ENGINE_UNAVAILABLE
         }
     }
 
@@ -716,7 +719,7 @@ object RustBridge {
             val payload = org.json.JSONObject().put("body", body).toString()
             err(nativePatchJson(host, token, "/repos/$owner/$repo/issues/$number", payload))
         } catch (e: Throwable) {
-            "引擎不可用"
+            ENGINE_UNAVAILABLE
         }
     }
 
@@ -731,7 +734,7 @@ object RustBridge {
         try {
             err(nativeDeleteJson(host, token, "/repos/$owner/$repo/issues/comments/$commentId"))
         } catch (e: Throwable) {
-            "引擎不可用"
+            ENGINE_UNAVAILABLE
         }
     }
 
@@ -747,7 +750,7 @@ object RustBridge {
                 // 成功时 204 无响应体（空串）→ err() 返回 null
                 err(nativeDeleteJson(host, token, path))
             } catch (e: Throwable) {
-                "引擎不可用"
+                ENGINE_UNAVAILABLE
             }
         }
 
@@ -946,7 +949,7 @@ object RustBridge {
                 else -> r.removePrefix("ERROR:").take(300)
             }
         } catch (e: Throwable) {
-            "引擎不可用"
+            ENGINE_UNAVAILABLE
         }
     }
 
@@ -961,7 +964,7 @@ object RustBridge {
                     else -> r.removePrefix("ERROR:").take(300)
                 }
             } catch (e: Throwable) {
-                "引擎不可用"
+                ENGINE_UNAVAILABLE
             }
         }
 
@@ -982,7 +985,7 @@ object RustBridge {
             runCatching {
                 val r = nativeFetchRemote(dir, token, prune)
                 if (r.isBlank()) null else r.removePrefix("ERROR:").take(300)
-            }.getOrElse { "引擎不可用" }
+            }.getOrElse { ENGINE_UNAVAILABLE }
         }
 
     /** 远端分支清单（JSON 数组：name / local / has_local / ahead / behind）。 */
@@ -1113,7 +1116,7 @@ object RustBridge {
         runCatching {
             val r = nativeCheckoutBranch(dir, name)
             if (r.isBlank()) null else r.removePrefix("ERROR:").take(300)
-        }.getOrElse { "引擎不可用" }
+        }.getOrElse { ENGINE_UNAVAILABLE }
     }
 
     /** 新建本地分支并切换过去（from 为空 = 当前 HEAD）。null = 成功。 */
@@ -1122,7 +1125,7 @@ object RustBridge {
             runCatching {
                 val r = nativeCreateBranchLocal(dir, name, from)
                 if (r.isBlank()) null else r.removePrefix("ERROR:").take(300)
-            }.getOrElse { "引擎不可用" }
+            }.getOrElse { ENGINE_UNAVAILABLE }
         }
 
     /** 删除本地分支（当前分支会被拒绝）。null = 成功。 */
@@ -1130,7 +1133,7 @@ object RustBridge {
         runCatching {
             val r = nativeDeleteBranchLocal(dir, name)
             if (r.isBlank()) null else r.removePrefix("ERROR:").take(300)
-        }.getOrElse { "引擎不可用" }
+        }.getOrElse { ENGINE_UNAVAILABLE }
     }
 
     /** 撤销工作区所有改动（恢复已跟踪文件 + 删除未跟踪文件）。null = 成功。 */
@@ -1138,7 +1141,7 @@ object RustBridge {
         runCatching {
             val r = nativeDiscardAllChanges(dir)
             if (r.isBlank()) null else r.removePrefix("ERROR:").take(300)
-        }.getOrElse { "引擎不可用" }
+        }.getOrElse { ENGINE_UNAVAILABLE }
     }
 
     /** 拉取 latest release 的 signature.txt 校验文件内容（返回文本或 null）。 */
@@ -1268,7 +1271,7 @@ object RustBridge {
                     else -> r.removePrefix("ERROR:").take(300)
                 }
             } catch (e: Throwable) {
-                "引擎不可用"
+                ENGINE_UNAVAILABLE
             }
         }
 
@@ -1314,7 +1317,7 @@ object RustBridge {
             try {
                 err(nativeCreateBranch(host, token, owner, repo, branch, sha))
             } catch (e: Throwable) {
-                "引擎不可用"
+                ENGINE_UNAVAILABLE
             }
         }
 
@@ -1326,7 +1329,7 @@ object RustBridge {
         try {
             err(nativeCreatePullRequest(host, token, owner, repo, title, body, head, base, if (draft) "1" else "0"))
         } catch (e: Throwable) {
-            "引擎不可用"
+            ENGINE_UNAVAILABLE
         }
     }
 
@@ -1337,7 +1340,7 @@ object RustBridge {
         try {
             err(nativeMergePullRequest(host, token, owner, repo, number.toString(), mergeMethod))
         } catch (e: Throwable) {
-            "引擎不可用"
+            ENGINE_UNAVAILABLE
         }
     }
 
@@ -1360,7 +1363,7 @@ object RustBridge {
                 else -> null
             }
         } catch (e: Throwable) {
-            "引擎不可用"
+            ENGINE_UNAVAILABLE
         }
     }
 
@@ -1383,7 +1386,7 @@ object RustBridge {
         try {
             err(nativeUpdateRef(host, token, owner, repo, branch, sha, if (force) "true" else "false"))
         } catch (e: Throwable) {
-            "引擎不可用"
+            ENGINE_UNAVAILABLE
         }
     }
 
@@ -1393,7 +1396,7 @@ object RustBridge {
             try {
                 err(nativeDeleteBranch(host, token, owner, repo, branch))
             } catch (e: Throwable) {
-                "引擎不可用"
+                ENGINE_UNAVAILABLE
             }
         }
 
@@ -1505,7 +1508,7 @@ object RustBridge {
             try {
                 err(nativeDeleteRelease(host, token, owner, repo, id.toString()))
             } catch (e: Throwable) {
-                "引擎不可用"
+                ENGINE_UNAVAILABLE
             }
         }
 
@@ -1515,7 +1518,7 @@ object RustBridge {
             try {
                 err(nativeCreateIssueComment(host, token, owner, repo, number.toString(), body))
             } catch (e: Throwable) {
-                "引擎不可用"
+                ENGINE_UNAVAILABLE
             }
         }
 
@@ -1538,7 +1541,7 @@ object RustBridge {
             try {
                 err(nativeUpdateIssueState(host, token, owner, repo, number.toString(), state, stateReason))
             } catch (e: Throwable) {
-                "引擎不可用"
+                ENGINE_UNAVAILABLE
             }
         }
 
@@ -1548,7 +1551,7 @@ object RustBridge {
             try {
                 err(nativeUpdateIssue(host, token, owner, repo, number.toString(), state))
             } catch (e: Throwable) {
-                "引擎不可用"
+                ENGINE_UNAVAILABLE
             }
         }
 
@@ -1568,7 +1571,7 @@ object RustBridge {
             try {
                 err(nativeUpdateDefaultBranch(host, token, owner, repo, branch))
             } catch (e: Throwable) {
-                "引擎不可用"
+                ENGINE_UNAVAILABLE
             }
         }
 
@@ -1603,7 +1606,7 @@ object RustBridge {
             try {
                 err(nativeUpdateProfile(host, token, body))
             } catch (e: Throwable) {
-                "引擎不可用"
+                ENGINE_UNAVAILABLE
             }
         }
 
@@ -1613,7 +1616,7 @@ object RustBridge {
             try {
                 err(nativeDeleteRepo(host, token, owner, repo))
             } catch (e: Throwable) {
-                "引擎不可用"
+                ENGINE_UNAVAILABLE
             }
         }
 
@@ -1649,7 +1652,7 @@ object RustBridge {
         try {
             err(nativeDispatchWorkflow(host, token, owner, repo, workflowId.toString(), ref, inputsJson))
         } catch (e: Throwable) {
-            "引擎不可用"
+            ENGINE_UNAVAILABLE
         }
     }
 }

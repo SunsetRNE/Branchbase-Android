@@ -83,6 +83,7 @@ import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.GithubWebSession
 import com.branchbase.core.RepoCredentialStore
 import com.branchbase.core.RustBridge
+import com.branchbase.core.engineErrorText
 import com.branchbase.ui.auth.keyTokenCreateUrl
 import com.branchbase.ui.decision.AuthorIdentityScreen
 import com.branchbase.ui.decision.DeleteRepoWarningScreen
@@ -490,7 +491,10 @@ fun RepositoryScreen(
         canPull = repoInfo?.canPull ?: true,
         isPrivate = repoInfo?.isPrivate ?: false,
     )
-    fun toast(text: String) = Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
+    // 提示边界：引擎错误（`ERROR:<CODE>…` 与旧文案）在这里翻成当前界面语言。
+    // 成功提示走 [engineErrorText] 的 Raw 分支原样返回，不受影响。
+    fun toast(text: String) =
+        Toast.makeText(context, engineErrorText(context, text) ?: text, Toast.LENGTH_SHORT).show()
 
     /**
      * 关系态与仓库信息**并行**取。

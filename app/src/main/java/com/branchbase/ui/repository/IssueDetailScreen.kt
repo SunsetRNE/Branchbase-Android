@@ -81,7 +81,9 @@ import com.branchbase.ui.theme.selectionColor
 import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
+import com.branchbase.core.engineErrorOrRaw
 import com.branchbase.core.RustBridge
+import com.branchbase.core.engineErrorText
 import com.branchbase.ui.navigation.PageBackHandler
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.async
@@ -235,7 +237,9 @@ fun IssueDetailScreen(
         loading = false
     }
 
-    fun toast(text: String) = Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
+    // 提示边界：引擎错误在这里翻成当前界面语言（成功提示原样经过）。
+    fun toast(text: String) =
+        Toast.makeText(context, engineErrorText(context, text) ?: text, Toast.LENGTH_SHORT).show()
 
     /** 本地更新某条评论（或主帖）的反应计数 */
     fun updateReaction(comment: CommentItem?, content: String, delta: Int, mine: Boolean) {
@@ -281,7 +285,7 @@ fun IssueDetailScreen(
                     IssueReactionStore.remove(context, key)
                     updateReaction(comment, content, delta = -1, mine = false)
                 } else {
-                    toast(context.getString(R.string.error_remove_reaction_failed, err))
+                    toast(context.getString(R.string.error_remove_reaction_failed, context.engineErrorOrRaw(err)))
                 }
             } else {
                 val json = RustBridge.postJson(host, token, path, "{\"content\":\"$content\"}")
@@ -310,7 +314,7 @@ fun IssueDetailScreen(
                     }
                 }
             } else {
-                toast(context.getString(R.string.error_update_comment_failed, err))
+                toast(context.getString(R.string.error_update_comment_failed, context.engineErrorOrRaw(err)))
             }
         }
     }
@@ -322,7 +326,7 @@ fun IssueDetailScreen(
                 detail = detail?.copy(body = newBody)
                 bodyHtml = null
             } else {
-                toast(context.getString(R.string.error_update_body_failed, err))
+                toast(context.getString(R.string.error_update_body_failed, context.engineErrorOrRaw(err)))
             }
         }
     }
@@ -354,7 +358,7 @@ fun IssueDetailScreen(
                     draft = ""
                     toast(context.getString(R.string.toast_changes_saved))
                 } else {
-                    toast(context.getString(R.string.error_save_failed, err))
+                    toast(context.getString(R.string.error_save_failed, context.engineErrorOrRaw(err)))
                     submitting = false
                     return@launch
                 }
@@ -376,7 +380,7 @@ fun IssueDetailScreen(
                     previewTab = false
                     pendingScrollToEnd = true
                 } else {
-                    toast(context.getString(R.string.error_comment_failed, err))
+                    toast(context.getString(R.string.error_comment_failed, context.engineErrorOrRaw(err)))
                 }
             }
             if (closeAs != null) {
@@ -399,7 +403,7 @@ fun IssueDetailScreen(
                         createdAt = java.time.Instant.now().toString(),
                     )
                 } else {
-                    toast(context.getString(R.string.error_close_failed, err))
+                    toast(context.getString(R.string.error_close_failed, context.engineErrorOrRaw(err)))
                 }
             }
             submitting = false
@@ -418,7 +422,7 @@ fun IssueDetailScreen(
                     createdAt = java.time.Instant.now().toString(),
                 )
             } else {
-                toast(context.getString(R.string.error_reopen_failed, err))
+                toast(context.getString(R.string.error_reopen_failed, context.engineErrorOrRaw(err)))
             }
         }
     }
@@ -627,7 +631,7 @@ fun IssueDetailScreen(
                         }
                         toast(context.getString(R.string.toast_comment_deleted))
                     } else {
-                        toast(context.getString(R.string.error_delete_failed, err))
+                        toast(context.getString(R.string.error_delete_failed, context.engineErrorOrRaw(err)))
                     }
                 }
             },

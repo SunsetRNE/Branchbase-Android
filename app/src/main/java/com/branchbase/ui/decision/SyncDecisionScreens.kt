@@ -38,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.core.engineErrorOrRaw
 import com.branchbase.R
 import com.branchbase.ui.LocalizedText
 import com.branchbase.ui.log.LogCategory
@@ -324,7 +325,7 @@ fun ForkDecisionScreen(
                     busy = false
                     onResolved(
                         if (err == null) context.getString(R.string.state_discarded_local)
-                        else failureMessage(context.getString(R.string.action_discard_local_commit), err).resolve(context),
+                        else failureMessage(context.getString(R.string.action_discard_local_commit), context.engineErrorOrRaw(err)).resolve(context),
                     )
                 }
             }
@@ -634,7 +635,7 @@ fun UpstreamSetupScreen(
                 // 所以不存在「推送成功但没记录 upstream」这个状态可报 —— 页面也不再提供这个做不到的选项。
                 null -> onResolved(context.getString(R.string.toast_pushed_set_upstream, upstreamBranch), false)
                 "nff" -> onResolved(null, true)
-                else -> feedback = context.getString(R.string.error_push_failed_result, result)
+                else -> feedback = context.getString(R.string.error_push_failed_result, context.engineErrorOrRaw(result))
             }
         }
     }
@@ -798,7 +799,7 @@ fun UndoCommitScreen(
                     busy = false
                     onResolved(
                         if (err == null) context.getString(R.string.state_commit_message_updated)
-                        else failureMessage(context.getString(R.string.action_edit_commit_message), err).resolve(context),
+                        else failureMessage(context.getString(R.string.action_edit_commit_message), context.engineErrorOrRaw(err)).resolve(context),
                     )
                 }
             }
@@ -811,7 +812,7 @@ fun UndoCommitScreen(
                     busy = false
                     onResolved(
                         if (err == null) context.getString(R.string.state_undo_commit_kept)
-                        else failureMessage(context.getString(R.string.action_undo_commit), err).resolve(context),
+                        else failureMessage(context.getString(R.string.action_undo_commit), context.engineErrorOrRaw(err)).resolve(context),
                     )
                 }
             }
@@ -824,7 +825,7 @@ fun UndoCommitScreen(
                     busy = false
                     onResolved(
                         if (err == null) context.getString(R.string.state_undo_discarded)
-                        else failureMessage(context.getString(R.string.action_undo_discard), err).resolve(context),
+                        else failureMessage(context.getString(R.string.action_undo_discard), context.engineErrorOrRaw(err)).resolve(context),
                     )
                 }
             }

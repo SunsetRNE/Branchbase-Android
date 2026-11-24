@@ -114,6 +114,7 @@ import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
+import com.branchbase.core.engineErrorText
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.navigation.LocalFloatingBarReservedHeight
 import com.branchbase.ui.resolve
@@ -2605,5 +2606,6 @@ private fun shareThread(context: Context, n: Notification) {
 }
 
 private fun toast(context: Context, text: String) {
-    Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
+    // 提示边界：失败的原始错误串在这里翻成当前界面语言，成功提示原样经过。
+    Toast.makeText(context, engineErrorText(context, text) ?: text, Toast.LENGTH_SHORT).show()
 }

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import com.branchbase.core.engineErrorOrRaw
 import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -151,7 +152,7 @@ internal fun MergeConflictScreen(
                 onBack()
             } else {
                 Logger.warn(LogCategory.LOCAL_TASK, MERGE_LOG_TAG, "$MERGE_LOG_TAG ▸ $repoName：提交合并失败 —— $reason")
-                feedback = reason to false
+                feedback = context.engineErrorOrRaw(reason) to false
                 reloadKey++
             }
         }
@@ -246,7 +247,7 @@ internal fun MergeConflictScreen(
                                     editing = null
                                     reloadKey++
                                 } else {
-                                    feedback = reason to false
+                                    feedback = context.engineErrorOrRaw(reason) to false
                                 }
                             }
                         },
@@ -260,7 +261,7 @@ internal fun MergeConflictScreen(
                                     editing = null
                                     reloadKey++
                                 } else {
-                                    feedback = reason to false
+                                    feedback = context.engineErrorOrRaw(reason) to false
                                 }
                             }
                         },

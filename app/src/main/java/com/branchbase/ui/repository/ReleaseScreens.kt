@@ -58,6 +58,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.core.engineErrorOrRaw
 import com.branchbase.R
 import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
@@ -302,7 +303,7 @@ fun ReleaseDetailScreen(
                         }
                         Logger.net("DELETE release ${release.tag} → ${err ?: "成功"}", "GitHubAPI")
                         busy = false
-                        if (err == null) onDeleted() else feedback = context.getString(R.string.error_delete_failed, err)
+                        if (err == null) onDeleted() else feedback = context.getString(R.string.error_delete_failed, context.engineErrorOrRaw(err))
                     }
                 }) { Text(stringResource(R.string.action_delete), color = Primer.DangerText) }
             },

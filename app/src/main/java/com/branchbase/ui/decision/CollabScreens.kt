@@ -42,6 +42,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.R
+
+import com.branchbase.core.engineErrorOrRaw
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.navigation.TabSwitcher
 import com.branchbase.ui.repository.encodePath
@@ -185,8 +187,8 @@ fun PrOnestopScreen(
                         BranchReuse.ABSENT -> {
                             busy = false
                             Logger.warn(LogCategory.LOCAL_TASK, "PR一条龙", "建分支失败：$branch → $branchErr")
-                            com.branchbase.ui.task.TaskStore.fail(context, taskId, branchErr)
-                            feedback = context.getString(R.string.error_create_branch_failed, branchErr)
+                            com.branchbase.ui.task.TaskStore.fail(context, taskId, context.engineErrorOrRaw(branchErr))
+                            feedback = context.getString(R.string.error_create_branch_failed, context.engineErrorOrRaw(branchErr))
                             return@launch
                         }
                     }
@@ -200,8 +202,8 @@ fun PrOnestopScreen(
             if (sha == null || sha.startsWith("ERROR:")) {
                 val reason = sha?.removePrefix("ERROR:")?.take(300) ?: context.getString(R.string.error_engine_no_result_commit)
                 Logger.warn(LogCategory.LOCAL_TASK, "PR一条龙", "提交失败：$branch ← $reason")
-                com.branchbase.ui.task.TaskStore.fail(context, taskId, reason)
-                feedback = context.getString(R.string.error_commit_failed_reason, reason)
+                com.branchbase.ui.task.TaskStore.fail(context, taskId, context.engineErrorOrRaw(reason))
+                feedback = context.getString(R.string.error_commit_failed_reason, context.engineErrorOrRaw(reason))
                 return@launch
             }
             Logger.local("提交成功：$branch @ ${sha.take(7)} · ${files.size} 个文件", "PR一条龙")
@@ -240,8 +242,8 @@ fun PrOnestopScreen(
                 onCreated(context.getString(R.string.state_pr_created_detail, branchName, baseBranch))
             } else {
                 Logger.warn(LogCategory.LOCAL_TASK, "PR一条龙", "创建 PR 失败：$branchName → $baseBranch ← $prErr")
-                com.branchbase.ui.task.TaskStore.fail(context, taskId, prErr)
-                feedback = context.getString(R.string.error_create_pr_failed, prErr)
+                com.branchbase.ui.task.TaskStore.fail(context, taskId, context.engineErrorOrRaw(prErr))
+                feedback = context.getString(R.string.error_create_pr_failed, context.engineErrorOrRaw(prErr))
             }
         }
     }
@@ -493,8 +495,8 @@ fun RepoSettingScreen(
                 feedback = context.getString(R.string.toast_default_branch_switched, b)
                 onFeedback(context.getString(R.string.toast_default_branch_switched, b), false)
             } else {
-                feedback = context.getString(R.string.error_switch_failed, err)
-                onFeedback(context.getString(R.string.error_switch_default_failed, err), true)
+                feedback = context.getString(R.string.error_switch_failed, context.engineErrorOrRaw(err))
+                onFeedback(context.getString(R.string.error_switch_default_failed, context.engineErrorOrRaw(err)), true)
             }
         }
     }
@@ -541,8 +543,8 @@ fun RepoSettingScreen(
                 feedback = context.getString(R.string.toast_branch_deleted, b)
                 onFeedback(context.getString(R.string.toast_branch_deleted, b), false)
             } else {
-                feedback = context.getString(R.string.error_delete_failed, err)
-                onFeedback(context.getString(R.string.error_delete_branch_failed, b, err), true)
+                feedback = context.getString(R.string.error_delete_failed, context.engineErrorOrRaw(err))
+                onFeedback(context.getString(R.string.error_delete_branch_failed, b, context.engineErrorOrRaw(err)), true)
             }
         }
     }
@@ -556,8 +558,8 @@ fun RepoSettingScreen(
                 feedback = context.getString(R.string.state_repo_deleted)
                 onFeedback(context.getString(R.string.toast_repo_deleted, repoName), false)
             } else {
-                feedback = context.getString(R.string.error_delete_failed, err)
-                onFeedback(context.getString(R.string.error_delete_repo_failed, repoName, err), true)
+                feedback = context.getString(R.string.error_delete_failed, context.engineErrorOrRaw(err))
+                onFeedback(context.getString(R.string.error_delete_repo_failed, repoName, context.engineErrorOrRaw(err)), true)
             }
         }
     }
@@ -928,7 +930,7 @@ fun PrMergeScreen(
             if (err != null) {
                 Logger.warn(LogCategory.REMOTE_EXEC, "PR合并", "合并失败：#$prNumber 策略=${methods[strategy]} ← $err")
                 busy = false
-                feedback = context.getString(R.string.error_merge_failed, err)
+                feedback = context.getString(R.string.error_merge_failed, context.engineErrorOrRaw(err))
                 return@launch
             }
             var note = context.getString(R.string.state_merged_pr, prNumber)
@@ -939,7 +941,7 @@ fun PrMergeScreen(
                 if (delErr != null) {
                     partial = true
                     Logger.warn(LogCategory.REMOTE_EXEC, "PR合并", "合并成功但删分支失败：$headBranch ← $delErr")
-                    note += context.getString(R.string.suffix_branch_delete_failed, delErr)
+                    note += context.getString(R.string.suffix_branch_delete_failed, context.engineErrorOrRaw(delErr))
                 } else {
                     Logger.local("已删除 head 分支：$headBranch", "PR合并")
                 }

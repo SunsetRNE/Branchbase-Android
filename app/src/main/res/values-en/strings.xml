@@ -1917,4 +1917,23 @@
     <string name="revert_title_status_unknown">Push state unknown · revert only</string>
     <string name="revert_title_no_upstream">No upstream branch · revert only (cannot tell whether pushed)</string>
     <string name="revert_title_pushed">Pushed commits · history cannot be rewritten</string>
+
+    <!-- Engine errors (`core/EngineError.kt`): one line per stable code; the engine's
+         original text (`detail`) goes to the log only, never to the screen. -->
+    <string name="engine_error_unavailable">Engine component unavailable (native library missing). Reinstall the app and try again; if it still fails, export the log and report it.</string>
+    <string name="engine_error_network">Network request failed: cannot reach the server. Check your connection, proxy, or certificate and try again.</string>
+    <string name="engine_error_http_401">Authorization expired (401). Sign in again.</string>
+    <string name="engine_error_http_403">Not permitted, or rate-limited (403).</string>
+    <string name="engine_error_http_404">Not found (404): it may have been renamed, deleted, or hidden from this authorization.</string>
+    <string name="engine_error_http_409">The resource changed (409). Refresh and try again.</string>
+    <string name="engine_error_http_422">Request rejected (422): GitHub validation failed.</string>
+    <string name="engine_error_http_429">Too many requests (429). Try again later.</string>
+    <string name="engine_error_http_server">Server error (%1$s). Try again later.</string>
+    <string name="engine_error_http">Request failed (%1$s).</string>
+
+    <!-- Why a repository cannot be opened (`ui/repository/RepoAccessHint.kt`). -->
+    <string name="repo_access_hint_404">HTTP 404: GitHub also returns 404 for private repositories you cannot see, so this may be a private repository (invisible to the current authorization), or it may not exist or have been renamed.</string>
+    <string name="repo_access_hint_403">HTTP 403: not permitted, or rate-limited. A fine-grained token without Contents access, an organization SSO authorization that has not been granted, or a secondary rate limit all look like this.</string>
+    <string name="repo_scope_has_repo">This token has repo scope, so permissions are probably not the problem: the repository may not exist, may have been renamed, or the organization may require SSO authorization first.</string>
+    <string name="repo_scope_missing_repo">This token has no repo scope, so private repositories are always invisible; switch to a token that includes repo.</string>
 </resources>

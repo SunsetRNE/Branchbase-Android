@@ -74,7 +74,41 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.16 → 1.0.22）
+## 二、`versionName` 流水（1.4.17 → 1.0.22）
+
+### 1.4.17
+
+**引擎错误本地化第一步：稳定码边界 + 一处解析 + 全部提示点接线。**
+
+引擎的失败一直是以**拼好的文案**回到 Kotlin 的：`api` 层给出 `HTTP 404: {"message":"Not Found"}`、
+`auth` 层给出「认证失败: GitHub 错误 (400): …」、JNI 调用抛异常时给「引擎不可用」。界面层只能原样透出，
+所以英文界面里会看到「未知错误: HTTP 404」这类半中半英的话。更麻烦的是「从文本反推分类」已经散在多处：
+`friendlySearchError`、`repoAccessHint`、`peopleListErrorText`、`AccountStore.HTTP_CODE`、
+`RepoActions`、`BranchSyncScreen` 各写一份正则 —— 引擎一换写法就**静默判错**（例如账号健康检查会把
+401 当成「无法连接」，于是用户被引向错误的出路）。
+
+按 `docs/specs/i18n-migration.md` §14 的迁移顺序做完前两步（Rust 侧换码是第三、四步，另排一版）：
+
+① 新增 `core/EngineError.kt`：`ERROR:<CODE>[:<detail>]` → `EngineError.Coded` / `Raw`；
+`parseEngineError`（纯函数）/ `engineErrorText`（渲染）/ `engineErrorStatus`（只回答状态码）。
+码表先覆盖传输层：`HTTP_<status>`、`NETWORK`、`ENGINE_UNAVAILABLE`；未知码原样透出，不猜。
+**迁移期双读**：新码、`未知错误: HTTP 404 …`、`引擎不可用` 三种写法落到同一结论 —— 所以
+Rust 还没换码时界面就已经是本地化后的文案，换码后调用方不用再改。
+
+② `RustBridge` 的哨兵从 `"引擎不可用"` 改成 `ERROR:ENGINE_UNAVAILABLE`（28 处内联字面量收口到常量），
+所有上屏的失败原因走 `engineErrorText`：三个 toast 出口（仓库页 / issue 页 / 消息页）、
+列表失败态 `ListError`、`Feedback` 与 `TaskStore.fail` 的原因、PR 一条龙 / 同步回退 / 分支同步 /
+合并冲突 / 发布 / 工作流触发等约 40 处。`detail`（GitHub 原话、libgit2 英文）只进日志，不上屏 ——
+上屏等于把刚翻掉的英文又贴回去。
+
+③ 状态码解析只留一处：`friendlySearchError`、`repoAccessHint`、`peopleListErrorText`、
+`AccountStore.statusFromResponse`、`RepoActions`、`BranchSyncScreen` 改调 `engineErrorStatus`。
+顺带把仓库打不开的解释与 scope 判读（4 条）改成 `LocalizedText`：那段话会**上屏**，
+原来在英文界面下整段是中文，且正文里的 `**强调**` 在普通 `Text` 里会把星号画出来。
+
+钉子：`EngineErrorTest`（10 例：新码 / 旧文案双读 / 5xx 与兜底带状态码 / 未知码透出 / 无错误 /
+状态码提取）；`I18nUiTextTest` 新增 14 个键（`engine_error_*` 10 个 + 仓库访问解释 4 个）的中英对照；
+`RepoAccessHintTest` 改断言资源 ID 并补一条「换码之后落到同一条」。
 
 ### 1.4.16
 
@@ -4344,7 +4378,12 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（276 → 129）
+## 三、`versionCode` 流水（277 → 129）
+
+- **277**：引擎错误本地化第一步 —— 新增 `core/EngineError.kt`（`ERROR:<CODE>[:<detail>]` 解析 + 渲染边界，
+  迁移期双读旧文案）；`RustBridge` 哨兵改 `ERROR:ENGINE_UNAVAILABLE`；约 40 处提示点接线；
+  状态码解析收口到 `engineErrorStatus`（6 处各自的正则/contains 删除）；仓库访问解释与 scope 判读改
+  `LocalizedText`（一次提交，故 +1）。
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 

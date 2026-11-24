@@ -1949,4 +1949,30 @@
     <string name="revert_title_status_unknown">推送状态未知 · 只提供 revert</string>
     <string name="revert_title_no_upstream">无上游分支 · 只提供 revert（无法判断已推送）</string>
     <string name="revert_title_pushed">已推送提交 · 不可改写历史</string>
+
+    <!-- ── 引擎错误（`core/EngineError.kt`）──────────────────────────────────────────
+         引擎出错时回的是 `ERROR:<CODE>[:<detail>]`，这里给**码**配文案；`detail` 是原文
+         （GitHub 的 message / libgit2 的英文），只进日志，不上屏 —— 上屏就等于把刚翻掉的英文贴回去。
+
+         为什么按「类」而不是按状态码一条一条列：401 / 403 / 404 / 409 / 422 / 429 各自能行动
+         的事不同（重新登录 / 等一等 / 换令牌 / 刷新），5xx 与其余 4xx 是「稍后重试」，所以
+         5xx 与兜底两条带 `%1$s` = 状态码。迁移方案见 docs/specs/i18n-migration.md §14。 -->
+    <string name="engine_error_unavailable">引擎组件不可用（缺少 native 库）。重装应用后再试；若仍然不行，请导出日志反馈。</string>
+    <string name="engine_error_network">网络请求失败：连不上服务器。检查网络、代理或证书后重试。</string>
+    <string name="engine_error_http_401">授权已失效（401）。请重新登录。</string>
+    <string name="engine_error_http_403">权限不足或被限流（403）。</string>
+    <string name="engine_error_http_404">未找到（404）：可能已改名、已删除，或当前授权看不到。</string>
+    <string name="engine_error_http_409">内容已变化（409）。刷新后重试。</string>
+    <string name="engine_error_http_422">请求被拒绝（422）：GitHub 校验未通过。</string>
+    <string name="engine_error_http_429">请求太频繁（429）。稍后重试。</string>
+    <string name="engine_error_http_server">服务器出错（%1$s）。稍后重试。</string>
+    <string name="engine_error_http">请求失败（%1$s）。</string>
+
+    <!-- 仓库打不开时的解释（`ui/repository/RepoAccessHint.kt`）。
+         404 在 GitHub 上既可能是「私有仓库没权限」也可能是「不存在」，两种可能都要说清；
+         scope 判读是唯一能把两者分开的确定信号。返回 `LocalizedText`，渲染时才解析。 -->
+    <string name="repo_access_hint_404">HTTP 404：GitHub 对无权限的私有仓库也返回 404 —— 可能是私有仓库（当前授权看不到），也可能仓库不存在或已改名</string>
+    <string name="repo_access_hint_403">HTTP 403：权限不足或被限流 —— 细粒度令牌缺 Contents 权限、组织 SSO 未授权、或触发了二级限流都会这样</string>
+    <string name="repo_scope_has_repo">当前令牌有 repo 权限，所以这多半不是权限问题：仓库可能不存在、已改名，或组织要求先授权 SSO。</string>
+    <string name="repo_scope_missing_repo">当前令牌没有 repo 权限 —— 私有仓库必然看不到，用它换一个带 repo 的令牌即可。</string>
 </resources>

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import com.branchbase.core.engineErrorOrRaw
 import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -183,7 +184,7 @@ fun BranchManageScreen(
                 invalidateBranchListCache()
                 reloadKey++
             } else {
-                feedback = Feedback(context.getString(R.string.error_creation_failed, err), ok = false)
+                feedback = Feedback(context.getString(R.string.error_creation_failed, context.engineErrorOrRaw(err)), ok = false)
             }
         }
     }
@@ -200,7 +201,7 @@ fun BranchManageScreen(
                 invalidateBranchListCache()
                 reloadKey++
             } else {
-                feedback = Feedback(context.getString(R.string.error_delete_failed, err), ok = false)
+                feedback = Feedback(context.getString(R.string.error_delete_failed, context.engineErrorOrRaw(err)), ok = false)
             }
         }
     }
@@ -220,7 +221,7 @@ fun BranchManageScreen(
                 invalidateBranchListCache()
                 feedback = Feedback(context.getString(R.string.state_default_branch_changed, name), ok = true)
             } else {
-                feedback = Feedback(context.getString(R.string.error_update_failed_err, err), ok = false)
+                feedback = Feedback(context.getString(R.string.error_update_failed_err, context.engineErrorOrRaw(err)), ok = false)
             }
         }
     }

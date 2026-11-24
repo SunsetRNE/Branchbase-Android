@@ -27,6 +27,8 @@
   （反引号函数名），不是字面量，不参与翻译。
 - 剩余 923 条里 `category=log` 的 206 条**不是欠账**：日志进导出的日志包，是排障产物，
   翻译它反而会让 `tools/perf/frame-baseline.py` 的正则失配。
+- **2026-11-25 起（1.4.17）**：Kotlin 侧的引擎错误文案已收口到 `core/EngineError.kt`
+  （解析 + 渲染边界，见 §14），那一批字面量不再算欠账；`:core` 的 243 条要等 Rust 换码。
 
 ## 二、语言体系（怎么加一种语言）
 
@@ -269,10 +271,12 @@ aapt2 dump resources <apk> | grep -A 2 'string/repo_page_issues'
 改造的入口按「一条链能带出多少」排序：
 
 1. **`:core`（Rust）243 条** —— 最大的一块，集中在 `core/src/git/mod.rs` 与 `core/src/translate/deepseek.rs`。
-   按 §5.4 需先定「结构化错误」方案（Rust 侧返回稳定错误码，Kotlin 侧映射资源）。
-2. **`RustBridge` 的 `"引擎不可用"` 8 处** —— 与上一条同源，返回值类型是 `String?`，要先定结构化错误。
-3. **`LogExporter`(41) / `SigningVerify`(14)** —— §5.4 路径 C′，先枚举化分类。
-4. **其余作用域受限项** —— 逐个走 A′/C′。
+   **方案已定并落地了 Kotlin 侧**（§14：`ERROR:<CODE>[:detail]` + 解析/渲染边界，1.4.17）；
+   剩下的是 Rust 自己逐模块换码，Kotlin 侧不用再改。
+2. ~~`RustBridge` 的 `"引擎不可用"`~~ —— **1.4.17 已改稳定码** `ERROR:ENGINE_UNAVAILABLE`，
+   上屏文案由 `engineErrorText` 在提示边界解析。
+3. ~~`LogExporter`(41) / `SigningVerify`(14)~~ —— 分别在 1.4.5 / 1.4.3 处理（C′）。
+4. **其余作用域受限项** —— 逐个走 A′/C′（含 `RepoAccessHint` 一类「结论型」中文，1.4.17 只做了仓库访问那 4 条）。
 
 > **补翻译表不是这些条目的出路**：`extract.py` 的两个跳过条件是「表里没有」与「作用域不行」，
 > 前者靠补表解决，后者**补表一条也推不动**。动手前先跑一次
@@ -380,62 +384,78 @@ aapt2 dump resources <apk> | grep -A 2 'string/repo_page_issues'
 > 口径仍以 §11 的分档为准；`717 / 923` 是 2026-11-24 第一批之前的快照，
 > 本批之后请以 `tools/i18n/` 的扫描（`category=ui` / `error`）为准，不要引用旧数字。
 
-## 十四、Rust 结构化错误：现状与迁移方案（未实施）
+## 十四、Rust 结构化错误：稳定码与本地化边界
 
-`LogExporter`（1.4.5）之后，`i18n-audit` 里剩下的最大一块是 **`:core` Rust 243 条 +
-`RustBridge` 的 30 处 `"引擎不可用"`**。这一块不能像前面几批那样「把字面量换成资源」，
-因为**返回值类型是 `String`**，错误文案在产生时就被拼好了，解析点散在几十个调用方。
+> **状态（2026-11-25 / 1.4.17）**：Kotlin 侧的两步已落地 —— 解析/渲染边界 + 全部提示点接线；
+> **Rust 侧还没开始换码**（它现在只会给 `HTTP <status>` 与中文文案，两者都能被双读认出来）。
+> 下面先写「现在是怎么工作的」，再写「剩下三块怎么接着做」。
 
-### 现状（三个事实）
+### 14.1 现在怎么工作
 
-1. **Rust 侧**返回 `ERROR:<文本>`：`api` 层把 HTTP 状态与 GitHub 原话拼进去
-   （`ERROR:HTTP 404: {"message":"Not Found"}`），`git` 层返回中文（「不是 git 仓库」等）。
-2. **Kotlin `RustBridge`** 在 JNI 调用失败时返回常量 `"引擎不可用"`（30 处），
-   调用方一律把它当「可以给用户看的一句话」直接 toast / `Text`。
-3. **已经有一层分类**：`friendlySearchError`（1.4.4）、`repoAccessHint`、`repoRelationOf`、
-   `classifyOAuthFailure` 各自从原始串里认状态码 —— 说明「从文本反推分类」已经发生过多次，
-   每次都要重写一份正则。
+引擎的失败仍然以 `String` 回到 Kotlin，但**含义被收进了稳定码**：
 
-### 方案（两步，按顺序做）
-
-**第一步：S 侧只加「稳定码」，不改现有文案。**
-
-Rust 返回 `ERROR:<CODE>[:<detail>]`，`CODE` 是全大写 ASCII 的稳定标识
-（`ENGINE_UNAVAILABLE` / `HTTP_404` / `AUTH_INVALID` / `RATE_LIMITED` / `NOT_GIT_REPO` …），
-`detail` 保留**原文**（GitHub 的 `message`、libgit2 的英文错误），供诊断与透出。
-未知 `CODE` 一律原样透出，不许猜。日志仍按 §7 记中文锚点，不参与翻译。
-
-**第二步：Kotlin 边界统一解析。**
-
-```kotlin
-sealed interface EngineError {
-    data class Coded(@StringRes val res: Int, val args: List<Any>) : EngineError
-    data class Raw(val text: String) : EngineError      // 未知码 / GitHub 原话，原样透出
-}
-
-internal fun parseEngineError(raw: String?): EngineError?   // 纯函数，可 JVM 单测
-internal fun engineErrorText(context: Context, raw: String?): String?  // 渲染/提示边界用
+```text
+ERROR:<CODE>[:<detail>]
 ```
 
-- `parseEngineError` 只认 `ERROR:<CODE>`，并兼容现有 `HTTP 404` 这类写法（迁移期双读）；
-- 调用方把 `toast(err)` / `Text(err)` 换成 `engineErrorText(context, raw)`，
-  一次接线覆盖所有点；`RustBridge` 的哨兵同时改成 `ERROR:ENGINE_UNAVAILABLE`；
-- 单测断言 **CODE + 参数**，不钉中文（§9 的教训）；
-- 最后再评估是否把 `RustBridge` 的返回类型从 `String?` 收窄成 `Result<T, EngineError>`
-  （收益大但改动面也大，单独一版）。
+- `CODE` 是全大写 ASCII 的稳定标识（`HTTP_404` / `NETWORK` / `ENGINE_UNAVAILABLE` …）；
+- `detail` 是原文（GitHub 的 `message`、libgit2 的英文错误、旧的中文文案），**只进日志与排障，不上屏**；
+- 未知 `CODE` **原样透出**，不猜 —— 猜错比不翻更坏（§9「用文案猜语气」）。
 
-### 为什么不能直接翻译 Rust 文案
+Kotlin 侧只有三个入口（`app/src/main/java/com/branchbase/core/EngineError.kt`）：
+
+| 入口 | 用途 |
+|---|---|
+| `parseEngineError(raw)` | 纯函数：`Coded(code, res, args, detail)` / `Raw(text)`；`null` = 本来没有错误 |
+| `engineErrorText(context, raw)` | 提示边界渲染成当前界面语言；`Context.engineErrorOrRaw(raw)` 是「一定有值」的版本 |
+| `engineErrorStatus(raw)` | 只回答「HTTP 状态码是多少」，业务判断仍归调用方 |
+
+**迁移期双读**（这是这一版能安全落地的关键）：解析器同时认
+
+- 新码：`ERROR:HTTP_404:…`（也认 `RustBridge.err` 剥过前缀后的 `HTTP_404:…`）；
+- 旧文案：`未知错误: HTTP 404 Not Found` / `HTTP 403 Forbidden: …`；
+- 旧哨兵：`引擎不可用`（它与新码 `ENGINE_UNAVAILABLE` 落到同一条）。
+
+所以「Rust 还没换码」的窗口里界面不会退回英文原话；Rust 换码后也不需要再改调用方。
+
+### 14.2 提示边界接在哪
+
+一遍接线覆盖所有来源（调用方不需要判断现在是哪一代引擎）：
+
+| 边界 | 位置 |
+|---|---|
+| 三个 toast 出口 | 仓库页 / issue 页 / 消息页各自的局部 `toast()` —— 全部动作反馈都从这里出 |
+| 列表失败态 | `RepositoryListScreens.ListError`（`message` 上屏时解析，日志与 `onAccessDenied` 仍拿原文） |
+| 任务与反馈行 | `Feedback(...)` 的失败原因、`TaskStore.fail(...)` 的原因、`failureMessage(action, reason)` |
+| 决策 / 冲突页 | PR 一条龙、同步回退、分支同步、合并冲突（占我方的 / 手工解决 / 提交合并 / 放弃） |
+| 发布 / 工作流 | 删除 release、触发工作流（后者的 422 提示同时改判 `engineErrorStatus`） |
+
+**状态码解析只留一处**：`friendlySearchError`、`repoAccessHint`、`peopleListErrorText`、
+`AccountStore.statusFromResponse`、`RepoActions`（复刻关系 / 仓库是否存在）、`BranchSyncScreen`
+都改用 `engineErrorStatus`。这不是洁癖 —— 引擎换成 `HTTP_401` 之后，原来那些
+`contains("401")` / `Regex("HTTP (\d{3})")` 会**静默判错**：账号健康检查会把「令牌失效」当成
+「无法连接」，用户拿到的出路是错的。
+
+### 14.3 为什么不能直接翻译 Rust 文案
 
 - Rust 里很多错误串同时进**日志**（§7 固定中文）与**界面**，两边口径不同；
 - 同一句 `ERROR:` 里混着 GitHub 原话（如 422 的 `Validation Failed`），翻译会吞掉可行动信息；
 - `tools/perf` 与若干测试按中文锚点匹配 Rust 输出，翻文案会连带打断报表。
 
-### 迁移顺序（建议）
+所以 Rust 侧**不改现有文案**，只加码：`detail` 保留原文，日志锚点不动。
 
-1. 新 `EngineError` + `parseEngineError` + 资源 + 单测（**不改调用方**）；
-2. 在提示边界接线（toast / 错误行），先覆盖高频页：仓库页 / 登录 / 本地 git；
-3. 再把 Rust 侧逐模块换成稳定码（`api` → `git` → `translate`）；
-4. 收尾删除 `RustBridge` 的 `ENGINE_UNAVAILABLE` 常量与中文兜底。
+### 14.4 剩下三块（下一版起，按序）
 
-> 这一节是**方案**，不是已完成项。在它落地前，`i18n-audit` 里 `:core` 与
-> `RustBridge` 的中文仍会被报出来 —— 属于「需接口改造」，不是漏做。
+1. **`api` 层换码**：`CoreError` 增加 `Coded { code, detail }`，`api/client.rs` 的
+   `HTTP {status}: {text}` 改为 `HTTP_<status>`（`into_jstring` 输出新格式）；`reqwest` 传输失败 →
+   `NETWORK`。改完 `HTTP_<status>` 路径才算真正换码，Kotlin 侧**不需要改**；
+2. **`git` 层换码**（最大一块，243 条中文）：`NOT_GIT_REPO` / `CLONE_FAILED` / `MERGE_CONFLICT` …
+   逐条定码；`nff:` 前缀**保留**（它是分叉决策页的触发信号，见 `local-git-engine-design.md` §4），
+   只在前面加码：`ERROR:NFF:…`；Kotlin 的三处 `startsWith("ERROR:nff")` 与
+   `docs/specs/local-git-engine-design.md` §4 要同一版改；
+3. **`auth` / `translate` 换码**：OAuth 的 `认证失败: GitHub 错误 (400): …` 仍是中文，
+   `classifyOAuthFailure` 还在从正文里找 `incorrect_client_credentials`；换码后由
+   `AUTH_*` 直接给结论，`TranslateEngine.classify` 的中文匹配同理。
+
+收尾（属于第 3 块）：删掉 `RustBridge` 里已无引用的中文兜底、以及解析器里的旧文案分支 ——
+那之前**不要**删，双读是迁移期的安全网。

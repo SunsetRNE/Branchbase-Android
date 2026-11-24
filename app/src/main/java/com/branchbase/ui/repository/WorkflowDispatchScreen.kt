@@ -48,6 +48,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
+import com.branchbase.core.engineErrorStatus
+import com.branchbase.core.engineErrorOrRaw
 import com.branchbase.R
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.theme.iconTap
@@ -157,8 +159,8 @@ fun WorkflowDispatchScreen(
                 delay(1200)
                 onDispatched()
             } else {
-                error = context.getString(R.string.error_trigger_failed, err) +
-                    if (err.contains("422") || err.contains("Unprocessable")) {
+                error = context.getString(R.string.error_trigger_failed, context.engineErrorOrRaw(err)) +
+                    if (err.contains("422") || err.contains("Unprocessable") || engineErrorStatus(err) == 422) {
                         context.getString(R.string.error_workflow_dispatch_hint)
                     } else {
                         ""

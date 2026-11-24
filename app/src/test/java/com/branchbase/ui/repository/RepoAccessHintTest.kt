@@ -1,10 +1,11 @@
 package com.branchbase.ui.repository
 
+import com.branchbase.R
+
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -20,15 +21,19 @@ class RepoAccessHintTest {
 
     @Test
     fun `404 要说明歧义而不是断言私有`() {
-        val hint = repoAccessHint("HTTP 404 Not Found: {\"message\":\"Not Found\"}")!!
-        assertTrue("要点出 404 的两种可能：$hint", hint.contains("私有仓库") && hint.contains("不存在"))
+        // 钉资源 ID + 参数（文案会搬家、会翻译）：两条提示分别是「私有仓库 / 不存在」与
+        // 「权限 / 限流」，认错会让用户按错误的办法行动。
+        assertEquals(
+            R.string.repo_access_hint_404,
+            repoAccessHint("HTTP 404 Not Found: {\"message\":\"Not Found\"}")!!.res,
+        )
+        // 换码之后（`ERROR:HTTP_404:…`）必须落到同一条
+        assertEquals(R.string.repo_access_hint_404, repoAccessHint("ERROR:HTTP_404: Not Found")!!.res)
     }
 
     @Test
     fun `403 提示权限与限流两类原因`() {
-        val hint = repoAccessHint("HTTP 403 Forbidden: {}")!!
-        assertTrue(hint.contains("SSO") || hint.contains("SSO 未授权"))
-        assertTrue(hint.contains("限流") || hint.contains("二级限流"))
+        assertEquals(R.string.repo_access_hint_403, repoAccessHint("HTTP 403 Forbidden: {}")!!.res)
     }
 
     @Test
@@ -44,7 +49,7 @@ class RepoAccessHintTest {
     fun `有 repo 权限要明确说不是权限问题`() {
         assertEquals(ScopeVerdict.HAS_REPO, scopeVerdict("repo, read:user"))
         assertEquals(ScopeVerdict.HAS_REPO, scopeVerdict("REPO"))
-        assertTrue(scopeVerdictLine(ScopeVerdict.HAS_REPO)!!.contains("不是权限问题"))
+        assertEquals(R.string.repo_scope_has_repo, scopeVerdictLine(ScopeVerdict.HAS_REPO)!!.res)
     }
 
     @Test
@@ -52,7 +57,7 @@ class RepoAccessHintTest {
         assertEquals(ScopeVerdict.MISSING_REPO, scopeVerdict("read:user, gist"))
         // public_repo 只覆盖公开仓库，不算够用
         assertEquals(ScopeVerdict.MISSING_REPO, scopeVerdict("public_repo"))
-        assertTrue(scopeVerdictLine(ScopeVerdict.MISSING_REPO)!!.contains("没有"))
+        assertEquals(R.string.repo_scope_missing_repo, scopeVerdictLine(ScopeVerdict.MISSING_REPO)!!.res)
     }
 
     @Test

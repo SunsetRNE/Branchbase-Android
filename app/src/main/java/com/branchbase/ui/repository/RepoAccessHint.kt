@@ -1,5 +1,9 @@
 package com.branchbase.ui.repository
 
+import com.branchbase.R
+import com.branchbase.core.engineErrorStatus
+import com.branchbase.ui.LocalizedText
+
 /**
  * 仓库打不开时，从引擎的错误串里读出**该怎么理解**（纯函数，可单测）。
  *
@@ -13,13 +17,14 @@ package com.branchbase.ui.repository
  * 重新授权补 `repo` 权限 / 在浏览器打开）由调用方按 [RepoAccessHint] 给出的方向去呈现。
  *
  * 返回 null = 不是「打不开仓库」这一类错误（网络失败、限流、引擎不可用…），交给既有提示。
+ *
+ * 返回 [LocalizedText] 而不是 `String`：这段话会**上屏**（列表失败态），写死中文的话
+ * 英文界面下整段仍是中文。原文里的 `**强调**` 也一并去掉了 —— 它渲染在普通 `Text` 里，
+ * 星号会原样显示出来。
  */
-internal fun repoAccessHint(error: String?): String? = when {
-    error == null -> null
-    error.contains("HTTP 404") ->
-        "HTTP 404：GitHub 对无权限的私有仓库也返回 404 —— 可能是**私有仓库**（当前授权看不到），也可能仓库不存在或已改名"
-    error.contains("HTTP 403") ->
-        "HTTP 403：权限不足或被限流 —— 细粒度令牌缺 Contents 权限、组织 SSO 未授权、或触发了二级限流都会这样"
+internal fun repoAccessHint(error: String?): LocalizedText? = when (engineErrorStatus(error)) {
+    404 -> LocalizedText(R.string.repo_access_hint_404)
+    403 -> LocalizedText(R.string.repo_access_hint_403)
     else -> null
 }
 
@@ -58,10 +63,8 @@ internal fun scopeVerdict(raw: String?): ScopeVerdict {
 }
 
 /** 把判读结果写成给用户看的一句话（`null` = 不额外说明，保留 [repoAccessHint] 的原文）。 */
-internal fun scopeVerdictLine(verdict: ScopeVerdict): String? = when (verdict) {
-    ScopeVerdict.HAS_REPO ->
-        "当前令牌**有** repo 权限，所以这多半不是权限问题：仓库可能不存在、已改名，或组织要求先授权 SSO。"
-    ScopeVerdict.MISSING_REPO ->
-        "当前令牌**没有** repo 权限 —— 私有仓库必然看不到，用它换一个带 repo 的令牌即可。"
+internal fun scopeVerdictLine(verdict: ScopeVerdict): LocalizedText? = when (verdict) {
+    ScopeVerdict.HAS_REPO -> LocalizedText(R.string.repo_scope_has_repo)
+    ScopeVerdict.MISSING_REPO -> LocalizedText(R.string.repo_scope_missing_repo)
     ScopeVerdict.UNKNOWN -> null
 }

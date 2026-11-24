@@ -235,6 +235,14 @@ class I18nUiTextTest {
             "commit_mode_drawer_title", "commit_mode_drawer_current",
             "commit_mode_drawer_body_single_file", "commit_mode_drawer_body_multi_file",
             "commit_mode_drawer_body_local_repo", "commit_mode_drawer_footnote",
+            // 引擎错误的稳定码文案（`core/EngineError.kt`；detail 原文只进日志、不上屏）
+            "engine_error_unavailable", "engine_error_network",
+            "engine_error_http_401", "engine_error_http_403", "engine_error_http_404",
+            "engine_error_http_409", "engine_error_http_422", "engine_error_http_429",
+            "engine_error_http_server", "engine_error_http",
+            // 仓库打不开的解释（404 歧义 / 403 权限与限流 / 令牌 scope 判读）
+            "repo_access_hint_404", "repo_access_hint_403",
+            "repo_scope_has_repo", "repo_scope_missing_repo",
         ).forEach { key ->
             val z = value(zh, key)
             val e = value(en, key)

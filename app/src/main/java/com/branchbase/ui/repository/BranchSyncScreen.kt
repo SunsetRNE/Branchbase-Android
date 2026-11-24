@@ -47,6 +47,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.core.engineErrorOrRaw
+import com.branchbase.core.engineErrorStatus
 import com.branchbase.R
 import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
@@ -275,9 +277,9 @@ fun BranchSyncScreen(
             feedback = when {
                 result == null -> context.getString(R.string.state_synced_from_to, src, dst)
                 result == "uptodate" -> context.getString(R.string.state_target_up_to_date)
-                result.contains("409") || result.contains("conflict", true) ->
-                    context.getString(R.string.error_merge_conflicts, result)
-                else -> context.getString(R.string.error_sync_failed, result)
+                engineErrorStatus(result) == 409 || result.contains("conflict", true) ->
+                    context.getString(R.string.error_merge_conflicts, context.engineErrorOrRaw(result))
+                else -> context.getString(R.string.error_sync_failed, context.engineErrorOrRaw(result))
             }
         }
     }

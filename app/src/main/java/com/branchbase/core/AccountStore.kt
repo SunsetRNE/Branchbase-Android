@@ -480,7 +480,9 @@ object AccountStore {
     fun statusFromResponse(result: String?): AccountStatus {
         if (result == null) return AccountStatus.UNREACHABLE
         if (!result.startsWith("ERROR:")) return AccountStatus.OK
-        val code = HTTP_CODE.find(result)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        // 状态码只解析一处（`engineErrorStatus` 同时认 `HTTP_401` 新码与 `HTTP 401` 旧文案）。
+        // 认不出 → 0，`checkStatusFromResponse` 按「无法连接」处理。
+        val code = engineErrorStatus(result) ?: 0
         return checkStatusFromResponse(code, result)
     }
 
@@ -489,8 +491,6 @@ object AccountStore {
         if (result == null || result.startsWith("ERROR:")) null
         else JSONObject(result).optString("login").takeIf { it.isNotBlank() }
     }.getOrNull()
-
-    private val HTTP_CODE = Regex("HTTP (\\d{3})")
 
     // ───────────────────────── 内部 ─────────────────────────
 

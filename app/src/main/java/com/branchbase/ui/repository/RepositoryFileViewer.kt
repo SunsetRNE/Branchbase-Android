@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import com.branchbase.core.engineErrorOrRaw
 import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
@@ -375,8 +376,9 @@ fun FileViewerScreen(
                 feedback = Feedback(context.getString(R.string.state_committed_files_only, files.size), ok = true)
             } else {
                 val reason = result?.removePrefix("ERROR:") ?: context.getString(R.string.error_commit_failed)
-                com.branchbase.ui.task.TaskStore.fail(context, taskId, reason)
-                feedback = Feedback(context.getString(R.string.error_commit_failed_reason, reason), ok = false)
+                val localized = context.engineErrorOrRaw(reason)
+                com.branchbase.ui.task.TaskStore.fail(context, taskId, localized)
+                feedback = Feedback(context.getString(R.string.error_commit_failed_reason, localized), ok = false)
             }
             submitting = false
         }
@@ -398,7 +400,11 @@ fun FileViewerScreen(
             if (result != null && !result.startsWith("ERROR:")) {
                 com.branchbase.ui.task.TaskStore.success(context, taskId, context.getString(R.string.state_put_contents_ok))
             } else {
-                com.branchbase.ui.task.TaskStore.fail(context, taskId, result?.removePrefix("ERROR:") ?: context.getString(R.string.error_commit_failed))
+                com.branchbase.ui.task.TaskStore.fail(
+                    context,
+                    taskId,
+                    context.engineErrorOrRaw(result?.removePrefix("ERROR:") ?: context.getString(R.string.error_commit_failed)),
+                )
             }
             submitting = false
             if (result != null && !result.startsWith("ERROR:")) {

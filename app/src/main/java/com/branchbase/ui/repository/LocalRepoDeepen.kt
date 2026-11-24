@@ -10,6 +10,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import com.branchbase.core.engineErrorOrRaw
 import com.branchbase.R
 import com.branchbase.core.CloneProgress
 import com.branchbase.core.RustBridge
@@ -128,9 +129,9 @@ internal class LocalDeepenRunner internal constructor(
                         Logger.remote("git 加深 $repo 历史已取消", "libgit2")
                     }
                     else -> {
-                        TaskStore.fail(context, taskId, failure)
+                        TaskStore.fail(context, taskId, context.engineErrorOrRaw(failure))
                         Logger.remote("git 加深 $repo 历史失败：$failure", "libgit2")
-                        error = failure
+                        error = context.engineErrorOrRaw(failure)
                     }
                 }
                 cancelling = false

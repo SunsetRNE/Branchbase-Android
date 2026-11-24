@@ -1,6 +1,7 @@
 package com.branchbase.ui.repository
 
 import android.content.Context
+import com.branchbase.core.engineErrorStatus
 import com.branchbase.R
 import com.branchbase.cache.PreloadStore
 import com.branchbase.cache.SearchCacheDatabase
@@ -177,7 +178,7 @@ object RepoActions {
             attempted = true
             val (parentOwner, parentName) = parts
             val raw = RustBridge.getJson(host, token, "/repos/$parentOwner/$parentName")
-            denied = raw != null && raw.startsWith("ERROR:") && raw.contains("404")
+            denied = raw != null && raw.startsWith("ERROR:") && engineErrorStatus(raw) == 404
             upstream = raw?.takeIf { !it.startsWith("ERROR:") }?.let { parseRepoInfo(it) }
         }
 
@@ -317,7 +318,7 @@ object RepoActions {
         val res = RustBridge.getJson(host, token, "/repos/$owner/$name")
         return when {
             res == null -> null
-            res.startsWith("ERROR:") -> if (res.contains("404")) false else null
+            res.startsWith("ERROR:") -> if (engineErrorStatus(res) == 404) false else null
             else -> true
         }
     }

@@ -1,6 +1,7 @@
 package com.branchbase.ui.search
 
 import androidx.annotation.StringRes
+import com.branchbase.core.engineErrorStatus
 import com.branchbase.R
 import com.branchbase.ui.LocalizedText
 
@@ -68,21 +69,25 @@ internal fun searchCacheKey(type: SearchType, query: String, sortKey: String, lo
  */
 internal fun friendlySearchError(raw: String?): LocalizedText {
     val msg = raw.orEmpty()
+    // 状态码走唯一一处解析（`engineErrorStatus` 同时认新码与旧文案），不在本函数里再写一份
+    // 「contains("403")」—— 那既会把正文里的数字当成状态码，也会在引擎换码后静默失效。
+    val status = engineErrorStatus(msg)
     return when {
-        msg.contains("rate limit", ignoreCase = true) ||
-            msg.contains("secondary rate", ignoreCase = true) ||
-            msg.contains("429") ||
-            msg.contains("403") -> LocalizedText(R.string.search_error_rate_limited)
+        status == 429 || status == 403 ||
+            msg.contains("rate limit", ignoreCase = true) ||
+            msg.contains("secondary rate", ignoreCase = true) ->
+            LocalizedText(R.string.search_error_rate_limited)
 
         // 422 里有一类是「翻到底了」：GitHub 只提供前 1000 条搜索结果，
         // 再往下翻会返回这条 message。把它当成语法错误会让用户白改筛选。
         searchResultCapReached(msg) -> LocalizedText(R.string.search_error_cap_reached)
 
-        msg.contains("422") || msg.contains("Validation Failed", ignoreCase = true) ||
+        status == 422 ||
+            msg.contains("Validation Failed", ignoreCase = true) ||
             msg.contains("validation failed", ignoreCase = true) ->
             LocalizedText(R.string.search_error_validation)
 
-        msg.contains("401") || msg.contains("Bad credentials", ignoreCase = true) ->
+        status == 401 || msg.contains("Bad credentials", ignoreCase = true) ->
             LocalizedText(R.string.search_error_unauthorized)
 
         msg.isBlank() -> LocalizedText(R.string.search_error_no_response)

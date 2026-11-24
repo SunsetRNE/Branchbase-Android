@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.core.engineErrorOrRaw
 import com.branchbase.R
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
@@ -122,8 +123,8 @@ fun ProfileEditScreen(
                 feedback = Feedback(context.getString(R.string.state_saved), ok = true)
                 onSaved()
             } else {
-                TaskStore.fail(context, taskId, err)
-                feedback = Feedback(context.getString(R.string.error_save_failed, err), ok = false)
+                TaskStore.fail(context, taskId, context.engineErrorOrRaw(err))
+                feedback = Feedback(context.getString(R.string.error_save_failed, context.engineErrorOrRaw(err)), ok = false)
             }
         }
     }

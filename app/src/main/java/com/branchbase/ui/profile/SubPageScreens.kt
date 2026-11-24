@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import com.branchbase.core.engineErrorOrRaw
 import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import com.branchbase.ui.resolve
 import androidx.compose.foundation.lazy.items
@@ -1251,7 +1252,10 @@ fun LocalRepoScreen(
             when (pullResult) {
                 null -> { TaskStore.success(context, taskId, context.getString(R.string.state_updated)); feedback = context.getString(R.string.toast_updated, name) }
                 "nff" -> { TaskStore.fail(context, taskId, context.getString(R.string.state_diverged_needs_decision)); page = LocalPage.Fork(name) }
-                else -> { TaskStore.fail(context, taskId, pullResult); feedback = context.getString(R.string.error_update_failed, pullResult) }
+                else -> {
+                    TaskStore.fail(context, taskId, context.engineErrorOrRaw(pullResult))
+                    feedback = context.getString(R.string.error_update_failed, context.engineErrorOrRaw(pullResult))
+                }
             }
         }
     }
@@ -1269,7 +1273,10 @@ fun LocalRepoScreen(
             when (pushResult) {
                 null -> { TaskStore.success(context, taskId, context.getString(R.string.toast_pushed_branch, st.branch)); feedback = context.getString(R.string.toast_pushed, name) }
                 "nff" -> { TaskStore.fail(context, taskId, context.getString(R.string.state_push_rejected)); page = LocalPage.Fork(name) }
-                else -> { TaskStore.fail(context, taskId, pushResult); feedback = context.getString(R.string.error_push_failed, pushResult) }
+                else -> {
+                    TaskStore.fail(context, taskId, context.engineErrorOrRaw(pushResult))
+                    feedback = context.getString(R.string.error_push_failed, context.engineErrorOrRaw(pushResult))
+                }
             }
         }
     }
@@ -1512,7 +1519,7 @@ fun LocalRepoScreen(
                         if (branchDirty > 0) {
                             val discardErr = withContext(Dispatchers.IO) { RustBridge.discardAllChanges(dirOf(p.name)) }
                             if (discardErr != null) {
-                                branchError = discardErr
+                                branchError = context.engineErrorOrRaw(discardErr)
                                 branchBusy = false
                                 return@launch
                             }
@@ -1524,7 +1531,7 @@ fun LocalRepoScreen(
                             feedback = context.getString(R.string.toast_switched, target)
                             page = LocalPage.List
                         } else {
-                            branchError = err
+                            branchError = context.engineErrorOrRaw(err)
                         }
                     }
                 },
@@ -1539,7 +1546,7 @@ fun LocalRepoScreen(
                             feedback = context.getString(R.string.toast_deleted_branch, target)
                             reloadKey++
                         } else {
-                            branchError = err
+                            branchError = context.engineErrorOrRaw(err)
                         }
                     }
                 },
@@ -1556,7 +1563,7 @@ fun LocalRepoScreen(
                             feedback = context.getString(R.string.toast_created_and_switched, newBranch)
                             page = LocalPage.List
                         } else {
-                            branchError = err
+                            branchError = context.engineErrorOrRaw(err)
                         }
                     }
                 },
@@ -1635,9 +1642,9 @@ fun LocalRepoScreen(
                 }
                 // 失败：弹窗停在失败态把原因摊开（不再走三秒就消失的 Snackbar）
                 else -> {
-                    TaskStore.fail(context, taskId, error)
+                    TaskStore.fail(context, taskId, context.engineErrorOrRaw(error))
                     Logger.remote("git clone $fullName 失败：$error", "libgit2")
-                    cloneError = error
+                    cloneError = context.engineErrorOrRaw(error)
                 }
             }
             cloneProgress = null

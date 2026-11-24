@@ -18,6 +18,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.branchbase.core.engineErrorOrRaw
 import com.branchbase.R
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.LogCategory
@@ -151,9 +152,10 @@ internal fun CoroutineScope.runMerge(
             is MergeOutcome.Failed -> {
                 // 引擎原话优先；`null` = 结果看不懂（那时用资源文案，别在这里写死中文）
                 val reason = outcome.reason ?: context.getString(R.string.error_merge_bad_result)
-                TaskStore.fail(context, taskId, reason)
+                // 任务里存的是**已本地化**的原因（引擎原话只进上面那行日志）
+                TaskStore.fail(context, taskId, context.engineErrorOrRaw(reason))
                 Logger.warn(LogCategory.LOCAL_TASK, MERGE_LOG_TAG, "$MERGE_LOG_TAG ▸ $repoName：$target 未执行 —— $reason")
-                onFeedback(reason, false)
+                onFeedback(context.engineErrorOrRaw(reason), false)
             }
         }
         flow.running = false
@@ -183,7 +185,7 @@ internal fun CoroutineScope.runMergeAbort(
             onFeedback(context.getString(R.string.toast_merge_aborted), true)
         } else {
             Logger.warn(LogCategory.LOCAL_TASK, MERGE_LOG_TAG, "$MERGE_LOG_TAG ▸ $repoName：放弃合并失败 —— $reason")
-            onFeedback(reason, false)
+            onFeedback(context.engineErrorOrRaw(reason), false)
         }
         onChanged()
     }

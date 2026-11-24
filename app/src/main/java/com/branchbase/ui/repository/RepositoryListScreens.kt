@@ -59,6 +59,8 @@ import com.branchbase.cache.PreloadStore
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
+import com.branchbase.core.engineErrorStatus
+import com.branchbase.core.engineErrorText
 import kotlinx.coroutines.async
 import com.branchbase.ui.LocalizedText
 import com.branchbase.ui.log.LogCategory
@@ -147,13 +149,21 @@ internal fun ListError(message: String, onRetry: () -> Unit) {
     ) {
         Text(stringResource(R.string.error_load_failed), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
         Spacer(Modifier.height(4.dp))
-        Text(message, fontSize = 12.sp, color = Primer.TextTertiary)
+        // 显示边界：`message` 是引擎/网络的原始错误串（`HTTP 404: …` / 中文 / 稳定码），
+        // 在渲染这一帧翻成当前界面语言 —— 上一层的逻辑（日志、onAccessDenied）仍然拿原文。
+        Text(
+            engineErrorText(LocalContext.current, message) ?: message,
+            fontSize = 12.sp,
+            color = Primer.TextTertiary,
+        )
 
         // 打不开仓库（404/403）时给「解释 + 出路」：只给原始错误串，用户只能猜
         val actions = LocalRepoAccessActions.current
-        val hint = repoAccessHint(message)
-        if (hint != null && actions != null) {
-            var scopeLine by remember(message) { mutableStateOf<String?>(null) }
+        val hintText = repoAccessHint(message)
+        if (hintText != null && actions != null) {
+            val context = LocalContext.current
+            val hint = hintText.resolve(context)
+            var scopeLine by remember(message) { mutableStateOf<LocalizedText?>(null) }
             LaunchedEffect(message) {
                 // 上报一次：账号在这个仓库上被拒 —— 仓库页可能因此回退到仓库级凭据
                 actions.onAccessDenied(message)
@@ -171,7 +181,7 @@ internal fun ListError(message: String, onRetry: () -> Unit) {
             scopeLine?.let {
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    it,
+                    it.resolve(context),
                     fontSize = 12.sp,
                     color = Primer.TextSecondary,
                     textAlign = TextAlign.Center,
@@ -1248,12 +1258,12 @@ internal fun peopleListErrorText(type: String, rawError: String): LocalizedText 
     // 主体作为**嵌套参数**传进去：中文是「GitHub 已把星标者 列表…」，
     // 英文语序不同，交给资源的 %1$s 决定位置，不在代码里拼句子。
     val subject = LocalizedText(subjectRes)
-    val code = Regex("HTTP (\\d{3})").find(rawError)?.groupValues?.get(1)
+    // 状态码只解析一处（`engineErrorStatus`：新码与旧文案都认），不再在本函数里手写正则
+    val status = engineErrorStatus(rawError)
     return when {
-        rawError.contains("403") || code == "403" ->
-            LocalizedText(R.string.error_people_list_restricted, listOf(subject))
-        rawError.contains("404") || code == "404" -> LocalizedText(R.string.error_repo_not_found_or_forbidden)
-        rawError.contains("429") || rawError.contains("rate limit", ignoreCase = true) ->
+        status == 403 -> LocalizedText(R.string.error_people_list_restricted, listOf(subject))
+        status == 404 -> LocalizedText(R.string.error_repo_not_found_or_forbidden)
+        status == 429 || rawError.contains("rate limit", ignoreCase = true) ->
             LocalizedText(R.string.error_rate_limited)
         else -> LocalizedText(
             R.string.error_people_list_load_failed,
@@ -1343,7 +1353,7 @@ private fun loadFailure(
 ): String {
     val raw = error ?: context.getString(R.string.error_load_failed)
     repoAccessHint(raw)?.let { hint ->
-        Logger.warn(LogCategory.NETWORK, "私有仓库", "${page}页 $owner/$repo 打不开 —— $hint")
+        Logger.warn(LogCategory.NETWORK, "私有仓库", "${page}页 $owner/$repo 打不开 —— ${hint.resolve(context)}")
     }
     return raw
 }
