@@ -227,6 +227,9 @@ class I18nUiTextTest {
             "log_export_empty", "log_export_denied_uri", "log_export_open_stream_failed",
             "log_export_need_permission", "log_export_mkdir_failed", "log_export_security",
             "log_export_io_failed", "log_export_io_unknown", "log_export_failed",
+            // 关注设置抽屉 / 复刻对话框（此前写死英文，中文界面下显示英文）
+            "watch_sheet_title", "fork_sheet_title", "fork_sheet_owner",
+            "fork_sheet_name", "fork_sheet_default_only", "fork_sheet_create",
         ).forEach { key ->
             val z = value(zh, key)
             val e = value(en, key)

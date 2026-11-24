@@ -1789,6 +1789,14 @@
     <string name="watch_error_custom_needs_web_login">自定义通知需要先登录 GitHub 网页会话</string>
     <string name="watch_error_limit_exceeded">通知订阅数量已达上限</string>
     <string name="watch_error_forbidden">没有权限修改该仓库的通知设置</string>
+    <!-- 关注设置抽屉与复刻对话框的标题 / 字段名（2026-11-24 前这两处写死英文，
+         中文界面里显示 Create a new fork / Owner —— 与「界面跟语言走」相反）。 -->
+    <string name="watch_sheet_title">通知设置</string>
+    <string name="fork_sheet_title">新建复刻</string>
+    <string name="fork_sheet_owner">所属账户</string>
+    <string name="fork_sheet_name">仓库名</string>
+    <string name="fork_sheet_default_only">只复制默认分支</string>
+    <string name="fork_sheet_create">创建复刻</string>
 
     <!-- 关于页的开源协议与第三方声明入口（真源在仓库根 LICENSE / THIRD-PARTY-NOTICES.md）。 -->
     <string name="label_open_source_license">开源协议</string>

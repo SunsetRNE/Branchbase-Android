@@ -103,7 +103,7 @@ fun WatchPanelSheet(
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 10.dp),
         ) {
-            Text("Notification settings", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
+            Text(stringResource(R.string.watch_sheet_title), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
             Spacer(Modifier.height(2.dp))
             Text(
                 buildString {
@@ -332,7 +332,7 @@ fun ForkSheet(
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 12.dp),
         ) {
-            Text("Create a new fork", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
+            Text(stringResource(R.string.fork_sheet_title), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
             Spacer(Modifier.height(2.dp))
             Text(
                 stringResource(R.string.note_fork_into_account, sourceOwner, repoName),
@@ -341,7 +341,7 @@ fun ForkSheet(
             )
             Spacer(Modifier.height(14.dp))
 
-            FieldLabel("Owner")
+            FieldLabel(stringResource(R.string.fork_sheet_owner))
             Box {
                 Row(
                     Modifier
@@ -367,7 +367,7 @@ fun ForkSheet(
             }
 
             Spacer(Modifier.height(12.dp))
-            FieldLabel("Repository name")
+            FieldLabel(stringResource(R.string.fork_sheet_name))
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -416,7 +416,7 @@ fun ForkSheet(
                 CheckBoxMark(checked = defaultBranchOnly, enabled = true)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("Copy the DEFAULT branch only", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Primer.TextPrimary)
+                    Text(stringResource(R.string.fork_sheet_default_only), fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Primer.TextPrimary)
                     Text(
                         text = if (branchCount != null && branchCount > 1) {
                             stringResource(R.string.note_copy_default_branch_only, branchCount, defaultBranch)
@@ -442,7 +442,7 @@ fun ForkSheet(
                     Spacer(Modifier.width(10.dp))
                 }
                 SheetPrimaryButton(
-                    text = "Create fork",
+                    text = stringResource(R.string.fork_sheet_create),
                     enabled = canCreate,
                     onClick = {
                         creating = true

@@ -379,3 +379,63 @@ aapt2 dump resources <apk> | grep -A 2 'string/repo_page_issues'
 
 > 口径仍以 §11 的分档为准；`717 / 923` 是 2026-11-24 第一批之前的快照，
 > 本批之后请以 `tools/i18n/` 的扫描（`category=ui` / `error`）为准，不要引用旧数字。
+
+## 十四、Rust 结构化错误：现状与迁移方案（未实施）
+
+`LogExporter`（1.4.5）之后，`i18n-audit` 里剩下的最大一块是 **`:core` Rust 243 条 +
+`RustBridge` 的 30 处 `"引擎不可用"`**。这一块不能像前面几批那样「把字面量换成资源」，
+因为**返回值类型是 `String`**，错误文案在产生时就被拼好了，解析点散在几十个调用方。
+
+### 现状（三个事实）
+
+1. **Rust 侧**返回 `ERROR:<文本>`：`api` 层把 HTTP 状态与 GitHub 原话拼进去
+   （`ERROR:HTTP 404: {"message":"Not Found"}`），`git` 层返回中文（「不是 git 仓库」等）。
+2. **Kotlin `RustBridge`** 在 JNI 调用失败时返回常量 `"引擎不可用"`（30 处），
+   调用方一律把它当「可以给用户看的一句话」直接 toast / `Text`。
+3. **已经有一层分类**：`friendlySearchError`（1.4.4）、`repoAccessHint`、`repoRelationOf`、
+   `classifyOAuthFailure` 各自从原始串里认状态码 —— 说明「从文本反推分类」已经发生过多次，
+   每次都要重写一份正则。
+
+### 方案（两步，按顺序做）
+
+**第一步：S 侧只加「稳定码」，不改现有文案。**
+
+Rust 返回 `ERROR:<CODE>[:<detail>]`，`CODE` 是全大写 ASCII 的稳定标识
+（`ENGINE_UNAVAILABLE` / `HTTP_404` / `AUTH_INVALID` / `RATE_LIMITED` / `NOT_GIT_REPO` …），
+`detail` 保留**原文**（GitHub 的 `message`、libgit2 的英文错误），供诊断与透出。
+未知 `CODE` 一律原样透出，不许猜。日志仍按 §7 记中文锚点，不参与翻译。
+
+**第二步：Kotlin 边界统一解析。**
+
+```kotlin
+sealed interface EngineError {
+    data class Coded(@StringRes val res: Int, val args: List<Any>) : EngineError
+    data class Raw(val text: String) : EngineError      // 未知码 / GitHub 原话，原样透出
+}
+
+internal fun parseEngineError(raw: String?): EngineError?   // 纯函数，可 JVM 单测
+internal fun engineErrorText(context: Context, raw: String?): String?  // 渲染/提示边界用
+```
+
+- `parseEngineError` 只认 `ERROR:<CODE>`，并兼容现有 `HTTP 404` 这类写法（迁移期双读）；
+- 调用方把 `toast(err)` / `Text(err)` 换成 `engineErrorText(context, raw)`，
+  一次接线覆盖所有点；`RustBridge` 的哨兵同时改成 `ERROR:ENGINE_UNAVAILABLE`；
+- 单测断言 **CODE + 参数**，不钉中文（§9 的教训）；
+- 最后再评估是否把 `RustBridge` 的返回类型从 `String?` 收窄成 `Result<T, EngineError>`
+  （收益大但改动面也大，单独一版）。
+
+### 为什么不能直接翻译 Rust 文案
+
+- Rust 里很多错误串同时进**日志**（§7 固定中文）与**界面**，两边口径不同；
+- 同一句 `ERROR:` 里混着 GitHub 原话（如 422 的 `Validation Failed`），翻译会吞掉可行动信息；
+- `tools/perf` 与若干测试按中文锚点匹配 Rust 输出，翻文案会连带打断报表。
+
+### 迁移顺序（建议）
+
+1. 新 `EngineError` + `parseEngineError` + 资源 + 单测（**不改调用方**）；
+2. 在提示边界接线（toast / 错误行），先覆盖高频页：仓库页 / 登录 / 本地 git；
+3. 再把 Rust 侧逐模块换成稳定码（`api` → `git` → `translate`）；
+4. 收尾删除 `RustBridge` 的 `ENGINE_UNAVAILABLE` 常量与中文兜底。
+
+> 这一节是**方案**，不是已完成项。在它落地前，`i18n-audit` 里 `:core` 与
+> `RustBridge` 的中文仍会被报出来 —— 属于「需接口改造」，不是漏做。

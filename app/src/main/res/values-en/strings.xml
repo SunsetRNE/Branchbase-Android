@@ -1748,6 +1748,14 @@
     <string name="watch_error_custom_needs_web_login">Custom notifications require signing in to the GitHub website</string>
     <string name="watch_error_limit_exceeded">You have reached the maximum number of watched repositories</string>
     <string name="watch_error_forbidden">You do not have permission to change this repository\'s notification settings</string>
+    <!-- Watch-settings sheet and fork dialog titles / field names. These were hardcoded in
+         English before 2026-11-24, so a Chinese UI showed "Create a new fork" / "Owner". -->
+    <string name="watch_sheet_title">Notification settings</string>
+    <string name="fork_sheet_title">Create a new fork</string>
+    <string name="fork_sheet_owner">Owner</string>
+    <string name="fork_sheet_name">Repository name</string>
+    <string name="fork_sheet_default_only">Copy the DEFAULT branch only</string>
+    <string name="fork_sheet_create">Create fork</string>
 
     <!-- About page entries for the license and the third-party notices (sources live at the repo root). -->
     <string name="label_open_source_license">License</string>

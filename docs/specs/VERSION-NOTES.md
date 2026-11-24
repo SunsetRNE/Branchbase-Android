@@ -74,7 +74,26 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.5 → 1.0.22）
+## 二、`versionName` 流水（1.4.6 → 1.0.22）
+
+### 1.4.6
+
+**中文界面里的英文硬编码（第一批）：关注设置抽屉与复刻对话框；Rust 结构化错误方案定稿。**
+
+① `RepoRelationSheets` 的 6 处写死英文 —— `Notification settings` / `Create a new fork` /
+`Owner` / `Repository name` / `Copy the DEFAULT branch only` / `Create fork` —— 改成资源。
+这是「界面跟语言走」的**镜像面**：前面几批修的是「英文界面里漏出中文」，这一批是
+**中文界面里漏出英文**，成因相同（字面量写死在 `@Composable` 里、没有资源 ID）。
+`Owner` 等在英文里原样，所以 `values-en` 与旧行为一致，中文侧才真正可见变化。
+
+② 文档：`i18n-migration.md` 新增 **§十四「Rust 结构化错误：现状与迁移方案」**。
+把最后一大块（`:core` Rust 243 条 + `RustBridge` 30 处 `"引擎不可用"`）写成可执行的方案：
+Rust 返回 `ERROR:<CODE>[:<detail>]`（CODE 为稳定 ASCII、detail 保留原文），Kotlin 侧
+`EngineError` + `parseEngineError` 在**提示边界**统一解析，未知码原样透出；
+并说明为什么不能直接翻译 Rust 文案（同一串同时进日志与界面、混着 GitHub 原话、
+`tools/perf` 按中文锚点匹配）。这一节是**方案**，尚未实施 —— 落地前扫描器仍会报这些条目。
+
+③ **钉子**：6 条新键加入 `I18nUiTextTest`。
 
 ### 1.4.5
 
@@ -4134,13 +4153,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（265 → 129）
+## 三、`versionCode` 流水（266 → 129）
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 
 - **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
 
 - **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **266**：中文界面里的英文硬编码第一批（`RepoRelationSheets` 的关注设置标题 / 复刻对话框 6 处）；`i18n-migration.md` 新增 §十四 Rust 结构化错误方案（`ERROR:<CODE>[:detail]` + `EngineError` 边界，未实施）（一次提交，故 +1）。
 
 - **265**：日志导出失败提示 9 条资源化（`context.getString`，执行层解析）；`report.md` 正文约 32 条**按约定不译**并写入 i18n 规范 §7（类别名/锚点词本身固定中文，翻译会打断锚点词典与 grep 示例）（一次提交，故 +1）。
 
