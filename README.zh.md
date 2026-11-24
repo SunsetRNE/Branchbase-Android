@@ -16,10 +16,15 @@
 
 ## 📥 下载与安装
 
-| 通道 | 从哪拿 | 说明 |
-|---|---|---|
-| **正式版** | [Releases](https://github.com/SunsetRNE/Branchbase-Android/releases) | 手动触发的发布流水线产出，附签名校验文件与源码包 |
-| **Beta 测试版** | 同上，标着 **Pre-release** 的那些 | push 到 `main` 自动构建 |
+| 通道 | 包名 | 签名 | 从哪拿 |
+|---|---|---|---|
+| **正式版** | `com.branchbase` | 正式钥匙 | [Releases](https://github.com/SunsetRNE/Branchbase-Android/releases)（非 Pre-release），附签名校验文件与源码包 |
+| **Beta 测试版** | `com.branchbase` | 统一 beta 钥匙 | 同上，标着 **Pre-release** 的那些；push 到 `main` 自动构建 |
+| **Dev 开发版** | `com.branchbase.dev` | 统一 beta 钥匙 | 与 Beta 同一个 Pre-release，可与 Beta **并排安装** |
+| **Test 测试版** | `com.branchbase.test` | 统一 beta 钥匙 | 同上，可与 Beta **并排安装** |
+
+> dev / test 只是 `applicationId` 与标签不同（`Branchbase dev` / `Branchbase test`），数据与登录态互相隔离；
+> 四个渠道的 APK 命名分别带 `-debug` / `-dev` / `-test` / `-perfBeta` 后缀。
 
 - 产物形如 `Branchbase-<工程版本>-<年月日-时分>-<七位哈希>.apk`（调试包多一个 `-debug` 后缀）。
 - 安装后在欢迎页二选一登录：**OAuth 授权**（新设备首次要过一次口令 / 设备验证）或**访问密钥 PAT**。

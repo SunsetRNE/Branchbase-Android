@@ -5,7 +5,7 @@
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
 **每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.2.5**）
-与 §三 `versionCode` 流水（129 → **255**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+与 §三 `versionCode` 流水（129 → **256**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,45 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.2.12 → 1.0.22）
+## 二、`versionName` 流水（1.3.0 → 1.0.22）
+
+### 1.3.0
+
+**渠道拆分（stable / beta / dev / test 四包）＋ CI 拆分合并 ＋ 英文展示页与双语发布页。**
+
+① **渠道矩阵**：新增 `dev` / `trial`（**对外是 test 渠道**）两个 build type（`initWith(debug)`，沿用入库的统一 beta 钥匙）：
+- 包名 `com.branchbase.dev` / `com.branchbase.test`（`applicationIdSuffix`），可与 beta / 正式版**并排安装**，
+  数据与登录态互相隔离；注意 **test 渠道的内部 build type 叫 `trial`** —— AGP 保留 `test` 前缀给测试组件
+  （`BuildType names cannot start with 'test'`），渠道名由包名 / 标签 / APK 后缀表达；
+- 桌面标签 `Branchbase dev` / `Branchbase test`（manifest 的 `${appLabel}` 占位符；默认仍是 `Branchbase`）；
+- APK 命名加 `-dev` / `-test` 后缀；
+- 依赖的 library 模块只有 debug/release 两套变体 → `matchingFallbacks` 指回 debug。
+- **为什么用 build type 而不是 product flavor**：渠道差异只有「applicationId / 标签 / 版本后缀」三件事，
+  build type 就够了；flavor 会把变体矩阵乘出 4×4，命名、缓存与 CI 都跟着复杂。
+
+② **CI 拆分与合并**：
+- 新增 `ci.yml`（push / PR / 手动）：`android` job 跑 **i18n 门禁 + 四个渠道的 Kotlin 编译 +
+  `:app` / `:translate` 单测**；`rust` job 跑 core 的 check / test / clippy —— 原 `build-core.yml` 并入后删除；
+- 同一分支连推用 `concurrency` 取消旧运行；编译类检查**不打包**（打包要 CI 现编的 `.so`），比发版流水线快；
+- `build-beta.yml` 仍是发版：一次 Gradle 调用编 **debug + dev + test + perfBeta**（共享编译缓存，
+  比拆成多个 job 各编一遍 Rust 快），上传 4 个 APK + signature，发一个 Pre-release；
+- `build-release.yml` 不变（release 签名，稳定 Release）。
+
+③ **发布页双语**：`tools/build/release-notes.sh` 在正文最前输出**固定英文段**（渠道表、文档、许可证、
+  以及「中文为权威」的声明），下面仍是中文改动记录（逐条提交 + 对比链接）。**英文在前是排版优先级；
+  中文是权威** —— 逐条提交说明不做机器翻译（不可维护且失真）。
+
+④ **英文展示页与徽章**：`README.md` 压缩成读者向展示页（release / CI / license / platform / Kotlin /
+  Rust / stars / downloads 八枚徽章；渠道表；功能一览；构建与文档入口），头部明确指向
+  `README.zh.md` 与 `docs/specs/` 并说明中文权威性；`README.zh.md` 仍是权威原版，下载表同步补上
+  四个渠道与包名。
+
+⑤ **验证**：`assembleDebug / assembleDev / assembleTrial` 三渠道实打（包名、标签、签名、可并排安装；`aapt2 dump badging` 核对过 `com.branchbase` / `.dev` / `.test`）；
+  `check-i18n --min-coverage 100` 通过；三个 workflow 用 yaml 解析器校验通过；`release-notes.sh`
+  本地跑出双语正文。
+
+⑥ **边界**：正式版 `applicationId` 保持 `com.branchbase` 不变（升级不受影响）；beta 也保持
+  `com.branchbase`（与正式版共用包名、签名不同，互斥安装，与以前一致）；dev / test 是**新增**包名。
 
 ### 1.2.12
 
@@ -3867,13 +3905,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（255 → 129）
+## 三、`versionCode` 流水（256 → 129）
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 
 - **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
 
 - **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **256**：渠道拆分 —— 新增 `dev`（`com.branchbase.dev`）/ `test`（`com.branchbase.test`）两个 build type，统一 beta 签名、独立标签与 APK 后缀，可与 beta 并排安装；新增 `ci.yml`（四渠道编译 + :app/:translate 单测 + core check/test/clippy），原 `build-core.yml` 并入后删除；`build-beta.yml` 一次编译四渠道并发布 5 个附件；`release-notes.sh` 增加固定英文段（英文在前、中文权威）；`README.md` 压缩为英文展示页并加八枚徽章，`README.zh.md` 下载表补渠道（一次提交，故 +1）。
 
 - **255**：修 1.2.11 的 CI 签名步骤失败 —— 不再把 apksigner 输出直接吞进 sed：先落 `RAW`（`2>&1 || true`）并打印前 8 行，再用 `grep -oE '[0-9a-fA-F]{64}'` 抽证书 SHA-256；apksigner 路径一并打印（一次提交，故 +1）。
 

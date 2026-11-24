@@ -126,6 +126,31 @@ FILE_COUNT=${#FILES_LIST[@]}
 #   ## 代码变更引用        —— 完整对比 / 变更范围 / 上一发布 / 变更文件（折叠）
 #   ## 代码提交描述引用     —— 逐条提交（sha 链接 + 提交描述）
 generate() {
+  # ── English（排版优先级：英文在前；下方中文正文仍是**权威**，优先维护） ──
+  #
+  # 这一段是**固定展示文案**，不是对下面中文改动记录的逐条翻译：
+  # 本项目的提交说明与文档以中文为准，逐条翻译既不可维护也失真。
+  # 目的只有一个：让外部读者先看懂「这是什么 App、去哪下、哪个包是哪个渠道」。
+  cat <<EOF
+## English
+
+**Branchbase** — a third-party GitHub client for Android (Jetpack Compose UI over a Rust core).
+
+| Channel | Package | Signing | Notes |
+|---|---|---|---|
+| Stable | \`com.branchbase\` | release key | non-prerelease releases |
+| Beta | \`com.branchbase\` | shared beta key | pre-releases |
+| Dev | \`com.branchbase.dev\` | shared beta key | installs side by side |
+| Test | \`com.branchbase.test\` | shared beta key | installs side by side |
+
+- Docs: [README]($BASE_URL#readme) · [specs, Chinese, authoritative]($BASE_URL/blob/main/docs/specs/)
+- License: MIT.
+
+> The **Chinese** section below is the authoritative changelog and is maintained first;
+> this English block is a reader-facing summary only.
+
+EOF
+
   # ── 代码变更引用 ──
   echo "## 代码变更引用"
   echo ""

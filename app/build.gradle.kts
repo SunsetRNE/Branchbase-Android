@@ -92,6 +92,8 @@ android {
         targetSdk = 35
         versionCode = engineeringVersionCode
         versionName = standardVersion
+        // 渠道标签（不同包名的渠道并排安装时，桌面/最近任务里能区分）。默认 = 正式名。
+        manifestPlaceholders["appLabel"] = "Branchbase"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -169,6 +171,41 @@ android {
          * 这个变体取两者交集：`initWith(release)` 拿到 `isDebuggable=false`（ART 才愿意 AOT、
          * AGP 才会把 baseline profile 合进 APK），签名却沿用入库的固定 beta 钥匙 —— 覆盖安装即可。
          */
+        /**
+         * **渠道包：dev / test**（2026-11-24 起）。
+         *
+         * 三者（debug / dev / test）**都用入库的 beta 钥匙**签名、**各自不同的 applicationId**，
+         * 所以可以在同一台设备上并排安装、互不影响（数据与登录态也是隔离的）。
+         * 目的：把「自己用的开发包」「给别人试的测试包」「beta 通道」分开，
+         * 避免"为了测一个改动先把正式 beta 卸载了"。
+         *
+         * - applicationIdSuffix：`com.branchbase.dev` / `com.branchbase.test`；
+         * - 标签：`Branchbase dev` / `Branchbase test`（manifest 的 `${appLabel}` 占位符）；
+         * - 依赖的 library 模块只有 debug/release 两套变体 → matchingFallbacks 指回 debug
+         *   （debug 变体才带调试符号与不裁剪，dev/test 本质是 debug 的可区分副本）。
+         */
+        create("dev") {
+            initWith(getByName("debug"))
+            // initWith 会把 debug 的签名与 FRAME_WATCH_DEFAULT 一起复制过来，这里只改渠道差异
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
+            manifestPlaceholders["appLabel"] = "Branchbase dev"
+            matchingFallbacks += listOf("debug")
+        }
+        /**
+         * 对外是 **test 渠道**（包名 `com.branchbase.test`、标签 `Branchbase test`、APK `-test`），
+         * 但内部 build type 只能叫 `trial`：AGP **保留 `test` 前缀**给测试组件
+         * （`BuildType names cannot start with 'test'`，实测会直接构建失败）。
+         * 所以"渠道名"由 `applicationIdSuffix` / 标签 / APK 后缀表达，build type 名只是实现细节。
+         */
+        create("trial") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".test"
+            versionNameSuffix = "-test"
+            manifestPlaceholders["appLabel"] = "Branchbase test"
+            matchingFallbacks += listOf("debug")
+        }
+
         create("perfBeta") {
             initWith(getByName("release"))
             // ⚠️ 必须在 initWith 之后覆盖：release 的 signingConfig 与 buildConfigField 会被一起复制过来
@@ -208,6 +245,9 @@ androidComponents {
             val suffix = when (variant.buildType) {
                 "debug" -> "-debug"
                 "perfBeta" -> "-perfBeta"
+                "dev" -> "-dev"
+                // 渠道对外叫 test（内部 build type 是 trial，见上面的注释）
+                "trial" -> "-test"
                 else -> ""
             }
             (output as VariantOutputImpl).outputFileName.set("Branchbase-${standardVersion}${suffix}.apk")

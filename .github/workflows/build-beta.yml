@@ -60,11 +60,14 @@ jobs:
         id: ver
         run: |
           set -o pipefail
-          # 两个变体一起出：
-          #   debug    —— 可调试，排障用；
+          # 四个渠道一起出（2026-11-24 起；同一个 Gradle 调用共享编译缓存，比拆成多个 job 快）：
+          #   debug    —— beta 通道，包名 com.branchbase（可调试，排障用）；
+          #   dev      —— 包名 com.branchbase.dev（与 beta 并排安装）；
+          #   test     —— 包名 com.branchbase.test（与 beta 并排安装）；
           #   perfBeta —— 非 debuggable（ART 才做 AOT、AGP 才合入 baseline profile），
-          #               但沿用入库的固定 beta 钥匙，可以覆盖安装 —— 评性能用它。
-          if ! bash tools/build/assemble.sh assembleDebug assemblePerfBeta 2>&1 | tee /tmp/assemble.log; then
+          #               沿用入库的固定 beta 钥匙，可以覆盖安装 —— 评性能用它。
+          # 四个渠道**同一把 beta 钥匙**；dev/test 只是 applicationId 不同。
+          if ! bash tools/build/assemble.sh assembleDebug assembleDev assembleTrial assemblePerfBeta 2>&1 | tee /tmp/assemble.log; then
             # 失败时把关键行做成 annotation —— 无需日志下载权限即可通过 check-runs API 定位
             echo "::error title=assemble::assembleDebug/assemblePerfBeta 失败，关键行如下"
             # 先取 Kotlin 编译错误，再取 Gradle FAILURE 段（真实原因在 FAILURE 之后）
@@ -83,6 +86,8 @@ jobs:
         run: |
           mkdir -p dist
           cp app/build/outputs/apk/debug/*.apk dist/ || true
+          cp app/build/outputs/apk/dev/*.apk dist/ || true
+          cp app/build/outputs/apk/test/*.apk dist/ || true
           cp app/build/outputs/apk/perfBeta/*.apk dist/ || true
           cp app/src/main/jniLibs/arm64-v8a/libbranchbase_core.so dist/ || true
           ls -la dist/
@@ -144,6 +149,22 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           path: dist/*-perfBeta.apk
+          retention-days: 30
+          if-no-files-found: error
+          archive: false
+
+      - name: Upload artifacts（dev APK，不打包）
+        uses: actions/upload-artifact@v7
+        with:
+          path: dist/*-dev.apk
+          retention-days: 30
+          if-no-files-found: error
+          archive: false
+
+      - name: Upload artifacts（test APK，不打包）
+        uses: actions/upload-artifact@v7
+        with:
+          path: dist/*-test.apk
           retention-days: 30
           if-no-files-found: error
           archive: false
@@ -249,6 +270,8 @@ jobs:
           # 两道防线：这里的显式路径 + 下面 `fail_on_unmatched_files`，末尾还有一道附件数校验。
           files: |
             Branchbase-${{ needs.build.outputs.standardVersion }}-debug.apk
+            Branchbase-${{ needs.build.outputs.standardVersion }}-dev.apk
+            Branchbase-${{ needs.build.outputs.standardVersion }}-test.apk
             Branchbase-${{ needs.build.outputs.standardVersion }}-perfBeta.apk
             verify/signature.txt
           fail_on_unmatched_files: true
@@ -298,7 +321,7 @@ jobs:
           gh release view "$TAG" --repo "${{ github.repository }}" --json assets -q '.assets[].name'
           N=$(gh release view "$TAG" --repo "${{ github.repository }}" --json assets -q '.assets | length' | tr -dc '0-9')
           if [ "$N" != "3" ]; then
-            echo "::warning title=发布附件数异常::$TAG 期望 3 个附件（debug APK / perfBeta APK / signature.txt），接口返回 '${N:-取不到}' 个。⚠️ REST 接口有低报先例，请以发布页为准，不要据此判断构建失败"
+            echo "::warning title=发布附件数异常::$TAG 期望 5 个附件（debug / dev / test / perfBeta APK + signature.txt），接口返回 '${N:-取不到}' 个。⚠️ REST 接口有低报先例，请以发布页为准，不要据此判断构建失败"
           else
             echo "✅ 附件齐全（$N 个）"
           fi

@@ -1,23 +1,52 @@
-name: Build & Test Core (Rust)
+name: CI
 
-# 专门编译 + 单元测试 Rust 业务核心（core/）。
+# 每次 push / PR 的**快速编译与单测**（不发版、不签名、不打包 APK）：
+#   · android —— i18n 门禁 + 四个渠道变体的 Kotlin 编译 + JVM 单测
+#   · rust    —— core/ 的 check / test / clippy（原 `build-core.yml` 并入这里）
 #
-# 与 build-beta / build-release 的「Android 交叉编译 .so」不同：
-# 这里用宿主机 target（ubuntu-latest）快速做编译检查（cargo check）与
-# 单元测试（cargo test），尽早暴露 core 组件的编译错误 / 逻辑回归，
-# 无需等待 Android NDK 交叉编译 + 打包 APK。
+# 发版仍然走两条完整矩阵：
+#   · build-beta.yml    —— 渠道矩阵（debug / dev / test / perfBeta），Pre-release
+#   · build-release.yml —— 正式版（release 签名），稳定 Release
 on:
-  workflow_dispatch:
   push:
     branches: [ main ]
-    paths:
-      - 'core/**'
   pull_request:
-    paths:
-      - 'core/**'
+  workflow_dispatch:
+
+# 同一分支连推时取消上一次 —— 编译类检查没有必要排队跑旧提交
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  check:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # i18n 门禁排在工具链之前：只解析 XML，几毫秒；不达标就没必要再拉 Gradle。
+      - name: i18n 校验
+        run: python3 tools/i18n/check-i18n.py --min-coverage 100
+
+      - uses: ./.github/actions/setup-branchbase-env
+        with:
+          gradle-cache-read-only: 'false'
+
+      # 只编译、不打包：打包需要 Rust 的 .so（由发版流水线构建），
+      # 而这里的目的是尽早发现 Kotlin / 资源 / 变体配置的回归。
+      # 四个渠道一起编：debug（beta）、dev、test、perfBeta —— 任何渠道的变体配置坏了都会红。
+      - name: Kotlin 编译（四渠道）+ JVM 单测
+        run: |
+          set -o pipefail
+          ./gradlew --console=plain \
+            :app:compileDebugKotlin \
+            :app:compileDevKotlin \
+            :app:compileTrialKotlin \
+            :app:compilePerfBetaKotlin \
+            :app:testDebugUnitTest \
+            :translate:testDebugUnitTest
+
+  rust:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,7 +84,6 @@ jobs:
           cd core
           set -o pipefail
           if ! cargo test 2>&1 | tee /tmp/rust-test.log; then
-            # 失败时把关键行做成 annotation —— 便于在没有日志下载权限时定位
             echo "::error title=rust-test::cargo test 失败，关键行如下"
             grep -aE "FAILED|failures:|panicked|assertion|left:|right:|^test .* \.\.\." /tmp/rust-test.log \
               | tail -40 \
