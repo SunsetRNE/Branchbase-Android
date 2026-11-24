@@ -5,7 +5,7 @@
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
 **每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.2.5**）
-与 §三 `versionCode` 流水（129 → **258**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+与 §三 `versionCode` 流水（129 → **259**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,27 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.3.2 → 1.0.22）
+## 二、`versionName` 流水（1.3.3 → 1.0.22）
+
+### 1.3.3
+
+**修 1.3.2 的两条 CI 红灯（都是前两批改动的连带）：JNI 契约双向一致、设计稿钉子遇到未迁入原型时跳过。**
+
+① **`JniSignatureTest` 失败**：1.2.10 清死代码时删掉了 Kotlin 的 `nativeValidateTwoFactor` 声明，
+但 **Rust 侧的 JNI 导出还留着** —— 而 `JniSignatureTest` 钉的是**双向**一一对应
+（Kotlin 声明 ↔ Rust 实现），「Rust 多一个」同样会红。这条钉子的价值正在于此：删一边不删另一边，
+运行时未必报错，但契约已经分叉。修法：删掉 Rust 的 `Java_com_branchbase_core_RustBridge_nativeValidateTwoFactor`
+导出（以及 `jni.rs` 里不再使用的 `TwoFactorVerifier` 导入）；`.so` 由 CI 从源码重建，Kotlin 侧不再声明，
+两边重新对齐。
+- **为什么不在测试里放宽成「允许 Rust 多导出」**：那会让「删了 Kotlin 声明、忘了删 Rust」永远静默 ——
+  正是这条钉子要防的那类事故。
+
+② **`ReleaseBranchTargetTest` 失败**：这条钉子要逐点比对 `design/release-redesign/app.js` 的图标几何，
+而 `/design/` 刚被允许入库、**历史原型还没迁入**。修法：改成 JUnit `Assume` —— 文件在就正常比对，
+不在就**跳过并给出原因**；原型迁入后自动生效，不需要再改。把 CI 钉死在「暂时没有素材」上是假红。
+
+③ **验证**：`cargo check --all-targets` 通过；`JniSignatureTest` / `ReleaseBranchTargetTest` 通过
+（后者 skip）；CI 全量复验。
 
 ### 1.3.2
 
@@ -3944,13 +3964,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（258 → 129）
+## 三、`versionCode` 流水（259 → 129）
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 
 - **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
 
 - **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **259**：修 1.3.2 的两条 CI 红灯 —— 删掉 Rust 侧遗留的 `nativeValidateTwoFactor` JNI 导出（Kotlin 已在 1.2.10 删除声明，双向契约测试据此变红）；`ReleaseBranchTargetTest` 对未迁入的历史原型改用 `Assume` 跳过（一次提交，故 +1）。
 
 - **258**：按渠道拆编译节点 —— Beta 改为 version/core/build(矩阵)/publish 四段（`assemble.sh` 支持钉住版本参数，避免各 leg 时间戳不一致）；CI 拆成 android（debug+单测）与 android-variants 矩阵（dev/trial/perfBeta 只编译）；解决四渠道同进程编译的 OOM（一次提交，故 +1）。
 

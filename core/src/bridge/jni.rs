@@ -12,7 +12,6 @@ use std::future::Future;
 use std::sync::OnceLock;
 
 use crate::auth::oauth::{OAuthClient, PkcePair};
-use crate::auth::twofactor::TwoFactorVerifier;
 use crate::error::CoreError;
 use crate::models::OAuthConfig;
 
@@ -401,19 +400,6 @@ pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeSearchTopics<'l
     });
 
     into_jstring(&mut env, result)
-}
-
-/// 校验 2FA 验证码格式（返回 "1" 表示有效，"0" 表示无效）
-#[no_mangle]
-pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeValidateTwoFactor<'local>(
-    mut env: JNIEnv<'local>,
-    _class: JClass<'local>,
-    code: JString<'local>,
-) -> jstring {
-    let code = jstr(&mut env, &code);
-    let valid = TwoFactorVerifier::validate_format(&code).is_ok();
-    let out = if valid { "1" } else { "0" };
-    env.new_string(out).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
 }
 
 /// 用 refresh token 刷新 access token（返回新 Token JSON）
