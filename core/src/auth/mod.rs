@@ -24,7 +24,7 @@ impl AuthManager {
         Self {
             oauth: OAuthClient::new(config),
             tokens: TokenStore::default(),
-            twofactor: TwoFactorVerifier::default(),
+            twofactor: TwoFactorVerifier,
         }
     }
 

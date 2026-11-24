@@ -179,11 +179,12 @@ fn remove_locks_under(dir: &std::path::Path, base: &std::path::Path, out: &mut V
                 continue;
             }
             remove_locks_under(&path, base, out);
-        } else if kind.is_file() && name.ends_with(LOCK_SUFFIX) {
-            if std::fs::remove_file(&path).is_ok() {
-                let shown = path.strip_prefix(base).unwrap_or(&path);
-                out.push(shown.display().to_string());
-            }
+        } else if kind.is_file()
+            && name.ends_with(LOCK_SUFFIX)
+            && std::fs::remove_file(&path).is_ok()
+        {
+            let shown = path.strip_prefix(base).unwrap_or(&path);
+            out.push(shown.display().to_string());
         }
     }
 }
@@ -768,7 +769,7 @@ fn verify_cert_chain(leaf: &X509) -> bool {
     let mut current = leaf.clone();
     for _ in 0..8 {
         let issuer_name = current.issuer_name();
-        let Some(ca) = certs.iter().find(|c| c.subject_name().try_cmp(&issuer_name).ok() == Some(std::cmp::Ordering::Equal)) else {
+        let Some(ca) = certs.iter().find(|c| c.subject_name().try_cmp(issuer_name).ok() == Some(std::cmp::Ordering::Equal)) else {
             return false;
         };
         let Ok(pubkey) = ca.public_key() else {
@@ -1437,7 +1438,7 @@ pub fn scan_sensitive(text: &str) -> Result<String> {
                     .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
                     .collect();
                 if token.len() >= min_len {
-                    let mask = format!("{}****", &token.chars().take(4).collect::<String>());
+                    let mask = format!("{}****", token.chars().take(4).collect::<String>());
                     hits.push(json!({ "line": line_no, "kind": kind, "mask": mask }));
                 }
             }
@@ -1464,7 +1465,7 @@ pub fn scan_sensitive(text: &str) -> Result<String> {
                 if let Some(eq) = line.find('=') {
                     let val = line[eq + 1..].trim().trim_matches('"').trim_matches('\'');
                     if val.len() >= 8 && !val.contains(' ') {
-                        let mask = format!("{}****", &val.chars().take(4).collect::<String>());
+                        let mask = format!("{}****", val.chars().take(4).collect::<String>());
                         hits.push(json!({ "line": line_no, "kind": format!("疑似{kw}"), "mask": mask }));
                     }
                 }
@@ -1472,7 +1473,7 @@ pub fn scan_sensitive(text: &str) -> Result<String> {
         }
     }
 
-    Ok(serde_json::to_string(&hits).map_err(|e| CoreError::Json(e))?)
+    Ok(serde_json::to_string(&hits)?)
 }
 
 /// 初始化 TLS 证书信任：把内置 Mozilla CA bundle 写入 {dir}/branchbase-cacert.pem，
@@ -2750,7 +2751,7 @@ fn commit_time_iso(time: git2::Time) -> String {
 fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let z = days + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = (z - era * 146_097) as i64; // [0, 146096]
+    let doe = z - era * 146_097; // [0, 146096]
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365; // [0, 399]
     let y = yoe + era * 400;
     let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]

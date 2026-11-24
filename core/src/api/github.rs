@@ -206,6 +206,9 @@ impl GitHubApi {
     /// - `content`：新文件内容（文本）。
     /// - `sha`：当前文件 blob sha（更新已有文件时必需；新建文件传空）。
     /// - `branch`：目标分支。
+    // 参数与 REST 端点 / JNI 签名一一对应（拆成结构体只会多一层无意义的构造），
+    // 这是风格 lint，不影响行为。
+    #[allow(clippy::too_many_arguments)]
     pub async fn put_contents(
         &self,
         owner: &str,
@@ -358,6 +361,9 @@ impl GitHubApi {
     /// @param make_latest `"true"` / `"false"` / `"legacy"`；**空串 = 整个字段不发**。
     ///   官方规定「drafts and prereleases cannot be set as latest」，那两种状态下传了也会被忽略，
     ///   所以这里直接不发，省掉一次可能 422 的往返。
+    // 参数与 REST 端点 / JNI 签名一一对应（拆成结构体只会多一层无意义的构造），
+    // 这是风格 lint，不影响行为。
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_release(
         &self,
         owner: &str,
@@ -399,6 +405,9 @@ impl GitHubApi {
     ///
     /// @param file_path 本地绝对路径（App 私有暂存区里的那份，见 Kotlin 的 ReleaseAttachmentStore）
     /// @param content_type 按扩展名给的 MIME，例如 `application/vnd.android.package-archive`
+    // 参数与 REST 端点 / JNI 签名一一对应（拆成结构体只会多一层无意义的构造），
+    // 这是风格 lint，不影响行为。
+    #[allow(clippy::too_many_arguments)]
     pub async fn upload_release_asset(
         &self,
         owner: &str,
@@ -425,6 +434,9 @@ impl GitHubApi {
     ///
     /// @param make_latest 同 [create_release]；**编辑时默认传 `"legacy"`** ——
     ///   PATCH 的 `legacy` 语义是「不动 latest 归属」，这样改标题/正文不会顺手把别人的最新发布顶掉。
+    // 参数与 REST 端点 / JNI 签名一一对应（拆成结构体只会多一层无意义的构造），
+    // 这是风格 lint，不影响行为。
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_release(
         &self,
         owner: &str,
@@ -769,6 +781,9 @@ impl GitHubApi {
     }
 
     /// 创建 Pull Request（POST /repos/{o}/{r}/pulls）
+    // 参数与 REST 端点 / JNI 签名一一对应（拆成结构体只会多一层无意义的构造），
+    // 这是风格 lint，不影响行为。
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_pull_request(
         &self,
         owner: &str,
@@ -856,6 +871,13 @@ impl GitHubApi {
     }
 }
 
+/// query 参数用的百分号编码（`url` crate 的 form_urlencoded 实现）。
+///
+/// 单独提一个函数是因为「哪些地方要编码」很容易漏：`name` 与 `label` 都会进 query。
+fn url_encode(raw: &str) -> String {
+    url::form_urlencoded::byte_serialize(raw.as_bytes()).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::GitHubApi;
@@ -872,9 +894,3 @@ mod tests {
     }
 }
 
-/// query 参数用的百分号编码（`url` crate 的 form_urlencoded 实现）。
-///
-/// 单独提一个函数是因为「哪些地方要编码」很容易漏：`name` 与 `label` 都会进 query。
-fn url_encode(raw: &str) -> String {
-    url::form_urlencoded::byte_serialize(raw.as_bytes()).collect()
-}

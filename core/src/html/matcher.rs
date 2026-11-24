@@ -96,9 +96,8 @@ pub fn resolve_link(url: &str, ctx: &ResolveContext) -> Destination {
             // mailto / tel / javascript 等
             _ => external(url),
         }
-    } else if url.starts_with("//") {
+    } else if let Some(rest) = url.strip_prefix("//") {
         // 协议相对 `//github.com/...`
-        let rest = &url[2..];
         let (host, path, frag) = split_host_path(rest);
         if is_github_host(&host, &ctx.host) {
             classify_github(&host, &path, frag.as_deref(), ctx)

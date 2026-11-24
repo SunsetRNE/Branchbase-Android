@@ -74,7 +74,31 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.17 → 1.0.22）
+## 二、`versionName` 流水（1.4.18 → 1.0.22）
+
+### 1.4.18
+
+**清理 `cargo clippy` 的 15 条报错（不改变任何行为）。**
+
+CI 的 `rust` 作业里，`cargo clippy --all-targets -- -D warnings` 一直以退出码 101 收尾。步骤标了
+`continue-on-error`，作业仍是绿的，但每次运行都会在检查页留一条 **failure 注解**
+（`Process completed with exit code 101`）—— 看起来像 Rust 侧有真问题，实际全是风格 lint。
+这次把 15 条清干净：
+
+| 报错 | 位置 | 改法 |
+|---|---|---|
+| `too_many_arguments`（8/7、10/7）×5 | `api/github.rs` | 加 `#[allow]` + 一行理由：参数与 REST 端点 / JNI 签名一一对应，拆结构体只多一层构造 |
+| `default_constructed_unit_structs` | `auth/mod.rs` | `TwoFactorVerifier::default()` → `TwoFactorVerifier` |
+| `collapsible_if` | `git/mod.rs`（锁文件清理） | 三层条件并成一条 `else if`（短路顺序不变） |
+| `needless_borrow` | `git/mod.rs`（证书链） | `try_cmp(&issuer_name)` → `try_cmp(issuer_name)` |
+| `redundant_closure` + `needless_question_mark` | `git/mod.rs`（敏感扫描返回） | `map_err(|e| CoreError::Json(e))?` → `?` |
+| `format!` 冗余引用 ×2 | `git/mod.rs`（掩码） | 去掉 `&` |
+| `unnecessary_cast` | `git/mod.rs`（日期换算） | `as i64` → 直传（`z` 本就是 `i64`） |
+| `manual_strip` ×2 | `html/matcher.rs` | `starts_with("//")` + `&url[2..]` → `strip_prefix("//")` |
+| `items_after_test_module` | `api/github.rs` | `url_encode` 移到 `mod tests` 之前 |
+
+行为不变的依据：全部是等价改写或关掉风格 lint；`cargo test` 与之前一致；**工作流一个字节没改**
+（clippy 仍不阻塞、`-D warnings` 仍是同一把尺子）。清理后这条步骤不再产生 failure 注解。
 
 ### 1.4.17
 
@@ -4378,7 +4402,12 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（277 → 129）
+## 三、`versionCode` 流水（278 → 129）
+  传输失败映射 `NETWORK`、JNI 输出 `ERROR:<CODE>:<message>`（换行压平）；Kotlin 零改动
+  （一次提交，故 +1）。
+
+- **278**：清理 `cargo clippy` 的 15 条报错（等价改写 / 关掉风格 lint），CI 的 rust 作业不再留
+  failure 注解；工作流与行为不变（一次提交，故 +1）。
 
 - **277**：引擎错误本地化第一步 —— 新增 `core/EngineError.kt`（`ERROR:<CODE>[:<detail>]` 解析 + 渲染边界，
   迁移期双读旧文案）；`RustBridge` 哨兵改 `ERROR:ENGINE_UNAVAILABLE`；约 40 处提示点接线；
