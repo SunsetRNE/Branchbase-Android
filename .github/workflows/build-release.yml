@@ -1,6 +1,6 @@
 name: Build Release (正式版)
 
-# 正式版：五段流水线（手动 workflow_dispatch 触发）
+# 正式版：五段流水线（手动 workflow_dispatch 触发）—— 跑**全面测试矩阵**全部 5 条腿
 #   ① prepare —— i18n 门禁 + 钉住版本参数 + 环境准备 / 检索资产 / 判定缓存命中
 #   ② core    —— Rust 核心 .so（core/** 未改则命中缓存）
 #   ③ compile —— 编译节点矩阵（release + beta 签名的四个渠道），只编译不打包

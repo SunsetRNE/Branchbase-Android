@@ -1,6 +1,6 @@
 name: Build Beta (Channels)
 
-# Beta 渠道矩阵（push 到 main 自动跑；也可手动触发）
+# Beta 渠道矩阵（push 到 main 自动跑；也可手动触发）—— 全面测试矩阵中除 stable 外的 4 条腿
 #
 #   ① version —— 算一次**钉住**的版本参数（四个渠道共用同一个时间戳，否则 APK 名字差一分钟对不上）
 #   ② core    —— 编一次 Rust 核心 .so，作为 artifact 下发

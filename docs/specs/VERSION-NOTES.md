@@ -74,7 +74,27 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.9 → 1.0.22）
+## 二、`versionName` 流水（1.4.10 → 1.0.22）
+
+### 1.4.10
+
+**全面测试矩阵：五个渠道、五个独立 `applicationId`；中英文 README 与 Pages 同步。**
+
+2026-11-24 抓到的根因：发布页上 5 个 APK 里**有 3 个共用 `com.branchbase`**（正式版 / Beta /
+Perf）。`aapt2 dump badging` 实测：正式版、debug、perfBeta 都是 `com.branchbase`，只有 dev/test
+带后缀。后果：Beta 与 Perf **同 id 同钥匙互相覆盖**；Beta 与正式版**同 id 不同钥匙**，切换必须卸载。
+
+① `app/build.gradle.kts`：`debug` → `applicationIdSuffix = ".beta"`，
+`perfBeta` → `".perf"`（`dev` / `trial` 原就有 `.dev` / `.test`）。
+**正式版保留 `com.branchbase`** —— 改掉它等于把稳定版用户换成「另一个应用」，升级断档；
+其余四个让开即可做到「五个包名互相独立、可并排安装」。
+② 标签同步：`Branchbase beta` / `Branchbase perf` / `Branchbase dev` / `Branchbase test`。
+③ **有意的断档**：1.4.9 及更早的 Beta 用的是 `com.branchbase`，新 Beta 是 `com.branchbase.beta`
+—— 旧 Beta 不会被覆盖，可手动卸载。README 里已写明。
+④ 文档：`BUILD-NOTES.md` 新增 §二.5「渠道与 applicationId」矩阵；`README.zh.md` / `README.md`
+的下载表与 `site/index.html` 同步为 5 行，并说明「五个独立包名、可并排安装」。
+⑤ 流水线口径：**正式版流水线跑全矩阵 5 条腿**；Beta 流水线跑 4 条（不含 stable，正式钥匙只在
+正式版 secret 里）；CI 的变体矩阵覆盖 5 个变体。
 
 ### 1.4.9
 
@@ -4212,13 +4232,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（269 → 129）
+## 三、`versionCode` 流水（270 → 129）
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 
 - **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
 
 - **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **270**：全面测试矩阵 —— debug→`.beta`、perfBeta→`.perf`（dev/test 原后缀），正式版保留 `com.branchbase`；5 个包名互相独立可并排安装；README 中英 + Pages + BUILD-NOTES 同步（一次提交，故 +1）。
 
 - **269**：修 1.4.8 的交接 —— `archive: false` 时 artifact 名取文件名（`name:` 被忽略），改为 `compiled-<channel>.tgz` 且不写 `name:`（一次提交，故 +1）。
 

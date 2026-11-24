@@ -107,8 +107,10 @@ Branchbase-{标准版本号}[-debug|-perfBeta].apk
 
 | 类型 | 产物名 |
 |------|--------|
-| Debug（Beta） | `Branchbase-1.0.3-20260902-2226-a1b2c3d-debug.apk` |
-| perfBeta（性能测试版：release 的性能特征 + beta 签名） | `Branchbase-1.0.3-20260902-2226-a1b2c3d-perfBeta.apk` |
+| Beta（内部 build type 是 `debug`） | `Branchbase-1.0.3-20260902-2226-a1b2c3d-debug.apk` |
+| Perf（`perfBeta`：release 的性能特征 + beta 签名） | `Branchbase-1.0.3-20260902-2226-a1b2c3d-perfBeta.apk` |
+| Dev | `Branchbase-1.0.3-20260902-2226-a1b2c3d-dev.apk` |
+| Test（内部 build type 是 `trial`） | `Branchbase-1.0.3-20260902-2226-a1b2c3d-test.apk` |
 | Release | `Branchbase-1.0.3-20260902-2226-a1b2c3d.apk` |
 
 > 文件名后缀**只由 `variant.buildType` 决定**，与 `versionNameSuffix` 无关：`debug` 与 `perfBeta`
@@ -134,6 +136,26 @@ androidComponents {
 ```
 
 > 目的：让每次构建的 APK 名唯一（含时间戳 + 哈希），避免下载器出现 `app-debug (27).apk` 这种无法区分代际的问题。
+
+### 5. 渠道与 applicationId（全面测试矩阵，2026-11-24 起）
+
+| 渠道 | 内部 build type | applicationId | 签名 | 版本名后缀 |
+|---|---|---|---|---|
+| 正式版 | `release` | `com.branchbase` | 正式钥匙 | — |
+| Beta | `debug` | `com.branchbase.beta` | beta 钥匙 | `-Beta` |
+| Perf | `perfBeta` | `com.branchbase.perf` | beta 钥匙 | `-Beta` |
+| Dev | `dev` | `com.branchbase.dev` | beta 钥匙 | `-dev` |
+| Test | `trial` | `com.branchbase.test` | beta 钥匙 | `-test` |
+
+- **五个包名互相独立 → 可并排安装**，数据 / 登录态 / 通知各自隔离。
+  2026-11-24 之前 Beta 与正式版共用 `com.branchbase`，切换必须卸载；现在不用了。
+- 正式版**保留** `com.branchbase`：改掉它等于把稳定版用户换成「另一个应用」，升级断档。
+- `debug` → `.beta` 是一次**有意的断档**：旧 Beta（`com.branchbase`）不会被新 Beta 覆盖，
+  两个应用可同时存在；旧的可手动卸载。
+- 依赖的 library 模块只有 debug/release 两套变体：`dev`/`trial` 的 `matchingFallbacks` 指回
+  `debug`，`perfBeta` 指回 `release`。
+- 流水线：**正式版流水线跑全矩阵 5 条腿**；Beta 流水线跑 4 条（不含 stable —— 正式钥匙只在
+  正式版流水线的 secret 里）。CI 的变体矩阵同样覆盖 5 个变体（debug 在 `android` job 里带单测）。
 
 ---
 
@@ -247,7 +269,7 @@ JNI 导出函数是**按名字 + 形参个数**硬匹配的：`RustBridge.native
 | `.github/actions/setup-branchbase-env/` | 远程 CI 环境准备 composite action |
 | `.github/workflows/build-beta.yml` | Beta 三步骤流水线（prepare→build→publish） |
 | `.github/workflows/build-release.yml` | 正式版三步骤流水线 |
-| `.github/workflows/ci.yml` | 每次 push/PR 的编译与单测（Android 四渠道编译 + JVM 单测 + Rust check/test/clippy；原 `build-core.yml` 已并入） |
+| `.github/workflows/ci.yml` | 每次 push/PR 的编译与单测（Android 全渠道编译 + JVM 单测 + Rust check/test/clippy；原 `build-core.yml` 已并入） |
 
 ---
 

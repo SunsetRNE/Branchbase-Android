@@ -19,12 +19,19 @@
 | 通道 | 包名 | 签名 | 从哪拿 |
 |---|---|---|---|
 | **正式版** | `com.branchbase` | 正式钥匙 | [Releases](https://github.com/SunsetRNE/Branchbase-Android/releases)（非 Pre-release），附签名校验文件与源码包 |
-| **Beta 测试版** | `com.branchbase` | 统一 beta 钥匙 | 同上，标着 **Pre-release** 的那些；push 到 `main` 自动构建 |
-| **Dev 开发版** | `com.branchbase.dev` | 统一 beta 钥匙 | 与 Beta 同一个 Pre-release，可与 Beta **并排安装** |
-| **Test 测试版** | `com.branchbase.test` | 统一 beta 钥匙 | 同上，可与 Beta **并排安装** |
+| **Beta 测试版** | `com.branchbase.beta` | 统一 beta 钥匙 | 同上，标着 **Pre-release** 的那些；push 到 `main` 自动构建 |
+| **Perf 性能版** | `com.branchbase.perf` | 统一 beta 钥匙 | 与 Beta 同一个 Pre-release；非 debuggable，评性能用它 |
+| **Dev 开发版** | `com.branchbase.dev` | 统一 beta 钥匙 | 同上 |
+| **Test 测试版** | `com.branchbase.test` | 统一 beta 钥匙 | 同上 |
 
-> dev / test 只是 `applicationId` 与标签不同（`Branchbase dev` / `Branchbase test`），数据与登录态互相隔离；
-> 四个渠道的 APK 命名分别带 `-debug` / `-dev` / `-test` / `-perfBeta` 后缀。
+> **全面测试矩阵（2026-11-24 起）：五个渠道、五个独立包名，可并排安装** —— 数据、登录态、通知互相隔离，
+> 不必为了试一个渠道先卸载另一个。正式版保留 `com.branchbase`，是为了不让已装稳定版的用户「换成一个新应用」。
+>
+> ⚠️ 1.4.9 及更早的 Beta 沿用 `com.branchbase`；从本版起 Beta 是 `com.branchbase.beta`，
+> 与旧 Beta 是两个应用 —— 旧的不会被覆盖，可自行卸载。
+>
+> APK 命名分别带 `-debug`（Beta）/ `-perfBeta` / `-dev` / `-test` 后缀；标签分别是
+> `Branchbase beta` / `Branchbase perf` / `Branchbase dev` / `Branchbase test`。
 
 - 产物形如 `Branchbase-<工程版本>-<年月日-时分>-<七位哈希>.apk`（调试包多一个 `-debug` 后缀）。
 - 安装后在欢迎页二选一登录：**OAuth 授权**（新设备首次要过一次口令 / 设备验证）或**访问密钥 PAT**。

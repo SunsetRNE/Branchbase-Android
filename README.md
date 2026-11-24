@@ -22,9 +22,16 @@
 | Channel | Package | Signing | Where |
 |---|---|---|---|
 | **Stable** | `com.branchbase` | release key | [Releases](https://github.com/SunsetRNE/Branchbase-Android/releases) |
-| **Beta (debug)** | `com.branchbase` | shared beta key | Releases, entries marked **Pre-release** |
-| **Dev** | `com.branchbase.dev` | shared beta key | same Pre-release (installs side by side) |
-| **Test** | `com.branchbase.test` | shared beta key | same Pre-release (installs side by side) |
+| **Beta** | `com.branchbase.beta` | shared beta key | Releases, entries marked **Pre-release** |
+| **Perf** | `com.branchbase.perf` | shared beta key | same Pre-release; non-debuggable, for performance work |
+| **Dev** | `com.branchbase.dev` | shared beta key | same Pre-release |
+| **Test** | `com.branchbase.test` | shared beta key | same Pre-release |
+
+> **Full test matrix (since 2026-11-24): five channels, five independent application ids**, so all of
+> them install side by side — data, sign-in state and notifications stay isolated. Stable keeps
+> `com.branchbase` so existing users are not switched to a "new app".
+> Betas up to 1.4.9 used `com.branchbase`; from this release Beta is `com.branchbase.beta`
+> (the old Beta is a separate app and can be uninstalled).
 
 - Platform: Android 7.0+ (`minSdk 24`), phones and tablets only.
 - Self-built APKs need **your own GitHub OAuth App** (`client_secret` is injected at build time);

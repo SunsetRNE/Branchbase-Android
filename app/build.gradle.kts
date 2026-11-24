@@ -143,6 +143,10 @@ android {
          */
         debug {
             signingConfig = signingConfigs.getByName("beta")
+            // 全面测试矩阵（2026-11-24 起）：五个渠道**各自独立的 applicationId**，
+            // 同一台设备可并排安装、数据与登录态互相隔离。Beta 不再占用正式版的包名。
+            applicationIdSuffix = ".beta"
+            manifestPlaceholders["appLabel"] = "Branchbase beta"
             // Beta 版：标准版本号尾部附加 "-Beta"
             versionNameSuffix = "-Beta"
             buildConfigField("boolean", "FRAME_WATCH_DEFAULT", "true")
@@ -172,17 +176,24 @@ android {
          * AGP 才会把 baseline profile 合进 APK），签名却沿用入库的固定 beta 钥匙 —— 覆盖安装即可。
          */
         /**
-         * **渠道包：dev / test**（2026-11-24 起）。
+         * **全面测试矩阵：五个渠道、五个独立包名**（2026-11-24 起）。
          *
-         * 三者（debug / dev / test）**都用入库的 beta 钥匙**签名、**各自不同的 applicationId**，
-         * 所以可以在同一台设备上并排安装、互不影响（数据与登录态也是隔离的）。
-         * 目的：把「自己用的开发包」「给别人试的测试包」「beta 通道」分开，
-         * 避免"为了测一个改动先把正式 beta 卸载了"。
+         * | 渠道 | applicationId | 签名 | 用途 |
+         * |---|---|---|---|
+         * | 正式版 | `com.branchbase` | 正式钥匙 | 用户实际安装的稳定版 |
+         * | Beta | `com.branchbase.beta` | beta 钥匙 | 预发布，push main 自动出 |
+         * | Perf | `com.branchbase.perf` | beta 钥匙 | 性能诊断（非 debuggable + beta 签名） |
+         * | Dev | `com.branchbase.dev` | beta 钥匙 | 自己用的开发包 |
+         * | Test | `com.branchbase.test` | beta 钥匙 | 给别人试的测试包 |
          *
-         * - applicationIdSuffix：`com.branchbase.dev` / `com.branchbase.test`；
-         * - 标签：`Branchbase dev` / `Branchbase test`（manifest 的 `${appLabel}` 占位符）；
-         * - 依赖的 library 模块只有 debug/release 两套变体 → matchingFallbacks 指回 debug
-         *   （debug 变体才带调试符号与不裁剪，dev/test 本质是 debug 的可区分副本）。
+         * 全部**可以并排安装**：`applicationIdSuffix` 不同 → 数据/登录态/通知互相隔离，
+         * 不必为了试一个渠道先卸载另一个。正式版保留 `com.branchbase`，是为了不让
+         * 已经装了稳定版的用户「换成一个新应用」。
+         *
+         * - 标签：`Branchbase beta` / `Branchbase perf` / `Branchbase dev` / `Branchbase test`
+         *   （manifest 的 `${appLabel}` 占位符）；
+         * - 依赖的 library 模块只有 debug/release 两套变体 → matchingFallbacks 指回 debug/release
+         *   （dev/test 本质是 debug 的可区分副本）。
          */
         create("dev") {
             initWith(getByName("debug"))
@@ -214,6 +225,9 @@ android {
             isMinifyEnabled = false
             // 性能测试版属于 Beta 通道：慢帧日志默认开启（见 buildTypes 顶部的说明）
             buildConfigField("boolean", "FRAME_WATCH_DEFAULT", "true")
+            // 独立包名：性能包与 Beta 包并排安装，才能在同一台机器上做「改前 / 改后」对比
+            applicationIdSuffix = ".perf"
+            manifestPlaceholders["appLabel"] = "Branchbase perf"
             // 依赖的 library 模块只有 debug/release 两套变体，这里指回去
             matchingFallbacks += listOf("release")
         }
