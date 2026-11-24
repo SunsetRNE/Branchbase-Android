@@ -2,11 +2,14 @@ package com.branchbase.ui.profile
 
 import androidx.annotation.StringRes
 import android.content.Context
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import java.io.File
@@ -981,11 +984,22 @@ internal fun ModeOptionRow(
 ) {
     Column(Modifier.fillMaxWidth()) {
         if (divider) Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Gray200))
+        // 按压反馈走**颜色动画**而不是 Material 的灰色涟漪：
+        // 选中底色本身就是绿色，灰色涟漪在它淡入的过程中叠一层灰，看起来像「阴影闪一下」。
+        // 现在按下时浅绿按 90ms 进、220ms 退，和选中底色的过渡同一套配色、同一条时间轴。
+        val interaction = remember { MutableInteractionSource() }
+        val pressed by interaction.collectIsPressedAsState()
+        val pressTint by animateColorAsState(
+            targetValue = if (pressed) Primer.SuccessSurfaceSoft else Color.Transparent,
+            animationSpec = tween(if (pressed) 90 else 220),
+            label = "mode-option-press",
+        )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(selectionColor(selected, on = Primer.SuccessSurface))
-                .clickable { onClick() }
+                .background(pressTint)
+                .clickable(interactionSource = interaction, indication = null) { onClick() }
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.Top,
         ) {

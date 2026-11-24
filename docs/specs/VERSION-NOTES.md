@@ -74,7 +74,23 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.12 → 1.0.22）
+## 二、`versionName` 流水（1.4.13 → 1.0.22）
+
+### 1.4.13
+
+**修模式切换的「阴影闪烁」：灰色 Material 涟漪换成与选中色同源的按压颜色动画。**
+
+真机现象（1.4.12）：从一档切到另一档时，被点的那一行会闪一层灰带，看起来像阴影。
+根因不是阴影 —— `ModeOptionRow` 的 `clickable` 用的是**默认 Material 涟漪**，那层灰色覆盖
+与 `selectionColor` 的底色过渡发生在同一段时间里（旧行的绿在淡出、新行的绿在淡入），
+灰 + 绿叠在一起就读成「闪一下」。
+
+修法：禁用默认 indication，改用 `collectIsPressedAsState` + `animateColorAsState`：
+按下时 `SuccessSurfaceSoft` 以 90ms 进入、抬起后 220ms 退出，与选中底色同一配色、
+同一条时间轴。按压反馈因此是**动画**而不是覆盖层，灰带消失。
+
+注意这是共享组件（翻译 / 语言页也用 `ModeOptionRow`），所以这三处一起受益；
+`CommitModeScreen` 的弹性圆点不受影响。
 
 ### 1.4.12
 
@@ -4276,13 +4292,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（272 → 129）
+## 三、`versionCode` 流水（273 → 129）
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 
 - **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
 
 - **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **273**：修模式切换「阴影闪烁」—— 灰色 Material 涟漪改成 `SuccessSurfaceSoft` 的按压颜色动画（按下 90ms / 抬起 220ms），与选中底色同配色同时间轴（一次提交，故 +1）。
 
 - **272**：提交模式页第二版 —— 三档短名（单次提交 / 缓存提交 / 本地管理 · git本地）、徽标按档配色 + 颜色弹簧、圆点弹簧切换（`bouncySelection` 仅本页）（一次提交，故 +1）。
 
