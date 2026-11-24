@@ -32,19 +32,33 @@ jobs:
         with:
           gradle-cache-read-only: 'false'
 
-      # 只编译、不打包：打包需要 Rust 的 .so（由发版流水线构建），
-      # 而这里的目的是尽早发现 Kotlin / 资源 / 变体配置的回归。
-      # 四个渠道一起编：debug（beta）、dev、test、perfBeta —— 任何渠道的变体配置坏了都会红。
-      - name: Kotlin 编译（四渠道）+ JVM 单测
+      # 只编译、不打包：打包需要 Rust 的 .so（由发版流水线构建）。
+      # **一个 job 只编一个变体**：四个 Compose 编译塞进同一个 Gradle 进程会在代码生成阶段 OOM
+      # （2026-11-24 实测）。其余渠道由下面的 android-variants 矩阵各自编译。
+      - name: Kotlin 编译（debug）+ JVM 单测
         run: |
           set -o pipefail
           ./gradlew --console=plain \
             :app:compileDebugKotlin \
-            :app:compileDevKotlin \
-            :app:compileTrialKotlin \
-            :app:compilePerfBetaKotlin \
             :app:testDebugUnitTest \
             :translate:testDebugUnitTest
+
+  # 其余渠道各自一个 job（矩阵）：每个 job 只编一个变体，峰值内存回到单变体水平。
+  android-variants:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        task: [compileDevKotlin, compileTrialKotlin, compilePerfBetaKotlin]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-branchbase-env
+        with:
+          gradle-cache-read-only: 'false'
+
+      - name: Kotlin 编译（${{ matrix.task }}）
+        run: ./gradlew --console=plain :app:${{ matrix.task }}
 
   rust:
     runs-on: ubuntu-latest

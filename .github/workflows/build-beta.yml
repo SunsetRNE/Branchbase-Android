@@ -1,33 +1,21 @@
-name: Build Beta (Debug)
+name: Build Beta (Channels)
 
-# Beta 测试版：三步骤流水线
-#   ① prepare —— 环境准备 / 检索资产 / 判定缓存命中（写缓存）
-#   ② build   —— 执行编译（编译 .so + assembleDebug），注入关键版本参数
-#   ③ publish —— 收集产物 / 类型判定发布（pre-release）/ 代码变更整合（提交 .so 到 beta 分支）
+# Beta 渠道矩阵（push 到 main 自动跑；也可手动触发）
+#
+#   ① version —— 算一次**钉住**的版本参数（四个渠道共用同一个时间戳，否则 APK 名字差一分钟对不上）
+#   ② core    —— 编一次 Rust 核心 .so，作为 artifact 下发
+#   ③ build   —— **矩阵**：debug / dev / trial / perfBeta 各自一个 job、各自一个 Gradle 进程
+#                （2026-11-24：四渠道塞进一个 Gradle 调用会在 Compose 代码生成阶段 OOM；
+#                 拆开后每个 job 只编一个变体，峰值内存回到单变体水平，同时四条腿并行跑）
+#   ④ publish —— 汇总产物 / 双语发布页 / 提交 .so 与校验文件到 beta 分支 / 发 Pre-release
 on:
   workflow_dispatch:
   push:
     branches: [ main ]
 
 jobs:
-  prepare:
+  version:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      actions: write
-    steps:
-      - uses: actions/checkout@v4
-      - name: 环境准备 / 检索资产 / 判定命中
-        uses: ./.github/actions/setup-branchbase-env
-        with:
-          gradle-cache-read-only: 'false'
-
-  build:
-    runs-on: ubuntu-latest
-    needs: prepare
-    permissions:
-      contents: read
-      actions: write
     outputs:
       versionName: ${{ steps.ver.outputs.versionName }}
       versionCode: ${{ steps.ver.outputs.versionCode }}
@@ -39,38 +27,107 @@ jobs:
         with:
           fetch-depth: 0
 
-      # i18n 校验（结构 / 占位符 / translatable / 覆盖率）刻意排在环境准备**之前**：
-      # 它只解析 XML，几毫秒、不需要 Gradle 与 Android SDK —— 有问题就没必要再花几分钟拉工具链。
-      # 阈值 100 = 不允许把半成品翻译发出去（英文用户会看到中英混排）。
-      # 全量翻译期间若需要放行，把下面的数字调低即可（0 = 只报告不拦）。
+      # i18n 门禁：只解析 XML，几毫秒；排在所有构建之前，不达标就不必再花钱跑流水线。
       - name: i18n 校验
         run: python3 tools/i18n/check-i18n.py --min-coverage 100
+
+      - name: 版本参数（四个渠道共用）
+        id: ver
+        run: |
+          set -euo pipefail
+          V=$(grep '^versionName=' version.properties | cut -d= -f2 | tr -d '[:space:]')
+          C=$(grep '^versionCode=' version.properties | cut -d= -f2 | tr -d '[:space:]')
+          H=$(git rev-parse --short=7 HEAD)
+          T=$(TZ=Asia/Shanghai date +%Y%m%d-%H%M)
+          S="${V}-${T}-${H}"
+          {
+            echo "versionName=$V"
+            echo "versionCode=$C"
+            echo "gitHash=$H"
+            echo "buildTime=$T"
+            echo "standardVersion=$S"
+          } >> "$GITHUB_OUTPUT"
+          echo "[version] $S"
+
+  core:
+    runs-on: ubuntu-latest
+    needs: version
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: ./.github/actions/setup-branchbase-env
         with:
           gradle-cache-read-only: 'false'
 
-      - name: Inject client secret
-        run: echo "branchbase.client.secret=${{ secrets.BRANCHBASE_CLIENT_SECRET }}" >> local.properties
-
       - name: Build Rust core (.so)
         run: bash tools/build/build-core.sh --mode=ci
 
-      - name: Build APK (debug + perfBeta，注入版本参数)
-        id: ver
+      - name: Upload artifact（libbranchbase_core.so，不打包）
+        uses: actions/upload-artifact@v7
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libbranchbase_core.so
+          retention-days: 30
+          if-no-files-found: error
+          archive: false
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [version, core]
+    permissions:
+      contents: read
+      actions: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - channel: debug
+            task: assembleDebug
+            outDir: debug
+          - channel: dev
+            task: assembleDev
+            outDir: dev
+          - channel: trial
+            task: assembleTrial
+            outDir: trial
+          # perfBeta：非 debuggable（ART 才做 AOT、AGP 才合入 baseline profile），
+          # 沿用入库的固定 beta 钥匙，可以覆盖安装 —— 评性能用它。
+          - channel: perfBeta
+            task: assemblePerfBeta
+            outDir: perfBeta
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-branchbase-env
+        with:
+          gradle-cache-read-only: 'false'
+
+      - name: Download Rust core (.so)
+        uses: actions/download-artifact@v8
+        with:
+          name: libbranchbase_core.so
+          path: app/src/main/jniLibs/arm64-v8a/
+
+      - name: Inject client secret
+        run: echo "branchbase.client.secret=${{ secrets.BRANCHBASE_CLIENT_SECRET }}" >> local.properties
+
+      # 四个渠道共用 version job 钉住的版本参数 —— 不这样做，每个 leg 各自算时间戳，
+      # APK 名字会差一分钟，发布页按名字取附件就取不到。
+      - name: Assemble ${{ matrix.channel }}
+        env:
+          BRANCHBASE_GIT_HASH: ${{ needs.version.outputs.gitHash }}
+          BRANCHBASE_BUILD_TIME: ${{ needs.version.outputs.buildTime }}
+          BRANCHBASE_STANDARD_VERSION: ${{ needs.version.outputs.standardVersion }}
         run: |
           set -o pipefail
-          # 四个渠道一起出（2026-11-24 起；同一个 Gradle 调用共享编译缓存，比拆成多个 job 快）：
-          #   debug    —— beta 通道，包名 com.branchbase（可调试，排障用）；
-          #   dev      —— 包名 com.branchbase.dev（与 beta 并排安装）；
-          #   test     —— 包名 com.branchbase.test（与 beta 并排安装）；
-          #   perfBeta —— 非 debuggable（ART 才做 AOT、AGP 才合入 baseline profile），
-          #               沿用入库的固定 beta 钥匙，可以覆盖安装 —— 评性能用它。
-          # 四个渠道**同一把 beta 钥匙**；dev/test 只是 applicationId 不同。
-          if ! bash tools/build/assemble.sh assembleDebug assembleDev assembleTrial assemblePerfBeta 2>&1 | tee /tmp/assemble.log; then
-            # 失败时把关键行做成 annotation —— 无需日志下载权限即可通过 check-runs API 定位
-            echo "::error title=assemble::assembleDebug/assemblePerfBeta 失败，关键行如下"
-            # 先取 Kotlin 编译错误，再取 Gradle FAILURE 段（真实原因在 FAILURE 之后）
+          if ! bash tools/build/assemble.sh ${{ matrix.task }} 2>&1 | tee /tmp/assemble.log; then
+            echo "::error title=assemble::${{ matrix.channel }} 编译失败，关键行如下"
             {
               grep -aE "^e: |^error:" /tmp/assemble.log | tail -12
               awk '/^FAILURE:|What went wrong/{flag=1} flag{print; n++} n>=30{exit}' /tmp/assemble.log
@@ -82,18 +139,16 @@ jobs:
             exit 1
           fi
 
-      - name: Collect artifacts (复制到非 gitignore 的 dist/)
+      - name: Collect artifacts
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/*.apk dist/ || true
-          cp app/build/outputs/apk/dev/*.apk dist/ || true
-          cp app/build/outputs/apk/test/*.apk dist/ || true
-          cp app/build/outputs/apk/perfBeta/*.apk dist/ || true
-          cp app/src/main/jniLibs/arm64-v8a/libbranchbase_core.so dist/ || true
+          cp app/build/outputs/apk/${{ matrix.outDir }}/*.apk dist/ || true
           ls -la dist/
-      # 签名指纹必须从**实际产物**现算：写死的常量在换钥 / 配错钥时会继续「证明」旧指纹。
+
+      # 签名指纹从**实际产物**现算（四个渠道同一把 beta 钥匙，取 debug 那份即可）。
       # 放在 build 阶段是因为这里才有 Android SDK（apksigner 随 build-tools 由 AGP 装好）。
-      - name: Generate signature file（现算指纹）
+      - name: Generate signature file（现算指纹，仅 debug）
+        if: matrix.channel == 'debug'
         run: |
           set -uo pipefail
           APKSIGNER=$(command -v apksigner || true)
@@ -102,11 +157,9 @@ jobs:
           fi
           echo "apksigner=${APKSIGNER:-<未找到>}"
           APK=$(ls dist/*-debug.apk | head -1)
-          # 不启用 -e：先把 apksigner 的实际输出打出来，再决定；否则失败时只剩下我们自己的一句话。
           RAW=$("$APKSIGNER" verify --print-certs "$APK" 2>&1 || true)
           echo "--- apksigner output（前 8 行）---"
           printf '%s\n' "$RAW" | head -8
-          # 抽第一段 64 位十六进制（= 证书 SHA-256），不依赖 apksigner 的行前缀格式
           FPRINT=$(printf '%s\n' "$RAW" | grep -oE '[0-9a-fA-F]{64}' | head -1 \
             | tr '[:lower:]' '[:upper:]' | sed -E 's/(..)/\1:/g; s/:$//')
           if [ -z "$FPRINT" ]; then
@@ -115,69 +168,21 @@ jobs:
           fi
           {
             echo "variant=beta"
-            echo "version=${{ steps.ver.outputs.standardVersion }}"
+            echo "version=${{ needs.version.outputs.standardVersion }}"
             echo "fingerprint=$FPRINT"
           } > dist/signature.txt
           cat dist/signature.txt
 
-      # ── 产物上传：**一个 APK 一个 artifact，且不打包** ──
-      #
-      # 为什么拆开：产物是发布页之外的**第二条取包通道**。列表接口对刚发布的 release 会有一段
-      # 空 assets 的缓存窗口（约 1.5~2.6 小时，见 `releasesNeedingAssetBackfill` 的注释），
-      # 那段时间里只能靠产物。原来混装成一个 `beta-artifacts`（debug + perfBeta + .so，58MB），
-      # 名字认不出是哪个包、下载下来还得自己挑。
-      #
-      # 为什么不打包：`actions/upload-artifact` **v7 起支持 `archive: false`**
-      # （GitHub 2026-02-26 上线，v7 之前的行为是「一律 zip」）。不打包之后浏览器直接下到
-      # **裸 .apk**，不再是一个装不了的 zip。
-      # ⚠️ `archive: false` 有两条硬约束，写错了产物会直接失败或名字对不上：
-      #   ① 只能传**单个文件**，所以这里一个文件一个 step；
-      #   ② **产物名直接取文件名，`name:` 参数被忽略** —— 所以下面不写 `name:`
-      #      （写了也不生效，留着只会误导）。APK 的 `.apk` 后缀因此是必需的，
-      #      `build.gradle.kts` 里的 outputFileName 已经带上。
-      #
-      # `if-no-files-found: error`：这条通道是兜底，静默产出空产物等于兜底也没了。
-      - name: Upload artifacts（debug APK，不打包）
+      - name: Upload artifact（APK，不打包）
         uses: actions/upload-artifact@v7
         with:
-          path: dist/*-debug.apk
+          path: dist/*.apk
           retention-days: 30
           if-no-files-found: error
           archive: false
 
-      - name: Upload artifacts（perfBeta APK，不打包）
-        uses: actions/upload-artifact@v7
-        with:
-          path: dist/*-perfBeta.apk
-          retention-days: 30
-          if-no-files-found: error
-          archive: false
-
-      - name: Upload artifacts（dev APK，不打包）
-        uses: actions/upload-artifact@v7
-        with:
-          path: dist/*-dev.apk
-          retention-days: 30
-          if-no-files-found: error
-          archive: false
-
-      - name: Upload artifacts（test APK，不打包）
-        uses: actions/upload-artifact@v7
-        with:
-          path: dist/*-test.apk
-          retention-days: 30
-          if-no-files-found: error
-          archive: false
-
-      - name: Upload artifacts（Rust core .so，不打包）
-        uses: actions/upload-artifact@v7
-        with:
-          path: dist/libbranchbase_core.so
-          retention-days: 30
-          if-no-files-found: error
-          archive: false
-
-      - name: Upload artifacts（signature.txt，不打包）
+      - name: Upload artifact（signature.txt，不打包，仅 debug）
+        if: matrix.channel == 'debug'
         uses: actions/upload-artifact@v7
         with:
           path: dist/signature.txt
@@ -187,7 +192,7 @@ jobs:
 
   publish:
     runs-on: ubuntu-latest
-    needs: build
+    needs: [version, core, build]
     permissions:
       contents: write
     steps:
@@ -195,23 +200,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 取回 build 的三个产物（一个 APK 一个，且未打包）。
-      #
-      # `@v8` 是 `archive: false` 的**必要条件** —— v7 上传的非打包产物只有 v8 能正确取回。
-      # `merge-multiple: true` 让它们直接落在工作区根目录；不加会被放进以 artifact 命名的
-      # 子目录，发布步骤与「代码变更整合」的 `cp libbranchbase_core.so` 会一起找不到文件。
-      # 产物名就是文件名（`archive: false` 的规则），所以取回来正好是那三个文件本身：
-      #   Branchbase-<sv>-debug.apk · Branchbase-<sv>-perfBeta.apk · libbranchbase_core.so
-      # 这也正是下面 `files:` 与 `cp` 期望的路径。
       - name: Download artifacts
         uses: actions/download-artifact@v8
         with:
           pattern: '*'
           merge-multiple: true
 
-      # 指纹由 build 阶段从**实际 APK** 现算并作为产物上传（见那一步的注释）。
-      # 这里只把它放回 verify/，供提交到 beta 分支与发布页使用。
-      - name: Collect signature file（build 阶段现算）
+      # 指纹由 build 阶段从实际 APK 现算并上传；这里只把它放回 verify/ 供提交与发布。
+      - name: Collect signature file
         run: |
           test -s signature.txt || { echo "::error::缺少 build 阶段产出的 signature.txt"; exit 1; }
           mkdir -p verify
@@ -221,17 +217,12 @@ jobs:
 
       - name: Generate beta tag
         id: tag
-        run: echo "tag=v${{ needs.build.outputs.standardVersion }}-beta" >> "$GITHUB_OUTPUT"
+        run: echo "tag=v${{ needs.version.outputs.standardVersion }}-beta" >> "$GITHUB_OUTPUT"
 
-      # 改动记录：发布页必须能看出「这次发了什么」。
-      # 锚定上一个 beta 标签 → 本次标签，逐条列出提交（带 commit 链接）+ 完整对比链接。
-      # ⚠️ 必须排在「代码变更整合（提交 .so 到 beta 分支）」**之前**：那一步会把 HEAD
-      # 变成 CI 自己产生的提交，之后再取范围就会把这条内部提交也列进改动记录。
+      # 改动记录：发布页必须能看出「这次发了什么」。英文段在最前（展示优先级），中文是权威正文。
       - name: 生成改动记录（锚定上一个 beta 标签）
         id: notes
         run: |
-          # 正文只含两个引用区（「代码变更引用」+「代码提交描述引用」）；
-          # 版本信息由最后一步追加到**整页末尾**（含官方自动说明之后）。
           bash tools/build/release-notes.sh \
             --repo "${{ github.repository }}" \
             --tag "${{ steps.tag.outputs.tag }}" \
@@ -245,12 +236,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # upload dist/ 时以 dist 为 root，download 后 .so 落在 workspace 根（不带 dist/ 前缀）
           mkdir -p app/src/main/jniLibs/arm64-v8a
           cp libbranchbase_core.so app/src/main/jniLibs/arm64-v8a/
           git checkout -B beta
           git add -f verify/signature.txt app/src/main/jniLibs/arm64-v8a/libbranchbase_core.so
-          git commit -m "chore: 更新测试版校验配置与 .so v${{ needs.build.outputs.versionName }}" || echo "无变更"
+          git commit -m "chore: 更新测试版校验配置与 .so v${{ needs.version.outputs.versionName }}" || echo "无变更"
           git push origin beta --force || true
 
       - name: 类型判定发布（pre-release）
@@ -259,27 +249,20 @@ jobs:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: Beta 测试版 ${{ steps.tag.outputs.tag }}
           body_path: release-body.md
-          # 官方自动生成说明（合并的 PR + 贡献者 + 完整变更链接），分类见 .github/release.yml；
-          # action 会把上面的 body 前置到官方说明之前（body + "\n\n" + generated）
           generate_release_notes: true
-          # 让官方的「完整变更」链接也锚定上一个 beta 标签，而不是 GitHub 自行挑选的基准
           previous_tag: ${{ steps.notes.outputs.previous }}
-          # ⚠️ 用**显式路径**而不是 `*.apk`：glob 一个都没匹配到时，action-gh-release
-          # **默认仍算成功**（`fail_on_unmatched_files` 默认 false）—— 于是 release 建出来了、
-          # 附件一个没有、CI 全绿，页面上就是「什么都没有」。v1.0.73-beta 正是这么丢的。
-          # 两道防线：这里的显式路径 + 下面 `fail_on_unmatched_files`，末尾还有一道附件数校验。
+          # 显式路径 + fail_on_unmatched_files：glob 一个都没匹配时 action 默认仍算成功，
+          # 会发布一个「没有附件」的 release（v1.0.73-beta 的教训）。
           files: |
-            Branchbase-${{ needs.build.outputs.standardVersion }}-debug.apk
-            Branchbase-${{ needs.build.outputs.standardVersion }}-dev.apk
-            Branchbase-${{ needs.build.outputs.standardVersion }}-test.apk
-            Branchbase-${{ needs.build.outputs.standardVersion }}-perfBeta.apk
+            Branchbase-${{ needs.version.outputs.standardVersion }}-debug.apk
+            Branchbase-${{ needs.version.outputs.standardVersion }}-dev.apk
+            Branchbase-${{ needs.version.outputs.standardVersion }}-test.apk
+            Branchbase-${{ needs.version.outputs.standardVersion }}-perfBeta.apk
             verify/signature.txt
           fail_on_unmatched_files: true
           prerelease: true
           draft: false
 
-      # 版本信息排到整页末尾：先读回当前正文（含 GitHub 官方自动说明），再追加后写回。
-      # 这样页面顺序是「代码变更引用 → 代码提交描述引用 → 官方自动说明 → 版本信息」。
       - name: 追加版本信息到发布页末尾
         env:
           GH_TOKEN: ${{ github.token }}
@@ -295,33 +278,19 @@ jobs:
             echo "| 项 | 值 |"
             echo "| --- | --- |"
             echo "| 版本 | \`$TAG\` |"
-            echo "| 标准版本号 | \`${{ needs.build.outputs.standardVersion }}\` |"
-            echo "| 版本码 | \`${{ needs.build.outputs.versionCode }}\` |"
-            echo "| 提交 | \`${{ needs.build.outputs.gitHash }}\` |"
-            echo "| 构建时间 | ${{ needs.build.outputs.buildTime }} |"
-            echo "| 签名 | Debug 签名（测试版专用） |"
-          } > final-body.md
-          gh release edit "$TAG" --repo "${{ github.repository }}" --notes-file final-body.md
-          echo "✅ 版本信息已追加到发布页末尾"
+            echo "| 标准版本号 | \`${{ needs.version.outputs.standardVersion }}\` |"
+            echo "| 版本码 | \`${{ needs.version.outputs.versionCode }}\` |"
+            echo "| 提交 | \`${{ needs.version.outputs.gitHash }}\` |"
+            echo "| 构建时间 | ${{ needs.version.outputs.buildTime }} |"
+          } > /tmp/new-body.md
+          gh release edit "$TAG" --repo "${{ github.repository }}" --notes-file /tmp/new-body.md
 
-      # 附件数核对（**只报警，不阻断**）。
-      #
-      # 为什么不做成硬失败：GitHub 的 REST 接口被实测过会**低报附件** —— 同一个 release，
-      # `GET /releases`（列表）返回空 assets，而 `GET /releases/{id}`、发布页、以及附件下载
-      # 地址（HTTP 200 + content-length 对得上）都证明 3 个附件好好的。
-      # 拿一个会误报的数据源去 exit 1，只会制造假红。真正的防线是上面那条
-      # `fail_on_unmatched_files`：它判断的是 action 自己匹配到的文件，不依赖任何 API。
-      # 这一条留作信号 —— 万一将来真出现「上传静默失败」，日志里能直接看到。
       - name: 核对发布附件数
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
-          echo "附件清单："
-          gh release view "$TAG" --repo "${{ github.repository }}" --json assets -q '.assets[].name'
-          N=$(gh release view "$TAG" --repo "${{ github.repository }}" --json assets -q '.assets | length' | tr -dc '0-9')
-          if [ "$N" != "3" ]; then
+          N=$(gh api "repos/${{ github.repository }}/releases/tags/$TAG" --jq '.assets | length' 2>/dev/null || echo "")
+          if [ "${N:-0}" -lt 5 ]; then
             echo "::warning title=发布附件数异常::$TAG 期望 5 个附件（debug / dev / test / perfBeta APK + signature.txt），接口返回 '${N:-取不到}' 个。⚠️ REST 接口有低报先例，请以发布页为准，不要据此判断构建失败"
-          else
-            echo "✅ 附件齐全（$N 个）"
           fi

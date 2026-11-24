@@ -5,7 +5,7 @@
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
 **每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.2.5**）
-与 §三 `versionCode` 流水（129 → **257**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+与 §三 `versionCode` 流水（129 → **258**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,30 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.3.1 → 1.0.22）
+## 二、`versionName` 流水（1.3.2 → 1.0.22）
+
+### 1.3.2
+
+**按渠道拆编译节点：Beta 流水线改为「版本 → core → 渠道矩阵 → 发布」，CI 也拆成「主变体 + 其余变体」。**
+
+① **1.3.1 仍 OOM**：把堆从 2 GB 提到 3 GB 只推迟了失败 —— 四个渠道的 Compose 编译**在同一个 Gradle
+进程里并行**，峰值内存不取决于堆有多大，而取决于同时在编几个变体（`e: OutOfMemoryError: GC overhead
+limit exceeded` + `compileDebugKotlin / compileDevKotlin / compileTrialKotlin / compilePerfBetaKotlin` 一起 FAILED）。
+
+② **拆法（Beta）**：
+- `version` job：只算一次版本参数（`standardVersion` = 版本 + 时间戳 + 短哈希）并下发；
+- `core` job：编一次 `.so`，作为 artifact 下发；
+- `build` job：**矩阵** debug / dev / trial / perfBeta，每条腿独立 Gradle 进程、只编一个变体；
+- `publish` job：汇总 4 个 APK + signature.txt，双语发布页，提交 `.so` 与校验到 `beta` 分支，发 Pre-release。
+- **版本必须钉住**：四个 leg 各自算时间戳会差一分钟、APK 名字对不上，所以 `assemble.sh` 改为尊重
+  外部传入的 `BRANCHBASE_GIT_HASH` / `BRANCHBASE_BUILD_TIME` / `BRANCHBASE_STANDARD_VERSION`。
+- 收益：峰值内存回到单变体水平（三条腿并行跑，墙钟时间反而更短或持平）。
+
+③ **拆法（CI）**：`android` job 只编 `debug` + 跑 `:app` / `:translate` 单测；新增 `android-variants`
+矩阵（dev / trial / perfBeta 各一个 job，只编译）。`rust` job 不变。同一分支连推仍由 `concurrency` 取消旧运行。
+
+④ **边界**：`gradle.properties` 的 3 GB 保留（本地一次编四个渠道仍需要）；若渠道继续增加，
+继续拆矩阵而不是继续加堆。发布页附件数校验从 5 个（debug/dev/test/perfBeta + signature）开始。
 
 ### 1.3.1
 
@@ -3921,13 +3944,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（257 → 129）
+## 三、`versionCode` 流水（258 → 129）
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 
 - **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
 
 - **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **258**：按渠道拆编译节点 —— Beta 改为 version/core/build(矩阵)/publish 四段（`assemble.sh` 支持钉住版本参数，避免各 leg 时间戳不一致）；CI 拆成 android（debug+单测）与 android-variants 矩阵（dev/trial/perfBeta 只编译）；解决四渠道同进程编译的 OOM（一次提交，故 +1）。
 
 - **257**：修 1.3.0 的 Beta 失败 —— 四渠道一次编译时 Kotlin/Compose `OutOfMemoryError: GC overhead limit exceeded`；`org.gradle.jvmargs` 2048m→3072m（+Metaspace 768m）、显式 `kotlin.daemon.jvmargs=-Xmx2048m`（一次提交，故 +1）。
 

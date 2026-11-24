@@ -28,9 +28,12 @@ VERSION_NAME=$(grep '^versionName=' version.properties | cut -d= -f2 | tr -d '[:
 VERSION_CODE=$(grep '^versionCode=' version.properties | cut -d= -f2 | tr -d '[:space:]')
 
 # ── 计算关键版本参数（固定 Asia/Shanghai，与 app/build.gradle.kts 对齐）──
-GIT_HASH=$(git rev-parse --short=7 HEAD 2>/dev/null || echo "unknown")
-BUILD_TIME=$(TZ=Asia/Shanghai date +%Y%m%d-%H%M)
-STANDARD_VERSION="${VERSION_NAME}-${BUILD_TIME}-${GIT_HASH}"
+#
+# **允许外部钉住**（2026-11-24：渠道矩阵把四个变体拆成多个 job，各自算一次时间戳就会差一分钟，
+# APK 名字对不上、发布页挂不上）。矩阵流水线因此先算一次，再经环境变量下发给每个 leg。
+GIT_HASH="${BRANCHBASE_GIT_HASH:-$(git rev-parse --short=7 HEAD 2>/dev/null || echo "unknown")}"
+BUILD_TIME="${BRANCHBASE_BUILD_TIME:-$(TZ=Asia/Shanghai date +%Y%m%d-%H%M)}"
+STANDARD_VERSION="${BRANCHBASE_STANDARD_VERSION:-${VERSION_NAME}-${BUILD_TIME}-${GIT_HASH}}"
 
 # ── ① 注入环境变量（build.gradle.kts 优先读取）──
 export BRANCHBASE_VERSION_NAME="$VERSION_NAME"
