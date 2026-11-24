@@ -1306,13 +1306,19 @@ fun LocalRepoScreen(
     fun doGitCommit(repoName: String, message: String) {
         scope.launch {
             val taskId = TaskStore.start(context, TaskKind.COMMIT, context.getString(R.string.action_commit_local, repoName))
-            val sha = withContext(Dispatchers.IO) {
+            val result = withContext(Dispatchers.IO) {
                 RustBridge.gitCommit(dirOf(repoName), message, authorName(), authorEmail())
             }
-            Logger.net("git commit ($repoName) → ${sha?.take(7) ?: "失败"}", "LocalGit")
-            if (sha != null) TaskStore.success(context, taskId, context.getString(R.string.toast_committed, sha))
-            else TaskStore.fail(context, taskId, context.getString(R.string.error_commit_failed_engine))
-            feedback = if (sha != null) context.getString(R.string.state_committed_local_git) else context.getString(R.string.error_commit_failed_engine)
+            val reason = result.error?.let { context.engineErrorOrRaw(it) }
+                ?: context.getString(R.string.error_commit_failed_engine)
+            // 日志记**原始原因**（本地化后的那句只给用户看）：1.4.22 起 gitCommit 不再吞错误
+            Logger.net("git commit ($repoName) → ${result.sha?.take(7) ?: "失败 ← ${result.error ?: "（引擎未返回原因）"}"}", "LocalGit")
+            if (result.sha != null) {
+                TaskStore.success(context, taskId, context.getString(R.string.toast_committed, result.sha))
+            } else {
+                TaskStore.fail(context, taskId, reason)
+            }
+            feedback = if (result.sha != null) context.getString(R.string.state_committed_local_git) else reason
             page = LocalPage.List
         }
     }

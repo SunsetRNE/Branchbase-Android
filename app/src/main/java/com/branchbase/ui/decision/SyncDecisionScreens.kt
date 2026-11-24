@@ -323,6 +323,7 @@ fun ForkDecisionScreen(
                     // null = 成功，其他 = 失败原因（原因要透到反馈里，别只说「失败」）
                     val err = withContext(Dispatchers.IO) { RustBridge.gitResetHardRemote(repoDir, branch) }
                     busy = false
+                    if (err != null) Logger.net("git reset --hard origin/$branch → 失败 ← $err", "LocalGit")
                     onResolved(
                         if (err == null) context.getString(R.string.state_discarded_local)
                         else failureMessage(context.getString(R.string.action_discard_local_commit), context.engineErrorOrRaw(err)).resolve(context),
@@ -797,6 +798,7 @@ fun UndoCommitScreen(
                     busy = true
                     val err = withContext(Dispatchers.IO) { RustBridge.gitAmend(repoDir, newMessage) }
                     busy = false
+                    if (err != null) Logger.net("git commit --amend → 失败 ← $err", "LocalGit")
                     onResolved(
                         if (err == null) context.getString(R.string.state_commit_message_updated)
                         else failureMessage(context.getString(R.string.action_edit_commit_message), context.engineErrorOrRaw(err)).resolve(context),
@@ -810,6 +812,7 @@ fun UndoCommitScreen(
                     busy = true
                     val err = withContext(Dispatchers.IO) { RustBridge.gitResetSoft(repoDir) }
                     busy = false
+                    if (err != null) Logger.net("git reset --soft HEAD~1 → 失败 ← $err", "LocalGit")
                     onResolved(
                         if (err == null) context.getString(R.string.state_undo_commit_kept)
                         else failureMessage(context.getString(R.string.action_undo_commit), context.engineErrorOrRaw(err)).resolve(context),
@@ -834,14 +837,22 @@ fun UndoCommitScreen(
                 val message = "Revert \"${head?.message ?: revertSha}\""
                 scope.launch {
                     busy = true
-                    val sha = withContext(Dispatchers.IO) {
+                    val result = withContext(Dispatchers.IO) {
                         RustBridge.gitRevert(repoDir, revertSha.trim(), message, authorName(), authorEmail())
                     }
                     busy = false
-                    // gitRevert 把所有失败折叠成 null，页面分不出具体是哪一种：只列常见原因，不编造单一归因
+                    val reason = result.error?.let { context.engineErrorOrRaw(it) }
+                    if (result.sha == null) {
+                        // 1.4.22 起 gitRevert 会带出原因；仍拿不到时才退回「常见原因」那句
+                        Logger.net(
+                            "git revert ${revertSha.trim().take(7)} → ${result.error ?: "（引擎未返回原因）"}",
+                            "LocalGit",
+                        )
+                    }
                     onResolved(
-                        if (sha != null) context.getString(R.string.state_revert_created)
-                        else context.getString(R.string.error_revert_failed)
+                        if (result.sha != null) context.getString(R.string.state_revert_created)
+                        else reason?.let { context.getString(R.string.error_revert_failed_reason, it) }
+                            ?: context.getString(R.string.error_revert_failed)
                     )
                 }
             }

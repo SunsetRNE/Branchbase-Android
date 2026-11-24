@@ -90,6 +90,25 @@ class EngineErrorTest {
     }
 
     @Test
+    fun `git 内部失败的原因码`() {
+        // §15：不归通用码，按「原因」给行动 —— 每个码都必须有自己的文案（不是一句通用失败）
+        val cases = mapOf(
+            "SIGNATURE_MISSING" to R.string.engine_error_signature_missing,
+            "UNMERGED_INDEX" to R.string.engine_error_unmerged_index,
+            "REMOTE_MISSING" to R.string.engine_error_remote_missing,
+            "EMPTY_REPO" to R.string.engine_error_empty_repo,
+            "REPO_WRITE_FAILED" to R.string.engine_error_repo_write_failed,
+            "REPO_CORRUPT" to R.string.engine_error_repo_corrupt,
+            "CANCELLED" to R.string.engine_error_cancelled,
+        )
+        cases.forEach { (code, res) ->
+            val e = parseEngineError("ERROR:$code:旧文案原文") as EngineError.Coded
+            assertEquals(code, e.code)
+            assertEquals(res, e.res)
+        }
+    }
+
+    @Test
     fun `没见过的码原样透出_不猜`() {
         // 用一个**永远不该出现**的码：`NOT_GIT_REPO` 之类已经进码表了，拿它测「未知码」会假红。
         val raw = parseEngineError("ERROR:SOMETHING_NEW:不是 git 仓库") as EngineError.Raw

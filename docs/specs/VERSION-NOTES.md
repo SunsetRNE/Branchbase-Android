@@ -74,7 +74,43 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.21 → 1.0.22）
+## 二、`versionName` 流水（1.4.22 → 1.0.22）
+
+### 1.4.22
+
+**git 内部失败按「原因」归 7 个场景码 + 补三个信息洞（§15 实施）。**
+
+1.4.20 的 19 个码只覆盖前置条件；写路径里约 93 处 `map_err` 仍是 libgit2 英文套一句中文前缀。
+这一版按 `i18n-migration.md` §15 落地 —— **不归通用码**：码只编「原因」（决定用户能做什么），
+场景由调用方文案给、对象只进日志。新增 7 个有出路的码：
+
+| 码 | 触发 | 用户看到的 |
+|---|---|---|
+| `SIGNATURE_MISSING` | `config value 'user.name' was not found` | 还没填提交人姓名或邮箱：去设置 → 代码与提交 → 提交身份填一下 |
+| `UNMERGED_INDEX` | `cannot create a tree from a not fully merged index` | 还有没解决的冲突文件：先解决它们再提交 |
+| `REMOTE_MISSING` | `remote 'origin' does not exist` | 这个本地仓库还没配远端地址：在设置里补上再试 |
+| `EMPTY_REPO` | `reference 'refs/heads/…' not found`（unborn） | 本地仓库还没有任何提交：先提交一次 |
+| `REPO_WRITE_FAILED` | `failed to write …` / `Permission denied` / `No space left` | 本地仓库写不进去：磁盘可能满了或没有写入权限，腾出空间后重试 |
+| `REPO_CORRUPT` | `object not found - no match for id (…)` / `corrupt` | 本地仓库的数据缺失或损坏：重新拉取一份（浅克隆先加深历史） |
+| `CANCELLED` | 用户取消（clone / 加深） | 已取消 |
+
+归类规则（`classify_git_message`，顺序即优先级）：认证 → 锁 → 远端缺失 → 未合并索引 →
+签名缺失 → 数据损坏 → 写入失败 → 不是仓库 → 检出被挡；认不出就用调用点的默认码，再认不出保留原文。
+**一个失败只出一个码** —— 不再拼 `A+B`，需要两个信息时用「码文案 + 调用方场景前缀」组合。
+
+② **三个信息洞**（不做的话新码全看不到）：
+- `gitCommit` / `gitRevert` 以前只回 sha / null，原因直接丢掉（界面只有「引擎没有返回结果」）——
+  改成 `GitWriteResult(sha, error)`，四个调用点（仓库列表提交 / 工作台提交 / 文件页提交 / revert）
+  都上屏 + 落日志；
+- `switchAndPull` / `trackRemote` / 决策页的 amend / reset / revert 失败只弹几秒的 Feedback、
+  **不落日志** —— 补 `Logger.net`；
+- revert 失败现在带原因（新增 `error_revert_failed_reason`，仍保留旧的「常见原因」兜底）。
+
+③ 顺手清掉 1.4.21 留下的一条 Pages 提示：`upload-pages-artifact` v4 → **v5**
+（内部由 `upload-artifact@v4.6.2` 换成 v7，node24）。
+
+钉子：Rust 2 例（7 类原因归类 + 优先级；HEAD 缺失默认 `EMPTY_REPO`）、Kotlin 1 例（7 个码 → 资源）、
+`I18nUiTextTest` 新增 8 键。
 
 ### 1.4.21
 
@@ -4484,7 +4520,12 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（281 → 129）
+## 三、`versionCode` 流水（282 → 129）
+
+- **282**：git 内部失败按原因补 7 个场景码（`SIGNATURE_MISSING` / `UNMERGED_INDEX` / `REMOTE_MISSING` /
+  `EMPTY_REPO` / `REPO_WRITE_FAILED` / `REPO_CORRUPT` / `CANCELLED`）+ 归类优先级；修
+  `gitCommit`/`gitRevert` 丢错误、若干失败路径不落日志；Pages artifact 升 v5 清掉最后一条 Node 提示
+  （一次提交，故 +1）。
 
 - **281**：CI 的七个 action 切到 Node 24 版本（各自停在不夹带行为变化的那一档；setup-android 的
   cmdline-tools 钉回旧版本）+ i18n 文档新增 §15「git 内部失败语义 / 场景 / 组合」方案（一次提交，故 +1）。

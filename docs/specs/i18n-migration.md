@@ -471,12 +471,14 @@ Kotlin 侧只有三个入口（`app/src/main/java/com/branchbase/core/EngineErro
 
 ---
 
-## 十五、git 内部失败：语义、场景与组合（方案，未实施）
+## 十五、git 内部失败：语义、场景与组合（1.4.22 已实施）
 
 > 1.4.20 的 19 个码只覆盖「前置条件 / 用户能行动」的场景。写路径里还有约 93 处 `map_err`
 > （读索引、写树、构造签名、revwalk、找对象…）仍是 libgit2 英文原文套一句中文前缀。
 > 这一节回答「它们要不要归一个通用码」—— 结论是**不归通用码**，而是把语义拆成三个维度、
 > 补齐 7 个「有出路」的场景，并给出多条原因同时命中时的取舍规则。
+>
+> **状态：1.4.22 已实施**（7 个码 + 三条前置修复 + 归类规则；剩「不该发生」类仍保留原文）。
 
 ### 15.1 三个维度，别混成一个码
 
@@ -564,13 +566,13 @@ CANCELLED
 - 日志格式建议统一成：`<场景>失败 ← [<CODE>/<OBJECT>] <libgit2 原文>`，
   这样 grep 一个码就能捞出所有同类事故。
 
-### 15.5 前置修复（不做这三件，方案落不了地）
+### 15.5 前置修复（1.4.22 已完成）
 
-1. **`gitCommit` / `gitRevert` 把错误丢了**：包装只返回 sha / null，原因既不返回也不记录，
-   界面只有「引擎没有返回结果」。必须先改成能把错误交给调用方（如 `GitWriteResult(sha, error)`）；
-2. **有几个失败路径不落日志**：`LocalBranchSyncScreen.switchAndPull` / `trackRemote`、
-   `SyncDecisionScreens` 的 amend / reset —— 错误只进几秒就消失的 `Feedback`。补一行 `Logger`；
-3. **clone 的锁文件分支保持原文**（它带现场取证），不归类 —— 已在 1.4.20 定下。
+1. ~~**`gitCommit` / `gitRevert` 把错误丢了**~~ —— 1.4.22 已改成 `GitWriteResult(sha, error)`，
+   失败必带原因；三个调用点（仓库列表提交 / 工作台提交 / 文件页提交）与 revert 都把它上屏 + 落日志；
+2. ~~**有几个失败路径不落日志**~~ —— 1.4.22 已补：`switchAndPull` / `trackRemote` /
+   `SyncDecisionScreens` 的 amend / reset / revert；
+3. **clone 的锁文件分支保持原文**（它带现场取证），不归类 —— 1.4.20 定下，1.4.22 未变。
 
 ### 15.6 场景 × 操作矩阵（节选）
 

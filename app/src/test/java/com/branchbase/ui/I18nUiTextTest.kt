@@ -250,6 +250,11 @@ class I18nUiTextTest {
             "engine_error_conflicts_remain", "engine_error_no_parent_commit",
             "engine_error_remote_ref_missing", "engine_error_shallow_clone",
             "engine_error_no_common_ancestor", "engine_error_not_in_conflict",
+            // git 内部失败的原因码（§15：不归通用码）+ revert 失败带原因
+            "engine_error_signature_missing", "engine_error_unmerged_index",
+            "engine_error_remote_missing", "engine_error_empty_repo",
+            "engine_error_repo_write_failed", "engine_error_repo_corrupt",
+            "engine_error_cancelled", "error_revert_failed_reason",
             // 仓库打不开的解释（404 歧义 / 403 权限与限流 / 令牌 scope 判读）
             "repo_access_hint_404", "repo_access_hint_403",
             "repo_scope_has_repo", "repo_scope_missing_repo",

@@ -1998,4 +1998,15 @@
     <string name="engine_error_shallow_clone">本地是浅克隆（历史不全）：先「加深历史」再合并</string>
     <string name="engine_error_no_common_ancestor">两个分支没有共同祖先（不是同一条历史）</string>
     <string name="engine_error_not_in_conflict">这个文件现在不在冲突清单里（可能已经解决）</string>
+
+    <!-- ── git 内部失败：按「原因」补的 7 个场景码（`i18n-migration.md` §15 · 1.4.22）──
+         码只编原因（用户能做什么），场景由调用方文案给、对象只进日志；认不出仍保留原文。 -->
+    <string name="engine_error_signature_missing">还没填提交人姓名或邮箱：去设置 → 代码与提交 → 提交身份填一下</string>
+    <string name="engine_error_unmerged_index">还有没解决的冲突文件：先解决它们再提交</string>
+    <string name="engine_error_remote_missing">这个本地仓库还没配远端地址：在设置里补上再试</string>
+    <string name="engine_error_empty_repo">本地仓库还没有任何提交：先提交一次</string>
+    <string name="engine_error_repo_write_failed">本地仓库写不进去：磁盘可能满了或没有写入权限，腾出空间后重试</string>
+    <string name="engine_error_repo_corrupt">本地仓库的数据缺失或损坏：重新拉取一份（浅克隆先加深历史）</string>
+    <string name="engine_error_cancelled">已取消</string>
+    <string name="error_revert_failed_reason">revert 失败：%1$s</string>
 </resources>

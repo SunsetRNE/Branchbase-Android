@@ -1957,4 +1957,14 @@
     <string name="engine_error_shallow_clone">The local copy is a shallow clone (incomplete history): deepen the history first.</string>
     <string name="engine_error_no_common_ancestor">The two branches share no common ancestor (not the same history).</string>
     <string name="engine_error_not_in_conflict">That file is not in the conflict list (it may already be resolved).</string>
+
+    <!-- git internal failures: 7 cause codes (`i18n-migration.md` §15, 1.4.22). -->
+    <string name="engine_error_signature_missing">No commit author name or email yet: set them in Settings → Code &amp; commits → Commit identity.</string>
+    <string name="engine_error_unmerged_index">There are unresolved conflicts: resolve them before committing.</string>
+    <string name="engine_error_remote_missing">This local repository has no remote URL yet: add one in settings and try again.</string>
+    <string name="engine_error_empty_repo">This local repository has no commits yet: make the first commit.</string>
+    <string name="engine_error_repo_write_failed">The local repository cannot be written: the disk may be full or read-only, or you may lack permission; free some space and try again.</string>
+    <string name="engine_error_repo_corrupt">The local repository\'s data is missing or corrupt: clone it again (deepen the history first if it is a shallow clone).</string>
+    <string name="engine_error_cancelled">Cancelled.</string>
+    <string name="error_revert_failed_reason">Revert failed: %1$s</string>
 </resources>

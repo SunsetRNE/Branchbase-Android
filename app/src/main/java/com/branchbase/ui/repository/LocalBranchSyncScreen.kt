@@ -156,11 +156,14 @@ fun LocalBranchSyncScreen(
             val co = withContext(Dispatchers.IO) { RustBridge.checkoutBranch(dir, name) }
             if (co != null) {
                 busy = false
-                feedback = Feedback(context.getString(R.string.error_switch_to_failed, name, context.engineErrorOrRaw(co)), ok = false)
+                // 失败必须留痕：Feedback 几秒就消失，事后只能靠这行日志定位
+                Logger.net("git checkout $name ($repoName) → 失败 ← $co", "LocalGit")
+                feedback = Feedback(context.getString(R.string.error_switch_to_failed, name, context.gitOutcomeText(co).orEmpty()), ok = false)
                 return@launch
             }
             val err = withContext(Dispatchers.IO) { RustBridge.gitPullDetailed(dir, token) }
             busy = false
+            Logger.net("git checkout+pull $name ($repoName) → ${err?.let { "失败 ← $it" } ?: "成功"}", "LocalGit")
             feedback = if (err == null) {
                 Feedback(context.getString(R.string.toast_switched_and_pulled, name), ok = true)
             } else {
@@ -186,6 +189,7 @@ fun LocalBranchSyncScreen(
             val create = withContext(Dispatchers.IO) { RustBridge.createBranchLocal(dir, name, "origin/$name") }
             if (create != null) {
                 busy = false
+                Logger.net("git switch -c $name ($repoName) → 失败 ← $create", "LocalGit")
                 feedback = Feedback(context.getString(R.string.error_create_local_branch_failed, context.engineErrorOrRaw(create)), ok = false)
                 return@launch
             }
@@ -194,6 +198,7 @@ fun LocalBranchSyncScreen(
                 withContext(Dispatchers.IO) { RustBridge.gitPushSetUpstream(dir, url, name, token) }
             } else null
             busy = false
+            if (up != null) Logger.net("git push -u origin $name ($repoName) → 失败 ← $up", "LocalGit")
             feedback = if (up == null) {
                 Feedback(context.getString(R.string.toast_created_tracking, name, name), ok = true)
             } else {

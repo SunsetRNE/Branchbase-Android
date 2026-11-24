@@ -93,6 +93,15 @@ internal object EngineCodes {
     const val SHALLOW_CLONE = "SHALLOW_CLONE"
     const val NO_COMMON_ANCESTOR = "NO_COMMON_ANCESTOR"
     const val NOT_IN_CONFLICT = "NOT_IN_CONFLICT"
+
+    // ── git 内部失败的原因码（1.4.22 / §15：不归通用码，按原因给行动） ──
+    const val SIGNATURE_MISSING = "SIGNATURE_MISSING"
+    const val UNMERGED_INDEX = "UNMERGED_INDEX"
+    const val REMOTE_MISSING = "REMOTE_MISSING"
+    const val EMPTY_REPO = "EMPTY_REPO"
+    const val REPO_WRITE_FAILED = "REPO_WRITE_FAILED"
+    const val REPO_CORRUPT = "REPO_CORRUPT"
+    const val CANCELLED = "CANCELLED"
 }
 
 /**
@@ -257,6 +266,13 @@ private val CODE_TABLE: Map<String, Int> = mapOf(
     EngineCodes.SHALLOW_CLONE to R.string.engine_error_shallow_clone,
     EngineCodes.NO_COMMON_ANCESTOR to R.string.engine_error_no_common_ancestor,
     EngineCodes.NOT_IN_CONFLICT to R.string.engine_error_not_in_conflict,
+    EngineCodes.SIGNATURE_MISSING to R.string.engine_error_signature_missing,
+    EngineCodes.UNMERGED_INDEX to R.string.engine_error_unmerged_index,
+    EngineCodes.REMOTE_MISSING to R.string.engine_error_remote_missing,
+    EngineCodes.EMPTY_REPO to R.string.engine_error_empty_repo,
+    EngineCodes.REPO_WRITE_FAILED to R.string.engine_error_repo_write_failed,
+    EngineCodes.REPO_CORRUPT to R.string.engine_error_repo_corrupt,
+    EngineCodes.CANCELLED to R.string.engine_error_cancelled,
 )
 
 private fun codedFor(code: String, detail: String?): EngineError.Coded? {

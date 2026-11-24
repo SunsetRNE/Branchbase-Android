@@ -37,6 +37,15 @@ internal fun engineErrorOrNull(raw: String): String? =
  *
  * 纯函数，钉子：`GitErrorConventionTest`。
  */
+/**
+ * 本地写操作（commit / revert）的**两态结果**。
+ *
+ * 为什么不用 `String?`：`gitCommit` / `gitRevert` 曾把「sha」和「失败」挤在一个可空字符串里，
+ * 失败原因就此丢掉 —— 界面只剩一句「引擎没有返回结果」，日志里也没有原因。
+ * 这个类型让**失败必带原因**（`error` 非空；空白返回时两者都空，调用方按「未知失败」处理）。
+ */
+data class GitWriteResult(val sha: String? = null, val error: String? = null)
+
 internal const val GIT_DIVERGED = "nff"
 
 internal fun gitTriState(raw: String): String? = when {
@@ -930,9 +939,18 @@ object RustBridge {
         }
 
     /** 本地 git commit（暂存 + 提交，返回 commit sha 或 null）。 */
-    suspend fun gitCommit(dir: String, message: String, authorName: String, authorEmail: String): String? =
+    suspend fun gitCommit(dir: String, message: String, authorName: String, authorEmail: String): GitWriteResult =
         withContext(Dispatchers.IO) {
-            nativeGitCommit(dir, message, authorName, authorEmail).ifBlank { null }
+            try {
+                val r = nativeGitCommit(dir, message, authorName, authorEmail)
+                when {
+                    r.isBlank() -> GitWriteResult()
+                    r.startsWith("ERROR:") -> GitWriteResult(error = r.removePrefix("ERROR:").take(300))
+                    else -> GitWriteResult(sha = r.trim())
+                }
+            } catch (e: Throwable) {
+                GitWriteResult(error = ENGINE_UNAVAILABLE)
+            }
         }
 
     /** 本地 git push（推送到 origin，返回是否成功）。 */
@@ -1261,12 +1279,17 @@ object RustBridge {
 
 
     /** 对已推送提交创建 revert 提交（返回新 sha 或 null）。 */
-    suspend fun gitRevert(dir: String, sha: String, message: String, authorName: String, authorEmail: String): String? =
+    suspend fun gitRevert(dir: String, sha: String, message: String, authorName: String, authorEmail: String): GitWriteResult =
         withContext(Dispatchers.IO) {
             try {
-                nativeGitRevert(dir, sha, message, authorName, authorEmail).takeIf { it.isNotBlank() && !it.startsWith("ERROR:") }
+                val r = nativeGitRevert(dir, sha, message, authorName, authorEmail)
+                when {
+                    r.isBlank() -> GitWriteResult()
+                    r.startsWith("ERROR:") -> GitWriteResult(error = r.removePrefix("ERROR:").take(300))
+                    else -> GitWriteResult(sha = r.trim())
+                }
             } catch (e: Throwable) {
-                null
+                GitWriteResult(error = ENGINE_UNAVAILABLE)
             }
         }
 

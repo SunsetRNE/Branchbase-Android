@@ -16,31 +16,16 @@ pub mod progress;
 // 界面侧由 Kotlin 的 `EngineError` 按码换成当前界面语言。
 
 /// 把 libgit2 的英文错误归到稳定码（只认确定的几类；其余 `None`）。
+///
+/// **顺序就是优先级**（`i18n-migration.md` §15.3）：越靠前越「用户马上能判断」。
 fn classify_git_error(e: &git2::Error) -> Option<&'static str> {
-    let m = e.message().to_ascii_lowercase();
-    if m.contains("authentication required")
-        || m.contains("could not read username")
-        || m.contains("could not read password")
-        || m.contains("invalid credentials")
-        || m.contains("401")
-        || m.contains("403")
-    {
-        return Some("AUTH_FAILED");
-    }
-    if m.contains("index.lock") || m.contains("couldn't lock") || m.contains("failed to lock") {
-        return Some("LOCKED");
-    }
-    if m.contains("could not find repository") {
-        return Some("NOT_GIT_REPO");
-    }
-    if m.contains("prevents checkout") {
-        // 有未提交改动会被这次检出覆盖（libgit2 的 safe 语义拒绝）
-        return Some("CHECKOUT_BLOCKED");
-    }
-    None
+    classify_git_message(e.message())
 }
 
-/// [`classify_git_error`] 的字符串版：push / pull 的失败是 `&str`，不是 `git2::Error`。
+/// 把一段错误文本归到稳定码（`git2::Error` 与 push / pull 的 `&str` 共用这一份）。
+///
+/// **顺序就是优先级**：认证 → 锁 → 远端缺失 → 未合并索引 → 签名缺失 → 数据损坏 → 写入失败 →
+/// 不是仓库 → 检出被挡。认不出返回 `None`（调用点再用自己的默认码，或保留原文）。
 fn classify_git_message(msg: &str) -> Option<&'static str> {
     let m = msg.to_ascii_lowercase();
     if m.contains("authentication")
@@ -50,12 +35,48 @@ fn classify_git_message(msg: &str) -> Option<&'static str> {
         || m.contains("401")
         || m.contains("403")
     {
-        Some("AUTH_FAILED")
-    } else if m.contains("index.lock") || m.contains("couldn't lock") || m.contains("failed to lock") {
-        Some("LOCKED")
-    } else {
-        None
+        return Some("AUTH_FAILED");
     }
+    if m.contains("index.lock") || m.contains("couldn't lock") || m.contains("failed to lock") {
+        return Some("LOCKED");
+    }
+    if m.contains("remote 'origin' does not exist") || m.contains("remote.origin.url") {
+        return Some("REMOTE_MISSING");
+    }
+    if m.contains("not fully merged index")
+        || m.contains("unmerged entries")
+        || m.contains("cannot commit because you have unmerged")
+    {
+        return Some("UNMERGED_INDEX");
+    }
+    if m.contains("config value 'user.name'")
+        || m.contains("config value 'user.email'")
+        || m.contains("failed to parse signature")
+    {
+        return Some("SIGNATURE_MISSING");
+    }
+    if m.contains("object not found - no match for id")
+        || m.contains("corrupt")
+        || m.contains("invalid object")
+        || m.contains("is not a valid object")
+    {
+        return Some("REPO_CORRUPT");
+    }
+    if m.contains("failed to write")
+        || m.contains("permission denied")
+        || m.contains("no space left")
+        || m.contains("read-only file system")
+    {
+        return Some("REPO_WRITE_FAILED");
+    }
+    if m.contains("could not find repository") {
+        return Some("NOT_GIT_REPO");
+    }
+    if m.contains("prevents checkout") {
+        // 有未提交改动会被这次检出覆盖（libgit2 的 safe 语义拒绝）
+        return Some("CHECKOUT_BLOCKED");
+    }
+    None
 }
 
 /// 「旧文案前缀 + 稳定码」：`ctx` 原样拼在 libgit2 的英文前面（日志锚点），
@@ -209,7 +230,7 @@ fn map_clone_error(e: &git2::Error, stale_locks: &[String]) -> CoreError {
         return CoreError::Other(format!("clone 失败: {msg}｜{scene}"));
     }
     if cancelled() {
-        return CoreError::Other("clone 已取消".to_string());
+        return CoreError::coded("CANCELLED", "clone 已取消");
     }
     // 认证失败是 clone 最常见的一种「用户能自己处理」的失败（令牌无效 / 私有仓库没权限）。
     // 锁文件那条**不归类**：它的文案带着现场取证（真残留还是文件系统假象），换成一句
@@ -309,7 +330,7 @@ pub fn pull_repo(dir: &str, token: Option<&str>) -> Result<()> {
     fetch_origin(&repo, token, false)?;
 
     // 当前分支名
-    let head = repo.head().map_err(|e| CoreError::Other(format!("读取 HEAD 失败: {e}")))?;
+    let head = repo.head().map_err(|e| git_error(e, "EMPTY_REPO", "读取 HEAD 失败"))?;
     let branch_short = head
         .shorthand()
         .ok_or_else(|| CoreError::Other("无法获取分支名".into()))?
@@ -327,7 +348,7 @@ pub fn pull_repo(dir: &str, token: Option<&str>) -> Result<()> {
     };
     let remote_commit = repo
         .reference_to_annotated_commit(&remote_ref)
-        .map_err(|e| CoreError::Other(format!("解析远端提交失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "解析远端提交失败"))?;
 
     let (analysis, _) = repo
         .merge_analysis(&[&remote_commit])
@@ -336,12 +357,12 @@ pub fn pull_repo(dir: &str, token: Option<&str>) -> Result<()> {
     if analysis.is_fast_forward() {
         let mut head_ref = repo
             .find_reference(&head_name)
-            .map_err(|e| CoreError::Other(format!("读取分支 ref 失败: {e}")))?;
+            .map_err(|e| git_error(e, "REPO_CORRUPT", "读取分支 ref 失败"))?;
         head_ref
             .set_target(remote_commit.id(), "fast-forward")
             .map_err(|e| CoreError::Other(format!("fast-forward 失败: {e}")))?;
         repo.set_head(&head_name)
-            .map_err(|e| CoreError::Other(format!("set_head 失败: {e}")))?;
+            .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "set_head 失败"))?;
         repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force()))
             .map_err(|e| CoreError::Other(format!("checkout 失败: {e}")))?;
     } else if !analysis.is_up_to_date() {
@@ -359,22 +380,22 @@ pub fn commit_repo(dir: &str, message: &str, author_name: &str, author_email: &s
     use git2::{Repository, Signature};
 
     let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
-    let mut index = repo.index().map_err(|e| CoreError::Other(format!("读取索引失败: {e}")))?;
+    let mut index = repo.index().map_err(|e| git_error(e, "REPO_CORRUPT", "读取索引失败"))?;
     // 用 "." 而非 "*"：libgit2 的 pathspec 里 "*" 不递归子目录，
     // 会让子目录里的改动被静默漏掉（提交后工作区仍是 dirty）。
     // 再补一次 update_all 以覆盖删除/重命名（add_all 不处理删除）。
     index
         .add_all(["."].iter(), git2::IndexAddOption::DEFAULT, None)
-        .map_err(|e| CoreError::Other(format!("暂存失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "暂存失败"))?;
     index
         .update_all(["."].iter(), None)
-        .map_err(|e| CoreError::Other(format!("同步删除失败: {e}")))?;
-    index.write().map_err(|e| CoreError::Other(format!("写索引失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "同步删除失败"))?;
+    index.write().map_err(|e| git_error(e, "REPO_WRITE_FAILED", "写索引失败"))?;
 
-    let tree_id = index.write_tree().map_err(|e| CoreError::Other(format!("写树失败: {e}")))?;
-    let tree = repo.find_tree(tree_id).map_err(|e| CoreError::Other(format!("找树失败: {e}")))?;
+    let tree_id = index.write_tree().map_err(|e| git_error(e, "REPO_WRITE_FAILED", "写树失败"))?;
+    let tree = repo.find_tree(tree_id).map_err(|e| git_error(e, "REPO_CORRUPT", "找树失败"))?;
     let sig = Signature::now(author_name, author_email)
-        .map_err(|e| CoreError::Other(format!("签名失败: {e}")))?;
+        .map_err(|e| git_error(e, "SIGNATURE_MISSING", "签名失败"))?;
 
     let parent = repo
         .head()
@@ -385,7 +406,7 @@ pub fn commit_repo(dir: &str, message: &str, author_name: &str, author_email: &s
 
     let id = repo
         .commit(Some("HEAD"), &sig, &sig, message, &tree, &parents)
-        .map_err(|e| CoreError::Other(format!("commit 失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "commit 失败"))?;
     Ok(id.to_string())
 }
 
@@ -411,9 +432,9 @@ pub fn local_branches(dir: &str) -> Result<String> {
     let mut out: Vec<serde_json::Value> = Vec::new();
     let branches = repo
         .branches(Some(BranchType::Local))
-        .map_err(|e| CoreError::Other(format!("读取分支失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "读取分支失败"))?;
     for entry in branches {
-        let (branch, _) = entry.map_err(|e| CoreError::Other(format!("读取分支失败: {e}")))?;
+        let (branch, _) = entry.map_err(|e| git_error(e, "REPO_CORRUPT", "读取分支失败"))?;
         let name = branch.name().ok().flatten().unwrap_or("").to_string();
         if name.is_empty() {
             continue;
@@ -521,7 +542,7 @@ pub fn fetch_deepen(dir: &str, depth: i32, token: Option<&str>) -> Result<()> {
             progress::complete(false);
             // 用户按的取消不是「失败」：libgit2 用回调返回 false 中断，错误原文对用户没有意义
             if cancelled() {
-                return Err(CoreError::Other("已取消".into()));
+                return Err(CoreError::coded("CANCELLED", "已取消"));
             }
             Err(CoreError::Other(format!("加深失败: {e}")))
         }
@@ -539,7 +560,7 @@ fn deepen_fetch_parts<'r>(
 ) -> Result<(git2::Remote<'r>, git2::FetchOptions<'static>)> {
     let remote = repo
         .find_remote("origin")
-        .map_err(|e| CoreError::Other(format!("找不到 origin: {e}")))?;
+        .map_err(|e| git_error(e, "REMOTE_MISSING", "找不到 origin"))?;
 
     let mut callbacks = git2::RemoteCallbacks::new();
     callbacks.certificate_check(check_cert);
@@ -615,9 +636,9 @@ pub fn remote_branches(dir: &str) -> Result<String> {
     let mut out: Vec<serde_json::Value> = Vec::new();
     let branches = repo
         .branches(Some(BranchType::Remote))
-        .map_err(|e| CoreError::Other(format!("读取远端分支失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "读取远端分支失败"))?;
     for entry in branches {
-        let (branch, _) = entry.map_err(|e| CoreError::Other(format!("读取远端分支失败: {e}")))?;
+        let (branch, _) = entry.map_err(|e| git_error(e, "REPO_CORRUPT", "读取远端分支失败"))?;
         let full = branch.name().ok().flatten().unwrap_or("").to_string();
         let short = match full.strip_prefix("origin/") {
             Some(s) if !s.is_empty() && s != "HEAD" => s.to_string(),
@@ -685,11 +706,11 @@ pub fn checkout_branch(dir: &str, name: &str) -> Result<()> {
                 .ok_or_else(|| CoreError::Other("分支引用名无效".into()))?
                 .to_string();
             repo.set_head(&refname)
-                .map_err(|e| CoreError::Other(format!("切换 HEAD 失败: {e}")))?;
+                .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "切换 HEAD 失败"))?;
         }
         None => {
             repo.set_head_detached(object.id())
-                .map_err(|e| CoreError::Other(format!("切换 HEAD 失败: {e}")))?;
+                .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "切换 HEAD 失败"))?;
         }
     }
     Ok(())
@@ -714,7 +735,7 @@ pub fn create_branch_local(dir: &str, name: &str, from: &str) -> Result<()> {
     let base = if from.trim().is_empty() {
         repo.head()
             .and_then(|h| h.peel_to_commit())
-            .map_err(|e| CoreError::Other(format!("读取当前提交失败: {e}")))?
+            .map_err(|e| git_error(e, "EMPTY_REPO", "读取当前提交失败"))?
     } else {
         repo.revparse_single(from.trim())
             .and_then(|o| o.peel_to_commit())
@@ -722,7 +743,7 @@ pub fn create_branch_local(dir: &str, name: &str, from: &str) -> Result<()> {
     };
 
     repo.branch(name, &base, false)
-        .map_err(|e| CoreError::Other(format!("创建分支失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "创建分支失败"))?;
     checkout_branch(dir, name)
 }
 
@@ -742,7 +763,7 @@ pub fn delete_branch_local(dir: &str, name: &str) -> Result<()> {
         .map_err(|e| git_error(e, "BRANCH_NOT_FOUND", &format!("找不到分支 {name}")))?;
     branch
         .delete()
-        .map_err(|e| CoreError::Other(format!("删除分支失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "删除分支失败"))?;
     Ok(())
 }
 
@@ -757,7 +778,7 @@ pub fn discard_all_changes(dir: &str) -> Result<()> {
     cb.force();
     cb.remove_untracked(true);
     repo.checkout_head(Some(&mut cb))
-        .map_err(|e| CoreError::Other(format!("撤销改动失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "撤销改动失败"))?;
     Ok(())
 }
 
@@ -768,7 +789,7 @@ pub fn push_repo(dir: &str, token: Option<&str>, branch: &str) -> Result<()> {
     let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     let mut remote = repo
         .find_remote("origin")
-        .map_err(|e| CoreError::Other(format!("找不到 origin: {e}")))?;
+        .map_err(|e| git_error(e, "REMOTE_MISSING", "找不到 origin"))?;
 
     let mut opts = PushOptions::new();
     opts.remote_callbacks(net_callbacks(token));
@@ -959,7 +980,7 @@ fn origin_fetch_parts<'r>(
 ) -> Result<(git2::Remote<'r>, git2::FetchOptions<'static>)> {
     let remote = repo
         .find_remote("origin")
-        .map_err(|e| CoreError::Other(format!("找不到 origin: {e}")))?;
+        .map_err(|e| git_error(e, "REMOTE_MISSING", "找不到 origin"))?;
     let mut fo = git2::FetchOptions::new();
     fo.remote_callbacks(net_callbacks(token));
     fo.prune(if prune {
@@ -1063,7 +1084,7 @@ fn repair_shallow_boundary_in(repo: &git2::Repository) -> Result<usize> {
 
     let odb = repo
         .odb()
-        .map_err(|e| CoreError::Other(format!("打开对象库失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "打开对象库失败"))?;
 
     let declared = read_shallow_roots(repo);
     let mut boundary: HashSet<git2::Oid> = HashSet::new();
@@ -1175,10 +1196,10 @@ fn write_shallow_roots(
     }
     let lock = path.with_file_name("shallow.lock");
     std::fs::write(&lock, text.as_bytes())
-        .map_err(|e| CoreError::Other(format!("写入浅边界失败: {e}")))?;
+        .map_err(|e| CoreError::coded("REPO_WRITE_FAILED", format!("写入浅边界失败: {e}")))?;
     std::fs::rename(&lock, &path).map_err(|e| {
         let _ = std::fs::remove_file(&lock);
-        CoreError::Other(format!("提交浅边界失败: {e}"))
+        CoreError::coded("REPO_WRITE_FAILED", format!("提交浅边界失败: {e}"))
     })?;
     Ok(())
 }
@@ -1198,11 +1219,11 @@ pub fn repo_status(dir: &str) -> Result<String> {
 
     let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
 
-    let head = repo.head().map_err(|e| CoreError::Other(format!("读取 HEAD 失败: {e}")))?;
+    let head = repo.head().map_err(|e| git_error(e, "EMPTY_REPO", "读取 HEAD 失败"))?;
     let branch = head.shorthand().unwrap_or("").to_string();
     let local_commit = head
         .peel_to_commit()
-        .map_err(|e| CoreError::Other(format!("解析 HEAD 提交失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "解析 HEAD 提交失败"))?;
 
     // 上游与领先/落后计数
     let mut ahead: usize = 0;
@@ -1215,7 +1236,7 @@ pub fn repo_status(dir: &str) -> Result<String> {
             if let (Some(local_oid), Some(up_oid)) = (local_commit.id().into(), upstream.get().target()) {
                 let (a, b) = repo
                     .graph_ahead_behind(local_oid, up_oid)
-                    .map_err(|e| CoreError::Other(format!("计算领先落后失败: {e}")))?;
+                    .map_err(|e| git_error(e, "REPO_CORRUPT", "计算领先落后失败"))?;
                 ahead = a;
                 behind = b;
                 remote_oid = Some(up_oid);
@@ -1256,7 +1277,7 @@ pub fn repo_status(dir: &str) -> Result<String> {
     opts.include_untracked(true);
     let statuses = repo
         .statuses(Some(&mut opts))
-        .map_err(|e| CoreError::Other(format!("读取工作区状态失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "读取工作区状态失败"))?;
     for entry in statuses.iter() {
         let s = entry.status();
         let st = if s.is_index_new() || s.is_wt_new() {
@@ -1276,11 +1297,11 @@ pub fn repo_status(dir: &str) -> Result<String> {
     if let Some(up_oid) = remote_oid {
         let mut revwalk = repo
             .revwalk()
-            .map_err(|e| CoreError::Other(format!("创建 revwalk 失败: {e}")))?;
-        revwalk.push_head().map_err(|e| CoreError::Other(format!("revwalk push_head 失败: {e}")))?;
-        revwalk.hide(up_oid).map_err(|e| CoreError::Other(format!("revwalk hide 失败: {e}")))?;
+            .map_err(|e| git_error(e, "REPO_CORRUPT", "创建 revwalk 失败"))?;
+        revwalk.push_head().map_err(|e| git_error(e, "REPO_CORRUPT", "revwalk push_head 失败"))?;
+        revwalk.hide(up_oid).map_err(|e| git_error(e, "REPO_CORRUPT", "revwalk hide 失败"))?;
         for oid in revwalk.take(50) {
-            let oid = oid.map_err(|e| CoreError::Other(format!("revwalk 迭代失败: {e}")))?;
+            let oid = oid.map_err(|e| git_error(e, "REPO_CORRUPT", "revwalk 迭代失败"))?;
             if let Ok(c) = repo.find_commit(oid) {
                 unpushed.push(json!({
                     "sha": &c.id().to_string()[..7],
@@ -1316,16 +1337,16 @@ pub fn reset_soft(dir: &str) -> Result<()> {
     let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     let parent_oid = repo
         .head()
-        .map_err(|e| CoreError::Other(format!("读取 HEAD 失败: {e}")))?
+        .map_err(|e| git_error(e, "EMPTY_REPO", "读取 HEAD 失败"))?
         .peel_to_commit()
-        .map_err(|e| CoreError::Other(format!("解析 HEAD 失败: {e}")))?
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "解析 HEAD 失败"))?
         .parent_id(0)
         .map_err(|e| git_error(e, "NO_PARENT_COMMIT", "没有父提交可撤销"))?;
     let obj = repo
         .find_object(parent_oid, None)
-        .map_err(|e| CoreError::Other(format!("找对象失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "找对象失败"))?;
     repo.reset(&obj, ResetType::Soft, None)
-        .map_err(|e| CoreError::Other(format!("reset --soft 失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "reset --soft 失败"))?;
     Ok(())
 }
 
@@ -1343,9 +1364,9 @@ pub fn reset_hard_to_remote(dir: &str, branch: &str) -> Result<()> {
         .ok_or_else(|| CoreError::Other("远端引用无目标".into()))?;
     let obj = repo
         .find_object(oid, None)
-        .map_err(|e| CoreError::Other(format!("找对象失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "找对象失败"))?;
     repo.reset(&obj, ResetType::Hard, None)
-        .map_err(|e| CoreError::Other(format!("reset --hard 失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "reset --hard 失败"))?;
     Ok(())
 }
 
@@ -1354,11 +1375,11 @@ pub fn amend_message(dir: &str, new_message: &str) -> Result<()> {
     use git2::{Repository, Signature};
 
     let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
-    let head = repo.head().map_err(|e| CoreError::Other(format!("读取 HEAD 失败: {e}")))?;
+    let head = repo.head().map_err(|e| git_error(e, "EMPTY_REPO", "读取 HEAD 失败"))?;
     let commit = head
         .peel_to_commit()
-        .map_err(|e| CoreError::Other(format!("解析 HEAD 失败: {e}")))?;
-    let tree = commit.tree().map_err(|e| CoreError::Other(format!("读取树失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "解析 HEAD 失败"))?;
+    let tree = commit.tree().map_err(|e| git_error(e, "REPO_CORRUPT", "读取树失败"))?;
     let parents: Vec<git2::Commit> = commit.parents().collect();
     let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
 
@@ -1369,13 +1390,13 @@ pub fn amend_message(dir: &str, new_message: &str) -> Result<()> {
         author.email().unwrap_or(""),
         &author.when(),
     )
-    .map_err(|e| CoreError::Other(format!("构造作者签名失败: {e}")))?;
+    .map_err(|e| git_error(e, "SIGNATURE_MISSING", "构造作者签名失败"))?;
     let sig_committer = Signature::new(
         committer.name().unwrap_or(""),
         committer.email().unwrap_or(""),
         &committer.when(),
     )
-    .map_err(|e| CoreError::Other(format!("构造提交者签名失败: {e}")))?;
+    .map_err(|e| git_error(e, "SIGNATURE_MISSING", "构造提交者签名失败"))?;
 
     let head_name = head
         .name()
@@ -1389,7 +1410,7 @@ pub fn amend_message(dir: &str, new_message: &str) -> Result<()> {
         &tree,
         &parent_refs,
     )
-    .map_err(|e| CoreError::Other(format!("amend 失败: {e}")))?;
+    .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "amend 失败"))?;
     Ok(())
 }
 
@@ -1417,7 +1438,7 @@ pub fn revert_commit(
     st_opts.include_untracked(false);
     let statuses = repo
         .statuses(Some(&mut st_opts))
-        .map_err(|e| CoreError::Other(format!("读取工作区状态失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "读取工作区状态失败"))?;
     if !statuses.is_empty() {
         return Err(CoreError::coded(
             "DIRTY_WORKTREE",
@@ -1427,16 +1448,16 @@ pub fn revert_commit(
 
     // git2 0.18：revert 直接应用到工作区与索引，返回 ()；随后从索引取树
     repo.revert(&commit, None)
-        .map_err(|e| CoreError::Other(format!("revert 失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "revert 失败"))?;
     let mut idx = repo
         .index()
-        .map_err(|e| CoreError::Other(format!("读取索引失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "读取索引失败"))?;
     let tree_id = idx
         .write_tree()
-        .map_err(|e| CoreError::Other(format!("写树失败: {e}")))?;
-    let tree = repo.find_tree(tree_id).map_err(|e| CoreError::Other(format!("找树失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "写树失败"))?;
+    let tree = repo.find_tree(tree_id).map_err(|e| git_error(e, "REPO_CORRUPT", "找树失败"))?;
     let sig = Signature::now(author_name, author_email)
-        .map_err(|e| CoreError::Other(format!("签名失败: {e}")))?;
+        .map_err(|e| git_error(e, "SIGNATURE_MISSING", "签名失败"))?;
     let parent = repo
         .head()
         .ok()
@@ -1445,7 +1466,7 @@ pub fn revert_commit(
     let parents: Vec<&git2::Commit> = parent.iter().collect();
     let id = repo
         .commit(Some("HEAD"), &sig, &sig, message, &tree, &parents)
-        .map_err(|e| CoreError::Other(format!("revert 提交失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "revert 提交失败"))?;
     Ok(id.to_string())
 }
 
@@ -1463,11 +1484,11 @@ pub fn push_set_upstream(
         Ok(r) => r,
         Err(_) => repo
             .remote("origin", remote_url)
-            .map_err(|e| CoreError::Other(format!("添加 origin 失败: {e}")))?,
+            .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "添加 origin 失败"))?,
     };
     if remote.url() != Some(remote_url) {
         repo.remote_set_url("origin", remote_url)
-            .map_err(|e| CoreError::Other(format!("更新 origin URL 失败: {e}")))?;
+            .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "更新 origin URL 失败"))?;
     }
 
     let mut callbacks = RemoteCallbacks::new();
@@ -1498,7 +1519,7 @@ pub fn push_set_upstream(
         .map_err(|e| CoreError::Other(format!("找不到本地分支 {branch}: {e}")))?;
     local_branch
         .set_upstream(Some(&format!("origin/{branch}")))
-        .map_err(|e| CoreError::Other(format!("设置上游失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "设置上游失败"))?;
     Ok(())
 }
 
@@ -1718,9 +1739,9 @@ pub fn merge_branch(
 
     let head_commit = repo
         .head()
-        .map_err(|e| CoreError::Other(format!("读取 HEAD 失败: {e}")))?
+        .map_err(|e| git_error(e, "EMPTY_REPO", "读取 HEAD 失败"))?
         .peel_to_commit()
-        .map_err(|e| CoreError::Other(format!("解析 HEAD 提交失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "解析 HEAD 提交失败"))?;
     let into = {
         let name = head_branch_name(&repo);
         if name.is_empty() {
@@ -1755,18 +1776,18 @@ pub fn merge_branch(
         // **先检出、再改 ref**（与 git 同序）：检出用的是默认的 safe 语义 ——
         // 工作区有东西会被覆盖时它报错退出，而不是把用户的内容盖掉
         repo.checkout_tree(target_commit.as_object(), None)
-            .map_err(|e| CoreError::Other(format!("检出目标分支失败: {e}")))?;
-        let head_ref = repo.head().map_err(|e| CoreError::Other(format!("读取 HEAD 失败: {e}")))?;
+            .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "检出目标分支失败"))?;
+        let head_ref = repo.head().map_err(|e| git_error(e, "EMPTY_REPO", "读取 HEAD 失败"))?;
         let head_name = head_ref
             .name()
             .ok_or_else(|| CoreError::Other("无法获取分支 ref 名".into()))?
             .to_string();
         repo.find_reference(&head_name)
-            .map_err(|e| CoreError::Other(format!("读取分支 ref 失败: {e}")))?
+            .map_err(|e| git_error(e, "REPO_CORRUPT", "读取分支 ref 失败"))?
             .set_target(target.id(), "merge: fast-forward")
-            .map_err(|e| CoreError::Other(format!("快进失败: {e}")))?;
+            .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "快进失败"))?;
         repo.set_head(&head_name)
-            .map_err(|e| CoreError::Other(format!("set_head 失败: {e}")))?;
+            .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "set_head 失败"))?;
         return Ok(json!({
             "outcome": "fast_forward",
             "branch": branch,
@@ -1788,11 +1809,11 @@ pub fn merge_branch(
 
     // ── 普通三方合并：libgit2 把结果写进索引与工作区（冲突文件带标记） ──
     repo.merge(&[&target], None, None)
-        .map_err(|e| CoreError::Other(format!("合并失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "合并失败"))?;
 
     let mut index = repo
         .index()
-        .map_err(|e| CoreError::Other(format!("读取索引失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "读取索引失败"))?;
     if index.has_conflicts() {
         let conflicts = conflict_entries(&mut index)?;
         // 冲突时把 `message` 换成 **MERGE_MSG 那一句**：它才是 [merge_continue] 不给信息时
@@ -1844,7 +1865,7 @@ pub fn merge_state(dir: &str) -> Result<String> {
     let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     let mut index = repo
         .index()
-        .map_err(|e| CoreError::Other(format!("读取索引失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "读取索引失败"))?;
     let conflicts = conflict_entries(&mut index)?;
     let head_sha = repo
         .head()
@@ -1986,7 +2007,7 @@ pub fn resolve_conflict(dir: &str, path: &str, side: &str) -> Result<()> {
     };
     let mut index = repo
         .index()
-        .map_err(|e| CoreError::Other(format!("读取索引失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "读取索引失败"))?;
     let workdir = repo
         .workdir()
         .ok_or_else(|| CoreError::Other("这个仓库没有工作区".into()))?
@@ -1995,29 +2016,29 @@ pub fn resolve_conflict(dir: &str, path: &str, side: &str) -> Result<()> {
         Some(oid) => {
             let blob = repo
                 .find_blob(oid)
-                .map_err(|e| CoreError::Other(format!("读取内容失败: {e}")))?;
+                .map_err(|e| git_error(e, "REPO_CORRUPT", "读取内容失败"))?;
             let target = workdir.join(&rel);
             if let Some(parent) = target.parent() {
                 std::fs::create_dir_all(parent)
-                    .map_err(|e| CoreError::Other(format!("创建目录失败: {e}")))?;
+                    .map_err(|e| CoreError::coded("REPO_WRITE_FAILED", format!("创建目录失败: {e}")))?;
             }
             std::fs::write(&target, blob.content())
-                .map_err(|e| CoreError::Other(format!("写入文件失败: {e}")))?;
+                .map_err(|e| CoreError::coded("REPO_WRITE_FAILED", format!("写入文件失败: {e}")))?;
             // `add_path` 会把该路径的三方条目换成普通条目（libgit2 的 `git_index_add_bypath`
             // 就会清掉冲突）—— 这正是「标记已解决」那一步
             index
                 .add_path(std::path::Path::new(&rel))
-                .map_err(|e| CoreError::Other(format!("登记索引失败: {e}")))?;
+                .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "登记索引失败"))?;
         }
         None => {
             // 这一侧没有内容 = 这一侧删了它：解决成删除
             let _ = std::fs::remove_file(workdir.join(&rel));
             index
                 .remove_path(std::path::Path::new(&rel))
-                .map_err(|e| CoreError::Other(format!("从索引移除失败: {e}")))?;
+                .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "从索引移除失败"))?;
         }
     }
-    index.write().map_err(|e| CoreError::Other(format!("写索引失败: {e}")))?;
+    index.write().map_err(|e| git_error(e, "REPO_WRITE_FAILED", "写索引失败"))?;
     Ok(())
 }
 
@@ -2045,16 +2066,16 @@ pub fn write_resolved(dir: &str, path: &str, content: &str) -> Result<()> {
     let target = workdir.join(&rel);
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent)
-            .map_err(|e| CoreError::Other(format!("创建目录失败: {e}")))?;
+            .map_err(|e| CoreError::coded("REPO_WRITE_FAILED", format!("创建目录失败: {e}")))?;
     }
-    std::fs::write(&target, content).map_err(|e| CoreError::Other(format!("写入文件失败: {e}")))?;
+    std::fs::write(&target, content).map_err(|e| CoreError::coded("REPO_WRITE_FAILED", format!("写入文件失败: {e}")))?;
     let mut index = repo
         .index()
-        .map_err(|e| CoreError::Other(format!("读取索引失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "读取索引失败"))?;
     index
         .add_path(std::path::Path::new(&rel))
-        .map_err(|e| CoreError::Other(format!("登记索引失败: {e}")))?;
-    index.write().map_err(|e| CoreError::Other(format!("写索引失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "登记索引失败"))?;
+    index.write().map_err(|e| git_error(e, "REPO_WRITE_FAILED", "写索引失败"))?;
     Ok(())
 }
 
@@ -2077,7 +2098,7 @@ pub fn merge_continue(
     require_merging(&repo)?;
     let mut index = repo
         .index()
-        .map_err(|e| CoreError::Other(format!("读取索引失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "读取索引失败"))?;
     if index.has_conflicts() {
         let left = conflict_entries(&mut index)?.len();
         return Err(CoreError::coded(
@@ -2119,13 +2140,13 @@ pub fn merge_abort(dir: &str) -> Result<()> {
     require_merging(&repo)?;
     let head = repo
         .head()
-        .map_err(|e| CoreError::Other(format!("读取 HEAD 失败: {e}")))?
+        .map_err(|e| git_error(e, "EMPTY_REPO", "读取 HEAD 失败"))?
         .peel_to_commit()
-        .map_err(|e| CoreError::Other(format!("解析 HEAD 提交失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "解析 HEAD 提交失败"))?;
     repo.cleanup_state()
-        .map_err(|e| CoreError::Other(format!("清理合并状态失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "清理合并状态失败"))?;
     repo.reset(head.as_object(), ResetType::Hard, None)
-        .map_err(|e| CoreError::Other(format!("回到合并前失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "回到合并前失败"))?;
     Ok(())
 }
 
@@ -2153,9 +2174,9 @@ fn conflict_blobs(index: &mut git2::Index) -> Result<Vec<ConflictBlobs>> {
     let mut out: Vec<ConflictBlobs> = Vec::new();
     let conflicts = index
         .conflicts()
-        .map_err(|e| CoreError::Other(format!("读取冲突列表失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "读取冲突列表失败"))?;
     for c in conflicts {
-        let c = c.map_err(|e| CoreError::Other(format!("读取冲突项失败: {e}")))?;
+        let c = c.map_err(|e| git_error(e, "REPO_CORRUPT", "读取冲突项失败"))?;
         let pick = |e: &Option<git2::IndexEntry>| -> Option<(String, git2::Oid)> {
             e.as_ref().map(|e| {
                 (String::from_utf8_lossy(&e.path).to_string(), e.id)
@@ -2204,7 +2225,7 @@ fn conflict_entries(index: &mut git2::Index) -> Result<Vec<serde_json::Value>> {
 fn conflicted_blob_entries(repo: &git2::Repository) -> Result<Vec<ConflictBlobs>> {
     let mut index = repo
         .index()
-        .map_err(|e| CoreError::Other(format!("读取索引失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "读取索引失败"))?;
     conflict_blobs(&mut index)
 }
 
@@ -2233,7 +2254,7 @@ fn worktree_dirty(repo: &git2::Repository) -> Result<bool> {
     opts.include_untracked(false);
     let statuses = repo
         .statuses(Some(&mut opts))
-        .map_err(|e| CoreError::Other(format!("读取工作区状态失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "读取工作区状态失败"))?;
     Ok(!statuses.is_empty())
 }
 
@@ -2318,23 +2339,23 @@ fn commit_merge(
 
     let mut index = repo
         .index()
-        .map_err(|e| CoreError::Other(format!("读取索引失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "读取索引失败"))?;
     let tree_id = index
         .write_tree()
-        .map_err(|e| CoreError::Other(format!("写树失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "写树失败"))?;
     let tree = repo
         .find_tree(tree_id)
-        .map_err(|e| CoreError::Other(format!("找树失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "找树失败"))?;
     let head = repo
         .head()
-        .map_err(|e| CoreError::Other(format!("读取 HEAD 失败: {e}")))?
+        .map_err(|e| git_error(e, "EMPTY_REPO", "读取 HEAD 失败"))?
         .peel_to_commit()
-        .map_err(|e| CoreError::Other(format!("解析 HEAD 提交失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "解析 HEAD 提交失败"))?;
     let other = repo
         .find_commit(other)
         .map_err(|e| CoreError::Other(format!("找不到待合并提交: {e}")))?;
     let sig = Signature::now(author_name, author_email)
-        .map_err(|e| CoreError::Other(format!("签名失败: {e}")))?;
+        .map_err(|e| git_error(e, "SIGNATURE_MISSING", "签名失败"))?;
     let id = repo
         .commit(
             Some("HEAD"),
@@ -2344,11 +2365,11 @@ fn commit_merge(
             &tree,
             &[&head, &other],
         )
-        .map_err(|e| CoreError::Other(format!("提交合并失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "提交合并失败"))?;
     // 提交成功之后才清状态：先清后提交的话，提交失败就只剩一个「没有 MERGE_HEAD 的合并中仓库」，
     // 那时「继续」已经不可能（找不到第二个父），用户唯一的出路是放弃
     repo.cleanup_state()
-        .map_err(|e| CoreError::Other(format!("清理合并状态失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_WRITE_FAILED", "清理合并状态失败"))?;
     Ok(id)
 }
 
@@ -2422,16 +2443,16 @@ pub fn log_graph(dir: &str, limit: usize, skip: usize) -> Result<String> {
     // 未推送集合：**只算一次**，与逐条出图无关（集合本身很小：HEAD..上游）
     let unpushed = unpushed_oids(&repo, head.shorthand().unwrap_or(""), head_commit.id());
 
-    let mut walk = repo.revwalk().map_err(|e| CoreError::Other(format!("创建 revwalk 失败: {e}")))?;
+    let mut walk = repo.revwalk().map_err(|e| git_error(e, "REPO_CORRUPT", "创建 revwalk 失败"))?;
     // TOPOLOGICAL：父在子之后出现（图从上往下画的前提）。**不要**加 SORT_TIME 之外的排序：
     // 泳道布局假定「一条提交的所有父都在它下方」，时间序在时钟回拨的仓库上不保证这一点。
     walk.set_sorting(Sort::TOPOLOGICAL | Sort::TIME)
-        .map_err(|e| CoreError::Other(format!("设置 revwalk 排序失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "设置 revwalk 排序失败"))?;
     walk.push(head_commit.id())
-        .map_err(|e| CoreError::Other(format!("revwalk push_head 失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "revwalk push_head 失败"))?;
 
     for oid in walk.skip(skip).take(limit) {
-        let oid = oid.map_err(|e| CoreError::Other(format!("revwalk 迭代失败: {e}")))?;
+        let oid = oid.map_err(|e| git_error(e, "REPO_CORRUPT", "revwalk 迭代失败"))?;
         let commit = repo
             .find_commit(oid)
             .map_err(|e| CoreError::Other(format!("读取提交失败: {e}")))?;
@@ -2575,16 +2596,16 @@ pub fn log_file(dir: &str, path: &str, limit: usize, skip: usize) -> Result<Stri
     let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     let mut out: Vec<serde_json::Value> = Vec::new();
 
-    let head = repo.head().map_err(|e| CoreError::Other(format!("读取 HEAD 失败: {e}")))?;
+    let head = repo.head().map_err(|e| git_error(e, "EMPTY_REPO", "读取 HEAD 失败"))?;
     let head_commit = head
         .peel_to_commit()
-        .map_err(|e| CoreError::Other(format!("解析 HEAD 提交失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "解析 HEAD 提交失败"))?;
 
-    let mut walk = repo.revwalk().map_err(|e| CoreError::Other(format!("创建 revwalk 失败: {e}")))?;
+    let mut walk = repo.revwalk().map_err(|e| git_error(e, "REPO_CORRUPT", "创建 revwalk 失败"))?;
     walk.set_sorting(Sort::TOPOLOGICAL | Sort::TIME)
-        .map_err(|e| CoreError::Other(format!("设置 revwalk 排序失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "设置 revwalk 排序失败"))?;
     walk.push(head_commit.id())
-        .map_err(|e| CoreError::Other(format!("revwalk push_head 失败: {e}")))?;
+        .map_err(|e| git_error(e, "REPO_CORRUPT", "revwalk push_head 失败"))?;
 
     let mut matched = 0usize;
     let mut opts = DiffOptions::new();
@@ -2593,7 +2614,7 @@ pub fn log_file(dir: &str, path: &str, limit: usize, skip: usize) -> Result<Stri
         if out.len() >= limit {
             break;
         }
-        let oid = oid.map_err(|e| CoreError::Other(format!("revwalk 迭代失败: {e}")))?;
+        let oid = oid.map_err(|e| git_error(e, "REPO_CORRUPT", "revwalk 迭代失败"))?;
         let commit = repo
             .find_commit(oid)
             .map_err(|e| CoreError::Other(format!("读取提交失败: {e}")))?;
@@ -2933,6 +2954,45 @@ mod tests {
         assert_eq!(None, e.code(), "认不出就别硬塞码");
         assert!(error_text(&e).starts_with("push 失败: "), "实际: {}", error_text(&e));
         assert!(!error_text(&e).contains("nff:"));
+    }
+
+    #[test]
+    fn internal_failures_are_classified_by_cause() {
+        let cases = [
+            ("config value 'user.name' was not found", "SIGNATURE_MISSING"),
+            ("cannot create a tree from a not fully merged index", "UNMERGED_INDEX"),
+            ("remote 'origin' does not exist", "REMOTE_MISSING"),
+            ("object not found - no match for id (c8301a5)", "REPO_CORRUPT"),
+            ("failed to write new index file: Permission denied", "REPO_WRITE_FAILED"),
+            ("could not find repository at '/x'", "NOT_GIT_REPO"),
+            ("1 conflict prevents checkout", "CHECKOUT_BLOCKED"),
+        ];
+        for (msg, code) in cases {
+            let e = git2::Error::from_str(msg);
+            assert_eq!(Some(code), classify_git_error(&e), "msg={msg}");
+        }
+    }
+
+    /// 多个原因同时出现时取**优先级最高**的（认证在最前，见 §15.3）。
+    #[test]
+    fn classification_prefers_the_actionable_cause() {
+        let e = git2::Error::from_str("authentication required (failed to write credentials)");
+        assert_eq!(Some("AUTH_FAILED"), classify_git_error(&e));
+        // 「failed to lock」先于「failed to write」：锁文件是更具体、更能行动的一种
+        let e = git2::Error::from_str("failed to lock file '.git/index.lock': failed to write");
+        assert_eq!(Some("LOCKED"), classify_git_error(&e));
+    }
+
+    /// `读取 HEAD 失败` 的默认码是 `EMPTY_REPO`（空仓库 / unborn 分支）—— 认不出别的原因时用它。
+    #[test]
+    fn head_missing_defaults_to_empty_repo() {
+        let e = git_error(
+            git2::Error::from_str("reference 'refs/heads/main' not found"),
+            "EMPTY_REPO",
+            "读取 HEAD 失败",
+        );
+        assert_eq!(Some("EMPTY_REPO"), e.code(), "实际: {e:?}");
+        assert!(error_text(&e).starts_with("读取 HEAD 失败: "), "日志锚点不许漂移");
     }
 
     /// JNI 串的**形状**：分叉错误必须长成 `ERROR:NFF:…`。

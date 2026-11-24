@@ -432,11 +432,12 @@ fun FileViewerScreen(
                 ),
                 repo,
             ).absolutePath
-            val sha = RustBridge.gitCommit(
+            val result = RustBridge.gitCommit(
                 repoDir, message,
                 prefs.getString("commit.author.name", "Branchbase") ?: "Branchbase",
                 prefs.getString("commit.author.email", "branchbase@users.noreply.github.com") ?: "branchbase@users.noreply.github.com",
             )
+            val sha = result.sha
             if (sha != null) {
                 com.branchbase.ui.task.TaskStore.success(context, taskId, context.getString(R.string.toast_committed, sha))
                 clearDraft()
@@ -448,8 +449,14 @@ fun FileViewerScreen(
                 gitTick++
                 feedback = Feedback(context.getString(R.string.state_committed_local_sha, sha), ok = true)
             } else {
-                com.branchbase.ui.task.TaskStore.fail(context, taskId, context.getString(R.string.error_commit_failed_engine))
-                feedback = Feedback(context.getString(R.string.error_commit_failed_engine), ok = false)
+                val reason = result.error?.let { context.engineErrorOrRaw(it) }
+                    ?: context.getString(R.string.error_commit_failed_engine)
+                com.branchbase.ui.task.TaskStore.fail(context, taskId, reason)
+                feedback = Feedback(reason, ok = false)
+                Logger.warn(
+                    LogCategory.LOCAL_TASK, "本地提交",
+                    "文件页提交失败 ← ${result.error ?: "（引擎未返回原因）"}",
+                )
             }
         }
     }

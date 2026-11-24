@@ -14,6 +14,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import com.branchbase.core.engineErrorOrRaw
 import com.branchbase.R
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.LogCategory
@@ -196,7 +197,7 @@ internal fun CoroutineScope.runLocalRepoCommit(
             context.getString(R.string.action_commit_local, repoName),
         )
         Logger.local("$GIT_WORKBENCH_LOG_TAG ▸ $repoName：提交（本地仓库）", GIT_WORKBENCH_LOG_TAG)
-        val sha = RustBridge.gitCommit(
+        val result = RustBridge.gitCommit(
             dir = repoDir,
             message = message,
             authorName = authorName?.takeIf { it.isNotBlank() }
@@ -206,19 +207,22 @@ internal fun CoroutineScope.runLocalRepoCommit(
                 ?: prefs.getString("commit.author.email", null)
                 ?: gitAuthorEmail(context),
         )
-        if (sha != null) {
-            TaskStore.success(context, taskId, context.getString(R.string.toast_committed, sha))
-            Logger.local("$GIT_WORKBENCH_LOG_TAG ▸ $repoName：提交 ${sha.take(7)}", GIT_WORKBENCH_LOG_TAG)
-            onFeedback(context.getString(R.string.state_committed_local_sha, sha), true)
+        val committed = result.sha
+        if (committed != null) {
+            TaskStore.success(context, taskId, context.getString(R.string.toast_committed, committed))
+            Logger.local("$GIT_WORKBENCH_LOG_TAG ▸ $repoName：提交 ${committed.take(7)}", GIT_WORKBENCH_LOG_TAG)
+            onFeedback(context.getString(R.string.state_committed_local_sha, committed), true)
             onChanged()
         } else {
-            TaskStore.fail(context, taskId, context.getString(R.string.error_commit_failed_engine))
+            val reason = result.error?.let { context.engineErrorOrRaw(it) }
+                ?: context.getString(R.string.error_commit_failed_engine)
+            TaskStore.fail(context, taskId, reason)
             Logger.warn(
                 LogCategory.LOCAL_TASK,
                 GIT_WORKBENCH_LOG_TAG,
-                "$GIT_WORKBENCH_LOG_TAG ▸ $repoName：提交失败（引擎未返回 sha）",
+                "$GIT_WORKBENCH_LOG_TAG ▸ $repoName：提交失败 ← ${result.error ?: "（引擎未返回原因）"}",
             )
-            onFeedback(context.getString(R.string.error_commit_failed_engine), false)
+            onFeedback(reason, false)
         }
     }
 }
