@@ -1,0 +1,45 @@
+name: Pages
+
+# 静态落地页（English-first，中文权威）：把 `site/` 发布到 GitHub Pages。
+#
+# 与发版流水线完全独立：这里**不编译、不签名、不发布 APK** —— 只托管一个静态页，
+# 页面里的下载链接指向 Releases（永远指向“最新”而不写死版本号）。
+# 触发：`site/` 或本工作流有改动；也可手动。
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'site/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Pages 只允许一个部署同时在跑；新的一次直接取代旧的。
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

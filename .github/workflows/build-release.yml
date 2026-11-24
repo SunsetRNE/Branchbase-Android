@@ -23,6 +23,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     needs: prepare
+    timeout-minutes: 40
     permissions:
       contents: read
       actions: write
@@ -50,7 +51,16 @@ jobs:
       - name: Inject client secret
         run: echo "branchbase.client.secret=${{ secrets.BRANCHBASE_CLIENT_SECRET }}" >> local.properties
 
+      # 核心没改就直接用缓存里的 .so：UI 改动的发版不再等一轮 Rust 交叉编译。
+      - name: Restore Rust core cache
+        id: so-cache
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libbranchbase_core.so
+          key: core-so-${{ runner.os }}-${{ hashFiles('core/**') }}
+
       - name: Build Rust core (.so)
+        if: steps.so-cache.outputs.cache-hit != 'true'
         run: bash tools/build/build-core.sh --mode=ci
 
       - name: Build Release APK (注入版本参数 + 签名)
@@ -114,9 +124,129 @@ jobs:
           if-no-files-found: error
           archive: false
 
-  publish:
+      - name: Upload artifacts（libbranchbase_core.so，不打包）
+        uses: actions/upload-artifact@v7
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libbranchbase_core.so
+          retention-days: 30
+          if-no-files-found: error
+          archive: false
+
+  # 正式版也带四渠道矩阵（2026-11-24 决策）：release 由上一个 job 出，这里补 beta 签名的三条渠道。
+  # 每个 leg 独立 Gradle 进程、只编一个变体（同 build-beta 的拆分理由：同进程编多个变体会 OOM）。
+  channels:
     runs-on: ubuntu-latest
     needs: build
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      actions: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - channel: debug
+            task: assembleDebug
+            outDir: debug
+          - channel: dev
+            task: assembleDev
+            outDir: dev
+          - channel: trial
+            task: assembleTrial
+            outDir: trial
+          - channel: perfBeta
+            task: assemblePerfBeta
+            outDir: perfBeta
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-branchbase-env
+        with:
+          gradle-cache-read-only: 'false'
+
+      - name: Download Rust core (.so)
+        uses: actions/download-artifact@v8
+        with:
+          name: libbranchbase_core.so
+          path: app/src/main/jniLibs/arm64-v8a/
+
+      - name: Inject client secret
+        run: echo "branchbase.client.secret=${{ secrets.BRANCHBASE_CLIENT_SECRET }}" >> local.properties
+
+      - name: Assemble ${{ matrix.channel }}
+        env:
+          BRANCHBASE_GIT_HASH: ${{ needs.build.outputs.gitHash }}
+          BRANCHBASE_BUILD_TIME: ${{ needs.build.outputs.buildTime }}
+          BRANCHBASE_STANDARD_VERSION: ${{ needs.build.outputs.standardVersion }}
+        run: |
+          set -o pipefail
+          if ! bash tools/build/assemble.sh ${{ matrix.task }} 2>&1 | tee /tmp/assemble.log; then
+            echo "::error title=assemble::${{ matrix.channel }} 编译失败，关键行如下"
+            {
+              grep -aE "^e: |^error:" /tmp/assemble.log | tail -12
+              awk '/^FAILURE:|What went wrong/{flag=1} flag{print; n++} n>=30{exit}' /tmp/assemble.log
+            } | tail -40 \
+              | while IFS= read -r line; do
+                  safe=$(printf '%s' "$line" | tr -d '\r' | sed 's/::/%3A%3A/g' | cut -c1-400)
+                  echo "::error title=assemble::$safe"
+                done
+            exit 1
+          fi
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/${{ matrix.outDir }}/*.apk dist/ || true
+          ls -la dist/
+
+      # beta 签名的三个渠道（debug/dev/trial/perfBeta）共用一把钥匙：只算一次指纹。
+      - name: Generate beta signature file（现算指纹，仅 debug）
+        if: matrix.channel == 'debug'
+        run: |
+          set -uo pipefail
+          APKSIGNER=$(command -v apksigner || true)
+          if [ -z "$APKSIGNER" ]; then
+            APKSIGNER=$(ls "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"/build-tools/*/apksigner 2>/dev/null | tail -1 || true)
+          fi
+          APK=$(ls dist/*-debug.apk | head -1)
+          RAW=$("$APKSIGNER" verify --print-certs "$APK" 2>&1 || true)
+          printf '%s\n' "$RAW" | head -8
+          FPRINT=$(printf '%s\n' "$RAW" | grep -oE '[0-9a-fA-F]{64}' | head -1 \
+            | tr '[:lower:]' '[:upper:]' | sed -E 's/(..)/\1:/g; s/:$//')
+          if [ -z "$FPRINT" ]; then
+            echo "::error title=signature::无法从 $APK 读出 beta 签名指纹"
+            exit 1
+          fi
+          {
+            echo "variant=beta"
+            echo "version=${{ needs.build.outputs.standardVersion }}"
+            echo "fingerprint=$FPRINT"
+          } > dist/signature-beta.txt
+          cat dist/signature-beta.txt
+
+      - name: Upload artifact（APK，不打包）
+        uses: actions/upload-artifact@v7
+        with:
+          path: dist/*.apk
+          retention-days: 30
+          if-no-files-found: error
+          archive: false
+
+      - name: Upload artifact（signature-beta.txt，不打包，仅 debug）
+        if: matrix.channel == 'debug'
+        uses: actions/upload-artifact@v7
+        with:
+          path: dist/signature-beta.txt
+          retention-days: 30
+          if-no-files-found: error
+          archive: false
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [build, channels]
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
@@ -150,10 +280,12 @@ jobs:
           cat release-body.md
 
       # 指纹由 build 阶段从**实际 APK** 现算并作为产物上传（理由同 build-beta.yml 同一步）。
-      - name: Verify signature file（build 阶段现算）
+      - name: Verify signature files（build 阶段现算）
         run: |
-          test -s signature.txt || { echo "::error::缺少 build 阶段产出的 signature.txt"; exit 1; }
-          cat signature.txt
+          test -s signature.txt || { echo "::error::缺少 release 签名的 signature.txt"; exit 1; }
+          test -s signature-beta.txt || { echo "::error::缺少 beta 签名的 signature-beta.txt"; exit 1; }
+          echo "--- release ---"; cat signature.txt
+          echo "--- beta ---"; cat signature-beta.txt
 
       - name: 代码变更整合（生成源码包）
         run: git archive --format=tar.gz -o "source-${{ needs.build.outputs.versionName }}.tar.gz" HEAD
@@ -172,7 +304,12 @@ jobs:
           # 附件一个没有、CI 全绿。正式版是用户实际下载的唯一来源，这种静默失败代价最大。
           files: |
             Branchbase-${{ needs.build.outputs.standardVersion }}.apk
+            Branchbase-${{ needs.build.outputs.standardVersion }}-debug.apk
+            Branchbase-${{ needs.build.outputs.standardVersion }}-dev.apk
+            Branchbase-${{ needs.build.outputs.standardVersion }}-test.apk
+            Branchbase-${{ needs.build.outputs.standardVersion }}-perfBeta.apk
             signature.txt
+            signature-beta.txt
             source-${{ needs.build.outputs.versionName }}.tar.gz
           fail_on_unmatched_files: true
           prerelease: false
@@ -215,8 +352,8 @@ jobs:
           echo "附件清单："
           gh release view "$TAG" --repo "${{ github.repository }}" --json assets -q '.assets[].name'
           N=$(gh release view "$TAG" --repo "${{ github.repository }}" --json assets -q '.assets | length' | tr -dc '0-9')
-          if [ "$N" != "3" ]; then
-            echo "::warning title=发布附件数异常::$TAG 期望 3 个附件（release APK / signature.txt / 源码包），接口返回 '${N:-取不到}' 个。⚠️ REST 接口有低报先例，请以发布页为准，不要据此判断构建失败"
+          if [ "$N" != "8" ]; then
+            echo "::warning title=发布附件数异常::$TAG 期望 8 个附件（release + 四渠道 APK / 两个签名 / 源码包），接口返回 '${N:-取不到}' 个。⚠️ REST 接口有低报先例，请以发布页为准，不要据此判断构建失败"
           else
             echo "✅ 附件齐全（$N 个）"
           fi

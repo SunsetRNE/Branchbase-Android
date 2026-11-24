@@ -247,7 +247,7 @@ JNI 导出函数是**按名字 + 形参个数**硬匹配的：`RustBridge.native
 | `.github/actions/setup-branchbase-env/` | 远程 CI 环境准备 composite action |
 | `.github/workflows/build-beta.yml` | Beta 三步骤流水线（prepare→build→publish） |
 | `.github/workflows/build-release.yml` | 正式版三步骤流水线 |
-| `.github/workflows/build-core.yml` | Rust core 编译检查 + 单元测试 |
+| `.github/workflows/ci.yml` | 每次 push/PR 的编译与单测（Android 四渠道编译 + JVM 单测 + Rust check/test/clippy；原 `build-core.yml` 已并入） |
 
 ---
 

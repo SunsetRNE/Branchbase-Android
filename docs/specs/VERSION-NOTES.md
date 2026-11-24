@@ -5,7 +5,7 @@
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
 **每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.2.5**）
-与 §三 `versionCode` 流水（129 → **259**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+与 §三 `versionCode` 流水（129 → **260**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,53 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.3.3 → 1.0.22）
+## 二、`versionName` 流水（1.4.0 → 1.0.22）
+
+### 1.4.0
+
+**编译链路提速（.so 缓存 + 矩阵 + 超时）、Pages 落地页、正式版带四渠道、深色冷启动修复、日志退出场景判定。**
+
+① **编译提速**：
+- Beta 的 `core` job 加了 `.so` **缓存**（key 只含 `core/**` 的哈希）：纯 UI 提交的发版不再跑一轮
+  Rust 交叉编译，直接复用上次产物；
+- 三个工作流的每个 job 都加了 `timeout-minutes`（version 10 / core 30 / build 40 / publish 20 /
+  CI 30）—— 1.3.0 那次编译挂到 20 分钟以上、只能干等，以后会被超时明确掐断；
+- 渠道矩阵（1.3.2 起）每条腿一个 Gradle 进程、只编一个变体；`ci.yml` 也拆成主变体 + 其余变体矩阵；
+  实测四渠道 Beta 从 ~12 分钟降到 **~6 分钟**。
+- 参考了 `DSHA-Sunset-mod` 的「node 图 + 复用工作流」：Branchbase 先用内联 job 图实现
+  `version → core → build(矩阵) → publish`；要不要再抽 `workflow_call` 节点（签名/发布也成节点）
+  留待单独评估 —— 那会把发布链路拆成更多文件，收益与风险需要实测。
+
+② **GitHub Pages 落地页**：新增 `site/index.html`（English-first、深浅色自适应、渠道表 +
+下载/文档/反馈链接）与**独立**工作流 `pages.yml`（只托管静态页，不编译、不签名、不发 APK）。
+已通过 API 启用 Pages（`build_type=workflow`）：<https://sunsetrne.github.io/Branchbase-Android/>。
+
+③ **正式版带四渠道**：`build-release.yml` 增加 `channels` 矩阵（debug / dev / trial / perfBeta），
+与 release 一起发布：**5 个 APK + `signature.txt`（正式钥）+ `signature-beta.txt`（beta 钥）+ 源码包**，
+附件数校验从 3 改为 8。四条渠道腿沿用 beta 签名，与正式包同一页面下载、并排安装。
+
+④ **深色冷启动白闪**：新增 `values-night/themes.xml`（系统深色时启动窗口用深色父主题），
+并在 `MainActivity` 的 `ThemeRuntime.init` 之后、`setContent` **之前**按已存档位重设窗口底色。
+边界：应用内「浅色偏好 + 系统深色」这一档，系统绘制的启动窗口仍是深色，首帧后由 `Theme.kt` 的
+`SideEffect` 校正 —— 这是不用 `core-splashscreen` 时的固有窗口，换来的是零依赖。
+
+⑤ **日志退出场景判定**（真机现场 `原因码 13 + 后台缓存 400 + o-kill(4010)` 被记成 `ERROR 异常退出`）：
+新增纯函数 `classifyExit(reason, importance, description)` 与 `ExitScenario`（13 个场景），
+级别 / 标签 / 措辞全部跟场景走：
+- 闪退 / native 崩溃 / ANR → `ERROR · 异常退出`（唯一算「事故」的三类）；
+- 低内存回收 / 被信号杀 / OEM 结束后台 / 占用过高 → `WARN · 进程结束`；
+- 冻结回收 / 用户划掉 / 装包更新 / 自己退出 → `INFO · 进程结束`；
+- 13 号在**前台态**仍按「系统结束（原因不明）」处理（更可疑）；后台缓存或描述含 kill → `OEM_KILL`。
+非崩溃退出不再套用「被 LMK 杀 / 被信号杀这类退出只有原因」那句，改为「非崩溃退出，系统本来就不提供
+调用栈：…」。`ExitReportTest` 增 4 例（o-kill 场景、前台 13 号、闪退/ANR、低内存/装包更新）。
+
+⑥ **悬空引用（扫了一半，已修的先修）**：删掉 `build-core.yml` 后，`BUILD-NOTES.md` 的表格与
+setup action 注释仍指向它 → 已改为 `ci.yml`。全量扫描发现**大多数是误报**（文档里的路径是按所在目录
+或代码简写解析的）；真正的悬空集中在「历史原型尚未迁入」这一类，已在 `specs/prototypes/*` 标注为
+「迁入前只有说明文档」。**其余页面硬编码中文**（个人页 / 仓库页 / 决策页）不在本版，下一批继续。
+
+⑦ **验证**：`:app:compileDebugKotlin` ✅；`ExitReportTest` ✅；i18n 100%；四个 workflow YAML 解析通过；
+Pages 已启用；本版发版由新流水线实跑验证。
 
 ### 1.3.3
 
@@ -3964,13 +4010,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（259 → 129）
+## 三、`versionCode` 流水（260 → 129）
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 
 - **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
 
 - **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **260**：编译提速（`.so` 缓存 key=core 哈希、各 job 超时、矩阵已拆）+ Pages 落地页（`site/` + `pages.yml`，已启用）+ 正式版带四渠道（channels 矩阵，5 APK + 双签名 + 源码）+ 深色冷启动（values-night + 启动窗口底色）+ 日志退出场景判定（`ExitScenario`/`classifyExit`，o-kill 不再算异常退出）+ 修 `build-core.yml` 悬空引用（一次提交，故 +1）。
 
 - **259**：修 1.3.2 的两条 CI 红灯 —— 删掉 Rust 侧遗留的 `nativeValidateTwoFactor` JNI 导出（Kotlin 已在 1.2.10 删除声明，双向契约测试据此变红）；`ReleaseBranchTargetTest` 对未迁入的历史原型改用 `Assume` 跳过（一次提交，故 +1）。
 

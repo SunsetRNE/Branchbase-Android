@@ -16,6 +16,7 @@ on:
 jobs:
   version:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       versionName: ${{ steps.ver.outputs.versionName }}
       versionCode: ${{ steps.ver.outputs.versionCode }}
@@ -52,6 +53,7 @@ jobs:
   core:
     runs-on: ubuntu-latest
     needs: version
+    timeout-minutes: 30
     permissions:
       contents: read
       actions: write
@@ -64,7 +66,16 @@ jobs:
         with:
           gradle-cache-read-only: 'false'
 
+      # 核心没改就复用上次的 .so（键只含 core/**）：纯 UI 提交的发版不再等一轮 Rust 交叉编译。
+      - name: Restore Rust core cache
+        id: so-cache
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libbranchbase_core.so
+          key: core-so-${{ runner.os }}-${{ hashFiles('core/**') }}
+
       - name: Build Rust core (.so)
+        if: steps.so-cache.outputs.cache-hit != 'true'
         run: bash tools/build/build-core.sh --mode=ci
 
       - name: Upload artifact（libbranchbase_core.so，不打包）
@@ -78,6 +89,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     needs: [version, core]
+    timeout-minutes: 40
     permissions:
       contents: read
       actions: write
@@ -193,6 +205,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     needs: [version, core, build]
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:

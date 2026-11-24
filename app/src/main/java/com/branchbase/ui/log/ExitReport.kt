@@ -33,6 +33,9 @@ import android.os.Build
  */
 internal const val EXIT_LOG_TAG = "异常退出"
 
+/** 非事故的进程退出（系统回收 / 用户划掉 / 装包更新…）用的标签 —— 与「异常退出」分开，便于过滤。 */
+internal const val EXIT_END_TAG = "进程结束"
+
 /** 一次最多回溯上报几次异常退出：够覆盖「装新包杀旧进程」这一档，又不至于把陈年旧账全翻出来。 */
 internal const val EXIT_REPORT_LIMIT = 3
 
@@ -73,6 +76,85 @@ internal data class ExitFacts(
     val rssKb: Long,
     val trace: String?,
 )
+
+/**
+ * 一次进程退出的**场景**（纯数据，便于单测）。
+ *
+ * ## 为什么在「原因码」之上再分一层
+ *
+ * `REASON_OTHER(13)` 是一个**垃圾桶**：系统 / OEM 把后台缓存进程直接杀掉时给的就是它。
+ * 真机现场（2026-11-24）：
+ *
+ * ```
+ * 上次异常退出：… · 其它（原因码 13）
+ * 进程 com.branchbase pid 3182 · 退出时 后台缓存（400） / RSS 197MB
+ * 系统描述 [UNKNOWN] o-kill(4010)
+ * （系统没有留下栈…）
+ * ```
+ *
+ * 这一条**不是崩溃**，却和闪退一样记成 `ERROR · 异常退出` —— 日志里就分不清
+ * 「真出事了」和「被系统回收了」。所以按 (原因码, 优先级, 系统描述) 判一个**场景**，
+ * 级别、标签、措辞都跟着场景走：
+ *
+ * | 场景 | 级别 | 算不算事故 |
+ * |---|---|---|
+ * | 闪退 / native 崩溃 / ANR | ERROR | 是（「异常退出」） |
+ * | 低内存回收 / 被信号杀 / OEM 结束后台 / 占用过高 | WARN | 否（「进程结束」） |
+ * | 冻结回收 / 用户划掉 / 装包更新 / 自己退出 / 权限变更 | INFO | 否 |
+ */
+internal enum class ExitScenario(
+    val label: String,
+    val level: LogLevel,
+    /** 这类退出**正常会带调用栈**吗？没有栈时的措辞按它分档。 */
+    val expectsTrace: Boolean,
+    /** 算不算「事故」——决定正文用「异常退出」还是「进程结束」、以及日志标签。 */
+    val isIncident: Boolean,
+) {
+    CRASH("闪退（未捕获异常）", LogLevel.ERROR, true, true),
+    NATIVE_CRASH("闪退（native 崩溃）", LogLevel.ERROR, true, true),
+    ANR("无响应（ANR）", LogLevel.ERROR, true, true),
+    LOW_MEMORY("低内存回收（LMK）", LogLevel.WARN, false, false),
+    SIGNALED("被信号杀死", LogLevel.WARN, false, false),
+    OEM_KILL("被系统 / OEM 结束后台进程", LogLevel.WARN, false, false),
+    EXCESSIVE_USAGE("被系统判定占用过高", LogLevel.WARN, false, false),
+    FREEZER("被系统冻结回收", LogLevel.INFO, false, false),
+    USER_STOPPED("用户主动结束（划掉 / 强制停止）", LogLevel.INFO, false, false),
+    APP_UPDATE("应用更新（装包替换旧进程）", LogLevel.INFO, false, false),
+    SELF_EXIT("自己退出", LogLevel.INFO, false, false),
+    SYSTEM_OTHER("系统结束（原因不明）", LogLevel.WARN, false, false),
+    UNKNOWN("未知", LogLevel.WARN, false, false),
+}
+
+/** 「后台缓存」档的优先级数值（`IMPORTANCE_CACHED`），用于判断 13 号是不是后台回收。 */
+private const val IMPORTANCE_CACHED = 400
+
+/**
+ * (原因码, 优先级, 系统描述) → 场景（纯函数，`ExitReportTest` 钉住）。
+ *
+ * 13 号的判据：**后台缓存态**（`importance >= 400`）或系统描述里带 `kill`（真机是 `o-kill(4010)`）
+ * → 系统 / OEM 回收；前台态下的 13 号仍按「系统结束（原因不明）」处理（那种更可疑）。
+ */
+internal fun classifyExit(reason: Int, importance: Int, description: String?): ExitScenario = when (reason) {
+    1 -> ExitScenario.SELF_EXIT
+    2 -> ExitScenario.SIGNALED
+    3 -> ExitScenario.LOW_MEMORY
+    4 -> ExitScenario.CRASH
+    5 -> ExitScenario.NATIVE_CRASH
+    6 -> ExitScenario.ANR
+    8 -> ExitScenario.SYSTEM_OTHER
+    9 -> ExitScenario.EXCESSIVE_USAGE
+    10, 11 -> ExitScenario.USER_STOPPED
+    12 -> ExitScenario.SYSTEM_OTHER
+    13 -> {
+        val killedBySystem = importance >= IMPORTANCE_CACHED ||
+            description?.contains("kill", ignoreCase = true) == true
+        if (killedBySystem) ExitScenario.OEM_KILL else ExitScenario.SYSTEM_OTHER
+    }
+    14 -> ExitScenario.FREEZER
+    15 -> ExitScenario.SYSTEM_OTHER
+    16 -> ExitScenario.APP_UPDATE
+    else -> ExitScenario.UNKNOWN
+}
 
 /**
  * 原因码 → 中文标签（纯函数）。
@@ -227,9 +309,12 @@ internal fun exitTraceLines(
  * 一次异常退出的日志正文（**多行**，由 [logFileLines] 逐行补表头）。
  */
 internal fun exitReportMessage(f: ExitFacts): String {
+    val scenario = classifyExit(f.reason, f.importance, f.description)
     val lines = mutableListOf<String>()
-    lines += "上次异常退出：${logDayStamp(f.timestampMs)} ${formatLogTime(f.timestampMs)}" +
-        " · ${exitReasonLabel(f.reason)}（原因码 ${f.reason}）"
+    // 措辞按场景分档：只有闪退 / ANR 才叫「异常退出」；被系统回收、用户划掉一律叫「进程结束」。
+    val head = if (scenario.isIncident) "上次异常退出" else "上次进程结束"
+    lines += "$head：${logDayStamp(f.timestampMs)} ${formatLogTime(f.timestampMs)}" +
+        " · ${scenario.label}（原因码 ${f.reason}）"
     val where = buildString {
         append("进程 ").append(f.processName.ifBlank { "（无名）" })
         append(" pid ").append(f.pid)
@@ -241,7 +326,11 @@ internal fun exitReportMessage(f: ExitFacts): String {
     if (!f.description.isNullOrBlank()) lines += "系统描述 ${f.description}"
     val trace = exitTraceLines(f.trace)
     if (trace.isEmpty()) {
-        lines += "（系统没有留下栈：被 LMK 杀 / 被信号杀这类退出只有原因，没有调用栈）"
+        lines += if (scenario.expectsTrace) {
+            "（系统没有留下栈：这类退出只有原因，没有调用栈）"
+        } else {
+            "（非崩溃退出，系统本来就不提供调用栈：${scenario.label}）"
+        }
     } else {
         lines += "栈 ${trace.size} 行："
         lines += trace
@@ -272,7 +361,16 @@ internal object ExitWatch {
         val prefs = context.applicationContext.getSharedPreferences(EXIT_PREFS, Context.MODE_PRIVATE)
         val reportedUpto = prefs.getLong(KEY_EXIT_REPORTED_UPTO, 0L)
         pickExitFacts(facts, reportedUpto).forEach { f ->
-            LogManager.log(LogCategory.LOCAL_TASK, LogLevel.ERROR, EXIT_LOG_TAG, exitReportMessage(f))
+            // 级别与标签都跟场景走：闪退 / ANR 才是 ERROR「异常退出」；
+            // 被系统回收 / 用户划掉记 WARN/INFO「进程结束」—— 否则日志里永远分不清
+            // 「真出事了」和「后台被回收」（2026-11-24 的 o-kill 现场）。
+            val scenario = classifyExit(f.reason, f.importance, f.description)
+            LogManager.log(
+                LogCategory.LOCAL_TASK,
+                scenario.level,
+                if (scenario.isIncident) EXIT_LOG_TAG else EXIT_END_TAG,
+                exitReportMessage(f),
+            )
         }
         // 标记推到「现在」而不是「最后一条记录的时间」：这次启动之前的所有退出都已经处理过，
         // 之后的退出必然带着更大的时间戳（那属于下一个进程），不会被这次的上报吞掉。

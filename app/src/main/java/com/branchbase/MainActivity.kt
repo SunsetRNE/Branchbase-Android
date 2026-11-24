@@ -3,6 +3,7 @@ package com.branchbase
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
@@ -124,6 +125,22 @@ class MainActivity : ComponentActivity() {
 
         // 主题档位在启动时同步一次；之后由 ThemeRuntime 驱动（开关无需层层传参）
         ThemeRuntime.init(applicationContext)
+        // 深色冷启动白闪（2026-11-24）：系统启动窗口用 manifest 主题画，里面是浅色底；
+        // 首帧之前先把 decor 底色改成**已存档位**对应的底色，避免深色用户看到一帧白。
+        // 真正兜住首帧的是 `Theme.kt` 的 SideEffect（Compose 一上屏就同步）；这里只是让
+        // 「从窗口创建到首帧」这段尽量短。values-night 的主题负责系统深色那一档的启动窗口。
+        run {
+            val systemDark = (resources.configuration.uiMode and
+                android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES
+            val dark = ThemeRuntime.mode.value.resolveDark(systemDark)
+            window.setBackgroundDrawable(
+                android.graphics.drawable.ColorDrawable(
+                    (if (dark) com.branchbase.ui.theme.DarkPrimerPalette
+                    else com.branchbase.ui.theme.LightPrimerPalette).canvas.toArgb(),
+                ),
+            )
+        }
         com.branchbase.ui.settings.GlassNavigationRuntime.init(applicationContext)
         // 通知显示模式同理：消息页与「设置 → 通知」是两个入口，靠同一份运行时状态收口。
         // 与主题一样要在 setContent **之前**同步 —— 否则存了「按仓库分组」的用户会先闪一帧平铺

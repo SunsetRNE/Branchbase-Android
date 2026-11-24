@@ -323,4 +323,53 @@ class ExitReportTest {
         assertTrue("必须在 LogManager.init 之后（写盘线程已就绪）", app.indexOf("ExitWatch.report(this)") > app.indexOf("LogManager.init(this)"))
         assertTrue(app.contains("Logger.startupOnce(\"exit-report\""))
     }
+
+    // ── ④ 场景判定：被系统回收 ≠ 闪退（2026-11-24 的 o-kill 现场） ──────
+
+    @Test
+    fun `o-kill 的后台缓存退出不算事故`() {
+        val scenario = classifyExit(reason = 13, importance = 400, description = "[UNKNOWN] o-kill(4010)")
+        assertEquals(ExitScenario.OEM_KILL, scenario)
+        assertFalse("后台被 OEM 杀掉不是崩溃", scenario.isIncident)
+        assertEquals(LogLevel.WARN, scenario.level)
+
+        val message = exitReportMessage(
+            facts(1_000L, reason = 13, importance = 400, description = "[UNKNOWN] o-kill(4010)"),
+        )
+        assertTrue("应该叫「上次进程结束」而不是「上次异常退出」", message.contains("上次进程结束"))
+        assertFalse(message.contains("上次异常退出"))
+        assertTrue(message.contains("被系统 / OEM 结束后台进程"))
+        assertTrue("非崩溃退出不该套用「被 LMK 杀 / 被信号杀」那句", message.contains("非崩溃退出"))
+    }
+
+    @Test
+    fun `前台态的 13 号仍按原因不明处理`() {
+        // 前台被杀、又没有 kill 描述：更可疑，保留 WARN + 「系统结束（原因不明）」
+        val scenario = classifyExit(reason = 13, importance = 100, description = null)
+        assertEquals(ExitScenario.SYSTEM_OTHER, scenario)
+        assertFalse(scenario.isIncident)
+    }
+
+    @Test
+    fun `闪退与 ANR 仍是事故`() {
+        listOf(4, 5, 6).forEach { reason ->
+            val s = classifyExit(reason, importance = 100, description = null)
+            assertTrue("原因码 $reason 应算事故", s.isIncident)
+            assertEquals(LogLevel.ERROR, s.level)
+            assertTrue(s.expectsTrace)
+        }
+        assertTrue(exitReportMessage(facts(1_000L, reason = 4)).contains("上次异常退出"))
+    }
+
+    @Test
+    fun `低内存与装包更新分属两档`() {
+        val lmk = classifyExit(3, importance = 400, description = null)
+        assertEquals(ExitScenario.LOW_MEMORY, lmk)
+        assertEquals(LogLevel.WARN, lmk.level)
+        assertFalse(lmk.isIncident)
+
+        val update = classifyExit(16, importance = 400, description = null)
+        assertEquals(ExitScenario.APP_UPDATE, update)
+        assertEquals(LogLevel.INFO, update.level)
+    }
 }

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    **只影响「启动窗口」的底色**（2026-11-24，修深色冷启动白闪）。
+
+    应用内主题是**应用自己的设置**（设置 → 外观），不是系统深色开关；但系统画第一帧之前
+    用的只能是 manifest 主题。所以在系统深色时给一份深色父主题，启动窗口就不会先白一下。
+    应用内「浅色偏好 + 系统深色」的用户，启动窗口会是深色 —— 这一档要在首帧后由
+    `MainActivity` 按已存偏好重设窗口底色（`Theme.kt` 的 SideEffect 也会再同步一次）。
+-->
+<resources>
+    <style name="Theme.MyApplication" parent="android:Theme.Material.NoActionBar" />
+</resources>
