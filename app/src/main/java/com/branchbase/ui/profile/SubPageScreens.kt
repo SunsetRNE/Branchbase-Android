@@ -2,7 +2,9 @@ package com.branchbase.ui.profile
 
 import androidx.annotation.StringRes
 import android.content.Context
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -973,6 +975,8 @@ internal fun ModeOptionRow(
     desc: String?,
     selected: Boolean,
     divider: Boolean = false,
+    /** 选中反馈是否走弹簧（提交模式页用：三档之间的切换要「弹」一下）。 */
+    bouncySelection: Boolean = false,
     onClick: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth()) {
@@ -987,9 +991,14 @@ internal fun ModeOptionRow(
         ) {
             // 单选圆点：外圈与填充一起渐变（设置页里每个开关都会走这条路径）；
             // 选中时再轻弹一下 —— 颜色渐变是「状态变了」，缩放是「刚刚点的就是它」。
+            // 弹簧只在提交模式页启用：那里的三档是互斥选项，弹一下能读出「换档」的物理感。
             val dotScale by animateFloatAsState(
-                targetValue = if (selected) 1.12f else 1f,
-                animationSpec = tween(160),
+                targetValue = if (selected) (if (bouncySelection) 1.22f else 1.12f) else 1f,
+                animationSpec = if (bouncySelection) {
+                    spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)
+                } else {
+                    tween(160)
+                },
                 label = "mode-option-dot",
             )
             Box(

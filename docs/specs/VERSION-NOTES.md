@@ -74,7 +74,28 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.11 → 1.0.22）
+## 二、`versionName` 流水（1.4.12 → 1.0.22）
+
+### 1.4.12
+
+**提交模式页第二版：三档改短名、徽标按档配色、切换改弹性。**
+
+真机看过 1.4.11 之后的三条决策：
+
+① **短名**：三档从「单个文件更改，单个提交 / 多个文件更改，合并一次提交 / 文件拉取到本地仓库…」
+压成 **单次提交 / 缓存提交 / 本地管理 · git本地**。`labelRes` 与 `titleRes` 同步成短名
+（列表、设置行、选择弹窗、抽屉统一），`descRes` 缩成一行（编辑即提交 / 暂存区统一提交 /
+git 命令行习惯），抽屉正文各压成一句。英文侧：`Single commit` / `Staged commit` / `Local · git`。
+
+② **徽标按档配色**：同一个胶囊形状，换档时三种颜色一起弹过去 ——
+单次=蓝（`InfoSurface` / `Blue600` / `Blue500`）、缓存=紫（`PurpleSurface` / `Purple500`）、
+本地=绿（`SuccessSurface` / `SuccessTextStrong` / `Green500`）、未设置=灰（`Gray150` / `TextSecondary` / `Gray500`）。
+颜色不是装饰：扫一眼就知道当前是哪一档，不必读字。
+
+③ **弹性切换**：单选圆点在**本页**改用 `spring(DampingRatioMediumBouncy, StiffnessMediumLow)`，
+选中放大到 1.22x；徽标的标签切换用 slide 的默认弹簧规格，与圆点 / 底色同一节奏。
+`ModeOptionRow` 为此新增 `bouncySelection` 开关（默认 false）—— 翻译 / 语言页仍是原来的 160ms tween，
+不把「弹」扩散到所有设置页。
 
 ### 1.4.11
 
@@ -4255,13 +4276,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（271 → 129）
+## 三、`versionCode` 流水（272 → 129）
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 
 - **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
 
 - **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **272**：提交模式页第二版 —— 三档短名（单次提交 / 缓存提交 / 本地管理 · git本地）、徽标按档配色 + 颜色弹簧、圆点弹簧切换（`bouncySelection` 仅本页）（一次提交，故 +1）。
 
 - **271**：提交模式页 —— 当前模式改头部状态徽标 + 内容抽屉（原说明搬入并扩写），徽标/圆点/抽屉三层动画；`CommitMode` 增加 `drawerBodyRes`（一次提交，故 +1）。
 

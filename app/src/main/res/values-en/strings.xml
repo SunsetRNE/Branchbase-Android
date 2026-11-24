@@ -1664,15 +1664,15 @@
 
     <!-- The three commit modes (`CommitMode.labelRes/titleRes/descRes`). All three used to be
          hardcoded Chinese constructor arguments, so only these rows stayed Chinese in English. -->
-    <string name="commit_mode_single_file_label">Single file</string>
-    <string name="commit_mode_single_file_title">One file changed, one commit</string>
-    <string name="commit_mode_single_file_desc">Official client behaviour · commit on edit</string>
-    <string name="commit_mode_multi_file_label">Multi-file merged</string>
-    <string name="commit_mode_multi_file_title">Several files changed, merged into one commit</string>
-    <string name="commit_mode_multi_file_desc">Web behaviour · staged and committed together</string>
-    <string name="commit_mode_local_repo_label">Local repository (Git)</string>
-    <string name="commit_mode_local_repo_title">Files are pulled into a local repository; the local git manages commits and pushes</string>
-    <string name="commit_mode_local_repo_desc">Git command-line workflow</string>
+    <string name="commit_mode_single_file_label">Single commit</string>
+    <string name="commit_mode_single_file_title">Single commit</string>
+    <string name="commit_mode_single_file_desc">Commit on edit</string>
+    <string name="commit_mode_multi_file_label">Staged commit</string>
+    <string name="commit_mode_multi_file_title">Staged commit</string>
+    <string name="commit_mode_multi_file_desc">Staged together</string>
+    <string name="commit_mode_local_repo_label">Local · git</string>
+    <string name="commit_mode_local_repo_title">Local · git</string>
+    <string name="commit_mode_local_repo_desc">Git command line</string>
     <!--
         Commit-mode page rework (2026-11-24): the footer "Current: …" became a header status badge,
         and the page intro moved into a content drawer and was expanded. Each drawer block answers
@@ -1682,9 +1682,9 @@
     <string name="commit_mode_badge_a11y">Current commit mode: %1$s. Tap for details</string>
     <string name="commit_mode_drawer_title">Commit modes</string>
     <string name="commit_mode_drawer_current">In use</string>
-    <string name="commit_mode_drawer_body_single_file">Each finished file is committed on its own and goes straight to GitHub, with no staging area — good for several unrelated small fixes at once.</string>
-    <string name="commit_mode_drawer_body_multi_file">Changes stay in a local staging area and go out as one batch, matching “Stage changes” on the web — good when one change touches several files.</string>
-    <string name="commit_mode_drawer_body_local_repo">Files are pulled into the local copy (repos/account/repo) and committed/pushed by local git; working tree, undo and upstream all follow the command line.</string>
+    <string name="commit_mode_drawer_body_single_file">Each finished file is committed straight to GitHub, with no staging area.</string>
+    <string name="commit_mode_drawer_body_multi_file">Changes stay in a local staging area and go out as one batch, matching “Stage changes” on the web.</string>
+    <string name="commit_mode_drawer_body_local_repo">Files are pulled into the local copy (repos/account/repo) and committed/pushed by local git.</string>
     <string name="commit_mode_drawer_footnote">Takes effect immediately; existing local repositories are neither deleted nor migrated.</string>
     <!-- Bottom navigation (`NavDestination`). "Messages" reuses the existing nav_messages. -->
     <string name="nav_home">Home</string>

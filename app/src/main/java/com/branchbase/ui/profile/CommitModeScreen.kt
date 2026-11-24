@@ -1,8 +1,10 @@
 package com.branchbase.ui.profile
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -42,7 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -96,6 +98,7 @@ fun CommitModeScreen(onBack: () -> Unit) {
                 label = stringResource(m.titleRes),
                 desc = stringResource(m.descRes),
                 selected = mode == m,
+                bouncySelection = true,
                 onClick = {
                     if (mode != m) {
                         mode = m
@@ -128,32 +131,45 @@ fun CommitModeScreen(onBack: () -> Unit) {
 private fun CurrentModeBadge(mode: CommitMode?, onClick: () -> Unit) {
     val label = mode?.let { stringResource(it.labelRes) } ?: stringResource(R.string.commit_mode_badge_unset)
     val a11y = stringResource(R.string.commit_mode_badge_a11y, label)
+    // 三档各自的「底色 / 前景 / 圆点」：同一个徽标形状，换档时三色一起弹过去。
+    // 颜色不是装饰：单次=蓝、缓存=紫、本地=绿，扫一眼就能认出当前是哪一档。
+    val (bg, fg, dot) = when (mode) {
+        CommitMode.SINGLE_FILE -> Triple(Primer.InfoSurface, Primer.Blue600, Primer.Blue500)
+        CommitMode.MULTI_FILE -> Triple(Primer.PurpleSurface, Primer.Purple500, Primer.Purple500)
+        CommitMode.LOCAL_REPO -> Triple(Primer.SuccessSurface, Primer.SuccessTextStrong, Primer.Green500)
+        null -> Triple(Primer.Gray150, Primer.TextSecondary, Primer.Gray500)
+    }
+    val colorSpec = spring<Color>(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)
+    val bgColor by animateColorAsState(bg, colorSpec, label = "badge-bg")
+    val fgColor by animateColorAsState(fg, colorSpec, label = "badge-fg")
+    val dotColor by animateColorAsState(dot, colorSpec, label = "badge-dot")
+
     Row(
         modifier = Modifier
             .clip(CircleShape)
-            .background(Primer.SuccessSurface)
+            .background(bgColor)
             .clickable(onClick = onClick)
             .semantics { contentDescription = a11y }
             .padding(start = 10.dp, end = 8.dp, top = 5.dp, bottom = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // 绿色圆点 = 「正在使用」，与选项行的选中色同一套语义
-        Box(Modifier.size(6.dp).clip(CircleShape).background(Primer.Green500))
+        Box(Modifier.size(6.dp).clip(CircleShape).background(dotColor))
         Spacer(Modifier.width(6.dp))
         AnimatedContent(
             targetState = label,
             transitionSpec = {
-                (fadeIn(tween(180)) + slideInVertically(tween(180)) { it / 2 }) togetherWith
-                    (fadeOut(tween(120)) + slideOutVertically(tween(120)) { -it / 2 })
+                // 默认 slide 规格就是弹簧，和圆点 / 底色的弹性同一节奏
+                (fadeIn(tween(160)) + slideInVertically { it / 2 }) togetherWith
+                    (fadeOut(tween(100)) + slideOutVertically { -it / 2 })
             },
             label = "commit-mode-badge",
         ) { text ->
-            Text(text, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.SuccessTextStrong)
+            Text(text, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = fgColor)
         }
         Icon(
             Icons.Filled.ExpandMore,
             contentDescription = null,
-            tint = Primer.SuccessTextStrong,
+            tint = fgColor,
             modifier = Modifier.size(14.dp),
         )
     }

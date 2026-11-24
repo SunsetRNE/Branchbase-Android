@@ -1690,15 +1690,15 @@
         写着「单个文件」，提交模式页三张卡片也全是中文）。枚举只带 `@StringRes`，解析在调用方。
         长度分工见枚举的 KDoc：label＝状态位短名，title＝整行卡片标题，desc＝卡片副标题。
     -->
-    <string name="commit_mode_single_file_label">单个文件</string>
-    <string name="commit_mode_single_file_title">单个文件更改，单个提交</string>
-    <string name="commit_mode_single_file_desc">官方客户端行为 · 编辑即提交</string>
-    <string name="commit_mode_multi_file_label">多文件合并</string>
-    <string name="commit_mode_multi_file_title">多个文件更改，合并一次提交</string>
-    <string name="commit_mode_multi_file_desc">网页端行为 · 暂存区统一提交</string>
-    <string name="commit_mode_local_repo_label">本地仓库（Git）</string>
-    <string name="commit_mode_local_repo_title">文件拉取到本地仓库，由本地 git 管理提交推送</string>
-    <string name="commit_mode_local_repo_desc">Git 命令行习惯</string>
+    <string name="commit_mode_single_file_label">单次提交</string>
+    <string name="commit_mode_single_file_title">单次提交</string>
+    <string name="commit_mode_single_file_desc">编辑即提交</string>
+    <string name="commit_mode_multi_file_label">缓存提交</string>
+    <string name="commit_mode_multi_file_title">缓存提交</string>
+    <string name="commit_mode_multi_file_desc">暂存区统一提交</string>
+    <string name="commit_mode_local_repo_label">本地管理 · git本地</string>
+    <string name="commit_mode_local_repo_title">本地管理 · git本地</string>
+    <string name="commit_mode_local_repo_desc">git 命令行习惯</string>
     <!--
         提交模式页 2026-11-24 改造：页尾「当前：…」改成头部状态徽标，原页首说明搬进内容抽屉并扩写。
         抽屉里每个模式都回答「改动去了哪 / 什么时候用它」；drawer_body_* 与 desc 是两层说明（短 / 长）。
@@ -1707,9 +1707,9 @@
     <string name="commit_mode_badge_a11y">当前提交模式：%1$s。点按查看说明</string>
     <string name="commit_mode_drawer_title">提交模式说明</string>
     <string name="commit_mode_drawer_current">当前使用</string>
-    <string name="commit_mode_drawer_body_single_file">每改完一个文件就提交一次：改动直接进 GitHub，不经过暂存区。适合一次修几个互不相关的小问题。</string>
-    <string name="commit_mode_drawer_body_multi_file">改动先留在本机暂存区，攒成一批再提交，与网页端的「Stage changes」一致。适合一个改动涉及多个文件。</string>
-    <string name="commit_mode_drawer_body_local_repo">先把文件拉到本机（repos/账号/仓库），由本地 git 管理提交与推送；工作区、撤销、上游都按命令行习惯来。</string>
+    <string name="commit_mode_drawer_body_single_file">每改完一个文件就提交一次，改动直接进 GitHub，不经过暂存区。</string>
+    <string name="commit_mode_drawer_body_multi_file">改动先留在本机暂存区，攒成一批再提交，与网页端的「Stage changes」一致。</string>
+    <string name="commit_mode_drawer_body_local_repo">文件拉到本机（repos/账号/仓库），由本地 git 管理提交与推送。</string>
     <string name="commit_mode_drawer_footnote">切换后立即生效；已存在的本地仓库不会被删除或迁移。</string>
     <!--
         底部导航（`NavDestination`）。「消息」复用既有的 `nav_messages`，这里只补「首页」。
