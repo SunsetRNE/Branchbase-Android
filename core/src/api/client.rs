@@ -156,7 +156,7 @@ impl ApiClient {
         let status = resp.status();
         let text = resp.text().await?;
         if !status.is_success() {
-            return Err(CoreError::Other(format!("HTTP {status}: {text}")));
+            return Err(CoreError::http(status.as_u16(), &text));
         }
         Ok(text)
     }
@@ -175,7 +175,7 @@ impl ApiClient {
         let status = resp.status();
         let text = resp.text().await?;
         if !status.is_success() {
-            return Err(CoreError::Other(format!("HTTP {status}: {text}")));
+            return Err(CoreError::http(status.as_u16(), &text));
         }
         Ok(text)
     }
@@ -196,7 +196,7 @@ impl ApiClient {
         let status = resp.status();
         let text = resp.text().await?;
         if !status.is_success() {
-            return Err(CoreError::Other(format!("HTTP {status}: {text}")));
+            return Err(CoreError::http(status.as_u16(), &text));
         }
         Ok(text)
     }
@@ -250,7 +250,7 @@ impl ApiClient {
         let status = resp.status();
         let text = resp.text().await?;
         if !status.is_success() {
-            return Err(CoreError::Other(format!("HTTP {status}: {text}")));
+            return Err(CoreError::http(status.as_u16(), &text));
         }
         Ok(text)
     }
@@ -273,7 +273,7 @@ impl ApiClient {
         let status = resp.status();
         let text = resp.text().await?;
         if !status.is_success() {
-            return Err(CoreError::Other(format!("HTTP {status}: {text}")));
+            return Err(CoreError::http(status.as_u16(), &text));
         }
         Ok(text)
     }
@@ -294,7 +294,7 @@ impl ApiClient {
         let status = resp.status();
         let text = resp.text().await?;
         if !status.is_success() {
-            return Err(CoreError::Other(format!("HTTP {status}: {text}")));
+            return Err(CoreError::http(status.as_u16(), &text));
         }
         Ok(text)
     }
@@ -315,7 +315,7 @@ impl ApiClient {
         let status = resp.status();
         let text = resp.text().await?;
         if !status.is_success() {
-            return Err(CoreError::Other(format!("HTTP {status}: {text}")));
+            return Err(CoreError::http(status.as_u16(), &text));
         }
         Ok(text)
     }
@@ -334,7 +334,7 @@ impl ApiClient {
         let status = resp.status();
         let text = resp.text().await?;
         if !status.is_success() {
-            return Err(CoreError::Other(format!("HTTP {status}: {text}")));
+            return Err(CoreError::http(status.as_u16(), &text));
         }
         Ok(text)
     }
@@ -353,7 +353,7 @@ impl ApiClient {
         let status = resp.status();
         let text = resp.text().await?;
         if !status.is_success() {
-            return Err(CoreError::Other(format!("HTTP {status}: {text}")));
+            return Err(CoreError::http(status.as_u16(), &text));
         }
         Ok(text)
     }
@@ -389,7 +389,7 @@ impl ApiClient {
         let status = resp.status();
         let text = resp.text().await?;
         if !status.is_success() {
-            return Err(CoreError::Other(format!("HTTP {status}: {text}")));
+            return Err(CoreError::http(status.as_u16(), &text));
         }
         Ok(normalize_scopes(&raw))
     }
@@ -409,7 +409,7 @@ impl ApiClient {
         let status = resp.status();
         let text = resp.text().await?;
         if !status.is_success() {
-            return Err(CoreError::Other(format!("HTTP {status}: {text}")));
+            return Err(CoreError::http(status.as_u16(), &text));
         }
         Ok(text)
     }
@@ -424,7 +424,7 @@ impl ApiClient {
         let status = resp.status();
         let text = resp.text().await?;
         if !status.is_success() {
-            return Err(CoreError::Other(format!("HTTP {status}: {text}")));
+            return Err(CoreError::http(status.as_u16(), &text));
         }
         Ok(text)
     }

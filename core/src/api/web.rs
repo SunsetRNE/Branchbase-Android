@@ -80,7 +80,7 @@ impl WebSession {
         let status = resp.status();
         let text = resp.text().await?;
         if !status.is_success() {
-            return Err(CoreError::Other(format!("HTTP {status}")));
+            return Err(CoreError::http(status.as_u16(), ""));
         }
         Ok(text)
     }
@@ -143,7 +143,7 @@ impl WebSession {
         }
         if !status.is_success() {
             let brief: String = text.chars().take(200).collect();
-            return Err(CoreError::Other(format!("HTTP {status}: {brief}")));
+            return Err(CoreError::http(status.as_u16(), &brief));
         }
         Ok(text)
     }

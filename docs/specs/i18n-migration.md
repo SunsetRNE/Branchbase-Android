@@ -386,9 +386,9 @@ aapt2 dump resources <apk> | grep -A 2 'string/repo_page_issues'
 
 ## 十四、Rust 结构化错误：稳定码与本地化边界
 
-> **状态（2026-11-25 / 1.4.17）**：Kotlin 侧的两步已落地 —— 解析/渲染边界 + 全部提示点接线；
-> **Rust 侧还没开始换码**（它现在只会给 `HTTP <status>` 与中文文案，两者都能被双读认出来）。
-> 下面先写「现在是怎么工作的」，再写「剩下三块怎么接着做」。
+> **状态（2026-11-25 / 1.4.19）**：Kotlin 侧两步已落地（解析/渲染边界 + 全部提示点接线），
+> Rust 侧从 **`api` 层开始换码**（`HTTP_<status>` / `NETWORK`，1.4.19）；`git` / `auth` / `translate`
+> 还是中文文案，靠解析器的双读兜着。下面先写「现在是怎么工作的」，再写「剩下两块怎么接着做」。
 
 ### 14.1 现在怎么工作
 
@@ -444,11 +444,12 @@ Kotlin 侧只有三个入口（`app/src/main/java/com/branchbase/core/EngineErro
 
 所以 Rust 侧**不改现有文案**，只加码：`detail` 保留原文，日志锚点不动。
 
-### 14.4 剩下三块（下一版起，按序）
+### 14.4 剩下两块（下一版起，按序）
 
-1. **`api` 层换码**：`CoreError` 增加 `Coded { code, detail }`，`api/client.rs` 的
-   `HTTP {status}: {text}` 改为 `HTTP_<status>`（`into_jstring` 输出新格式）；`reqwest` 传输失败 →
-   `NETWORK`。改完 `HTTP_<status>` 路径才算真正换码，Kotlin 侧**不需要改**；
+1. ~~**`api` 层换码**~~ —— **1.4.19 已完成**：`CoreError::Coded { code, message }`，
+   `api/client.rs`（12 处）+ `api/web.rs`（2 处）→ `HTTP_<status>`；`reqwest` 传输失败 → `NETWORK`；
+   JNI 输出 `ERROR:<CODE>:<message>`（换行压平）。`message` 仍是旧文案，日志锚点不动。
+   Kotlin 侧零改动（双读已经在了）。
 2. **`git` 层换码**（最大一块，243 条中文）：`NOT_GIT_REPO` / `CLONE_FAILED` / `MERGE_CONFLICT` …
    逐条定码；`nff:` 前缀**保留**（它是分叉决策页的触发信号，见 `local-git-engine-design.md` §4），
    只在前面加码：`ERROR:NFF:…`；Kotlin 的三处 `startsWith("ERROR:nff")` 与

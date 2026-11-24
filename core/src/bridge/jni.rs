@@ -33,14 +33,25 @@ fn jstr(env: &mut JNIEnv, s: &JString) -> String {
         .unwrap_or_default()
 }
 
-/// 将 Result<String> 转为 JString（失败返回 "ERROR:..." 前缀，供 Kotlin 区分）
+/// 将 Result<String> 转为 JString（失败返回 `ERROR:...` 前缀，供 Kotlin 区分）。
+///
+/// 失败串的格式是 `ERROR:<CODE>[:<message>]`（见 `docs/specs/i18n-migration.md` §14）：
+/// 有稳定码时码在前，Kotlin 的 `EngineError` 据此换成本地化文案；**没有码的旧错误保持
+/// `ERROR:<message>` 原样**（迁移期双读）。`message` 里的换行压成空格 —— 它会被写进
+/// 一行日志，多行会把锚点冲散（原文仍可从响应体重建）。
 fn into_jstring(env: &mut JNIEnv, r: crate::error::Result<String>) -> jstring {
     match r {
         Ok(s) => env.new_string(s).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut()),
-        Err(e) => env
-            .new_string(format!("ERROR:{e}"))
-            .map(|s| s.into_raw())
-            .unwrap_or(std::ptr::null_mut()),
+        Err(e) => {
+            let message = e.to_string().replace('\n', " ");
+            let text = match e.code() {
+                Some(code) => format!("ERROR:{code}:{message}"),
+                None => format!("ERROR:{message}"),
+            };
+            env.new_string(text)
+                .map(|s| s.into_raw())
+                .unwrap_or(std::ptr::null_mut())
+        }
     }
 }
 

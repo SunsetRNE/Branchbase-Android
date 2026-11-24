@@ -74,7 +74,29 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.18 → 1.0.22）
+## 二、`versionName` 流水（1.4.19 → 1.0.22）
+
+### 1.4.19
+
+**Rust `api` 层换码：真的开始发 `HTTP_<status>` / `NETWORK`（Kotlin 侧零改动）。**
+
+§14.4 第 1 条。1.4.17 已经把 Kotlin 的解析/渲染边界做完（新码与旧文案双读），这一版让引擎真的发码：
+
+- `CoreError` 增加 `Coded { code, message }`：`code` 进 JNI（`ERROR:<CODE>:<message>`），
+  `message` 保持**旧文案**（`未知错误: HTTP 404: {body}`）—— 日志锚点、既有测试断言与
+  `tools/perf` 的匹配都不动；
+- `api/client.rs` 的 12 处、`api/web.rs` 的 2 处 `CoreError::Other(format!("HTTP {status}: …"))`
+  改为 `CoreError::http(status, …)` → 码 `HTTP_<status>`；
+- `reqwest` 传输失败（没发出去 / 没回来）的 `Http` 变体在边界映射为 `NETWORK` —— Kotlin 只有
+  一条「检查网络、代理或证书」的文案，不需要区分底层十几种原因；
+- JNI 边界把 `message` 里的换行压成空格（错误串要进一行日志）；还没换码的错误仍按
+  `ERROR:<message>` 原样透出（迁移期双读，`CoreError::code()` 返回 `None`）。
+
+Kotlin 侧一行没改：`EngineError` 已经同时认新码与旧文案。`engineErrorStatus` 的六个调用点
+（搜索 / 仓库访问 / 人员列表 / 账号健康 / 复刻 / 分支同步）从此走码路径，兜底的正则只在
+「还没换码的 git / auth 文案」上生效。
+
+钉子：`core/src/lib.rs` 新增 2 例 —— `HTTP_404` 码 + 文案逐字不变、未换码的错误不许被硬塞码。
 
 ### 1.4.18
 
@@ -4402,7 +4424,9 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（278 → 129）
+## 三、`versionCode` 流水（279 → 129）
+
+- **279**：Rust `api` 层换码 —— `CoreError::Coded` + `HTTP_<status>`（client 12 处 / web 2 处）、
   传输失败映射 `NETWORK`、JNI 输出 `ERROR:<CODE>:<message>`（换行压平）；Kotlin 零改动
   （一次提交，故 +1）。
 
