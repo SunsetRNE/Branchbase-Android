@@ -74,7 +74,24 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.8 → 1.0.22）
+## 二、`versionName` 流水（1.4.9 → 1.0.22）
+
+### 1.4.9
+
+**修 1.4.8 的交接：`archive: false` 时 artifact 名取文件名，`name:` 会被忽略。**
+
+1.4.8 push 后 CI 是绿的，但 Build Beta 的 **四条 package 腿全部失败**，报
+`Unable to download artifact(s): Artifact not found for name: compiled-trial`
+（四个渠道各报一次）。原因是 `actions/upload-artifact` 在 `archive: false` 下只允许单文件，
+**artifact 名直接取文件名** —— 四条腿的 tar 都叫 `compiled.tgz`，按渠道名 `compiled-<channel>`
+当然取不到；`name:` 在这个形态下不生效。仓库里早有一条同样的注记（APK 上传那几处
+「所以不写 `name:`」），这次是在新加的交接物上又踩了一遍。
+
+修法：tar 文件名带上渠道（`compiled-<channel>.tgz`）、上传不写 `name:`、下载按该文件名取。
+行为与既有 APK / `.so` 的交接方式完全一致。
+
+> 这个坑值得单独记一笔：**`archive: false` + 自定义 `name:` 是静默失效**，
+> 上传不报错、下载才报「找不到」—— 两次发版才暴露出来。
 
 ### 1.4.8
 
@@ -4195,13 +4212,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（268 → 129）
+## 三、`versionCode` 流水（269 → 129）
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 
 - **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
 
 - **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **269**：修 1.4.8 的交接 —— `archive: false` 时 artifact 名取文件名（`name:` 被忽略），改为 `compiled-<channel>.tgz` 且不写 `name:`（一次提交，故 +1）。
 
 - **268**：compile → package 改用 artifact 交接（`.gradle` + 各模块 build/ 打 tgz），让 package 直接 UP-TO-DATE；publish 下载收窄为 APK / signature / .so 三类（一次提交，故 +1）。
 

@@ -167,14 +167,15 @@ jobs:
           for p in .gradle app/build build downloader/build imageviewer/build editor/build translate/build joblogs/build; do
             [ -e "$p" ] && existing+=("$p")
           done
-          tar -czf /tmp/node/compiled.tgz "${existing[@]}"
-          du -h /tmp/node/compiled.tgz
+          tar -czf /tmp/node/compiled-${{ matrix.channel }}.tgz "${existing[@]}"
+          du -h /tmp/node/compiled-${{ matrix.channel }}.tgz
 
       - name: Upload compiled outputs（compile → package 的交接）
         uses: actions/upload-artifact@v7
         with:
-          name: compiled-${{ matrix.channel }}
-          path: /tmp/node/compiled.tgz
+          # ⚠️ 不写 `name:`：`archive: false` 时 artifact 名直接取文件名，
+          # 写了也会被忽略 —— 四条腿都叫 compiled.tgz 就会互相覆盖、按渠道名取不到。
+          path: /tmp/node/compiled-${{ matrix.channel }}.tgz
           retention-days: 2
           archive: false
           if-no-files-found: error
@@ -218,13 +219,13 @@ jobs:
       - name: Download compiled outputs（compile 节点产物）
         uses: actions/download-artifact@v8
         with:
-          name: compiled-${{ matrix.channel }}
+          name: compiled-${{ matrix.channel }}.tgz
           path: /tmp/node
 
       - name: Restore compiled outputs
         run: |
           set -euo pipefail
-          tar -xzf /tmp/node/compiled.tgz -C .
+          tar -xzf /tmp/node/compiled-${{ matrix.channel }}.tgz -C .
           echo "已恢复 app/build：$(du -sh app/build 2>/dev/null | cut -f1)"
 
       - uses: ./.github/actions/setup-branchbase-env
