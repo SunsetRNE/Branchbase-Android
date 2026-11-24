@@ -74,7 +74,21 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.24 → 1.0.22）
+## 二、`versionName` 流水（1.4.25 → 1.0.22）
+
+### 1.4.25
+
+**补进度记录（1.4.23 / 1.4.24 的交接）。**
+
+`review/progress-2026-11-24.md` 第十三节：多 UI 决策文档入库的边界（只入库、不改代码）、
+auth / translate 换码的两个易漏点 ——
+
+- 翻译失败文案会**上屏**（「测试连接」的原始原因），所以 `RustTranslateEngine` 必须把稳定码
+  前缀剥掉；不剥就会把 `TRANSLATE_AUTH:` 贴到界面上；
+- 归类口径必须逐条对齐：403 归 QUOTA（MyMemory 的 403 是额度耗尽）、`QUERY LENGTH LIMIT`
+  归 UNKNOWN（我们自己的分片 bug，熔断会把 bug 藏起来）。
+
+只改过程材料，不改代码。
 
 ### 1.4.24
 
@@ -4559,7 +4573,10 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（284 → 129）
+## 三、`versionCode` 流水（285 → 129）
+
+- **285**：补进度记录（1.4.23/1.4.24 交接：多 UI 文档入库边界、翻译上屏文案剥码、
+  403/QUERY LENGTH LIMIT 的归类口径）（一次提交，故 +1）。
 
 - **284**：auth / translate 换码 —— OAuth 五种原因码（客户端凭据 / 无效 code / 回调地址 / GitHub 错误 /
   续期失败）、翻译七种类别码 + `:translate` 码优先分类与 `splitErrorCode`（上屏文案剥码）
