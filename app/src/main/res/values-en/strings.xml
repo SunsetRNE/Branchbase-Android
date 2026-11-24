@@ -1673,6 +1673,19 @@
     <string name="commit_mode_local_repo_label">Local repository (Git)</string>
     <string name="commit_mode_local_repo_title">Files are pulled into a local repository; the local git manages commits and pushes</string>
     <string name="commit_mode_local_repo_desc">Git command-line workflow</string>
+    <!--
+        Commit-mode page rework (2026-11-24): the footer "Current: …" became a header status badge,
+        and the page intro moved into a content drawer and was expanded. Each drawer block answers
+        "where do changes go / when should I use it"; drawer_body_* is the long form of desc.
+    -->
+    <string name="commit_mode_badge_unset">Not set</string>
+    <string name="commit_mode_badge_a11y">Current commit mode: %1$s. Tap for details</string>
+    <string name="commit_mode_drawer_title">Commit modes</string>
+    <string name="commit_mode_drawer_current">In use</string>
+    <string name="commit_mode_drawer_body_single_file">Each finished file is committed on its own and goes straight to GitHub, with no staging area — good for several unrelated small fixes at once.</string>
+    <string name="commit_mode_drawer_body_multi_file">Changes stay in a local staging area and go out as one batch, matching “Stage changes” on the web — good when one change touches several files.</string>
+    <string name="commit_mode_drawer_body_local_repo">Files are pulled into the local copy (repos/account/repo) and committed/pushed by local git; working tree, undo and upstream all follow the command line.</string>
+    <string name="commit_mode_drawer_footnote">Takes effect immediately; existing local repositories are neither deleted nor migrated.</string>
     <!-- Bottom navigation (`NavDestination`). "Messages" reuses the existing nav_messages. -->
     <string name="nav_home">Home</string>
     <!-- Account status (`AccountStatus`) and auth kind (`AuthKind`); the unknown case reuses

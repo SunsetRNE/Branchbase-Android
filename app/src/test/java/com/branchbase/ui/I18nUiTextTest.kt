@@ -230,6 +230,11 @@ class I18nUiTextTest {
             // 关注设置抽屉 / 复刻对话框（此前写死英文，中文界面下显示英文）
             "watch_sheet_title", "fork_sheet_title", "fork_sheet_owner",
             "fork_sheet_name", "fork_sheet_default_only", "fork_sheet_create",
+            // 提交模式页：头部状态徽标 + 内容抽屉（原页首说明搬入并扩写）
+            "commit_mode_badge_unset", "commit_mode_badge_a11y",
+            "commit_mode_drawer_title", "commit_mode_drawer_current",
+            "commit_mode_drawer_body_single_file", "commit_mode_drawer_body_multi_file",
+            "commit_mode_drawer_body_local_repo", "commit_mode_drawer_footnote",
         ).forEach { key ->
             val z = value(zh, key)
             val e = value(en, key)

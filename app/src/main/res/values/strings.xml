@@ -1700,6 +1700,18 @@
     <string name="commit_mode_local_repo_title">文件拉取到本地仓库，由本地 git 管理提交推送</string>
     <string name="commit_mode_local_repo_desc">Git 命令行习惯</string>
     <!--
+        提交模式页 2026-11-24 改造：页尾「当前：…」改成头部状态徽标，原页首说明搬进内容抽屉并扩写。
+        抽屉里每个模式都回答「改动去了哪 / 什么时候用它」；drawer_body_* 与 desc 是两层说明（短 / 长）。
+    -->
+    <string name="commit_mode_badge_unset">未设置</string>
+    <string name="commit_mode_badge_a11y">当前提交模式：%1$s。点按查看说明</string>
+    <string name="commit_mode_drawer_title">提交模式说明</string>
+    <string name="commit_mode_drawer_current">当前使用</string>
+    <string name="commit_mode_drawer_body_single_file">每改完一个文件就提交一次：改动直接进 GitHub，不经过暂存区。适合一次修几个互不相关的小问题。</string>
+    <string name="commit_mode_drawer_body_multi_file">改动先留在本机暂存区，攒成一批再提交，与网页端的「Stage changes」一致。适合一个改动涉及多个文件。</string>
+    <string name="commit_mode_drawer_body_local_repo">先把文件拉到本机（repos/账号/仓库），由本地 git 管理提交与推送；工作区、撤销、上游都按命令行习惯来。</string>
+    <string name="commit_mode_drawer_footnote">切换后立即生效；已存在的本地仓库不会被删除或迁移。</string>
+    <!--
         底部导航（`NavDestination`）。「消息」复用既有的 `nav_messages`，这里只补「首页」。
         这两个词是全 App 最先被看到的中文：英文模式下它们不跟语言走，等于整屏没切。
     -->

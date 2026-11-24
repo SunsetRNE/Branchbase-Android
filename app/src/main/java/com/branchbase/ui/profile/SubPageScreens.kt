@@ -2,6 +2,8 @@ package com.branchbase.ui.profile
 
 import androidx.annotation.StringRes
 import android.content.Context
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -59,6 +61,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -483,7 +486,8 @@ private fun ProjectCard(project: ProjectItem) {
  * 现在按用途拆开：
  * - [labelRes]：短名，用于**状态位**（设置项右侧值 / 当前模式 / 编辑页底栏）；
  * - [titleRes]：完整说明，只用于**整行卡片**（提交模式页、首次引导页、提交时选择弹窗）；
- * - [descRes]：一句话补充，与 [titleRes] 搭配在卡片里显示。
+ * - [descRes]：一句话补充，与 [titleRes] 搭配在卡片里显示；
+ * - [drawerBodyRes]：抽屉里的展开说明（改动去了哪 / 什么时候该用它），只在「提交模式说明」抽屉里用。
  *
  * ## 三个字段都是 `@StringRes`，不是写死的中文
  *
@@ -496,12 +500,32 @@ internal enum class CommitMode(
     @StringRes val labelRes: Int,
     @StringRes val titleRes: Int,
     @StringRes val descRes: Int,
+    /** 抽屉里的展开说明：改动去了哪、什么时候该用它。 */
+    @StringRes val drawerBodyRes: Int,
     /** **日志**专用的中文名（与 `ProfileTab.logLabel` / `RepoPage.logLabel` 同一个约定）。 */
     val logLabel: String,
 ) {
-    SINGLE_FILE(R.string.commit_mode_single_file_label, R.string.commit_mode_single_file_title, R.string.commit_mode_single_file_desc, "单个文件"),
-    MULTI_FILE(R.string.commit_mode_multi_file_label, R.string.commit_mode_multi_file_title, R.string.commit_mode_multi_file_desc, "多文件合并"),
-    LOCAL_REPO(R.string.commit_mode_local_repo_label, R.string.commit_mode_local_repo_title, R.string.commit_mode_local_repo_desc, "本地仓库（Git）"),
+    SINGLE_FILE(
+        R.string.commit_mode_single_file_label,
+        R.string.commit_mode_single_file_title,
+        R.string.commit_mode_single_file_desc,
+        R.string.commit_mode_drawer_body_single_file,
+        "单个文件",
+    ),
+    MULTI_FILE(
+        R.string.commit_mode_multi_file_label,
+        R.string.commit_mode_multi_file_title,
+        R.string.commit_mode_multi_file_desc,
+        R.string.commit_mode_drawer_body_multi_file,
+        "多文件合并",
+    ),
+    LOCAL_REPO(
+        R.string.commit_mode_local_repo_label,
+        R.string.commit_mode_local_repo_title,
+        R.string.commit_mode_local_repo_desc,
+        R.string.commit_mode_drawer_body_local_repo,
+        "本地仓库（Git）",
+    ),
 }
 
 @Composable
@@ -961,10 +985,17 @@ internal fun ModeOptionRow(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.Top,
         ) {
-            // 单选圆点：外圈与填充一起渐变（设置页里每个开关都会走这条路径）
+            // 单选圆点：外圈与填充一起渐变（设置页里每个开关都会走这条路径）；
+            // 选中时再轻弹一下 —— 颜色渐变是「状态变了」，缩放是「刚刚点的就是它」。
+            val dotScale by animateFloatAsState(
+                targetValue = if (selected) 1.12f else 1f,
+                animationSpec = tween(160),
+                label = "mode-option-dot",
+            )
             Box(
                 modifier = Modifier
                     .size(18.dp)
+                    .scale(dotScale)
                     .clip(CircleShape)
                     .border(
                         2.dp,
