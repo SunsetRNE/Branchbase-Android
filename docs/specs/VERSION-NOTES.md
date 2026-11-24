@@ -74,7 +74,26 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.13 → 1.0.22）
+## 二、`versionName` 流水（1.4.14 → 1.0.22）
+
+### 1.4.14
+
+**按压时剩下的两处灰：选中行不再叠按压色，徽标去掉灰色涟漪。**
+
+1.4.13 把灰带归因到 Material 涟漪之后，真机上还剩两处：
+
+① **按压「已选中」的那一行会变灰绿**：那一行的绿底上又叠了一层 `SuccessSurfaceSoft`
+（比选中色偏灰），而「点已选中的行」本来就是 no-op，叠色没有意义。
+现在 `pressTint` 只在 `pressed && !selected` 时生效；未选中行的按压色也从偏灰的
+`SuccessSurfaceSoft` 换成**与选中底色完全相同**的 `SuccessSurface` —— 读起来是
+「这一行正要被选中」，而不是「蒙了一层灰」。
+
+② **徽标仍有灰色涟漪**：`CurrentModeBadge` 的 `clickable` 用的是默认 indication。
+现在改成 `indication = null` + 按压 0.96 的弹簧缩放（`DampingRatioMediumBouncy`），
+点击反馈只剩动画。
+
+`SubPageHeader` 的返回箭头仍走 `iconTap`（圆形涟漪）：那是全 App 统一的图标点击反馈，
+不属于「选中底色 + 涟漪叠色」这一类问题，保持原样。
 
 ### 1.4.13
 
@@ -4292,13 +4311,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（273 → 129）
+## 三、`versionCode` 流水（274 → 129）
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 
 - **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
 
 - **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **274**：按压反馈收尾 —— 选中行不再叠按压色、未选中行改用与选中同色的 `SuccessSurface`、徽标去涟漪改 0.96 弹簧缩放（一次提交，故 +1）。
 
 - **273**：修模式切换「阴影闪烁」—— 灰色 Material 涟漪改成 `SuccessSurfaceSoft` 的按压颜色动画（按下 90ms / 抬起 220ms），与选中底色同配色同时间轴（一次提交，故 +1）。
 

@@ -989,8 +989,10 @@ internal fun ModeOptionRow(
         // 现在按下时浅绿按 90ms 进、220ms 退，和选中底色的过渡同一套配色、同一条时间轴。
         val interaction = remember { MutableInteractionSource() }
         val pressed by interaction.collectIsPressedAsState()
+        // 已选中行被按压是 no-op，不该再变色（否则绿底叠一层偏灰的浅绿，看起来还是「闪灰」）；
+        // 未选中行用**与选中底色完全相同**的绿做预览，读起来是「这一行正要被选中」。
         val pressTint by animateColorAsState(
-            targetValue = if (pressed) Primer.SuccessSurfaceSoft else Color.Transparent,
+            targetValue = if (pressed && !selected) Primer.SuccessSurface else Color.Transparent,
             animationSpec = tween(if (pressed) 90 else 220),
             label = "mode-option-press",
         )
