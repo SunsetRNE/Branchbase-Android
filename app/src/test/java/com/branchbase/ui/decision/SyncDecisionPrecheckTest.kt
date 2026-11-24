@@ -1,5 +1,6 @@
 package com.branchbase.ui.decision
 
+import com.branchbase.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -30,10 +31,10 @@ class SyncDecisionPrecheckTest {
 
     @Test
     fun reset_soft_初始提交时被拦下且原因写明第一个提交() {
+        // 钉资源 ID + 参数，不钉会被搬走的字面量（i18n-migration §9）
         val reason = resetSoftBlockReason(hasParent = false)
         assertNotNull("初始提交必须被拦下（reset --soft HEAD~1 必然失败）", reason)
-        assertTrue("要说清「第一个提交」这个事实：$reason", reason!!.contains("第一个提交"))
-        assertFalse("不许归因引擎：$reason", reason.contains("引擎不可用"))
+        assertEquals("要用「第一个提交」那一条原因", R.string.undo_blocked_initial, reason!!.res)
     }
 
     // ────────── reset --hard origin/x：需要远端 ref 已存在 ──────────
@@ -47,32 +48,33 @@ class SyncDecisionPrecheckTest {
     fun reset_hard_缺远端_ref_时被拦下并指明是哪个_ref() {
         val reason = resetHardBlockReason(hasParent = true, hasRemoteRef = false, branch = "feature/x")
         assertNotNull(reason)
-        assertTrue("要指明缺哪个 ref：$reason", reason!!.contains("origin/feature/x"))
-        assertTrue("要给出下一步（先获取）：$reason", reason.contains("获取"))
-        assertFalse("不许归因引擎：$reason", reason.contains("引擎不可用"))
+        assertEquals(R.string.undo_blocked_no_remote_ref, reason!!.res)
+        // 分支名作为 %1$s 参数带上（句子里的 origin/%1$s 由资源决定）
+        assertEquals(listOf("feature/x"), reason.args)
     }
 
     @Test
     fun reset_hard_初始提交时被拦下() {
         val reason = resetHardBlockReason(hasParent = false, hasRemoteRef = true, branch = "main")
         assertNotNull(reason)
-        assertTrue("要说清「第一个提交」：$reason", reason!!.contains("第一个提交"))
+        assertEquals(R.string.undo_blocked_initial_only, reason!!.res)
     }
 
     @Test
     fun reset_hard_两条原因同时成立时都要说出来() {
         val reason = resetHardBlockReason(hasParent = false, hasRemoteRef = false, branch = "main")
         assertNotNull(reason)
-        assertTrue("第一条（初始提交）：$reason", reason!!.contains("第一个提交"))
-        assertTrue("第二条（缺远端 ref）：$reason", reason.contains("origin/main"))
+        // 两条同时成立时给「合起来」的那一条，并带上分支名
+        assertEquals(R.string.undo_blocked_initial_and_no_ref, reason!!.res)
+        assertEquals(listOf("main"), reason.args)
     }
 
     @Test
     fun 分支名为空时退回_main_detached_HEAD_的_branch_是空串() {
         val hard = resetHardBlockReason(hasParent = true, hasRemoteRef = false, branch = "")
-        assertTrue("空分支名要退回 main：$hard", hard!!.contains("origin/main"))
+        assertEquals("空分支名要退回 main", listOf("main"), hard!!.args)
         val discard = discardLocalBlockReason(hasRemoteRef = false, branch = "   ")
-        assertTrue("纯空白分支名同样退回 main：$discard", discard!!.contains("origin/main"))
+        assertEquals("纯空白分支名同样退回 main", listOf("main"), discard!!.args)
     }
 
     // ─────────────── 分叉页「放弃本地提交」 ───────────────
@@ -86,9 +88,8 @@ class SyncDecisionPrecheckTest {
     fun 放弃本地提交_没有远端_ref_时被拦下且不给引擎归因() {
         val reason = discardLocalBlockReason(hasRemoteRef = false, branch = "main")
         assertNotNull(reason)
-        assertTrue("要指明缺哪个 ref：$reason", reason!!.contains("origin/main"))
-        assertTrue("要给出下一步（先获取）：$reason", reason.contains("获取"))
-        assertFalse("不许归因引擎：$reason", reason.contains("引擎不可用"))
+        assertEquals(R.string.discard_blocked_no_remote_ref, reason!!.res)
+        assertEquals(listOf("main"), reason.args)
     }
 
     // ─────────────── 分叉页「合并远端」（1.1.1） ───────────────
@@ -102,9 +103,8 @@ class SyncDecisionPrecheckTest {
     fun 合并远端_工作区脏时被拦下并说清几处改动() {
         val reason = mergeRemoteBlockReason(dirtyCount = 3, merging = false, shallow = false, branch = "main")
         assertNotNull(reason)
-        assertTrue("要说清几处：$reason", reason!!.contains("3"))
-        assertTrue("要给出路（先提交或放弃）：$reason", reason.contains("提交"))
-        assertFalse("不许归因引擎：$reason", reason.contains("引擎不可用"))
+        assertEquals(R.string.merge_blocked_dirty, reason!!.res)
+        assertEquals(listOf(3, "main"), reason.args)
     }
 
     @Test
@@ -113,24 +113,22 @@ class SyncDecisionPrecheckTest {
         // 否则用户会去提交那些冲突文件（而那时该做的是「提交合并」或「放弃合并」）
         val reason = mergeRemoteBlockReason(dirtyCount = 2, merging = true, shallow = false, branch = "main")
         assertNotNull(reason)
-        assertTrue("要说清现在该做什么：$reason", reason!!.contains("提交合并") || reason.contains("放弃合并"))
-        assertFalse("不许把「在合并中」说成「工作区脏」：$reason", reason.contains("2 处"))
+        assertEquals("在合并中必须命中「先收尾」那一条，而不是「工作区脏」", R.string.merge_blocked_merging, reason!!.res)
     }
 
     @Test
     fun 合并远端_浅克隆时指出去加深() {
         val reason = mergeRemoteBlockReason(dirtyCount = 0, merging = false, shallow = true, branch = "main")
         assertNotNull(reason)
-        assertTrue("要说清为什么（没有共同祖先）：$reason", reason!!.contains("浅克隆"))
-        assertTrue("要给出路（加深历史）：$reason", reason.contains("加深"))
+        assertEquals(R.string.merge_blocked_shallow, reason!!.res)
     }
 
     @Test
     fun 合并远端_分支名为空时退回_main() {
         val reason = mergeRemoteBlockReason(dirtyCount = 0, merging = false, shallow = true, branch = "")
-        assertTrue("空分支名要退回 main：$reason", reason!!.contains("origin/main"))
+        assertEquals("空分支名要退回 main", listOf("main"), reason!!.args)
         val blank = mergeRemoteBlockReason(dirtyCount = 0, merging = false, shallow = true, branch = "   ")
-        assertTrue("纯空白分支名同样退回 main：$blank", blank!!.contains("origin/main"))
+        assertEquals("纯空白分支名同样退回 main", listOf("main"), blank!!.args)
     }
 
     // ─────────────── 未推送清单的截断（不许画成「一共就这些」） ───────────────
@@ -150,23 +148,23 @@ class SyncDecisionPrecheckTest {
     @Test
     fun 失败文案_判不出原因时只写中性说法() {
         val msg = failureMessage("放弃本地提交")
-        assertEquals("放弃本地提交失败（原因见日志）", msg)
-        assertFalse("不许再归因引擎：$msg", msg.contains("引擎不可用"))
+        // 「中性说法」= 不带原因的那一条资源；动作名作为参数带上
+        assertEquals(R.string.error_action_failed, msg.res)
+        assertEquals(listOf("放弃本地提交"), msg.args)
     }
 
     @Test
     fun 失败文案_能判定原因时把原因写进去() {
         val msg = failureMessage("撤销提交", "这是仓库的第一个提交，没有可撤销的上一次提交")
-        assertTrue("要带上是哪个动作：$msg", msg.startsWith("撤销提交失败："))
-        assertTrue("要带上原因：$msg", msg.contains("第一个提交"))
-        assertFalse("不许归因引擎：$msg", msg.contains("引擎不可用"))
+        assertEquals(R.string.error_action_failed_reason, msg.res)
+        assertEquals(listOf("撤销提交", "这是仓库的第一个提交，没有可撤销的上一次提交"), msg.args)
     }
 
     @Test
     fun 失败文案_空白原因视为判不出() {
-        assertEquals("推送失败（原因见日志）", failureMessage("推送", "   "))
-        assertEquals("推送失败（原因见日志）", failureMessage("推送", ""))
-        assertEquals("推送失败（原因见日志）", failureMessage("推送", null))
+        assertEquals(R.string.error_action_failed, failureMessage("推送", "   ").res)
+        assertEquals(R.string.error_action_failed, failureMessage("推送", "").res)
+        assertEquals(R.string.error_action_failed, failureMessage("推送", null).res)
     }
 
     // ─────────────── revert 形态标题：不许把「不知道」说成「已推送」 ───────────────
@@ -174,22 +172,21 @@ class SyncDecisionPrecheckTest {
     @Test
     fun revert_形态标题_有上游无未推送时才敢说已推送() {
         assertEquals(
-            "已推送提交 · 不可改写历史",
-            revertFormTitle(hasStatus = true, hasUpstream = true),
+            R.string.revert_title_pushed,
+            revertFormTitle(hasStatus = true, hasUpstream = true).res,
         )
     }
 
     @Test
     fun revert_形态标题_没有上游时不下已推送的结论() {
         val title = revertFormTitle(hasStatus = true, hasUpstream = false)
-        assertFalse("没有上游分支时说「已推送」就是误报：$title", title.contains("已推送提交"))
-        assertTrue("要说清只是无法判断：$title", title.contains("无法判断"))
+        // 没有上游分支时不能复用「已推送」那一条，必须是「无法判断」那一条
+        assertEquals(R.string.revert_title_no_upstream, title.res)
     }
 
     @Test
     fun revert_形态标题_读不到状态时标明状态未知() {
         val title = revertFormTitle(hasStatus = false, hasUpstream = false)
-        assertTrue("读不到状态要标明未知：$title", title.contains("未知"))
-        assertFalse("不许替用户下结论：$title", title.contains("已推送提交"))
+        assertEquals(R.string.revert_title_status_unknown, title.res)
     }
 }

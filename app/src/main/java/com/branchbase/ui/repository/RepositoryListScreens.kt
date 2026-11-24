@@ -361,7 +361,7 @@ fun RepositoryCodeContent(
         val ref = branch?.takeIf { it.isNotBlank() }?.let { b -> "?ref=${encodeRef(b)}" } ?: ""
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/contents$encoded$ref")
         if (json == null || json.startsWith("ERROR:")) {
-            if (!shownStale) error = loadFailure(context.getString(R.string.nav_code), json?.removePrefix("ERROR:"), owner, repo)
+            if (!shownStale) error = loadFailure(context, context.getString(R.string.nav_code), json?.removePrefix("ERROR:"), owner, repo)
         } else {
             items = parseFileTree(json)
             ListCache.write(manager, cacheKey, json)
@@ -648,7 +648,7 @@ fun IssueListContent(sessionJson: String, owner: String, repo: String, refreshTi
         // ② 回源刷新
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/issues?state=all")
         if (json == null || json.startsWith("ERROR:")) {
-            if (!shownStale) error = loadFailure(context.getString(R.string.label_issues), json?.removePrefix("ERROR:"), owner, repo)
+            if (!shownStale) error = loadFailure(context, context.getString(R.string.label_issues), json?.removePrefix("ERROR:"), owner, repo)
         } else {
             items = parseIssues(json)
             ListCache.write(manager, cacheKey, json)
@@ -725,7 +725,7 @@ fun PullListContent(sessionJson: String, owner: String, repo: String, branch: St
         val base = branch?.takeIf { it.isNotBlank() }?.let { b -> "&base=${encodeRef(b)}" } ?: ""
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/pulls?state=all$base")
         if (json == null || json.startsWith("ERROR:")) {
-            if (!shownStale) error = loadFailure(context.getString(R.string.label_pull_requests), json?.removePrefix("ERROR:"), owner, repo)
+            if (!shownStale) error = loadFailure(context, context.getString(R.string.label_pull_requests), json?.removePrefix("ERROR:"), owner, repo)
         } else {
             items = parsePulls(json)
             ListCache.write(manager, cacheKey, json)
@@ -802,7 +802,7 @@ fun CommitListContent(sessionJson: String, owner: String, repo: String, branch: 
         val sha = branch?.takeIf { it.isNotBlank() }?.let { b -> "?sha=${encodeRef(b)}" } ?: ""
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/commits$sha")
         if (json == null || json.startsWith("ERROR:")) {
-            if (!shownStale) error = loadFailure(context.getString(R.string.action_commit), json?.removePrefix("ERROR:"), owner, repo)
+            if (!shownStale) error = loadFailure(context, context.getString(R.string.action_commit), json?.removePrefix("ERROR:"), owner, repo)
         } else {
             items = parseCommits(json)
             ListCache.write(manager, cacheKey, json)
@@ -877,7 +877,7 @@ fun WorkflowListContent(sessionJson: String, owner: String, repo: String, branch
         // ② 回源刷新
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/workflows")
         if (json == null || json.startsWith("ERROR:")) {
-            if (!shownStale) error = loadFailure(context.getString(R.string.label_workflows), json?.removePrefix("ERROR:"), owner, repo)
+            if (!shownStale) error = loadFailure(context, context.getString(R.string.label_workflows), json?.removePrefix("ERROR:"), owner, repo)
         } else {
             items = parseWorkflows(json)
             ListCache.write(manager, cacheKey, json)
@@ -977,7 +977,7 @@ fun ReleaseListContent(
         // ② 回源刷新
         val json = RustBridge.getJson(host, token, "/repos/$owner/$repo/releases")
         if (json == null || json.startsWith("ERROR:")) {
-            if (!shownStale) error = loadFailure(context.getString(R.string.nav_releases), json?.removePrefix("ERROR:"), owner, repo)
+            if (!shownStale) error = loadFailure(context, context.getString(R.string.nav_releases), json?.removePrefix("ERROR:"), owner, repo)
         } else {
             var parsed = parseReleases(json)
             // 列表接口对**刚发布**的 release 会返回空 assets（GitHub 多副本数据不一致，实测约 2.5
@@ -1197,7 +1197,7 @@ fun PeopleListScreen(
             // 失败与「真的没有人」必须分开：2026-07 起 GitHub 已把
             // `/stargazers`、`/subscribers` 限制为管理员与协作者可见，
             // 非协作者拿到的是 403 —— 再显示「暂无内容」就是在骗用户
-            raw.startsWith("ERROR:") -> error = peopleListErrorText(type, raw)
+            raw.startsWith("ERROR:") -> error = peopleListErrorText(type, raw).resolve(context)
             type == "fork" -> forks = parseForks(raw)
             else -> users = parseUsers(raw)
         }
@@ -1239,20 +1239,26 @@ fun PeopleListScreen(
  * 2026 年 7 月起 `/stargazers`、`/subscribers` 已限制为**管理员与协作者**可见，
  * 这个歧义从「理论问题」变成了常态。
  */
-internal fun peopleListErrorText(type: String, rawError: String): String {
-    val subject = when (type) {
-        "star" -> "星标者"
-        "fork" -> "复刻列表"
-        else -> "关注者"
+internal fun peopleListErrorText(type: String, rawError: String): LocalizedText {
+    val subjectRes = when (type) {
+        "star" -> R.string.label_stargazers
+        "fork" -> R.string.label_fork_list
+        else -> R.string.label_followers_list
     }
+    // 主体作为**嵌套参数**传进去：中文是「GitHub 已把星标者 列表…」，
+    // 英文语序不同，交给资源的 %1$s 决定位置，不在代码里拼句子。
+    val subject = LocalizedText(subjectRes)
     val code = Regex("HTTP (\\d{3})").find(rawError)?.groupValues?.get(1)
     return when {
         rawError.contains("403") || code == "403" ->
-            "GitHub 已把$subject 列表限制为仓库协作者可见，你没有权限查看。"
-        rawError.contains("404") || code == "404" -> "仓库不存在或无权访问。"
+            LocalizedText(R.string.error_people_list_restricted, listOf(subject))
+        rawError.contains("404") || code == "404" -> LocalizedText(R.string.error_repo_not_found_or_forbidden)
         rawError.contains("429") || rawError.contains("rate limit", ignoreCase = true) ->
-            "触发 GitHub 限流，请稍后再试。"
-        else -> "$subject 加载失败：${rawError.removePrefix("ERROR:").take(120)}"
+            LocalizedText(R.string.error_rate_limited)
+        else -> LocalizedText(
+            R.string.error_people_list_load_failed,
+            listOf(subject, rawError.removePrefix("ERROR:").take(120)),
+        )
     }
 }
 
@@ -1328,8 +1334,14 @@ internal fun openInBrowser(context: android.content.Context, url: String) {
     }
 }
 
-private fun loadFailure(page: String, error: String?, owner: String, repo: String): String {
-    val raw = error ?: "加载失败"
+private fun loadFailure(
+    context: android.content.Context,
+    page: String,
+    error: String?,
+    owner: String,
+    repo: String,
+): String {
+    val raw = error ?: context.getString(R.string.error_load_failed)
     repoAccessHint(raw)?.let { hint ->
         Logger.warn(LogCategory.NETWORK, "私有仓库", "${page}页 $owner/$repo 打不开 —— $hint")
     }

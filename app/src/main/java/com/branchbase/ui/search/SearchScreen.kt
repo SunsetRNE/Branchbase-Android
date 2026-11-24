@@ -1,6 +1,7 @@
 package com.branchbase.ui.search
 
 import android.content.Context
+import androidx.annotation.StringRes
 import android.content.Intent
 import android.net.Uri
 import com.branchbase.R
@@ -77,8 +78,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.branchbase.ui.LocalizedText
 import com.branchbase.ui.repository.RepoRelation
 import com.branchbase.ui.repository.repoRelationOf
+import com.branchbase.ui.resolve
 import com.branchbase.ui.theme.ProvideShimmer
 import com.branchbase.ui.theme.skeletonBlock
 import com.branchbase.ui.theme.morph.AnimatedMorphIcon
@@ -133,7 +136,6 @@ fun SearchScreen(
     var selectedLanguage by vm.languageState
     var advancedValues by vm.advancedState
     var type by vm.typeState
-    var sort by vm.sortState
     var sortKey by vm.sortKeyState
     var searched by vm.searchedState
 
@@ -458,7 +460,7 @@ fun SearchScreen(
                             .padding(horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(sort, fontSize = 12.sp, color = Primer.TextSecondary)
+                        Text(stringResource(sortLabelRes(sortKey)), fontSize = 12.sp, color = Primer.TextSecondary)
                         Spacer(Modifier.width(2.dp))
                         AnimatedMorphIcon(
                             pair = MorphIcons.ChevronDownUp,
@@ -473,11 +475,11 @@ fun SearchScreen(
                         containerColor = Primer.BackgroundPrimary,
                         border = BorderStroke(1.dp, Primer.Border.copy(alpha = 0.5f)),
                     ) {
-                        sortOptions.forEach { (key, label) ->
+                        sortOptions.forEach { (key, labelRes) ->
                             DropdownMenuItem(
-                                text = { Text(label, fontSize = 13.sp, color = Primer.TextPrimary) },
+                                text = { Text(stringResource(labelRes), fontSize = 13.sp, color = Primer.TextPrimary) },
                                 onClick = {
-                                    sort = label; sortKey = key; sortMenu = false
+                                    sortKey = key; sortMenu = false
                                     if (searched) doSearch()
                                 },
                             )
@@ -732,7 +734,7 @@ private fun SearchItemCard(item: SearchItem, onClick: () -> Unit) {
         }
         if (item.meta != null) {
             Spacer(Modifier.height(8.dp))
-            Text(item.meta, fontSize = 12.sp, color = Primer.TextTertiary)
+            Text(item.meta.resolve(), fontSize = 12.sp, color = Primer.TextTertiary)
         }
     }
 }
@@ -1137,6 +1139,8 @@ private fun FilterSheet(
             advancedFilters.forEach { (name, syntax) ->
                 val expanded = expandedFilter == name
                 val value = advancedValues[name]
+                // name 是稳定 key（存值 / 展开态用），显示名单独解析 —— 翻译不会改查询串
+                val label = stringResource(advancedFilterLabelRes(name))
                 Column {
                     Row(
                         Modifier.fillMaxWidth().clickable { onToggleFilter(name) }.padding(vertical = 9.dp),
@@ -1162,7 +1166,7 @@ private fun FilterSheet(
                         }
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            if (value != null) stringResource(R.string.label_name_value, name, value) else stringResource(R.string.label_name_syntax, name, syntax),
+                            if (value != null) stringResource(R.string.label_name_value, label, value) else stringResource(R.string.label_name_syntax, label, syntax),
                             fontSize = 13.sp,
                             color = if (value != null) Primer.Blue500 else Primer.TextSecondary,
                         )
@@ -1224,7 +1228,12 @@ private fun parseResults(json: String, type: SearchType, me: String): Pair<List<
                         title = fullName,
                         subtitle = it.optString("description").orEmpty(),
                         meta = it.optString("language").takeIf { l -> l.isNotBlank() }
-                            ?.let { lang -> "$lang · ${formatCount(it.optLong("stargazers_count"))} 星" },
+                            ?.let { lang ->
+                                LocalizedText(
+                                    R.string.search_repo_meta,
+                                    listOf(lang, formatCount(it.optLong("stargazers_count"))),
+                                )
+                            },
                         target = pair?.let { (o, r) -> SearchTarget.Repo(o, r) },
                         // 搜索接口不返回 permissions：只能判定「是不是我自己的」
                         relation = pair?.let { (o, _): Pair<String, String> ->
@@ -1245,7 +1254,8 @@ private fun parseResults(json: String, type: SearchType, me: String): Pair<List<
                     SearchItem(
                         title = it.optString("title"),
                         subtitle = it.optString("html_url").orEmpty(),
-                        meta = it.optString("state"),
+                        // state 是 GitHub 的判别值（open / closed），没有对应资源就原样透出
+                        meta = LocalizedText(raw = it.optString("state")),
                         target = pair?.takeIf { _ -> number > 0 }
                             ?.let { (o, r) -> SearchTarget.Issue(o, r, number) },
                     )
@@ -1411,7 +1421,7 @@ private fun langColor(lang: String?): Color = when (lang) {
 private data class SearchItem(
     val title: String,
     val subtitle: String,
-    val meta: String? = null,
+    val meta: LocalizedText? = null,
     /** 这一行要去哪（解析阶段就定下来，卡片点击直接派发）。 */
     val target: SearchTarget? = null,
     /** 仓库结果专用：与当前账号的关系（我的 / 协作 / 他人）。 */
@@ -1459,11 +1469,16 @@ private data class TopicResult(
 }
 
 private val sortOptions = listOf(
-    "" to "最佳匹配",
-    "stars" to "最多星标",
-    "forks" to "最多复刻",
-    "updated" to "最近更新",
+    "" to R.string.search_sort_best,
+    "stars" to R.string.search_sort_stars,
+    "forks" to R.string.search_sort_forks,
+    "updated" to R.string.search_sort_updated,
 )
+
+/** 排序 key → 显示名；未知 key 退回「最佳匹配」（不把内部 key 显示给用户）。 */
+@StringRes
+private fun sortLabelRes(key: String): Int =
+    sortOptions.firstOrNull { it.first == key }?.second ?: R.string.search_sort_best
 
 private val languages = listOf(
     "JavaScript" to Color(0xFFF1E05A),
@@ -1477,19 +1492,40 @@ private val languages = listOf(
     "PHP" to Color(0xFF4F5D95),
 )
 
+/**
+ * 高级筛选：**稳定 key → GitHub 查询语法**。
+ *
+ * key 是 ASCII 常量而不是显示名 —— `advancedValues` / `expandedFilter` 都按 key 存，
+ * 显示名改成资源后，切语言不会改变「已经填好的筛选值」，查询串也不会跟着变。
+ */
 private val advancedFilters = listOf(
-    "所有者" to "user:/org:",
-    "大小" to "size:",
-    "关注者" to "followers:",
-    "Fork 数" to "forks:",
-    "星标数" to "stars:",
-    "创建时间" to "created:",
-    "推送时间" to "pushed:",
-    "主题" to "topic:",
-    "许可证" to "license:",
-    "已归档" to "archived:",
-    "可见性" to "is:public/private",
+    "owner" to "user:/org:",
+    "size" to "size:",
+    "followers" to "followers:",
+    "forks" to "forks:",
+    "stars" to "stars:",
+    "created" to "created:",
+    "pushed" to "pushed:",
+    "topic" to "topic:",
+    "license" to "license:",
+    "archived" to "archived:",
+    "visibility" to "is:public/private",
 )
+
+@StringRes
+private fun advancedFilterLabelRes(key: String): Int = when (key) {
+    "owner" -> R.string.advanced_filter_owner
+    "size" -> R.string.advanced_filter_size
+    "followers" -> R.string.advanced_filter_followers
+    "forks" -> R.string.advanced_filter_forks
+    "stars" -> R.string.advanced_filter_stars
+    "created" -> R.string.advanced_filter_created
+    "pushed" -> R.string.advanced_filter_pushed
+    "topic" -> R.string.advanced_filter_topic
+    "license" -> R.string.advanced_filter_license
+    "archived" -> R.string.advanced_filter_archived
+    else -> R.string.advanced_filter_visibility
+}
 
 /**
  * 结果列表底部的分页控件。

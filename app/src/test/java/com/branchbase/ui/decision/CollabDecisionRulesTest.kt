@@ -1,5 +1,6 @@
 package com.branchbase.ui.decision
 
+import com.branchbase.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -21,15 +22,19 @@ class CollabDecisionRulesTest {
 
     @Test
     fun 分支名校验_空与空格被拒() {
-        assertEquals("分支名不能为空", branchNameError("", listOf("main")))
-        assertEquals("分支名不能为空", branchNameError("   ", emptyList()))
-        assertEquals("分支名不能含空格", branchNameError("patch 1", listOf("main")))
+        // 钉资源 ID（文案会搬家，见 i18n-migration §9），不钉字面量
+        assertEquals(R.string.error_branch_name_empty, branchNameError("", listOf("main"))?.res)
+        assertEquals(R.string.error_branch_name_empty, branchNameError("   ", emptyList())?.res)
+        assertEquals(R.string.error_branch_name_has_space, branchNameError("patch 1", listOf("main"))?.res)
     }
 
     @Test
     fun 分支名校验_重名按传入清单判() {
         val existing = listOf("main", "patch-1", "release/1.x")
-        assertEquals("分支 patch-1 已存在，请换一个名字", branchNameError("patch-1", existing))
+        val err = branchNameError("patch-1", existing)
+        assertEquals(R.string.error_branch_name_exists, err?.res)
+        // 名字作为 %1$s 参数带上，句子的语序交给资源
+        assertEquals(listOf("patch-1"), err?.args)
         assertNull(branchNameError("patch-2", existing))
         // 大小写不同在 Git 里也是不同 ref —— 不替用户做「看起来像」的拦截
         assertNull(branchNameError("Patch-1", existing))
@@ -46,13 +51,15 @@ class CollabDecisionRulesTest {
     @Test
     fun 空清单必须拦住第二步() {
         val reason = commitBlockReason(emptyList(), "chore: 提交")
-        assertEquals(NO_CHANGES_HINT, reason)
-        assertTrue(reason!!.contains("代码"))
+        assertEquals(R.string.hint_no_changes, reason?.res)
     }
 
     @Test
     fun 空提交信息也拦住() {
-        assertEquals("请填写提交信息", commitBlockReason(listOf("a.txt"), "   "))
+        assertEquals(
+            R.string.error_commit_message_required,
+            commitBlockReason(listOf("a.txt"), "   ")?.res,
+        )
     }
 
     @Test
@@ -111,16 +118,20 @@ class CollabDecisionRulesTest {
     @Test
     fun 合并状态_查不到就是查不到() {
         assertEquals(MergeState.Unknown, mergeStateOf(null))
-        assertEquals("检查失败", mergeStateLabel(MergeState.Unknown))
-        assertEquals("未检查", mergeStateLabel(MergeState.Unchecked))
+        assertEquals(R.string.merge_state_unknown, mergeStateLabel(MergeState.Unknown).res)
+        assertEquals(R.string.merge_state_unchecked, mergeStateLabel(MergeState.Unchecked).res)
     }
 
     @Test
     fun 合并状态_ahead_为零才算已合并() {
         assertEquals(MergeState.Merged, mergeStateOf(0))
-        assertEquals("已合并", mergeStateLabel(MergeState.Merged))
+        assertEquals(R.string.merge_state_merged, mergeStateLabel(MergeState.Merged).res)
         assertEquals(MergeState.Ahead(3), mergeStateOf(3))
-        assertEquals("3 个独有提交", mergeStateLabel(MergeState.Ahead(3)))
+        val ahead = mergeStateLabel(MergeState.Ahead(3))
+        // 复数走 <plurals>：英文要分 1 commit / 2 commits
+        assertEquals(R.plurals.merge_ahead_commits, ahead.res)
+        assertEquals(3, ahead.quantity)
+        assertEquals(listOf(3), ahead.args)
         // 负数不该出现；真出现也只能说明「没有独有提交」，不能当成失败
         assertEquals(MergeState.Merged, mergeStateOf(-1))
     }
@@ -155,12 +166,21 @@ class CollabDecisionRulesTest {
 
     @Test
     fun 统计只显示真拿到手的维度() {
-        assertEquals("⭐ 12 星标 · 🍴 3 复刻", repoStatsSummary(RepoStats(stars = 12, forks = 3)))
-        assertEquals("128 提交", repoStatsSummary(RepoStats(commits = 128)))
+        // 返回条目列表（不是拼好的句子）：每条是 <plurals> + 数量，英文靠它选形
+        val two = repoStatsSummary(RepoStats(stars = 12, forks = 3))!!
+        assertEquals(listOf(R.plurals.stat_stars, R.plurals.stat_forks), two.map { it.res })
+        assertEquals(listOf(12, 3), two.map { it.quantity })
+
+        val one = repoStatsSummary(RepoStats(commits = 128))!!
+        assertEquals(listOf(R.plurals.stat_commits), one.map { it.res })
+        assertEquals(listOf(128), one.map { it.quantity })
+
+        val all = repoStatsSummary(RepoStats(stars = 1, forks = 2, commits = 3, contributors = 4))!!
         assertEquals(
-            "⭐ 1 星标 · 🍴 2 复刻 · 3 提交 · 4 贡献者",
-            repoStatsSummary(RepoStats(stars = 1, forks = 2, commits = 3, contributors = 4)),
+            listOf(R.plurals.stat_stars, R.plurals.stat_forks, R.plurals.stat_commits, R.plurals.stat_contributors),
+            all.map { it.res },
         )
+        assertEquals(listOf(1, 2, 3, 4), all.map { it.quantity })
     }
 
     @Test

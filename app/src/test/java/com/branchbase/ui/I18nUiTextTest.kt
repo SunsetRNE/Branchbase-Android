@@ -177,6 +177,29 @@ class I18nUiTextTest {
             "account_status_ok", "account_status_token_invalid", "auth_kind_oauth",
             "release_variant_release", "confirm_default_title", "label_app_icon",
             "action_discard", "hint_discard_hidden",
+            // 2026-11-24 这一批：星标 / 关注 / 复刻的写入失败提示（RepoActions 直接解析）
+            "error_web_no_response", "error_write_failed", "error_fork_no_response",
+            "watch_error_custom_needs_web_login", "watch_error_limit_exceeded", "watch_error_forbidden",
+            // 搜索页排序与高级筛选的显示名（key 是 ASCII，显示名才是资源）
+            "search_sort_best", "search_sort_stars", "search_sort_forks", "search_sort_updated",
+            "advanced_filter_owner", "advanced_filter_size", "advanced_filter_followers",
+            "advanced_filter_forks", "advanced_filter_stars", "advanced_filter_created",
+            "advanced_filter_pushed", "advanced_filter_topic", "advanced_filter_license",
+            "advanced_filter_archived", "advanced_filter_visibility", "search_repo_meta",
+            // 星标者 / 关注者 / 复刻列表的四类失败
+            "label_fork_list", "error_people_list_restricted",
+            "error_repo_not_found_or_forbidden", "error_rate_limited",
+            "error_people_list_load_failed",
+            // PR 一条龙与仓库设置页的纯判据（模型只带 LocalizedText）
+            "hint_no_changes", "error_branch_name_empty", "error_branch_name_has_space",
+            "error_branch_name_exists", "error_commit_message_required",
+            "merge_state_unchecked", "merge_state_merged", "merge_state_unknown",
+            // 同步 / 回退决策页：选项被拦下的原因与失败文案
+            "undo_blocked_initial", "undo_blocked_initial_and_no_ref", "undo_blocked_initial_only",
+            "undo_blocked_no_remote_ref", "discard_blocked_no_remote_ref",
+            "merge_blocked_merging", "merge_blocked_dirty", "merge_blocked_shallow",
+            "error_action_failed", "error_action_failed_reason",
+            "revert_title_status_unknown", "revert_title_no_upstream", "revert_title_pushed",
         ).forEach { key ->
             val z = value(zh, key)
             val e = value(en, key)
@@ -185,4 +208,41 @@ class I18nUiTextTest {
             assertFalse("$key 的中英值相同，八成是漏译", z == e)
         }
     }
+
+    /**
+     * 这一批新增的 `<plurals>`：中英都存在、英文必须有 `one` + `other` 两个形态。
+     *
+     * 中文只有 `other`，所以「英文漏了 one」在中文下完全看不出来 ——
+     * 界面切英文时 `1 commits` 这种错法不会崩，只会一直错下去。
+     */
+    @Test
+    fun `这一批新复数在中英两边都存在且有英文单数形`() {
+        val zh = source("src/main/res/values/strings.xml")
+        val en = source("src/main/res/values-en/strings.xml")
+
+        fun forms(xml: String, name: String): Map<String, String> =
+            Regex("""<plurals name="$name">([\s\S]*?)</plurals>""")
+                .find(xml)?.groupValues?.get(1)
+                ?.let { block ->
+                    Regex("""<item quantity="(\w+)">(.*?)</item>""", RegexOption.DOT_MATCHES_ALL)
+                        .findAll(block)
+                        .associate { it.groupValues[1] to it.groupValues[2] }
+                }.orEmpty()
+
+        pluralsForThisBatch().forEach { name ->
+            val z = forms(zh, name)
+            val e = forms(en, name)
+            assertTrue("$name 在 values/ 里不存在", z.isNotEmpty())
+            assertTrue("$name 的中文缺少 other 形态（Android 强制要求）", z.containsKey("other"))
+            assertTrue("$name 在 values-en/ 里不存在", e.isNotEmpty())
+            assertTrue("$name 的英文缺少 one 形态（会写出 1 commits）", e.containsKey("one"))
+            assertTrue("$name 的英文缺少 other 形态", e.containsKey("other"))
+            assertFalse("$name 的中英值相同，八成是漏译", z["other"] == e["other"])
+        }
+    }
+
+    private fun pluralsForThisBatch() = listOf(
+        "merge_ahead_commits",
+        "stat_stars", "stat_forks", "stat_commits", "stat_contributors",
+    )
 }

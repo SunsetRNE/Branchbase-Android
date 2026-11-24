@@ -587,7 +587,6 @@
     <string name="label_recovery_method">恢复方式</string>
     <string name="state_diverged_badge">已分叉</string>
     <string name="label_target_commit">目标提交 %1$s · %2$s</string>
-    <string name="state_discard_blocked">放弃本地被拦：%1$s</string>
     <string name="state_pushing">推送中…</string>
     <string name="label_upstream_branch_name">上游分支名</string>
     <string name="action_turn_off_gitify">关闭 Git 化</string>
@@ -597,7 +596,6 @@
     <string name="note_remove_git_desc">工作树文件不变，但历史与 %1$s 个未推送提交永久丢失（需二次确认）。</string>
     <string name="label_local_branch">本地 %1$s</string>
     <string name="note_diverged_explain">本地与远端各领先对方，无法快进合并（non-fast-forward）。可以把远端合进本地（merge 只新增提交，已有历史一字不改），也可以保留或放弃本地提交。</string>
-    <string name="state_both_undo_available">两个撤销动作可用</string>
     <string name="hint_brief_description">简要描述…</string>
     <string name="confirm_discard_commits_checkbox">我确认放弃这些提交</string>
     <string name="action_push_and_set_upstream_short">推送并设为上游</string>
@@ -613,15 +611,11 @@
     <string name="label_delete_whole_repo">删除整个本地仓库</string>
     <string name="note_gitify_off">「Git 化」是 ③ 的子开关（D10）。关闭后提交将走 App REST（①②），本地 .git 的处理方式请选择。</string>
     <string name="error_remote_url_required">请填写远端 URL</string>
-    <string name="state_discard_available">放弃本地可用</string>
-    <string name="state_merge_blocked_log">合并被拦：%1$s</string>
-    <string name="state_merge_available">合并可用</string>
     <string name="state_kept_local_for_now">已保留本地提交 · 远端未动</string>
     <string name="state_discarded_local">已放弃本地提交</string>
     <string name="state_kept_git">已保留 .git（偏好普通文件夹）</string>
     <string name="label_remote_url">远端 URL</string>
     <string name="note_revert_keeps_history">新提交反向撤销该提交改动，历史保留（对齐 D11 边界）。</string>
-    <string name="state_undo_keep_blocked">撤销保留改动被拦：%1$s</string>
     <string name="confirm_discard_local_commit_title">确认放弃本地提交</string>
     <string name="label_revert_method">回退方式</string>
     <string name="error_push_failed_result">推送失败：%1$s</string>
@@ -645,7 +639,6 @@
     <string name="state_sync_failed_diverged">同步失败 · 分叉</string>
     <string name="label_keep_git">保留 .git 不变</string>
     <string name="label_worktree_changes">工作区改动</string>
-    <string name="state_undo_discard_blocked">撤销并丢弃被拦：%1$s</string>
     <string name="label_local_unpushed_commits">本地未推送提交（放弃将永久丢失）</string>
     <string name="state_no_commit_to_act">没有可操作的提交</string>
     <string name="error_remove_failed">移除失败</string>
@@ -1722,6 +1715,15 @@
     <string name="fork_error_own_repository">不能复刻自己的仓库</string>
     <string name="fork_error_already_forked">你已经复刻过这个仓库</string>
 
+    <!-- 星标 / 关注 / 复刻的写入失败提示（`RepoActions` 的 `String?` 返回值，null = 成功）。
+         这些是**执行层直接解析**的：它本来就拿着 Context，没必要绕一圈枚举再回来。 -->
+    <string name="error_web_no_response">网页无响应</string>
+    <string name="error_write_failed">写入失败</string>
+    <string name="error_fork_no_response">无响应</string>
+    <string name="watch_error_custom_needs_web_login">自定义通知需要先登录 GitHub 网页会话</string>
+    <string name="watch_error_limit_exceeded">通知订阅数量已达上限</string>
+    <string name="watch_error_forbidden">没有权限修改该仓库的通知设置</string>
+
     <!-- 关于页的开源协议与第三方声明入口（真源在仓库根 LICENSE / THIRD-PARTY-NOTICES.md）。 -->
     <string name="label_open_source_license">开源协议</string>
     <string name="label_third_party_notices">第三方声明</string>
@@ -1795,4 +1797,70 @@
     <string name="action_merge_remote_short">合并远端</string>
     <string name="action_resolve_locally">拉到本地解决</string>
     <string name="label_unpushed_rest">…还有 %1$s 条未列出</string>
+    <!-- 搜索页：排序与高级筛选的**显示名**。列表里的第一个元素是 ASCII 稳定 key：
+         筛选值与展开态都按 key 存，翻译只改显示，不会改变发出去的查询串。 -->
+    <string name="search_sort_best">最佳匹配</string>
+    <string name="search_sort_stars">最多星标</string>
+    <string name="search_sort_forks">最多复刻</string>
+    <string name="search_sort_updated">最近更新</string>
+    <string name="advanced_filter_owner">所有者</string>
+    <string name="advanced_filter_size">大小</string>
+    <string name="advanced_filter_followers">关注者</string>
+    <string name="advanced_filter_forks">Fork 数</string>
+    <string name="advanced_filter_stars">星标数</string>
+    <string name="advanced_filter_created">创建时间</string>
+    <string name="advanced_filter_pushed">推送时间</string>
+    <string name="advanced_filter_topic">主题</string>
+    <string name="advanced_filter_license">许可证</string>
+    <string name="advanced_filter_archived">已归档</string>
+    <string name="advanced_filter_visibility">可见性</string>
+    <string name="search_repo_meta">%1$s · %2$s 星</string>
+
+    <!-- 星标者 / 关注者 / 复刻列表：四类失败各一句。
+         403 是 GitHub 2026-07 起的限制（列表只对协作者可见），与「真的没有人」必须分开。 -->
+    <string name="label_fork_list">复刻列表</string>
+    <string name="error_people_list_restricted">GitHub 已把%1$s列表限制为仓库协作者可见，你没有权限查看。</string>
+    <string name="error_rate_limited">触发 GitHub 限流，请稍后再试。</string>
+    <string name="error_people_list_load_failed">%1$s 加载失败：%2$s</string>
+
+    <!-- PR 一条龙与仓库设置页的纯判据（`ui/decision/CollabScreens.kt` 末尾）。
+         这些函数只返回 LocalizedText，渲染时才按界面语言解析。 -->
+    <string name="hint_no_changes">没有待提交的改动：请到「代码」页打开文件 → 编辑 → 保存草稿，再回到这里开 PR。</string>
+    <string name="error_branch_name_empty">分支名不能为空</string>
+    <string name="error_branch_name_has_space">分支名不能含空格</string>
+    <string name="error_branch_name_exists">分支 %1$s 已存在，请换一个名字</string>
+    <string name="merge_state_unchecked">未检查</string>
+    <string name="merge_state_merged">已合并</string>
+    <string name="merge_state_unknown">检查失败</string>
+    <plurals name="merge_ahead_commits">
+        <item quantity="other">%1$s 个独有提交</item>
+    </plurals>
+    <plurals name="stat_stars">
+        <item quantity="other">⭐ %1$s 星标</item>
+    </plurals>
+    <plurals name="stat_forks">
+        <item quantity="other">🍴 %1$s 复刻</item>
+    </plurals>
+    <plurals name="stat_commits">
+        <item quantity="other">%1$s 提交</item>
+    </plurals>
+    <plurals name="stat_contributors">
+        <item quantity="other">%1$s 贡献者</item>
+    </plurals>
+
+    <!-- 同步 / 回退决策页：选项**被拦下**的原因与失败文案（`SyncDecisionScreens.kt` 顶部）。
+         每条都是「点了必然失败」的硬事实，所以提前写成界面上的灰按钮理由。 -->
+    <string name="undo_blocked_initial">这是仓库的第一个提交，没有可撤销的上一次提交（reset --soft HEAD~1 必然失败）</string>
+    <string name="undo_blocked_initial_and_no_ref">这是仓库的第一个提交（撤销它等于清空本地历史），且本地还没有 origin/%1$s 的记录：先执行一次获取</string>
+    <string name="undo_blocked_initial_only">这是仓库的第一个提交：撤销它等于清空本地历史，本页不提供这个选项</string>
+    <string name="undo_blocked_no_remote_ref">本地还没有 origin/%1$s 的记录（未获取过）：先执行一次获取</string>
+    <string name="discard_blocked_no_remote_ref">本地还没有 origin/%1$s 的记录（未获取过）：先执行一次获取，否则 reset --hard 找不到目标</string>
+    <string name="merge_blocked_merging">仓库停在一次合并里：先解决冲突并「提交合并」，或者「放弃合并」，再合 origin/%1$s</string>
+    <string name="merge_blocked_dirty">工作区有 %1$s 处未提交改动：合并要求工作区是干净的（先提交或放弃这些改动）</string>
+    <string name="merge_blocked_shallow">本地是浅克隆（只有最近的历史）：与远端没有共同祖先，先「加深历史」再合 origin/%1$s</string>
+    <string name="error_action_failed">%1$s失败（原因见日志）</string>
+    <string name="error_action_failed_reason">%1$s失败：%2$s</string>
+    <string name="revert_title_status_unknown">推送状态未知 · 只提供 revert</string>
+    <string name="revert_title_no_upstream">无上游分支 · 只提供 revert（无法判断已推送）</string>
+    <string name="revert_title_pushed">已推送提交 · 不可改写历史</string>
 </resources>

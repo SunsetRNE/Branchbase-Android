@@ -333,3 +333,47 @@ aapt2 dump resources <apk> | grep -A 2 'string/repo_page_issues'
 
 > 动手前照旧先空跑一次：`python3 tools/i18n/extract.py --file <文件>` ——
 > 它报「表里没有」就补 `tools/i18n/strings.tsv`，报「作用域不行」就得按 A′/C′ 改结构。
+
+## 十三、2026-11-24 第二批：搜索 / 决策页 / 仓库列表
+
+这一批清的是 `review/progress-2026-11-24.md` 列出的剩余界面文件。按类别重扫后
+（日志、`logLabel`、测试方法名都不算欠账）真正要改的是四块：
+
+| 位置 | 处理 |
+|---|---|
+| `ui/search/SearchScreen.kt` | 排序四档、高级筛选十一项、仓库 meta → 资源；`SearchItem.meta` 改 `LocalizedText?` |
+| `ui/decision/CollabScreens.kt` | 分支名 / 提交信息校验、合并状态、仓库统计 → `LocalizedText` + 五个 `<plurals>` |
+| `ui/decision/SyncDecisionScreens.kt` | 四个「选项被拦下」的预检、失败文案、revert 标题 → `LocalizedText` |
+| `ui/repository/RepositoryListScreens.kt`、`RepoActions.kt` | 列表失败文案（嵌套参数）、写入失败提示（产生方解析） |
+
+### 三个这一批长出来的范式
+
+1. **显示名与稳定 key 必须分开（不只是 i18n 洁癖）。**
+   搜索页的 `advancedFilters` 原来是 `"所有者" to "user:/org:"`，而 `advancedValues`
+   和 `expandedFilter` 都拿这个**中文字面量当 key**。显示名换成资源后，`name` 不能再兼任 key：
+   切语言后已填的筛选值会对不上，查询串也会跟着显示文案变。
+   现在 key 是 ASCII（`owner` / `stars` / `created`…），显示名走 `advancedFilterLabelRes(key)`。
+   **判据：只要一个字面量既上屏又当标识符用，它就不能被翻译。**
+
+2. **返回给用户看的字符串不能再按语言拼。**
+   `failureMessage` 原来是 `"${action}失败：$reason"` —— 中文拼得出来，英文是
+   `"%1$s failed: %2$s"`，语序不同。这类一律**整句成资源**，参数用 `%1$s`。
+   同理，`"GitHub 已把$subject 列表…"` 改成 `error_people_list_restricted` + 把主体作为
+   **嵌套 `LocalizedText`** 传进去：主体本身也是资源（星标者 / 复刻列表 / 关注者）。
+
+3. **日志里不许解析界面文案。**
+   `SyncDecisionScreens` 的日志原来拿预检原因去 `getString` —— 那会跟着界面语言变成英文，
+   而日志按 §7 固定中文。现在日志只记**布尔**（「被拦下 / 可用」）：事实仍然留痕
+   （配合同一行的 `hasRemoteRef` / `dirty` / `merging` 已足够定位），但不再混入可翻译文案。
+   由此 `state_discard_blocked` 等 7 条日志专用资源失去引用，一并删除。
+
+### 为什么这些文件没进 `I18nUiTextTest.localizedFiles`
+
+那个清单是**「这个文件里彻底不出现中文」的承诺**（唯一例外是含 `logLabel` 的行）。
+本批的文件都还剩日志正文 / `logLabel` / `mergeStateLogLabel`，按 §7 保留 ——
+为了让它们进白名单而给日志加例外，会让钉子本身失真。
+这一批的回归保护放在单测里：`CollabDecisionRulesTest` / `SyncDecisionPrecheckTest` /
+`RepoViewerRelationTest` 断言**资源 ID + 参数**，函数一旦退回中文 `String` 就编译不过或断言失败。
+
+> 口径仍以 §11 的分档为准；`717 / 923` 是 2026-11-24 第一批之前的快照，
+> 本批之后请以 `tools/i18n/` 的扫描（`category=ui` / `error`）为准，不要引用旧数字。

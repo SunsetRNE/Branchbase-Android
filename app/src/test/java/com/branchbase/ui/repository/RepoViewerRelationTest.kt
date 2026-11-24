@@ -2,6 +2,7 @@ package com.branchbase.ui.repository
 
 import org.json.JSONObject
 import com.branchbase.R
+import com.branchbase.ui.LocalizedText
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -263,16 +264,29 @@ class RepoViewerRelationTest {
 
     @Test
     fun list_error_403_explains_the_new_restriction() {
+        // 钉资源 ID + 参数，不钉会被搬走的字面量（i18n-migration §9）：
+        // 403 必须给出「限制」那一句，主体是「星标者」这条资源。
         val text = peopleListErrorText("star", "ERROR:HTTP 403: {\"message\":\"Forbidden\"}")
-        assertTrue(text.contains("限制"))
-        assertTrue(text.contains("星标者"))
+        assertEquals(R.string.error_people_list_restricted, text.res)
+        val subject = text.args.single() as LocalizedText
+        assertEquals(R.string.label_stargazers, subject.res)
     }
 
     @Test
     fun list_error_distinguishes_missing_and_rate_limit() {
-        assertTrue(peopleListErrorText("watch", "ERROR:HTTP 404: Not Found").contains("不存在"))
-        assertTrue(peopleListErrorText("star", "ERROR:HTTP 429: rate limit").contains("限流"))
-        assertTrue(peopleListErrorText("fork", "ERROR:网络不可达").contains("复刻列表"))
+        assertEquals(
+            R.string.error_repo_not_found_or_forbidden,
+            peopleListErrorText("watch", "ERROR:HTTP 404: Not Found").res,
+        )
+        assertEquals(
+            R.string.error_rate_limited,
+            peopleListErrorText("star", "ERROR:HTTP 429: rate limit").res,
+        )
+        val fork = peopleListErrorText("fork", "ERROR:网络不可达")
+        assertEquals(R.string.error_people_list_load_failed, fork.res)
+        assertEquals(R.string.label_fork_list, (fork.args[0] as LocalizedText).res)
+        // 透传的原始错误仍然是原话（去掉 ERROR: 前缀）
+        assertEquals("网络不可达", fork.args[1])
     }
 
     // ── 仓库信息解析：复刻判定所需的三个字段 ──

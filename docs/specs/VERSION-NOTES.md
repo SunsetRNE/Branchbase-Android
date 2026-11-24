@@ -74,7 +74,53 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.1 → 1.0.22）
+## 二、`versionName` 流水（1.4.2 → 1.0.22）
+
+### 1.4.2
+
+**其余页面硬编码中文（第二批）：搜索页、PR 一条龙 / 仓库设置页判据、同步回退决策页、仓库列表失败文案。**
+
+① **搜索页**：排序四档、高级筛选十一项、仓库结果的「语言 · 星数」全部资源化。
+关键改动是**显示名与稳定 key 分离** —— `sortOptions` / `advancedFilters` 的第一个元素
+从中文显示名改成 ASCII key（`owner` / `stars` / `created`…），显示名走
+`sortLabelRes` / `advancedFilterLabelRes`。原因不只是洁癖：`advancedValues` 与
+`expandedFilter` 都按这个 key 存，key 若是显示名，切语言后**已填好的筛选值会失配**，
+查询串也会跟着显示文案变。`SearchItem.meta` 同时改 `LocalizedText?`：
+仓库结果走 `search_repo_meta`，issue 的 `state` 是 GitHub 判别值、没有对应资源，
+用 `LocalizedText(raw = …)` 原样透出。`SearchViewModel.sortState` 删除 ——
+`sortKeyState` 已是唯一真源，标签由它推出（原来的 `sort` 只用来显示）。
+
+② **PR 一条龙 / 仓库设置页**（`CollabScreens.kt`）：`branchNameError` /
+`commitBlockReason` / `mergeStateLabel` / `repoStatsSummary` 从返回中文 `String`
+改成返回 `LocalizedText`。统计四个维度（星标 / 复刻 / 提交 / 贡献者）与「N 个独有提交」
+走 `<plurals>` —— 中文只有 `other`，英文要分 `1 star` / `2 stars`。
+`mergeStateLabel` 拆出 `mergeStateLogLabel`（界面跟语言走、日志固定中文，§5.1 的两个字段），
+`NO_CHANGES_HINT` 常量删除。
+
+③ **同步 / 回退决策页**（`SyncDecisionScreens.kt`）：四个「选项被拦下」的预检函数与
+`failureMessage` / `revertFormTitle` 全部返回 `LocalizedText`。`failureMessage` 原来在代码里
+拼 `"$action失败"` —— 中文拼得出、英文语序拼不出，改成两条整句资源。
+决策页的两处日志同时改成**只记布尔**（「被拦下 / 可用」）：日志按约定固定中文，
+不能把会随界面语言变的文案解析进去；因此 `state_discard_blocked` 等 **7 条日志专用资源**
+失去引用，一并删除（不留死资源）。
+
+④ **星标者 / 关注者 / 复刻列表与写入失败**（`RepositoryListScreens.kt`、`RepoActions.kt`）：
+`peopleListErrorText` 改 `LocalizedText`，列表主体（星标者 / 复刻列表 / 关注者）作为
+**嵌套参数**传入 —— 「GitHub 已把 X 列表…」在英文里语序不同；403 / 404 / 429 / 其它各一条资源。
+`loadFailure` 的兜底「加载失败」改资源。`RepoActions` 的星标 / 关注 / 复刻写入失败提示
+**在产生方直接解析**（它本来就拿着 `Context`，不必绕一圈枚举）；`createFork` 因此加 `context` 参数。
+
+⑤ **钉子**：`I18nUiTextTest` 的新键清单加入本批 41 条；并新增
+`这一批新复数在中英两边都存在且有英文单数形`（中文只有 `other`，英文漏 `one` 在中文界面下看不出来）。
+`CollabDecisionRulesTest` / `SyncDecisionPrecheckTest` / `RepoViewerRelationTest`
+从断言中文字面量改成断言**资源 ID + 参数**（i18n-migration §9 的教训：不钉会被搬走的字面量）。
+
+**刻意没做的**：`ProfileScreen` / `SubPageScreens` / `RepositoryScreen` 以及
+`CollabScreens` 的 `mergeStateLogLabel` 里剩下的中文全是 `logLabel` / 日志正文（§7 保留），
+所以这几个文件**没有**加入 `I18nUiTextTest.localizedFiles` 白名单 —— 那个清单是
+「文件里彻底不出现中文」的承诺，靠给日志开例外去凑成员会让钉子失真；
+这批的回归保护由上面三份单测（资源 ID + 参数）承担。
+`RepoActions` 的 `loadUpstream` 日志块同理。
 
 ### 1.4.1
 
@@ -4021,13 +4067,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（261 → 129）
+## 三、`versionCode` 流水（262 → 129）
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 
 - **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
 
 - **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **262**：其余页面硬编码中文第二批 —— 搜索（排序/高级筛选/仓库 meta，显示名与 ASCII 稳定 key 分离）、PR 一条龙与仓库设置页判据（`LocalizedText` + 五个 `<plurals>`）、同步回退决策页（预检原因与失败文案整句资源化，日志改记布尔并删除 7 条死资源）、星标/关注/复刻列表与写入失败提示（嵌套参数 + 产生方解析）；`I18nUiTextTest` 新增复数钉子，三份单测改断言资源 ID（一次提交，故 +1）。
 
 - **261**：新增 `review/progress-2026-11-24.md`（本轮进度、决策、踩坑、缺口与真源指路），并在 `VERSION-NOTES` 记录下一批 i18n 的准确口径（717 条含中文的字面量、按界面区域分布）（一次提交，故 +1）。
 

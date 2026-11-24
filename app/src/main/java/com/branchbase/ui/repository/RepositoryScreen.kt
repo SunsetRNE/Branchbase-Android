@@ -1544,6 +1544,7 @@ fun RepositoryScreen(
             onCheckExists = { target, name -> RepoActions.repoExists(sessionHost, sessionToken, target, name) },
             onCreate = { organization, name, defaultBranchOnly ->
                 RepoActions.createFork(
+                    context = context,
                     host = sessionHost,
                     token = sessionToken,
                     owner = owner,

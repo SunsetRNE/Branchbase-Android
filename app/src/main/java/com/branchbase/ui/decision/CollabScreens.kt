@@ -47,8 +47,10 @@ import com.branchbase.ui.navigation.TabSwitcher
 import com.branchbase.ui.repository.encodePath
 import com.branchbase.ui.repository.encodeRef
 import com.branchbase.ui.repository.parseFileContent
+import com.branchbase.ui.LocalizedText
 import com.branchbase.ui.log.LogCategory
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.resolve
 import com.branchbase.ui.theme.Primer
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -248,11 +250,11 @@ fun PrOnestopScreen(
         when (step) {
             0 -> {
                 val err = branchNameError(branchName, branches)
-                if (err != null) feedback = err else { feedback = null; step = 1 }
+                if (err != null) feedback = err.resolve(context) else { feedback = null; step = 1 }
             }
             1 -> {
                 val block = commitBlockReason(changedFiles, message)
-                if (block != null) { feedback = block; return }
+                if (block != null) { feedback = block.resolve(context); return }
                 // 提交过、内容与提交信息都没变 → 直接进第③步，不重复产生 commit
                 if (committedBranch == branchName && committedSha != null && committedMessage == message.trim()) {
                     feedback = null
@@ -304,7 +306,7 @@ fun PrOnestopScreen(
                             stringResource(R.string.note_branch_name_rules_with_list, owner, repo, branches.size)
                         },
                     )
-                    if (changedFiles.isEmpty()) DecisionNote(NO_CHANGES_HINT)
+                    if (changedFiles.isEmpty()) DecisionNote(stringResource(R.string.hint_no_changes))
                 }
                 1 -> {
                     DecisionNote(stringResource(R.string.note_real_commit, baseBranch))
@@ -312,7 +314,7 @@ fun PrOnestopScreen(
                         Column {
                             if (changedFiles.isEmpty()) {
                                 Text(
-                                    NO_CHANGES_HINT,
+                                    stringResource(R.string.hint_no_changes),
                                     fontSize = 12.sp,
                                     color = Primer.Red500,
                                     lineHeight = 18.sp,
@@ -517,7 +519,7 @@ fun RepoSettingScreen(
             // 锚点：`决策页` —— 「已合并」是算出来的（ahead_by == 0），把每个分支的结论记下来便于复核
             Logger.local(
                 "已合并检查（$owner/$repo 相对 $selectedDefault）：" +
-                    out.entries.joinToString("、") { "${it.key}=${mergeStateLabel(it.value)}" } +
+                    out.entries.joinToString("、") { "${it.key}=${mergeStateLogLabel(it.value)}" } +
                     if (skipped > 0) "（另有 $skipped 个超上限未检查）" else "",
                 "决策页",
             )
@@ -610,7 +612,7 @@ fun RepoSettingScreen(
                             Text(stringResource(R.string.label_default_branch), fontSize = 11.sp, color = Primer.Blue500)
                         } else {
                             val state = mergeStates[b] ?: MergeState.Unchecked
-                            Text(mergeStateLabel(state), fontSize = 11.sp, color = mergeStateColor(state))
+                            Text(mergeStateLabel(state).resolve(), fontSize = 11.sp, color = mergeStateColor(state))
                         }
                         if (b != selectedDefault) {
                             Spacer(Modifier.width(10.dp))
@@ -641,7 +643,7 @@ fun RepoSettingScreen(
             }
         }
         // 挽留统计：三种状态都说实话 —— 有真值 / 还在读 / 读不到（不填估算值）
-        val statsText = repoStatsSummary(repoStats)
+        val statsText = repoStatsSummary(repoStats)?.map { it.resolve() }?.joinToString(" · ")
         DecisionNote(
             when {
                 statsText != null -> stringResource(R.string.label_retention_stats, statsText)
@@ -654,7 +656,7 @@ fun RepoSettingScreen(
             val state = mergeStates[b] ?: MergeState.Unchecked
             Spacer(Modifier.height(4.dp))
             DangerConfirmCard(
-                description = stringResource(R.string.confirm_delete_remote_branch, b, mergeStateLabel(state)),
+                description = stringResource(R.string.confirm_delete_remote_branch, b, mergeStateLabel(state).resolve()),
                 confirmLabel = stringResource(R.string.confirm_delete_branch_checkbox),
                 confirmed = deleteBranchConfirm,
                 onToggle = { deleteBranchConfirm = !deleteBranchConfirm },
@@ -710,7 +712,8 @@ fun DeleteRepoWarningScreen(
         DecisionNote(stringResource(R.string.warning_unpushed_commits, unpushed.size))
 
         // 只有拿到真值才显示这一行（拿不到就不显示，见 KDoc）
-        repoStatsSummary(stats)?.let { DecisionNote(stringResource(R.string.label_repo_stats, it)) }
+        repoStatsSummary(stats)?.map { it.resolve() }
+            ?.let { DecisionNote(stringResource(R.string.label_repo_stats, it)) }
 
         FactCard(stringResource(R.string.label_unpushed_commits)) {
             Column {
@@ -1088,10 +1091,6 @@ fun OfflineConflictScreen(
 // 写错不会崩，只会让用户看着一句不成立的话点下不可逆的按钮。
 // ═══════════════════════════════════════════════════════════════════
 
-/** 一条龙第②步的引导文案（空清单时同时用于第①步提前提示与第②步红字）。 */
-internal const val NO_CHANGES_HINT: String =
-    "没有待提交的改动：请到「代码」页打开文件 → 编辑 → 保存草稿，再回到这里开 PR。"
-
 /** 单次「检查合并状态」最多查几个分支：每个分支一次 compare 请求，避免大仓库把配额打满。 */
 internal const val MERGE_CHECK_LIMIT: Int = 20
 
@@ -1101,10 +1100,10 @@ internal const val MERGE_CHECK_LIMIT: Int = 20
  * [existing] 是宿主的仓库分支清单；宿主没给（空）时只有前两条成立，
  * 此时界面要写明「本次不查重」，不能承诺「已查重」。
  */
-internal fun branchNameError(name: String, existing: List<String>): String? = when {
-    name.isBlank() -> "分支名不能为空"
-    name.contains(' ') -> "分支名不能含空格"
-    existing.any { it == name } -> "分支 $name 已存在，请换一个名字"
+internal fun branchNameError(name: String, existing: List<String>): LocalizedText? = when {
+    name.isBlank() -> LocalizedText(R.string.error_branch_name_empty)
+    name.contains(' ') -> LocalizedText(R.string.error_branch_name_has_space)
+    existing.any { it == name } -> LocalizedText(R.string.error_branch_name_exists, listOf(name))
     else -> null
 }
 
@@ -1114,9 +1113,9 @@ internal fun branchNameError(name: String, existing: List<String>): String? = wh
  * **空清单刻意拦住**（不做「带警告继续」）：没有改动时 `commitFiles` 无事可做，
  * 唯一的「结果」是开出一个与 base 同 sha、diff 为空的 PR —— 那正是这次要消灭的假象。
  */
-internal fun commitBlockReason(changedFiles: List<String>, commitMessage: String): String? = when {
-    changedFiles.isEmpty() -> NO_CHANGES_HINT
-    commitMessage.isBlank() -> "请填写提交信息"
+internal fun commitBlockReason(changedFiles: List<String>, commitMessage: String): LocalizedText? = when {
+    changedFiles.isEmpty() -> LocalizedText(R.string.hint_no_changes)
+    commitMessage.isBlank() -> LocalizedText(R.string.error_commit_message_required)
     else -> null
 }
 
@@ -1167,7 +1166,22 @@ internal fun mergeStateOf(aheadBy: Int?): MergeState = when {
     else -> MergeState.Ahead(aheadBy)
 }
 
-internal fun mergeStateLabel(state: MergeState): String = when (state) {
+internal fun mergeStateLabel(state: MergeState): LocalizedText = when (state) {
+    MergeState.Unchecked -> LocalizedText(R.string.merge_state_unchecked)
+    MergeState.Merged -> LocalizedText(R.string.merge_state_merged)
+    is MergeState.Ahead -> LocalizedText.plural(
+        R.plurals.merge_ahead_commits, state.commits, listOf(state.commits),
+    )
+    MergeState.Unknown -> LocalizedText(R.string.merge_state_unknown)
+}
+
+/**
+ * 合并状态的**日志专用**中文名。
+ *
+ * 与 [mergeStateLabel] 是两个字段（§5.1）：界面文案跟语言走，日志按约定固定中文 ——
+ * `tools/perf` 的段落分类直接匹配这些词，翻成英文会让报表失配。
+ */
+internal fun mergeStateLogLabel(state: MergeState): String = when (state) {
     MergeState.Unchecked -> "未检查"
     MergeState.Merged -> "已合并"
     is MergeState.Ahead -> "${state.commits} 个独有提交"
@@ -1208,15 +1222,20 @@ data class RepoStats(
     val contributors: Long? = null,
 )
 
-/** 统计的单行文案；一个维度都没有时返回 null（调用方据此不显示这一行）。 */
-internal fun repoStatsSummary(stats: RepoStats?): String? {
+/**
+ * 统计的各个维度（一个维度都没有时返回 null，调用方据此不显示这一行）。
+ *
+ * 返回**条目列表**而不是拼好的句子：每个维度在英文里要分 `1 star` / `2 stars`，
+ * 只有 `<plurals>` 能表达；分隔符与拼接交给渲染侧（用中性的 ` · `）。
+ */
+internal fun repoStatsSummary(stats: RepoStats?): List<LocalizedText>? {
     if (stats == null) return null
-    val parts = mutableListOf<String>()
-    stats.stars?.let { parts += "⭐ $it 星标" }
-    stats.forks?.let { parts += "🍴 $it 复刻" }
-    stats.commits?.let { parts += "$it 提交" }
-    stats.contributors?.let { parts += "$it 贡献者" }
-    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+    val parts = mutableListOf<LocalizedText>()
+    stats.stars?.let { parts += LocalizedText.plural(R.plurals.stat_stars, it.toInt(), listOf(it)) }
+    stats.forks?.let { parts += LocalizedText.plural(R.plurals.stat_forks, it.toInt(), listOf(it)) }
+    stats.commits?.let { parts += LocalizedText.plural(R.plurals.stat_commits, it.toInt(), listOf(it)) }
+    stats.contributors?.let { parts += LocalizedText.plural(R.plurals.stat_contributors, it.toInt(), listOf(it)) }
+    return parts.takeIf { it.isNotEmpty() }
 }
 
 /**

@@ -39,9 +39,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.R
+import com.branchbase.ui.LocalizedText
 import com.branchbase.ui.log.LogCategory
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.repository.UpstreamRelation
+import com.branchbase.ui.resolve
 import com.branchbase.ui.repository.upstreamNoteText
 import com.branchbase.ui.repository.upstreamStateLabelRes
 import com.branchbase.core.RustBridge
@@ -71,26 +73,25 @@ import kotlinx.coroutines.withContext
 // ───────────────────────────────────────────────────────────────────
 
 /** 撤销页「撤销并保留改动（reset --soft）」被拦下的原因；null = 可用。 */
-internal fun resetSoftBlockReason(hasParent: Boolean): String? =
-    if (hasParent) null else "这是仓库的第一个提交，没有可撤销的上一次提交（reset --soft HEAD~1 必然失败）"
+internal fun resetSoftBlockReason(hasParent: Boolean): LocalizedText? =
+    if (hasParent) null else LocalizedText(R.string.undo_blocked_initial)
 
 /** 撤销页「撤销并丢弃改动（reset --hard origin/x）」被拦下的原因；null = 可用。 */
-internal fun resetHardBlockReason(hasParent: Boolean, hasRemoteRef: Boolean, branch: String): String? {
+internal fun resetHardBlockReason(hasParent: Boolean, hasRemoteRef: Boolean, branch: String): LocalizedText? {
     val b = branch.ifBlank { "main" }
     return when {
-        !hasParent && !hasRemoteRef ->
-            "这是仓库的第一个提交（撤销它等于清空本地历史），且本地还没有 origin/$b 的记录：先执行一次获取"
-        !hasParent -> "这是仓库的第一个提交：撤销它等于清空本地历史，本页不提供这个选项"
-        !hasRemoteRef -> "本地还没有 origin/$b 的记录（未获取过）：先执行一次获取"
+        !hasParent && !hasRemoteRef -> LocalizedText(R.string.undo_blocked_initial_and_no_ref, listOf(b))
+        !hasParent -> LocalizedText(R.string.undo_blocked_initial_only)
+        !hasRemoteRef -> LocalizedText(R.string.undo_blocked_no_remote_ref, listOf(b))
         else -> null
     }
 }
 
 /** 分叉页「放弃本地提交（reset --hard origin/x）」被拦下的原因；null = 可用。 */
-internal fun discardLocalBlockReason(hasRemoteRef: Boolean, branch: String): String? {
+internal fun discardLocalBlockReason(hasRemoteRef: Boolean, branch: String): LocalizedText? {
     val b = branch.ifBlank { "main" }
     return if (hasRemoteRef) null
-    else "本地还没有 origin/$b 的记录（未获取过）：先执行一次获取，否则 reset --hard 找不到目标"
+    else LocalizedText(R.string.discard_blocked_no_remote_ref, listOf(b))
 }
 
 /**
@@ -110,12 +111,12 @@ internal fun mergeRemoteBlockReason(
     merging: Boolean,
     shallow: Boolean,
     branch: String,
-): String? {
+): LocalizedText? {
     val b = branch.ifBlank { "main" }
     return when {
-        merging -> "仓库停在一次合并里：先解决冲突并「提交合并」，或者「放弃合并」，再合 origin/$b"
-        dirtyCount > 0 -> "工作区有 $dirtyCount 处未提交改动：合并要求工作区是干净的（先提交或放弃这些改动）"
-        shallow -> "本地是浅克隆（只有最近的历史）：与远端没有共同祖先，先「加深历史」再合 origin/$b"
+        merging -> LocalizedText(R.string.merge_blocked_merging, listOf(b))
+        dirtyCount > 0 -> LocalizedText(R.string.merge_blocked_dirty, listOf(dirtyCount, b))
+        shallow -> LocalizedText(R.string.merge_blocked_shallow, listOf(b))
         else -> null
     }
 }
@@ -154,9 +155,14 @@ internal fun unlistedUnpushedCount(ahead: Int, listed: Int): Int = (ahead - list
  * 失败文案：**只写能判定的原因**；判定不了就写中性说法，把排查交给日志。
  * 不再把一切失败一律归因到引擎（旧文案就是那样归因的：编造，且把排查方向带偏）。
  */
-internal fun failureMessage(action: String, reason: String? = null): String =
-    // 注意 `${action}` 必须带花括号：`$action失败` 会被词法分析当成一个标识符（CJK 也是标识符字符）
-    if (reason.isNullOrBlank()) "${action}失败（原因见日志）" else "${action}失败：$reason"
+internal fun failureMessage(action: String, reason: String? = null): LocalizedText =
+    // 「动作 + 失败」在英文里语序不同（"Discard failed: …"），所以整句成资源，
+    // 不在这里拼字符串 —— 中文能拼、英文拼不出来（§5.1）。
+    if (reason.isNullOrBlank()) {
+        LocalizedText(R.string.error_action_failed, listOf(action))
+    } else {
+        LocalizedText(R.string.error_action_failed_reason, listOf(action, reason))
+    }
 
 /**
  * 撤销页「revert 形态」的卡片标题。
@@ -165,10 +171,10 @@ internal fun failureMessage(action: String, reason: String? = null): String =
  * 没有上游分支时它同样为空（core/src/git/mod.rs:666-676）。只在真正确知
  * 「有上游、且没有未推送提交」时才敢说「已推送」，否则标题就是在替用户下结论。
  */
-internal fun revertFormTitle(hasStatus: Boolean, hasUpstream: Boolean): String = when {
-    !hasStatus -> "推送状态未知 · 只提供 revert"
-    !hasUpstream -> "无上游分支 · 只提供 revert（无法判断已推送）"
-    else -> "已推送提交 · 不可改写历史"
+internal fun revertFormTitle(hasStatus: Boolean, hasUpstream: Boolean): LocalizedText = when {
+    !hasStatus -> LocalizedText(R.string.revert_title_status_unknown)
+    !hasUpstream -> LocalizedText(R.string.revert_title_no_upstream)
+    else -> LocalizedText(R.string.revert_title_pushed)
 }
 
 /**
@@ -285,9 +291,9 @@ fun ForkDecisionScreen(
             "分叉页(${repoName})：status=${if (s == null) "读不到" else "ok"} branch=${s?.branch} " +
                 "ahead=${s?.ahead} behind=${s?.behind} hasRemoteRef=${s?.hasRemoteRef} " +
                 "dirty=${s?.dirty?.size ?: 0} merging=${s?.merging} shallow=$shallow → " +
-                (discardLocalBlockReason(s?.hasRemoteRef ?: false, s?.branch ?: "")?.let { context.getString(R.string.state_discard_blocked, it) } ?: context.getString(R.string.state_discard_available)) +
+                (if (discardLocalBlockReason(s?.hasRemoteRef ?: false, s?.branch ?: "") != null) "放弃本地·被拦下" else "放弃本地·可用") +
                 " / 合并：" +
-                (mergeRemoteBlockReason(s?.dirty?.size ?: 0, s?.merging ?: false, shallow, s?.branch ?: "")?.let { context.getString(R.string.state_merge_blocked_log, it) } ?: context.getString(R.string.state_merge_available)),
+                (if (mergeRemoteBlockReason(s?.dirty?.size ?: 0, s?.merging ?: false, shallow, s?.branch ?: "") != null) "被拦下" else "可用"),
             "决策页",
         )
         // 预检不通过时把选中项退回「保留本地」，避免停在「选项已灰、底部按钮还亮着」的半截状态
@@ -301,7 +307,7 @@ fun ForkDecisionScreen(
             ForkChoice.Keep -> onResolved(context.getString(R.string.state_kept_local_for_now))
             ForkChoice.MergeRemote -> {
                 // 兜底（正常路径下该选项已禁用）：预检不通过就不执行，也不编造原因
-                mergeBlock?.let { feedback = it; return }
+                mergeBlock?.let { feedback = it.resolve(context); return }
                 // 显式远端名（`origin/{branch}`）：短名会先解析到**本地**那条同名分支 = HEAD 自己，
                 // 判定成 up_to_date（「点了合并，什么都没发生」）—— 引擎的 resolve_merge_target
                 // 两种写法都认，分叉场景必须给显式这一种
@@ -309,7 +315,7 @@ fun ForkDecisionScreen(
             }
             ForkChoice.Discard -> {
                 // 兜底（正常路径下该选项已禁用）：预检不通过就不执行，也不编造原因
-                discardBlock?.let { feedback = it; return }
+                discardBlock?.let { feedback = it.resolve(context); return }
                 if (!confirmed) { feedback = context.getString(R.string.error_confirm_required); return }
                 scope.launch {
                     busy = true
@@ -318,7 +324,7 @@ fun ForkDecisionScreen(
                     busy = false
                     onResolved(
                         if (err == null) context.getString(R.string.state_discarded_local)
-                        else failureMessage(context.getString(R.string.action_discard_local_commit), err),
+                        else failureMessage(context.getString(R.string.action_discard_local_commit), err).resolve(context),
                     )
                 }
             }
@@ -384,7 +390,7 @@ fun ForkDecisionScreen(
                     DisabledOptionRow(
                         title = stringResource(R.string.action_merge_remote, branch),
                         desc = stringResource(R.string.note_merge_remote, branch),
-                        reason = mergeBlock ?: stringResource(R.string.state_merge_running_block),
+                        reason = mergeBlock?.resolve() ?: stringResource(R.string.state_merge_running_block),
                     )
                 }
                 if (discardBlock == null) {
@@ -399,7 +405,7 @@ fun ForkDecisionScreen(
                     DisabledOptionRow(
                         title = stringResource(R.string.action_discard_local_commit),
                         desc = stringResource(R.string.confirm_reset_hard_loss, branch, status?.ahead ?: 0),
-                        reason = discardBlock,
+                        reason = discardBlock.resolve(),
                     )
                 }
                 DecisionOptionRow(
@@ -760,10 +766,11 @@ fun UndoCommitScreen(
             Logger.local(
                 "撤销页(${repoName})：分支=$b 未推送=${s.unpushed.size} hasParent=${s.hasParent} " +
                     "hasRemoteRef=${s.hasRemoteRef} → " +
-                    listOfNotNull(
-                        resetSoftBlockReason(s.hasParent)?.let { context.getString(R.string.state_undo_keep_blocked, it) },
-                        resetHardBlockReason(s.hasParent, s.hasRemoteRef, b)?.let { context.getString(R.string.state_undo_discard_blocked, it) },
-                    ).ifEmpty { listOf(context.getString(R.string.state_both_undo_available)) }.joinToString("；"),
+                    // 日志固定中文：只记「拦没拦」，不把会随语言变的界面文案写进日志
+                    listOf(
+                        if (resetSoftBlockReason(s.hasParent) != null) "保留改动·被拦下" else "保留改动·可用",
+                        if (resetHardBlockReason(s.hasParent, s.hasRemoteRef, b) != null) "丢弃改动·被拦下" else "丢弃改动·可用",
+                    ).joinToString("；"),
                 "决策页",
             )
         } else {
@@ -791,25 +798,25 @@ fun UndoCommitScreen(
                     busy = false
                     onResolved(
                         if (err == null) context.getString(R.string.state_commit_message_updated)
-                        else failureMessage(context.getString(R.string.action_edit_commit_message), err),
+                        else failureMessage(context.getString(R.string.action_edit_commit_message), err).resolve(context),
                     )
                 }
             }
             hasUnpushed && option == 1 -> {
                 // 兜底（正常路径下该选项已禁用）：预检不通过就不执行，也不编造原因
-                softBlock?.let { feedback = it; return }
+                softBlock?.let { feedback = it.resolve(context); return }
                 scope.launch {
                     busy = true
                     val err = withContext(Dispatchers.IO) { RustBridge.gitResetSoft(repoDir) }
                     busy = false
                     onResolved(
                         if (err == null) context.getString(R.string.state_undo_commit_kept)
-                        else failureMessage(context.getString(R.string.action_undo_commit), err),
+                        else failureMessage(context.getString(R.string.action_undo_commit), err).resolve(context),
                     )
                 }
             }
             hasUnpushed && option == 2 -> {
-                hardBlock?.let { feedback = it; return }
+                hardBlock?.let { feedback = it.resolve(context); return }
                 if (!confirmed) { feedback = context.getString(R.string.error_confirm_required); return }
                 scope.launch {
                     busy = true
@@ -817,7 +824,7 @@ fun UndoCommitScreen(
                     busy = false
                     onResolved(
                         if (err == null) context.getString(R.string.state_undo_discarded)
-                        else failureMessage(context.getString(R.string.action_undo_discard), err),
+                        else failureMessage(context.getString(R.string.action_undo_discard), err).resolve(context),
                     )
                 }
             }
@@ -860,12 +867,12 @@ fun UndoCommitScreen(
                     if (softBlock == null) {
                         DecisionOptionRow(stringResource(R.string.action_undo_commit_soft), stringResource(R.string.note_undo_soft), option == 1) { option = 1 }
                     } else {
-                        DisabledOptionRow(stringResource(R.string.action_undo_commit_soft), stringResource(R.string.note_undo_soft), softBlock)
+                        DisabledOptionRow(stringResource(R.string.action_undo_commit_soft), stringResource(R.string.note_undo_soft), softBlock.resolve())
                     }
                     if (hardBlock == null) {
                         DecisionOptionRow(stringResource(R.string.action_undo_discard_hard), stringResource(R.string.confirm_permanent_loss), option == 2, OptionTag.DANGER) { option = 2 }
                     } else {
-                        DisabledOptionRow(stringResource(R.string.action_undo_discard_hard), stringResource(R.string.confirm_permanent_loss), hardBlock)
+                        DisabledOptionRow(stringResource(R.string.action_undo_discard_hard), stringResource(R.string.confirm_permanent_loss), hardBlock.resolve())
                     }
                 }
             }
@@ -903,7 +910,7 @@ fun UndoCommitScreen(
         } else {
             // 这个形态由「unpushed 是否为空」选出，而 unpushed 来自 HEAD..上游 的 revwalk：
             // 没有上游分支时它同样为空，此时**并不知道**哪些提交已推送 —— 标题不能替用户下结论。
-            FactCard(revertFormTitle(hasStatus = status != null, hasUpstream = status?.hasUpstream == true)) {
+            FactCard(revertFormTitle(hasStatus = status != null, hasUpstream = status?.hasUpstream == true).resolve()) {
                 Column {
                     DecisionOptionRow(stringResource(R.string.action_create_revert), stringResource(R.string.note_revert_keeps_history), option == 0, OptionTag.RECOMMENDED) { option = 0 }
                     DecisionOptionRow(stringResource(R.string.action_cancel), stringResource(R.string.note_do_nothing), option == 1) { option = 1 }

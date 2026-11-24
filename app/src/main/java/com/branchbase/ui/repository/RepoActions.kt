@@ -1,6 +1,7 @@
 package com.branchbase.ui.repository
 
 import android.content.Context
+import com.branchbase.R
 import com.branchbase.cache.PreloadStore
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
@@ -253,26 +254,26 @@ object RepoActions {
                 fields = fields,
             )
             return when {
-                body == null -> "网页无响应"
+                body == null -> context.getString(R.string.error_web_no_response)
                 body.startsWith("ERROR:") -> body.removePrefix("ERROR:")
                 else -> runCatching { JSONObject(body) }.getOrNull()?.let { o ->
                     when {
                         o.optBoolean("ok", false) -> null
-                        o.has("error") -> webSubscribeError(o.optString("error"))
-                        else -> "写入失败"
+                        o.has("error") -> webSubscribeError(context, o.optString("error"))
+                        else -> context.getString(R.string.error_write_failed)
                     }
-                } ?: "写入失败"
+                } ?: context.getString(R.string.error_write_failed)
             }
         }
-        if (level == WatchLevel.CUSTOM) return "自定义通知需要先登录 GitHub 网页会话"
+        if (level == WatchLevel.CUSTOM) return context.getString(R.string.watch_error_custom_needs_web_login)
         return RustBridge.putJson(host, token, "/repos/$owner/$repo/subscription", RepoRelationRules.restSubscriptionBody(level))
     }
 
-    /** 网页端点返回的错误码 → 提示语（与网页版自己的处理保持一致）。 */
-    private fun webSubscribeError(code: String): String = when (code) {
-        "limit_exceeded" -> "通知订阅数量已达上限"
-        "forbidden" -> "没有权限修改该仓库的通知设置"
-        "" -> "写入失败"
+    /** 网页端点返回的错误码 → 提示语（与网页版自己的处理保持一致）。未知码原样透出。 */
+    private fun webSubscribeError(context: Context, code: String): String = when (code) {
+        "limit_exceeded" -> context.getString(R.string.watch_error_limit_exceeded)
+        "forbidden" -> context.getString(R.string.watch_error_forbidden)
+        "" -> context.getString(R.string.error_write_failed)
         else -> code
     }
 
@@ -331,6 +332,7 @@ object RepoActions {
      * `organization` 为空串表示复刻到个人账户。
      */
     suspend fun createFork(
+        context: Context,
         host: String,
         token: String,
         owner: String,
@@ -345,7 +347,7 @@ object RepoActions {
             .apply { if (organization.isNotBlank()) put("organization", organization) }
             .toString()
         val res = RustBridge.postJson(host, token, "/repos/$owner/$repo/forks", body)
-            ?: return ForkResult(error = "无响应")
+            ?: return ForkResult(error = context.getString(R.string.error_fork_no_response))
         if (res.startsWith("ERROR:")) {
             val msg = res.removePrefix("ERROR:").let { raw ->
                 // 422 的响应体里有 GitHub 的原话（重名、被禁用等），比状态码有用

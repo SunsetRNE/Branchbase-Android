@@ -87,7 +87,6 @@
     <string name="state_running">Running…</string>
     <string name="action_delete">Delete</string>
     <string name="label_handling">What to do</string>
-    <string name="error_commit_message_required">Enter a commit message</string>
     <string name="action_commit">Commit</string>
     <string name="action_back">Back</string>
     <string name="action_refresh">Refresh</string>
@@ -583,7 +582,6 @@
     <string name="label_recovery_method">Recovery method</string>
     <string name="state_diverged_badge">Diverged</string>
     <string name="label_target_commit">Target commit %1$s · %2$s</string>
-    <string name="state_discard_blocked">Discard local blocked: %1$s</string>
     <string name="state_pushing">Pushing…</string>
     <string name="label_upstream_branch_name">Upstream branch name</string>
     <string name="action_turn_off_gitify">Turn off gitify</string>
@@ -593,7 +591,6 @@
     <string name="note_remove_git_desc">Working tree files are untouched, but the history and %1$s unpushed commits are lost permanently (confirmation required).</string>
     <string name="label_local_branch">Local %1$s</string>
     <string name="note_diverged_explain">Local and remote have each moved ahead, so this cannot fast-forward. You can merge the remote into the local branch (a merge only adds commits — existing history is never rewritten), or keep / discard the local commits.</string>
-    <string name="state_both_undo_available">Both undo actions are available</string>
     <string name="hint_brief_description">Brief description…</string>
     <string name="confirm_discard_commits_checkbox">I confirm discarding these commits</string>
     <string name="action_push_and_set_upstream_short">Push and set upstream</string>
@@ -609,15 +606,11 @@
     <string name="label_delete_whole_repo">Delete the whole local repository</string>
     <string name="note_gitify_off">“Gitify” is a sub-switch of ③ (D10). Once it is off, commits go through the app\'s REST path (①②); choose what to do with the local .git.</string>
     <string name="error_remote_url_required">Enter the remote URL</string>
-    <string name="state_discard_available">Discard local available</string>
-    <string name="state_merge_blocked_log">Merge blocked: %1$s</string>
-    <string name="state_merge_available">Merge available</string>
     <string name="state_kept_local_for_now">Kept the local commit · remote untouched</string>
     <string name="state_discarded_local">Discarded the local commit</string>
     <string name="state_kept_git">Kept .git (prefers a plain folder)</string>
     <string name="label_remote_url">Remote URL</string>
     <string name="note_revert_keeps_history">A new commit reverses this commit\'s changes and the history is preserved (per the D11 boundary).</string>
-    <string name="state_undo_keep_blocked">Undo keeping changes blocked: %1$s</string>
     <string name="confirm_discard_local_commit_title">Confirm discarding the local commit</string>
     <string name="label_revert_method">Revert method</string>
     <string name="error_push_failed_result">Push failed: %1$s</string>
@@ -641,7 +634,6 @@
     <string name="state_sync_failed_diverged">Sync failed · diverged</string>
     <string name="label_keep_git">Keep .git unchanged</string>
     <string name="label_worktree_changes">Working tree changes</string>
-    <string name="state_undo_discard_blocked">Undo and discard blocked: %1$s</string>
     <string name="label_local_unpushed_commits">Local unpushed commits (discarding them loses them permanently)</string>
     <string name="state_no_commit_to_act">No commit to act on</string>
     <string name="error_remove_failed">Removal failed</string>
@@ -1681,6 +1673,15 @@
     <string name="fork_error_own_repository">You cannot fork your own repository</string>
     <string name="fork_error_already_forked">You have already forked this repository</string>
 
+    <!-- Star / watch / fork write failures (`RepoActions` returns `String?`, null = success).
+         Resolved in the execution layer, which already holds a Context. -->
+    <string name="error_web_no_response">No response from the web page</string>
+    <string name="error_write_failed">Failed to save</string>
+    <string name="error_fork_no_response">No response</string>
+    <string name="watch_error_custom_needs_web_login">Custom notifications require signing in to the GitHub website</string>
+    <string name="watch_error_limit_exceeded">You have reached the maximum number of watched repositories</string>
+    <string name="watch_error_forbidden">You do not have permission to change this repository\'s notification settings</string>
+
     <!-- About page entries for the license and the third-party notices (sources live at the repo root). -->
     <string name="label_open_source_license">License</string>
     <string name="label_third_party_notices">Third-party notices</string>
@@ -1754,4 +1755,78 @@
     <string name="action_merge_remote_short">Merge remote</string>
     <string name="action_resolve_locally">Resolve locally</string>
     <string name="label_unpushed_rest">…%1$s more not listed</string>
+    <!-- Search page: display names for sorting and advanced filters. The first element of
+         each pair is a stable ASCII key: filter values and expansion state are keyed by it,
+         so translating the label never changes the query string we send. -->
+    <string name="search_sort_best">Best match</string>
+    <string name="search_sort_stars">Most stars</string>
+    <string name="search_sort_forks">Most forks</string>
+    <string name="search_sort_updated">Recently updated</string>
+    <string name="advanced_filter_owner">Owner</string>
+    <string name="advanced_filter_size">Size</string>
+    <string name="advanced_filter_followers">Followers</string>
+    <string name="advanced_filter_forks">Forks</string>
+    <string name="advanced_filter_stars">Stars</string>
+    <string name="advanced_filter_created">Created</string>
+    <string name="advanced_filter_pushed">Pushed</string>
+    <string name="advanced_filter_topic">Topic</string>
+    <string name="advanced_filter_license">License</string>
+    <string name="advanced_filter_archived">Archived</string>
+    <string name="advanced_filter_visibility">Visibility</string>
+    <string name="search_repo_meta">%1$s · %2$s stars</string>
+
+    <!-- Stargazers / followers / forks lists: one line per failure kind.
+         403 has been GitHub policy since 2026-07 (the list is visible to collaborators only),
+         and must be distinguishable from "genuinely nobody". -->
+    <string name="label_fork_list">Forks</string>
+    <string name="error_people_list_restricted">GitHub restricts the %1$s list to repository collaborators; you do not have permission to view it.</string>
+    <string name="error_rate_limited">GitHub rate limit reached — try again later.</string>
+    <string name="error_people_list_load_failed">Failed to load %1$s: %2$s</string>
+
+    <!-- Pure predicates for the PR one-stop flow and repository settings (`ui/decision/CollabScreens.kt`).
+         These functions return a LocalizedText and are resolved only when rendered. -->
+    <string name="hint_no_changes">Nothing to commit yet: open a file on the Code page, edit it, save a draft, then come back here to open a PR.</string>
+    <string name="error_branch_name_empty">Branch name cannot be empty</string>
+    <string name="error_branch_name_has_space">Branch name cannot contain spaces</string>
+    <string name="error_branch_name_exists">Branch %1$s already exists; choose another name</string>
+    <string name="error_commit_message_required">Enter a commit message</string>
+    <string name="merge_state_unchecked">Not checked</string>
+    <string name="merge_state_merged">Merged</string>
+    <string name="merge_state_unknown">Check failed</string>
+    <plurals name="merge_ahead_commits">
+        <item quantity="one">%1$s commit ahead</item>
+        <item quantity="other">%1$s commits ahead</item>
+    </plurals>
+    <plurals name="stat_stars">
+        <item quantity="one">⭐ %1$s star</item>
+        <item quantity="other">⭐ %1$s stars</item>
+    </plurals>
+    <plurals name="stat_forks">
+        <item quantity="one">🍴 %1$s fork</item>
+        <item quantity="other">🍴 %1$s forks</item>
+    </plurals>
+    <plurals name="stat_commits">
+        <item quantity="one">%1$s commit</item>
+        <item quantity="other">%1$s commits</item>
+    </plurals>
+    <plurals name="stat_contributors">
+        <item quantity="one">%1$s contributor</item>
+        <item quantity="other">%1$s contributors</item>
+    </plurals>
+
+    <!-- Sync / rollback decision pages: why an option is disabled, and the failure line.
+         Each one is a hard fact that would make the action fail, so it is written up front. -->
+    <string name="undo_blocked_initial">This is the repository\'s first commit, so there is no previous commit to undo (reset --soft HEAD~1 would fail).</string>
+    <string name="undo_blocked_initial_and_no_ref">This is the repository\'s first commit (undoing it would erase local history), and there is no origin/%1$s ref yet: fetch first.</string>
+    <string name="undo_blocked_initial_only">This is the repository\'s first commit: undoing it would erase local history, so this page does not offer it.</string>
+    <string name="undo_blocked_no_remote_ref">There is no origin/%1$s ref yet (nothing fetched): fetch first.</string>
+    <string name="discard_blocked_no_remote_ref">There is no origin/%1$s ref yet (nothing fetched): fetch first, otherwise reset --hard has no target.</string>
+    <string name="merge_blocked_merging">The repository is in the middle of a merge: resolve the conflicts and “Commit merge”, or “Abort merge”, before merging origin/%1$s.</string>
+    <string name="merge_blocked_dirty">The working tree has %1$s uncommitted changes; merging requires a clean tree (commit or discard them first).</string>
+    <string name="merge_blocked_shallow">The local copy is a shallow clone (recent history only) and shares no ancestor with the remote: “Deepen history” first, then merge origin/%1$s.</string>
+    <string name="error_action_failed">%1$s failed (see the log)</string>
+    <string name="error_action_failed_reason">%1$s failed: %2$s</string>
+    <string name="revert_title_status_unknown">Push state unknown · revert only</string>
+    <string name="revert_title_no_upstream">No upstream branch · revert only (cannot tell whether pushed)</string>
+    <string name="revert_title_pushed">Pushed commits · history cannot be rewritten</string>
 </resources>
