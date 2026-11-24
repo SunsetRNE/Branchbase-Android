@@ -74,7 +74,40 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.20 → 1.0.22）
+## 二、`versionName` 流水（1.4.21 → 1.0.22）
+
+### 1.4.21
+
+**CI：Actions 全部切到 Node 24 运行时（只换运行时，不换工具版本）+ git 内部失败的码设计定稿。**
+
+① GitHub 的托管 runner 预装 Node 24，`runs.using: node20` 的 action 会被**强制**跑在 24 上，
+每次运行每个作业发一条黄色提示。清理它只能升大版本 —— 这版把命中提示的七个 action 升到
+「切 Node 24 的那一档」，并**刻意停在那档**，不追最新：
+
+| action | 原 | 现 | 为什么停在这里 |
+|---|---|---|---|
+| `actions/checkout` | v4（node20） | **v5** | v6 改了凭据持久化（单独文件）、v7 迁 ESM + 拦 fork PR |
+| `actions/cache` | v4 | **v5** | v6 迁 ESM + 依赖升级 |
+| `gradle/actions/setup-gradle` | v4 | **v5** | **v6 把缓存抽成闭源组件（要接受商用条款）、移除配置缓存支持** |
+| `android-actions/setup-android` | v3 | **v4** | 只换运行时；cmdline-tools 默认会从 12266719 变成 15859902，**显式钉回旧版本** |
+| `softprops/action-gh-release` | v2 | **v3** | 只换运行时 |
+| `actions/deploy-pages` | v4 | **v5** | 只换运行时 |
+| `actions/configure-pages` | v5 | **v6** | 依赖升级 |
+| `actions/upload-pages-artifact` | v3 | **v4** | 内部 upload-artifact 换代（见下） |
+
+两个残留，都是有意留下的：
+- `upload-pages-artifact@v4` 内部仍钉着 `actions/upload-artifact@v4.6.2`（node20），**Pages 作业还会有一条提示** ——
+  那是 composite 内部的依赖，除非自己按 Pages 的 artifact 规范手搓打包，否则清不掉；
+- Node 24 运行时要求 runner ≥ 2.327.1，GitHub 托管 runner 已满足；自托管才需要关心。
+
+② `i18n-migration.md` 新增 **§15**：git 内部失败的语义 / 场景 / 组合定稿（**方案，未实施**）——
+明确「不归通用码」：码只编**原因**，场景由调用方文案给、对象只进日志；新增 7 个有出路的场景码
+（`SIGNATURE_MISSING` / `UNMERGED_INDEX` / `REMOTE_MISSING` / `EMPTY_REPO` / `REPO_WRITE_FAILED` /
+`REPO_CORRUPT` / `CANCELLED`），并给出多原因命中的优先级表、回退链（具体原因 → 对象族兜底 → 原文）、
+以及三条前置修复（`gitCommit`/`gitRevert` 丢错误、两条路径不落日志、clone 锁文件保持原文）。
+
+验证：临时分支跑 CI（新 action 在 ci.yml 上真跑）→ 合入后跑 Beta（build-beta.yml 的 action 也换过）→
+手动触发一次 Pages（pages.yml 的三条 action 也换过）。
 
 ### 1.4.20
 
@@ -4451,7 +4484,10 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（280 → 129）
+## 三、`versionCode` 流水（281 → 129）
+
+- **281**：CI 的七个 action 切到 Node 24 版本（各自停在不夹带行为变化的那一档；setup-android 的
+  cmdline-tools 钉回旧版本）+ i18n 文档新增 §15「git 内部失败语义 / 场景 / 组合」方案（一次提交，故 +1）。
 
 - **280**：git 层换码第一批 —— 19 个稳定码（`NFF` / `AUTH_FAILED` / `LOCKED` / `BRANCH_*` /
   `MERGE_IN_PROGRESS` …）+ `classify_git_error`；修「`startsWith("ERROR:nff")` 从来没匹配上」的分叉

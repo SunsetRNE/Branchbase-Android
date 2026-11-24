@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: i18n 校验
         run: python3 tools/i18n/check-i18n.py --min-coverage 100
 
@@ -36,7 +36,7 @@ jobs:
     needs: i18n
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: ./.github/actions/setup-branchbase-env
         with:
@@ -72,7 +72,7 @@ jobs:
           - channel: perfBeta
             task: compilePerfBetaKotlin
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: ./.github/actions/setup-branchbase-env
         with:
@@ -85,7 +85,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -93,7 +93,7 @@ jobs:
           components: clippy, rustfmt
 
       - name: Cache Cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('core/Cargo.lock') }}
@@ -101,7 +101,7 @@ jobs:
             ${{ runner.os }}-cargo-registry-
 
       - name: Cache Cargo build
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: core/target
           key: ${{ runner.os }}-cargo-target-${{ hashFiles('core/Cargo.lock') }}

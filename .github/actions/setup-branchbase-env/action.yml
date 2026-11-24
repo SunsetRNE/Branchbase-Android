@@ -24,7 +24,7 @@ runs:
     - name: Setup Gradle (build cache + dependency cache)
       id: gradle
       continue-on-error: true
-      uses: gradle/actions/setup-gradle@v4
+      uses: gradle/actions/setup-gradle@v5
       with:
         cache-read-only: ${{ inputs.gradle-cache-read-only }}
 
@@ -52,7 +52,7 @@ runs:
     - name: Cache sccache
       id: cache_sccache
       continue-on-error: true
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~/.cache/sccache
         key: ${{ runner.os }}-sccache-${{ hashFiles('core/Cargo.lock') }}
@@ -70,7 +70,7 @@ runs:
     - name: Cache Android SDK/NDK
       id: cache_android_sdk
       continue-on-error: true
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~/android-sdk
         key: ${{ runner.os }}-android-sdk-v1
@@ -80,20 +80,25 @@ runs:
     - name: Setup Android SDK/NDK
       id: setup_android_sdk
       continue-on-error: true
-      uses: android-actions/setup-android@v3
+      uses: android-actions/setup-android@v4
       with:
         # **不要用它的默认值 `tools platform-tools`**：`tools`（旧版 Android SDK Tools 包）
         # 已从 SDK 仓库下线，cmdline-tools 16.0 上会直接
         # `Warning: Failed to find package 'tools'` → `sdkmanager` exit 1 →
         # 整个 prepare 阶段失败，build / publish 全被 skip（2026-09-15 的 e00b6a6 / 77d563e 两次都是）。
         # 只装 platform-tools；platforms / build-tools 由 AGP 按 compileSdk 自动补，
-        # 许可证在上一步 `accept-android-sdk-licenses` 已经接受。
+        # 许可证由本 action 的 `accept-android-sdk-licenses` 默认值接受。
+        #
+        # **cmdline-tools 版本显式钉住**：v4 的默认是 15859902（cmdline-tools 20.0），
+        # v3 的默认是 12266719。升级只该换 Node 运行时，不该顺手换 sdkmanager 的版本 ——
+        # 钉在这里，行为与升级前一致；将来要升工具版本，单独排一版验证。
+        cmdline-tools-version: '12266719'
         packages: 'platform-tools'
 
     - name: Cache Gradle distribution (tools/gradle 预存·命中)
       id: cache_gradle_dist
       continue-on-error: true
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: tools/gradle
         key: ${{ runner.os }}-gradle-dist-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}
@@ -103,7 +108,7 @@ runs:
     - name: Cache Cargo registry
       id: cache_cargo_registry
       continue-on-error: true
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~/.cargo/registry
         key: ${{ runner.os }}-cargo-registry-${{ hashFiles('core/Cargo.lock') }}
@@ -113,7 +118,7 @@ runs:
     - name: Cache Cargo build
       id: cache_cargo_target
       continue-on-error: true
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: core/target
         key: ${{ runner.os }}-cargo-target-${{ hashFiles('core/Cargo.lock') }}

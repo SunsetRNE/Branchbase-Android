@@ -25,7 +25,7 @@ jobs:
       buildTime: ${{ steps.ver.outputs.buildTime }}
       standardVersion: ${{ steps.ver.outputs.standardVersion }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -59,7 +59,7 @@ jobs:
       contents: read
       actions: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -70,7 +70,7 @@ jobs:
       # 核心没改就复用上次的 .so（键只含 core/**）：纯 UI 提交的发版不再等一轮 Rust 交叉编译。
       - name: Restore Rust core cache
         id: so-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: app/src/main/jniLibs/arm64-v8a/libbranchbase_core.so
           key: core-so-${{ runner.os }}-${{ hashFiles('core/**') }}
@@ -111,7 +111,7 @@ jobs:
           - channel: perfBeta
             tasks: ":app:compilePerfBetaKotlin :app:mergePerfBetaResources :app:mergePerfBetaJniLibFolders"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -201,7 +201,7 @@ jobs:
             task: assemblePerfBeta
             outDir: perfBeta
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -312,7 +312,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -372,7 +372,7 @@ jobs:
           git push origin beta --force || true
 
       - name: 类型判定发布（pre-release）
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: Beta 测试版 ${{ steps.tag.outputs.tag }}

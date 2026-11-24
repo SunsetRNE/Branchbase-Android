@@ -460,12 +460,136 @@ Kotlin 侧只有三个入口（`app/src/main/java/com/branchbase/core/EngineErro
      `pub fn` 在**出错那一行**贴码（`git_error(e, "CODE", "旧文案前缀")`）；认不出的仍按旧中文透出；
    - **`nff:` 前缀保留在 message 里**（日志锚点），但判定改看码 `ERROR:NFF` —— 顺手修掉了
      「`startsWith("ERROR:nff")` 从来没匹配上」的老 bug（见 `local-git-engine-design.md` §4.0）；
-   - 剩下的是**内部失败**（读索引 / 写树 / 签名 / revwalk …）：它们对用户没有可行动信息，
-     暂时保持旧文案，等下一批按「操作」归一个通用码（或继续不码）；
-3. **`auth` / `translate` 换码**：OAuth 的 `认证失败: GitHub 错误 (400): …` 仍是中文，
+   - 剩下的是**内部失败**（读索引 / 写树 / 签名 / revwalk …）：**不归通用码**，
+     按原因补成 7 个场景码 —— 方案与组合规则见 **§15**（1.4.21 定稿，未实施）；
 3. **`auth` / `translate` 换码**：OAuth 的 `认证失败: GitHub 错误 (400): …` 仍是中文，
    `classifyOAuthFailure` 还在从正文里找 `incorrect_client_credentials`；换码后由
    `AUTH_*` 直接给结论，`TranslateEngine.classify` 的中文匹配同理。
 
 收尾（属于第 3 块）：删掉 `RustBridge` 里已无引用的中文兜底、以及解析器里的旧文案分支 ——
 那之前**不要**删，双读是迁移期的安全网。
+
+---
+
+## 十五、git 内部失败：语义、场景与组合（方案，未实施）
+
+> 1.4.20 的 19 个码只覆盖「前置条件 / 用户能行动」的场景。写路径里还有约 93 处 `map_err`
+> （读索引、写树、构造签名、revwalk、找对象…）仍是 libgit2 英文原文套一句中文前缀。
+> 这一节回答「它们要不要归一个通用码」—— 结论是**不归通用码**，而是把语义拆成三个维度、
+> 补齐 7 个「有出路」的场景，并给出多条原因同时命中时的取舍规则。
+
+### 15.1 三个维度，别混成一个码
+
+| 维度 | 内容 | 谁提供 | 进码吗 |
+|---|---|---|---|
+| **场景** | 用户当时在做什么（推送 / 拉取 / 提交 / 切换 / 合并…） | 调用方的文案（「推送 %s 失败：」） | ❌ 不进 |
+| **对象** | 本地仓库的哪一块：索引 / 引用 / 对象库 / 工作区 / 签名配置 / 合并状态 / 远端 | Rust 侧（日志与句子主语） | ❌ 不进（见下） |
+| **原因** | 为什么失败、用户能做什么 | Rust 侧的归类 | ✅ **码只编码这个** |
+
+为什么对象不进码：`INDEX` / `TREE` / `REF` / `ODB` 对应的**用户行动完全一样**（腾空间 / 查权限 / 重新拉取），
+把它们做成码只会得到一堆「同义不同名」的文案。对象留在日志里，用于事后定位：
+
+```
+Logger.warn(LOCAL_TASK, tag, "推送 main 失败 ← [REPO_WRITE_FAILED/INDEX] failed to write index")
+```
+
+### 15.2 场景目录（已有的 19 个 + 这一批补 7 个）
+
+先列**新增的 7 个**（它们今天都藏在一句内部失败里）：
+
+| 码 | 典型 libgit2 原文 | 用户看到的 | 出路 | 今天藏在哪句里 |
+|---|---|---|---|---|
+| `SIGNATURE_MISSING` | `config value 'user.name' was not found` | 还没填提交人姓名或邮箱 | 设置 → 代码与提交 → 提交身份 | `构造作者签名失败: …` |
+| `UNMERGED_INDEX` | `cannot commit because there are unmerged entries` / `cannot create a tree from a not fully merged index` | 还有没解决的冲突文件 | 先解决冲突再提交 | `写树失败: …` |
+| `REMOTE_MISSING` | `remote 'origin' does not exist` / `config value 'remote.origin.url' was not found` | 这个本地仓库还没配远端地址 | 设置 → 本地仓库 → 远端地址 | `找不到 origin: …` |
+| `EMPTY_REPO` | `reference 'refs/heads/…' not found`（unborn）/ `the HEAD reference is not a symbolic ref` | 本地仓库还没有任何提交 | 先提交一次 | `读取 HEAD 失败: …` |
+| `REPO_WRITE_FAILED` | `failed to write index` / `failed to write tree` / `Permission denied` / `No space left on device` | 本地仓库写不进去：磁盘满了或没有写入权限 | 腾空间 / 查权限后重试 | `写索引失败:` / `写树失败:` |
+| `REPO_CORRUPT` | `object not found - no match for id (…)` / `corrupt` / `failed to parse` | 本地仓库的数据缺失或损坏 | 重新拉取（浅克隆先加深历史） | `revwalk …` / `找对象失败: …` |
+| `CANCELLED` | 用户按了取消 | 已取消 | 无（正常） | `clone 已取消` |
+
+已有 19 个（1.4.20）继续有效：`NFF` / `AUTH_FAILED` / `LOCKED` / `NOT_GIT_REPO` / `REPO_OPEN_FAILED` /
+`CLONE_TARGET_NOT_EMPTY` / `DIRTY_WORKTREE` / `CHECKOUT_BLOCKED` / `BRANCH_EXISTS` / `BRANCH_NOT_FOUND` /
+`CURRENT_BRANCH` / `MERGE_IN_PROGRESS` / `NO_MERGE_IN_PROGRESS` / `CONFLICTS_REMAIN` /
+`NO_PARENT_COMMIT` / `REMOTE_REF_MISSING` / `SHALLOW_CLONE` / `NO_COMMON_ANCESTOR` / `NOT_IN_CONFLICT`。
+
+### 15.3 组合规则（一个失败只出一个码）
+
+**① 自愈优先。** 能自动修的（浅边界、残留锁、半成品目录）先修再报；`heal_missing_objects` /
+`clear_stale_locks` 是既有实践，新场景也遵守这条 —— 用户看到的应该是「修好了 / 修不了」，
+而不是「引擎内部曾经出过错」。
+
+**② 多个原因同时命中时，取优先级最高的一条。** libgit2 的一句话里可能同时出现
+`authentication` 与 `403`，或者 `lock` 与 `write`。顺序（越靠前越「用户马上能判断」）：
+
+```
+CANCELLED
+  → AUTH_FAILED
+  → LOCKED
+  → REMOTE_MISSING
+  → NOT_FOUND（分支 / 引用）
+  → EMPTY_REPO
+  → MERGE_IN_PROGRESS / UNMERGED_INDEX / CONFLICTS_REMAIN
+  → DIRTY_WORKTREE / CHECKOUT_BLOCKED
+  → SHALLOW_CLONE / NO_COMMON_ANCESTOR
+  → SIGNATURE_MISSING
+  → REPO_CORRUPT
+  → REPO_WRITE_FAILED
+  → REPO_OPEN_FAILED
+  → （无码：保留原文）
+```
+
+**③ 不做「A+B」组合码。** 需要两个信息时用句子组合：**码文案（原因 + 出路）＋ 调用方前缀（场景）**。
+例：「**提交**失败」＋「还没填提交人姓名或邮箱，去设置里补一下」。这已经是一句完整的话，
+再多一层组合只会得到「提交失败：签名缺失：请填写」这种同义反复。
+
+**④ 回退链：具体原因 → 对象族兜底 → 原文。**
+
+```
+认得出具体原因（如 SIGNATURE_MISSING） → 用它
+只认得出「写不进本地仓库」             → REPO_WRITE_FAILED
+什么都认不出（或消息是纯英文技术串）   → 保留原文（CoreError::Other），不猜
+```
+
+**⑤ 参数化只在必要时用。** 像 `DIRTY_WORKTREE` 的「先提交或放弃这些改动」在合并 / 拉取 / 切换
+三个场景下都成立，所以**保持中性文案**，不引入「动作」参数。若将来某个码的行动必须随场景变，
+再给 `engineErrorText` 加一个可选的 `action: LocalizedText?`，由调用方传
+（`LocalizedText(R.string.action_merge)`），而不是在码里塞自由文本。
+
+### 15.4 渲染与日志
+
+- **码文案自足**：不看对象、不看场景也能读通；对象只进日志。
+- **detail 不上屏**（与 §14 一致）—— 但**必须落日志**。所以本方案有前置修复（§15.5）。
+- **唯一例外**：`REPO_CORRUPT` 可以在文案里带一个**短参数**（缺失对象的 7 位 sha 或冲突文件名），
+  因为「哪几个对象坏了」决定了用户是「重新拉取」还是「只补一个对象」；仍然不贴英文整句。
+- 日志格式建议统一成：`<场景>失败 ← [<CODE>/<OBJECT>] <libgit2 原文>`，
+  这样 grep 一个码就能捞出所有同类事故。
+
+### 15.5 前置修复（不做这三件，方案落不了地）
+
+1. **`gitCommit` / `gitRevert` 把错误丢了**：包装只返回 sha / null，原因既不返回也不记录，
+   界面只有「引擎没有返回结果」。必须先改成能把错误交给调用方（如 `GitWriteResult(sha, error)`）；
+2. **有几个失败路径不落日志**：`LocalBranchSyncScreen.switchAndPull` / `trackRemote`、
+   `SyncDecisionScreens` 的 amend / reset —— 错误只进几秒就消失的 `Feedback`。补一行 `Logger`；
+3. **clone 的锁文件分支保持原文**（它带现场取证），不归类 —— 已在 1.4.20 定下。
+
+### 15.6 场景 × 操作矩阵（节选）
+
+| 操作 | 正常会遇到的码 | 异常（说明引擎/仓库状态坏了） |
+|---|---|---|
+| 推送 | `NFF`、`AUTH_FAILED`、`LOCKED`、`REMOTE_MISSING` | `REPO_CORRUPT`、`REPO_WRITE_FAILED` |
+| 拉取 | `NFF`、`AUTH_FAILED`、`DIRTY_WORKTREE`、`SHALLOW_CLONE` | `REPO_CORRUPT` |
+| 提交 | `SIGNATURE_MISSING`、`UNMERGED_INDEX`、`DIRTY_WORKTREE` | `REPO_WRITE_FAILED`、`EMPTY_REPO` |
+| 切换 / 建分支 | `CHECKOUT_BLOCKED`、`BRANCH_EXISTS`、`BRANCH_NOT_FOUND`、`DIRTY_WORKTREE` | `REPO_OPEN_FAILED` |
+| 合并 / 冲突 | `MERGE_IN_PROGRESS`、`NO_COMMON_ANCESTOR`、`SHALLOW_CLONE`、`CONFLICTS_REMAIN`、`NOT_IN_CONFLICT` | `REPO_CORRUPT` |
+| 撤销 / amend | `NO_PARENT_COMMIT`、`REMOTE_REF_MISSING`、`DIRTY_WORKTREE` | `REPO_WRITE_FAILED` |
+
+「异常」那一列不是给用户看的分类，而是**排障提示**：同一列反复出现，说明那台设备上的仓库状态
+或磁盘有问题，日志里的 `[CODE/OBJECT]` 就是入口。
+
+### 15.7 成本与验收
+
+- Rust：约 50 处 `map_err` 贴码（其中大半是同一条规则），`classify_git_error` 增加 5–7 条匹配；
+- Kotlin：7 条资源 × 中英 + `CODE_TABLE` 7 行；无需改解析器（码的形状没变）；
+- 测试：Rust 归因 5 例（签名缺失 / 未合并索引 / 远端缺失 / 空仓库 / 写失败）+ Kotlin 码表 1 例；
+- 验收：真机上制造四个场景 —— 新装未填提交身份、浅克隆上合并、断网推送、只读目录里提交 ——
+  确认文案与出路都对。
