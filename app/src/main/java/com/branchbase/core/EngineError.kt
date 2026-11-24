@@ -102,6 +102,13 @@ internal object EngineCodes {
     const val REPO_WRITE_FAILED = "REPO_WRITE_FAILED"
     const val REPO_CORRUPT = "REPO_CORRUPT"
     const val CANCELLED = "CANCELLED"
+
+    // ── auth 层（1.4.24）：OAuth 交换 / 拉取用户 / 续期的失败原因 ──
+    const val AUTH_CLIENT_CREDENTIALS = "AUTH_CLIENT_CREDENTIALS"
+    const val AUTH_BAD_CODE = "AUTH_BAD_CODE"
+    const val AUTH_REDIRECT_MISMATCH = "AUTH_REDIRECT_MISMATCH"
+    const val AUTH_GITHUB_ERROR = "AUTH_GITHUB_ERROR"
+    const val AUTH_REFRESH_FAILED = "AUTH_REFRESH_FAILED"
 }
 
 /**
@@ -273,6 +280,12 @@ private val CODE_TABLE: Map<String, Int> = mapOf(
     EngineCodes.REPO_WRITE_FAILED to R.string.engine_error_repo_write_failed,
     EngineCodes.REPO_CORRUPT to R.string.engine_error_repo_corrupt,
     EngineCodes.CANCELLED to R.string.engine_error_cancelled,
+    // 前三条复用登录页已有的文案（换码不换话）
+    EngineCodes.AUTH_CLIENT_CREDENTIALS to R.string.error_oauth_client_credentials,
+    EngineCodes.AUTH_BAD_CODE to R.string.error_oauth_bad_code,
+    EngineCodes.AUTH_REDIRECT_MISMATCH to R.string.error_oauth_redirect_mismatch,
+    EngineCodes.AUTH_GITHUB_ERROR to R.string.engine_error_auth_github,
+    EngineCodes.AUTH_REFRESH_FAILED to R.string.engine_error_auth_refresh,
 )
 
 private fun codedFor(code: String, detail: String?): EngineError.Coded? {

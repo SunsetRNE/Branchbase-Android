@@ -1967,4 +1967,7 @@
     <string name="engine_error_repo_corrupt">The local repository\'s data is missing or corrupt: clone it again (deepen the history first if it is a shallow clone).</string>
     <string name="engine_error_cancelled">Cancelled.</string>
     <string name="error_revert_failed_reason">Revert failed: %1$s</string>
+
+    <string name="engine_error_auth_github">GitHub returned an error during sign-in: try again later; if it keeps failing, check the OAuth App configuration (see the log).</string>
+    <string name="engine_error_auth_refresh">Your sign-in has expired; please sign in again.</string>
 </resources>

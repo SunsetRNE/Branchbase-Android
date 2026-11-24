@@ -43,7 +43,13 @@ interface TranslateEngine {
          *    而它要的是「去设置里改 Key」，不是「换个语言对重试」。
          */
         fun classify(message: String): FailKind {
-            val m = message.uppercase()
+            // ① 先看引擎的稳定码（1.4.24 起）：码是「为什么失败」的唯一真源
+            val (code, rest) = splitErrorCode(message)
+            if (code != null) {
+                failKindOfCode(code)?.let { return it }
+            }
+            // ② 迁移期双读：旧 .so 只有正文，按关键词猜（顺序见下）
+            val m = rest.uppercase()
             if (m.contains("QUERY LENGTH LIMIT")) return FailKind.UNKNOWN
             return when {
                 m.contains("401") ||
@@ -77,6 +83,35 @@ interface TranslateEngine {
                 else -> FailKind.UNKNOWN
             }
         }
+
+        /**
+         * 把 `TRANSLATE_*` 稳定码映射成 [FailKind]（`null` = 不认识的码，交给正文判断）。
+         *
+         * `TRANSLATE_EMPTY` / `TRANSLATE_QUERY_LIMIT` 都归 `UNKNOWN`：
+         * - 空译文是服务端偶发 → 不重试；
+         * - `QUERY LENGTH LIMIT` 是我们自己的分片超限（bug），熔断会把它藏起来。
+         */
+        fun failKindOfCode(code: String): FailKind? = when (code) {
+            "TRANSLATE_AUTH" -> FailKind.AUTH
+            "TRANSLATE_QUOTA" -> FailKind.QUOTA
+            "TRANSLATE_NETWORK" -> FailKind.NETWORK
+            "TRANSLATE_UNSUPPORTED" -> FailKind.UNSUPPORTED
+            "TRANSLATE_EMPTY", "TRANSLATE_QUERY_LIMIT", "TRANSLATE_UNKNOWN" -> FailKind.UNKNOWN
+            else -> null
+        }
+
+        /**
+         * 拆 `CODE:正文`（码是全大写 ASCII，至少 3 个字符）。
+         *
+         * 只认**串首**：中文/英文正文里出现的冒号不参与切割；
+         * 旧文案（`DeepSeek 认证失败（401）：…`）首字母大写但后面有小写，不会误判成码。
+         */
+        fun splitErrorCode(message: String): Pair<String?, String> {
+            val m = CODE_PREFIX.find(message) ?: return null to message
+            return m.groupValues[1] to m.groupValues[2]
+        }
+
+        private val CODE_PREFIX = Regex("^([A-Z][A-Z0-9_]{2,}):([\\s\\S]*)$")
     }
 }
 

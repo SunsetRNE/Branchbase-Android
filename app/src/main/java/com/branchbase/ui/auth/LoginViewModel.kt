@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.branchbase.BuildConfig
 import com.branchbase.R
+import com.branchbase.core.engineErrorText
 import com.branchbase.core.AccountStore
 import com.branchbase.core.AuthKind
 import com.branchbase.core.AvatarCache
@@ -466,7 +467,8 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                             getApplication<Application>().getString(R.string.error_oauth_bad_code)
                         OAuthFailure.RedirectMismatch ->
                             getApplication<Application>().getString(R.string.error_oauth_redirect_mismatch)
-                        is OAuthFailure.Other -> failure.raw
+                        // 有码时就地翻成当前界面语言（旧文案 / 未知码原样透出）
+                        is OAuthFailure.Other -> engineErrorText(getApplication(), failure.raw) ?: failure.raw
                     }
                     _state.value = LoginState.Error(message, LoginFailStep.OAUTH_EXCHANGE)
                 }

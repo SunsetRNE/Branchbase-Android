@@ -40,6 +40,22 @@ pub struct OAuthClient {
     config: OAuthConfig,
 }
 
+/// 把 GitHub OAuth 的错误体归到稳定码（界面据此给结论，正文只进日志）。
+///
+/// 只认 GitHub 文档里那三种「用户能自己处理」的原因；其余归 `AUTH_GITHUB_ERROR`。
+/// 迁移期 Kotlin 侧仍保留正文关键词的双读，所以旧 `.so` 也不会退化。
+fn oauth_error_code(text: &str) -> &'static str {
+    if text.contains("incorrect_client_credentials") {
+        "AUTH_CLIENT_CREDENTIALS"
+    } else if text.contains("bad_verification_code") || text.contains("invalid_grant") {
+        "AUTH_BAD_CODE"
+    } else if text.contains("redirect_uri_mismatch") {
+        "AUTH_REDIRECT_MISMATCH"
+    } else {
+        "AUTH_GITHUB_ERROR"
+    }
+}
+
 impl OAuthClient {
     pub fn new(config: OAuthConfig) -> Self {
         Self { config }
@@ -85,7 +101,10 @@ impl OAuthClient {
 
         // GitHub 成功返回 {"access_token":...}，失败返回 {"error":"...","error_description":"..."}
         if !status.is_success() || text.contains("\"error\"") {
-            return Err(CoreError::Auth(format!("GitHub 错误 ({status}): {text}")));
+            return Err(CoreError::coded(
+                oauth_error_code(&text),
+                format!("GitHub 错误 ({status}): {text}"),
+            ));
         }
 
         let token: Token = serde_json::from_str(&text)?;
@@ -121,7 +140,16 @@ impl OAuthClient {
         let status = resp.status();
         let text = resp.text().await?;
         if !status.is_success() {
-            return Err(CoreError::Auth(format!("获取用户失败 ({status}): {text}")));
+            // 401/403 = 令牌无效或没权限（去重新登录）；其余状态是服务端问题
+            let code = if status.as_u16() == 401 || status.as_u16() == 403 {
+                "AUTH_FAILED"
+            } else {
+                "AUTH_GITHUB_ERROR"
+            };
+            return Err(CoreError::coded(
+                code,
+                format!("获取用户失败 ({status}): {text}"),
+            ));
         }
 
         let user: User = serde_json::from_str(&text)?;
@@ -147,7 +175,11 @@ impl OAuthClient {
         let status = resp.status();
         let text = resp.text().await?;
         if !status.is_success() || text.contains("\"error\"") {
-            return Err(CoreError::Auth(format!("刷新失败 ({status}): {text}")));
+            // 续期失败对用户只有一条出路：重新登录（refresh token 过期/被撤销都归这里）
+            return Err(CoreError::coded(
+                "AUTH_REFRESH_FAILED",
+                format!("刷新失败 ({status}): {text}"),
+            ));
         }
 
         let token: Token = serde_json::from_str(&text)?;

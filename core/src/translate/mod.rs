@@ -133,6 +133,20 @@ pub async fn translate(text: &str, from: &str, to: &str, options: &Options) -> R
     }
 }
 
+/// 翻译失败的稳定码：只编「上层要据此决定重试 / 熔断」的类别。
+///
+/// 与 `:translate` 的 `TranslateEngine.classify` 一一对应（码优先，正文关键词是迁移期的双读）：
+/// 401 → AUTH；402 / 403 / 429 → QUOTA；5xx → NETWORK；其余 UNKNOWN。
+/// 注意 403 归 **QUOTA**（MyMemory 的 403 就是 `ALL QUERIES EXHAUSTED`），不是 AUTH。
+pub(crate) fn failure_code(status: u16) -> &'static str {
+    match status {
+        401 => "TRANSLATE_AUTH",
+        402 | 403 | 429 => "TRANSLATE_QUOTA",
+        500..=599 => "TRANSLATE_NETWORK",
+        _ => "TRANSLATE_UNKNOWN",
+    }
+}
+
 /// 翻译专用 HTTP 客户端（懒建的全局单例，连接池复用）。
 ///
 /// 与 `api::client::shared_http()` 分开的原因见模块头注释：超时不同。

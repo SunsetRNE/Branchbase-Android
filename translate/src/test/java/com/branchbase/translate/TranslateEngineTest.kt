@@ -68,4 +68,25 @@ class TranslateEngineTest {
     fun `认不出来的错误不熔断`() {
         assertEquals(FailKind.UNKNOWN, TranslateEngine.classify("翻译服务返回空结果"))
     }
+
+    // ── 1.4.24：稳定码优先（迁移期正文兜底） ──
+
+    @Test
+    fun `稳定码映射到失败类别`() {
+        assertEquals(FailKind.AUTH, TranslateEngine.classify("TRANSLATE_AUTH:DeepSeek 认证失败（401）：…"))
+        assertEquals(FailKind.QUOTA, TranslateEngine.classify("TRANSLATE_QUOTA:翻译服务返回 403：ALL QUERIES EXHAUSTED"))
+        assertEquals(FailKind.NETWORK, TranslateEngine.classify("TRANSLATE_NETWORK:DeepSeek 接口返回 HTTP 503"))
+        assertEquals(FailKind.UNSUPPORTED, TranslateEngine.classify("TRANSLATE_UNSUPPORTED:INVALID LANGPAIR"))
+        // 空译文 / 分片超限都归 UNKNOWN（不重试、不熔断 —— 后者是我们自己的 bug）
+        assertEquals(FailKind.UNKNOWN, TranslateEngine.classify("TRANSLATE_EMPTY:DeepSeek 返回空译文"))
+        assertEquals(FailKind.UNKNOWN, TranslateEngine.classify("TRANSLATE_QUERY_LIMIT:QUERY LENGTH LIMIT DONE"))
+    }
+
+    @Test
+    fun `拆码只认串首的大写码`() {
+        assertEquals("TRANSLATE_AUTH" to "正文", TranslateEngine.splitErrorCode("TRANSLATE_AUTH:正文"))
+        assertEquals(null to "DeepSeek 认证失败（401）：未配置", TranslateEngine.splitErrorCode("DeepSeek 认证失败（401）：未配置"))
+        // 正文里的冒号不参与切割
+        assertEquals("TRANSLATE_QUOTA" to "a:b:c", TranslateEngine.splitErrorCode("TRANSLATE_QUOTA:a:b:c"))
+    }
 }

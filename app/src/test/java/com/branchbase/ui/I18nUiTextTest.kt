@@ -255,6 +255,8 @@ class I18nUiTextTest {
             "engine_error_remote_missing", "engine_error_empty_repo",
             "engine_error_repo_write_failed", "engine_error_repo_corrupt",
             "engine_error_cancelled", "error_revert_failed_reason",
+            // auth 层的两种「非本 App 能修」的失败
+            "engine_error_auth_github", "engine_error_auth_refresh",
             // 仓库打不开的解释（404 歧义 / 403 权限与限流 / 令牌 scope 判读）
             "repo_access_hint_404", "repo_access_hint_403",
             "repo_scope_has_repo", "repo_scope_missing_repo",

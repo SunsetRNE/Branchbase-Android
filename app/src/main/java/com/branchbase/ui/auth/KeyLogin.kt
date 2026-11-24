@@ -1,5 +1,8 @@
 package com.branchbase.ui.auth
 
+import com.branchbase.core.EngineCodes
+import com.branchbase.core.EngineError
+import com.branchbase.core.parseEngineError
 import org.json.JSONObject
 
 /**
@@ -106,9 +109,19 @@ internal sealed interface OAuthFailure {
     data class Other(val raw: String) : OAuthFailure
 }
 
-internal fun classifyOAuthFailure(raw: String): OAuthFailure = when {
-    raw.contains("incorrect_client_credentials") -> OAuthFailure.ClientCredentials
-    raw.contains("bad_verification_code") || raw.contains("invalid_grant") -> OAuthFailure.BadCode
-    raw.contains("redirect_uri_mismatch") -> OAuthFailure.RedirectMismatch
-    else -> OAuthFailure.Other(raw)
+internal fun classifyOAuthFailure(raw: String): OAuthFailure {
+    // ① 先看稳定码（1.4.24 起引擎会发）；未知码 / 没码再走正文关键词（迁移期双读）
+    (parseEngineError(raw) as? EngineError.Coded)?.code?.let { code ->
+        when (code) {
+            EngineCodes.AUTH_CLIENT_CREDENTIALS -> return OAuthFailure.ClientCredentials
+            EngineCodes.AUTH_BAD_CODE -> return OAuthFailure.BadCode
+            EngineCodes.AUTH_REDIRECT_MISMATCH -> return OAuthFailure.RedirectMismatch
+        }
+    }
+    return when {
+        raw.contains("incorrect_client_credentials") -> OAuthFailure.ClientCredentials
+        raw.contains("bad_verification_code") || raw.contains("invalid_grant") -> OAuthFailure.BadCode
+        raw.contains("redirect_uri_mismatch") -> OAuthFailure.RedirectMismatch
+        else -> OAuthFailure.Other(raw)
+    }
 }

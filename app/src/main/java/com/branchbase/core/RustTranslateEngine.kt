@@ -44,7 +44,10 @@ class RustTranslateEngine(
             raw.isBlank() -> EngineResult.Fail(FailKind.NETWORK, "翻译服务无响应")
             raw.startsWith(ERROR_PREFIX) -> {
                 val message = raw.removePrefix(ERROR_PREFIX).trim()
-                EngineResult.Fail(TranslateEngine.classify(message), message)
+                // 失败文案要上屏（「测试连接」的原始原因）：把稳定码前缀剥掉，
+                // 码只用来分类；分类本身也是码优先、正文兜底。
+                val (_, text) = TranslateEngine.splitErrorCode(message)
+                EngineResult.Fail(TranslateEngine.classify(message), text)
             }
             else -> EngineResult.Ok(raw)
         }

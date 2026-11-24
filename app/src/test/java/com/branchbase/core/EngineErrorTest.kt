@@ -109,6 +109,23 @@ class EngineErrorTest {
     }
 
     @Test
+    fun `auth 层的稳定码映射到登录页文案`() {
+        // 前三条复用登录页已有资源（换码不换话），后两条是引擎新增的两种「非本 App 能修」
+        val cases = mapOf(
+            "AUTH_CLIENT_CREDENTIALS" to R.string.error_oauth_client_credentials,
+            "AUTH_BAD_CODE" to R.string.error_oauth_bad_code,
+            "AUTH_REDIRECT_MISMATCH" to R.string.error_oauth_redirect_mismatch,
+            "AUTH_GITHUB_ERROR" to R.string.engine_error_auth_github,
+            "AUTH_REFRESH_FAILED" to R.string.engine_error_auth_refresh,
+        )
+        cases.forEach { (code, res) ->
+            val e = parseEngineError("$code:GitHub 错误 (400): …") as EngineError.Coded
+            assertEquals(code, e.code)
+            assertEquals(res, e.res)
+        }
+    }
+
+    @Test
     fun `没见过的码原样透出_不猜`() {
         // 用一个**永远不该出现**的码：`NOT_GIT_REPO` 之类已经进码表了，拿它测「未知码」会假红。
         val raw = parseEngineError("ERROR:SOMETHING_NEW:不是 git 仓库") as EngineError.Raw

@@ -41,8 +41,9 @@ pub async fn translate(
     let key = options.api_key.trim();
     if key.is_empty() {
         // 上层其实已经拦过一次（引擎里短路），这里是兜底：直接说清是「没配 Key」
-        return Err(CoreError::Other(
-            "DeepSeek 认证失败（401）：尚未配置 API Key".into(),
+        return Err(CoreError::coded(
+            "TRANSLATE_AUTH",
+            "DeepSeek 认证失败（401）：尚未配置 API Key",
         ));
     }
 
@@ -64,7 +65,10 @@ pub async fn translate(
     if !status.is_success() {
         let detail = super::extract_api_error(&raw)
             .unwrap_or_else(|| super::truncate(&raw, 200));
-        return Err(CoreError::Other(error_message(status.as_u16(), &detail)));
+        return Err(CoreError::coded(
+            super::failure_code(status.as_u16()),
+            error_message(status.as_u16(), &detail),
+        ));
     }
     parse_response(&raw)
 }
@@ -105,10 +109,10 @@ pub(crate) fn parse_response(body: &str) -> Result<String> {
         .unwrap_or("");
     let cleaned = clean_output(content);
     if cleaned.is_empty() {
-        return Err(CoreError::Other(format!(
-            "DeepSeek 返回空译文：{}",
-            super::truncate(body, 200)
-        )));
+        return Err(CoreError::coded(
+            "TRANSLATE_EMPTY",
+            format!("DeepSeek 返回空译文：{}", super::truncate(body, 200)),
+        ));
     }
     Ok(cleaned)
 }

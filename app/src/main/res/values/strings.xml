@@ -2009,4 +2009,8 @@
     <string name="engine_error_repo_corrupt">本地仓库的数据缺失或损坏：重新拉取一份（浅克隆先加深历史）</string>
     <string name="engine_error_cancelled">已取消</string>
     <string name="error_revert_failed_reason">revert 失败：%1$s</string>
+
+    <!-- auth 层的两种「非本 App 能修」的失败（1.4.24）：正文只进日志 -->
+    <string name="engine_error_auth_github">登录时 GitHub 返回了错误：稍后重试；若反复失败，检查 OAuth App 配置（详情见日志）</string>
+    <string name="engine_error_auth_refresh">登录已过期，需要重新登录</string>
 </resources>

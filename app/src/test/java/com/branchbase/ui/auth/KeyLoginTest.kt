@@ -152,6 +152,19 @@ class KeyLoginTest {
             OAuthFailure.RedirectMismatch,
             classifyOAuthFailure("""GitHub 错误 (200 OK): {"error":"redirect_uri_mismatch"}"""),
         )
+        // 1.4.24 起引擎会发稳定码：码优先，正文只做迁移期兜底
+        assertEquals(
+            OAuthFailure.ClientCredentials,
+            classifyOAuthFailure("AUTH_CLIENT_CREDENTIALS:GitHub 错误 (400): {\"error\":\"incorrect_client_credentials\"}"),
+        )
+        assertEquals(
+            OAuthFailure.BadCode,
+            classifyOAuthFailure("AUTH_BAD_CODE:GitHub 错误 (400): {\"error\":\"bad_verification_code\"}"),
+        )
+        assertEquals(
+            OAuthFailure.RedirectMismatch,
+            classifyOAuthFailure("AUTH_REDIRECT_MISMATCH:GitHub 错误 (400): {\"error\":\"redirect_uri_mismatch\"}"),
+        )
         // 未知错误保留原文，便于贴日志
         val raw = "GitHub 错误 (500 Internal Server Error): upstream timeout"
         assertEquals(OAuthFailure.Other(raw), classifyOAuthFailure(raw))

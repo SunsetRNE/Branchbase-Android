@@ -46,11 +46,14 @@ pub async fn translate(text: &str, from: &str, to: &str) -> Result<String> {
     let status = resp.status();
     let body = resp.text().await?;
     if !status.is_success() {
-        return Err(CoreError::Other(format!(
-            "翻译服务 HTTP {}：{}",
-            status.as_u16(),
-            super::truncate(&body, 120)
-        )));
+        return Err(CoreError::coded(
+            super::failure_code(status.as_u16()),
+            format!(
+                "翻译服务 HTTP {}：{}",
+                status.as_u16(),
+                super::truncate(&body, 120)
+            ),
+        ));
     }
     parse_response(&body)
 }
@@ -65,7 +68,10 @@ pub(crate) fn parse_response(body: &str) -> Result<String> {
     let status = v.get("responseStatus").and_then(|x| x.as_i64()).unwrap_or(200);
     if status != 200 {
         let detail = v.get("responseDetails").and_then(|x| x.as_str()).unwrap_or("");
-        return Err(CoreError::Other(format!("翻译服务返回 {status}：{detail}")));
+        return Err(CoreError::coded(
+            super::failure_code(status as u16),
+            format!("翻译服务返回 {status}：{detail}"),
+        ));
     }
     let text = v
         .get("responseData")
@@ -75,10 +81,15 @@ pub(crate) fn parse_response(body: &str) -> Result<String> {
         .trim()
         .to_string();
     if text.is_empty() {
-        return Err(CoreError::Other("翻译服务返回空结果".into()));
+        return Err(CoreError::coded("TRANSLATE_EMPTY", "翻译服务返回空结果"));
     }
-    if text.starts_with("QUERY LENGTH LIMIT") || text.starts_with("INVALID") {
-        return Err(CoreError::Other(text));
+    if text.starts_with("QUERY LENGTH LIMIT") {
+        // 这是我们自己的分片超过了服务端上限（不是服务故障）：归类为 UNKNOWN，
+        // 不该触发熔断 —— 熔断会把这个 bug 藏起来
+        return Err(CoreError::coded("TRANSLATE_QUERY_LIMIT", text));
+    }
+    if text.starts_with("INVALID") {
+        return Err(CoreError::coded("TRANSLATE_UNSUPPORTED", text));
     }
     Ok(text)
 }

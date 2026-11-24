@@ -462,9 +462,13 @@ Kotlin 侧只有三个入口（`app/src/main/java/com/branchbase/core/EngineErro
      「`startsWith("ERROR:nff")` 从来没匹配上」的老 bug（见 `local-git-engine-design.md` §4.0）；
    - 剩下的是**内部失败**（读索引 / 写树 / 签名 / revwalk …）：**不归通用码**，
      按原因补成 7 个场景码 —— 方案与组合规则见 **§15**（1.4.21 定稿，未实施）；
-3. **`auth` / `translate` 换码**：OAuth 的 `认证失败: GitHub 错误 (400): …` 仍是中文，
-   `classifyOAuthFailure` 还在从正文里找 `incorrect_client_credentials`；换码后由
-   `AUTH_*` 直接给结论，`TranslateEngine.classify` 的中文匹配同理。
+3. ~~**`auth` / `translate` 换码**~~ —— **1.4.24 已完成**：
+   - OAuth 五种原因码（`AUTH_CLIENT_CREDENTIALS` / `AUTH_BAD_CODE` / `AUTH_REDIRECT_MISMATCH` /
+     `AUTH_GITHUB_ERROR` / `AUTH_REFRESH_FAILED`）＋拉取用户的 `AUTH_FAILED`；
+     `classifyOAuthFailure` 码优先、正文兜底；
+   - 翻译七种类别码（`TRANSLATE_AUTH` / `_QUOTA` / `_NETWORK` / `_UNSUPPORTED` / `_EMPTY` /
+     `_QUERY_LIMIT` / `_UNKNOWN`）；`:translate` 的 `classify` 码优先，`RustTranslateEngine`
+     把码从**上屏文案**里剥掉。
 
 收尾（属于第 3 块）：删掉 `RustBridge` 里已无引用的中文兜底、以及解析器里的旧文案分支 ——
 那之前**不要**删，双读是迁移期的安全网。

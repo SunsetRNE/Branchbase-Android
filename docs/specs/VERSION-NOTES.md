@@ -74,7 +74,31 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.23 → 1.0.22）
+## 二、`versionName` 流水（1.4.24 → 1.0.22）
+
+### 1.4.24
+
+**`auth` / `translate` 换码：登录失败与翻译失败也走稳定码（§14.4 第 3 条）。**
+
+① **auth**（`core/src/auth/oauth.rs`）：三种失败带码 ——
+- OAuth 交换：`AUTH_CLIENT_CREDENTIALS` / `AUTH_BAD_CODE` / `AUTH_REDIRECT_MISMATCH`
+  （GitHub 错误体里的三种原因）+ `AUTH_GITHUB_ERROR`（其余）；
+- 拉取用户：401/403 → `AUTH_FAILED`，其余 → `AUTH_GITHUB_ERROR`；
+- 续期：`AUTH_REFRESH_FAILED`（refresh token 过期/被撤销都归这里）。
+Kotlin 的 `classifyOAuthFailure` 改成**码优先**（正文关键词保留为迁移期兜底），
+`LoginViewModel` 的 `Other` 分支改走 `engineErrorText`（原来是原样贴中文）。
+
+② **translate**（`core/src/translate/{deepseek,mymemory}.rs`）：`TRANSLATE_AUTH` / `TRANSLATE_QUOTA` /
+`TRANSLATE_NETWORK` / `TRANSLATE_UNSUPPORTED` / `TRANSLATE_EMPTY` / `TRANSLATE_QUERY_LIMIT` /
+`TRANSLATE_UNKNOWN`；`:translate` 的 `TranslateEngine.classify` 先认码、再走原来的关键词
+（**判定顺序不变**），新增 `splitErrorCode`；`RustTranslateEngine` 把码从**上屏文案**里剥掉
+（码只用于分类，用户看到的仍是那句正文）。
+
+行为口径：归类结果与换码前**逐条对齐** —— 403 仍归 QUOTA（MyMemory 的 403 就是额度耗尽，
+不是认证），`QUERY LENGTH LIMIT` 仍归 UNKNOWN（那是我们自己的分片 bug，熔断会把 bug 藏起来）。
+
+钉子：`:translate` 2 例（码映射 + 拆码）、`KeyLoginTest` 补 3 例（码优先）、
+`EngineErrorTest` 1 例（auth 码 → 登录页文案）、`I18nUiTextTest` 新增 2 键。
 
 ### 1.4.23
 
@@ -4535,7 +4559,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（283 → 129）
+## 三、`versionCode` 流水（284 → 129）
+
+- **284**：auth / translate 换码 —— OAuth 五种原因码（客户端凭据 / 无效 code / 回调地址 / GitHub 错误 /
+  续期失败）、翻译七种类别码 + `:translate` 码优先分类与 `splitErrorCode`（上屏文案剥码）
+  （一次提交，故 +1）。
 
 - **283**：收录 COUI / 多 UI 体系评估与决策记录（并行会话的规划文档，仅入库）+ `docs/README.md`
   索引一行（一次提交，故 +1）。
