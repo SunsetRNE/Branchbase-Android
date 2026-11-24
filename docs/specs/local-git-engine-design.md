@@ -102,23 +102,33 @@ UI 只能挂一句「正在克隆…」。现在引擎往外报进度，口径�
 3. **取消是「尽快」不是「立刻」**：libgit2 没有取消句柄，唯一的中断点是回调返回值，
    所以网络完全静默时会等到下一次回调才停。UI 必须显示「正在取消…」并继续等结果，不能假装已经停了。
 
-## 4. 错误归一：`nff:` 前缀 = 分叉决策页的触发信号
+## 4. 错误归一：稳定码 `NFF` = 分叉决策页的触发信号
 
 **这是本节最容易被忽略、也最不该动的一条**：
 
 ```rust
-/// 推送错误归一：被拒（非快进/锁 ref/rejected）→ `nff:` 前缀，供上层触发分叉决策页；
-/// 其余原样透出为 `push 失败:`。
+/// 推送错误归一：被拒（非快进 / 锁 ref / rejected）→ 稳定码 `NFF`，供上层触发分叉决策页；
+/// 其余原样透出为 `push 失败:`（认证 / 锁文件会再细分成 AUTH_FAILED / LOCKED）。
 fn map_push_error(msg: &str) -> CoreError { ... }
 ```
 
-（`core/src/git/mod.rs:1001-1010`）
+- 命中条件：`non-fast-forward` / `cannot lock ref` / `rejected` → `CoreError::coded("NFF", "nff: 推送被拒（远端领先）: …")`；
+- pull 侧同样归一：本地有未推送提交且远端领先 → `CoreError::coded("NFF", "nff: 本地与远端分叉（non-fast-forward）")`；
+- JNI 串的形状是 `ERROR:NFF:nff: 推送被拒（远端领先）: …`（`ERROR:<CODE>:<旧文案>`）；
+- **上层依赖这个码**：Kotlin 的 `gitTriState` 认 `ERROR:NFF` 就返回 `"nff"` → 弹**分叉决策页（P0-1）**，
+  其余错误按普通失败提示；
+- **`nff: ` 这段文本仍然保留在 message 里**（日志锚点与排障习惯不变），但**判定不许再看文本** ——
+  触发信号是码。
 
-- 命中条件：`non-fast-forward` / `cannot lock ref` / `rejected` → `nff: 推送被拒（远端领先）: …`；
-- pull 侧同样归一：本地有未推送提交且远端领先 → `Err("nff: 本地与远端分叉（non-fast-forward）")`（`:118-121`）；
-- **上层依赖这个前缀**：`nff:` 出现即弹**分叉决策页（P0-1）**，其余错误按普通失败提示；
-- 改动风险：把 `nff:` 改掉 / 改成别的文案，分叉决策页**再也不会被触发**，
-  用户看到的是「推送失败」而不是「要你选合并还是覆盖」。
+### 4.0 一个修掉的老 bug（2026-11-25 / 1.4.20）
+
+在换成码之前，判定一直**没生效过**：引擎把 nff 塞在 `CoreError::Other` 里，`thiserror` 的 Display 会加
+`未知错误: ` 前缀，JNI 实际吐的是 `ERROR:未知错误: nff: …`；而 Kotlin 判的是
+`startsWith("ERROR:nff")` —— 前缀永远对不上，分叉被当成普通失败，「推送被拒 → 分叉决策页」这条链路
+从来没有走通过（`GitErrorConventionTest` 用的是手写的 `ERROR:nff: …`，所以一直绿着）。
+
+现在两边都由**码**驱动：Rust 的 `push_rejection_wire_shape_starts_with_code` 钉住 JNI 形状，
+Kotlin 的 `分叉三态必须能被决策页认出来_码与旧写法都认` 钉住解析。
 
 ### 4.1 clone 侧的错误归一与目标目录规约
 

@@ -1936,4 +1936,25 @@
     <string name="repo_access_hint_403">HTTP 403: not permitted, or rate-limited. A fine-grained token without Contents access, an organization SSO authorization that has not been granted, or a secondary rate limit all look like this.</string>
     <string name="repo_scope_has_repo">This token has repo scope, so permissions are probably not the problem: the repository may not exist, may have been renamed, or the organization may require SSO authorization first.</string>
     <string name="repo_scope_missing_repo">This token has no repo scope, so private repositories are always invisible; switch to a token that includes repo.</string>
+
+    <!-- git-layer stable codes (`EngineError.kt` CODE_TABLE, 1.4.20). -->
+    <string name="engine_error_nff">The remote has new commits (diverged): pull and merge first, then push.</string>
+    <string name="engine_error_auth_failed">Authentication failed: invalid token, no access to this repository, or sign in again.</string>
+    <string name="engine_error_locked">The repository is locked (a lock file was not released): try again later.</string>
+    <string name="engine_error_not_git_repo">This is not a git repository (or the directory is gone).</string>
+    <string name="engine_error_repo_open_failed">The local repository cannot be opened: it may have been moved or deleted; clone it again.</string>
+    <string name="engine_error_clone_target_not_empty">The target directory already contains a repository: delete the local copy or pick another directory.</string>
+    <string name="engine_error_dirty_worktree">The working tree has uncommitted changes: commit or discard them first.</string>
+    <string name="engine_error_checkout_blocked">Uncommitted changes would be overwritten by this switch: commit or discard them first.</string>
+    <string name="engine_error_branch_exists">A branch with that name already exists: pick another name.</string>
+    <string name="engine_error_branch_not_found">Branch not found (it may have been deleted or not fetched yet).</string>
+    <string name="engine_error_current_branch">Cannot delete the current branch: switch to another one first.</string>
+    <string name="engine_error_merge_in_progress">A merge is in progress: finish it (resolve and commit) or abort it first.</string>
+    <string name="engine_error_no_merge_in_progress">There is no merge in progress.</string>
+    <string name="engine_error_conflicts_remain">There are unresolved conflicts: resolve them before committing the merge.</string>
+    <string name="engine_error_no_parent_commit">This is the repository\'s first commit; there is no previous commit to undo.</string>
+    <string name="engine_error_remote_ref_missing">There is no local record of that remote branch yet: fetch first.</string>
+    <string name="engine_error_shallow_clone">The local copy is a shallow clone (incomplete history): deepen the history first.</string>
+    <string name="engine_error_no_common_ancestor">The two branches share no common ancestor (not the same history).</string>
+    <string name="engine_error_not_in_conflict">That file is not in the conflict list (it may already be resolved).</string>
 </resources>

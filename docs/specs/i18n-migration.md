@@ -450,10 +450,19 @@ Kotlin 侧只有三个入口（`app/src/main/java/com/branchbase/core/EngineErro
    `api/client.rs`（12 处）+ `api/web.rs`（2 处）→ `HTTP_<status>`；`reqwest` 传输失败 → `NETWORK`；
    JNI 输出 `ERROR:<CODE>:<message>`（换行压平）。`message` 仍是旧文案，日志锚点不动。
    Kotlin 侧零改动（双读已经在了）。
-2. **`git` 层换码**（最大一块，243 条中文）：`NOT_GIT_REPO` / `CLONE_FAILED` / `MERGE_CONFLICT` …
-   逐条定码；`nff:` 前缀**保留**（它是分叉决策页的触发信号，见 `local-git-engine-design.md` §4），
-   只在前面加码：`ERROR:NFF:…`；Kotlin 的三处 `startsWith("ERROR:nff")` 与
-   `docs/specs/local-git-engine-design.md` §4 要同一版改；
+2. **`git` 层换码**（最大一块，243 条中文）—— **1.4.20 做了第一批**：
+   - 已定的码（19 个）：`NFF` / `AUTH_FAILED` / `LOCKED` / `NOT_GIT_REPO` / `REPO_OPEN_FAILED` /
+     `CLONE_TARGET_NOT_EMPTY` / `DIRTY_WORKTREE` / `CHECKOUT_BLOCKED` / `BRANCH_EXISTS` /
+     `BRANCH_NOT_FOUND` / `CURRENT_BRANCH` / `MERGE_IN_PROGRESS` / `NO_MERGE_IN_PROGRESS` /
+     `CONFLICTS_REMAIN` / `NO_PARENT_COMMIT` / `REMOTE_REF_MISSING` / `SHALLOW_CLONE` /
+     `NO_COMMON_ANCESTOR` / `NOT_IN_CONFLICT`；
+   - 认法：一条 `classify_git_error`（libgit2 英文 → 认证 / 锁 / 不是仓库 / 检出被挡）＋每条
+     `pub fn` 在**出错那一行**贴码（`git_error(e, "CODE", "旧文案前缀")`）；认不出的仍按旧中文透出；
+   - **`nff:` 前缀保留在 message 里**（日志锚点），但判定改看码 `ERROR:NFF` —— 顺手修掉了
+     「`startsWith("ERROR:nff")` 从来没匹配上」的老 bug（见 `local-git-engine-design.md` §4.0）；
+   - 剩下的是**内部失败**（读索引 / 写树 / 签名 / revwalk …）：它们对用户没有可行动信息，
+     暂时保持旧文案，等下一批按「操作」归一个通用码（或继续不码）；
+3. **`auth` / `translate` 换码**：OAuth 的 `认证失败: GitHub 错误 (400): …` 仍是中文，
 3. **`auth` / `translate` 换码**：OAuth 的 `认证失败: GitHub 错误 (400): …` 仍是中文，
    `classifyOAuthFailure` 还在从正文里找 `incorrect_client_credentials`；换码后由
    `AUTH_*` 直接给结论，`TranslateEngine.classify` 的中文匹配同理。

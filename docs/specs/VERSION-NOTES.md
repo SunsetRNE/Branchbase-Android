@@ -74,7 +74,34 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.19 → 1.0.22）
+## 二、`versionName` 流水（1.4.20 → 1.0.22）
+
+### 1.4.20
+
+**git 层换码第一批（19 个稳定码）+ 修「分叉决策页从来没被触发」的老 bug。**
+
+`i18n-migration.md` §14.4 第 2 条。git 是最大一块（243 条中文），这一版先给**用户能据此行动**的
+情况配码；内部失败（读索引 / 写树 / 签名 / revwalk）暂时保持旧文案 —— 它们对用户没有可行动信息。
+
+① **认法**：`classify_git_error` 把 libgit2 的英文归到四类（认证 / 锁文件 / 不是 git 仓库 /
+检出被挡），其余由每个操作在出错那一行贴默认码（`git_error(e, "BRANCH_NOT_FOUND", "找不到分支 …")`）；
+认不出的原样透出（`CoreError::Other`），不猜。`message` 一律保留旧中文（日志锚点不动），
+界面侧由 `EngineError` 按码换成当前语言。
+
+② **19 个码**：`NFF` / `AUTH_FAILED` / `LOCKED` / `NOT_GIT_REPO` / `REPO_OPEN_FAILED` /
+`CLONE_TARGET_NOT_EMPTY` / `DIRTY_WORKTREE` / `CHECKOUT_BLOCKED` / `BRANCH_EXISTS` / `BRANCH_NOT_FOUND` /
+`CURRENT_BRANCH` / `MERGE_IN_PROGRESS` / `NO_MERGE_IN_PROGRESS` / `CONFLICTS_REMAIN` / `NO_PARENT_COMMIT` /
+`REMOTE_REF_MISSING` / `SHALLOW_CLONE` / `NO_COMMON_ANCESTOR` / `NOT_IN_CONFLICT`。
+
+③ **修掉一个一直没生效的判定**：旧实现判 `startsWith("ERROR:nff")`，而引擎吐的是
+`ERROR:未知错误: nff: …`（`CoreError::Other` 的 Display 带「未知错误: 」前缀）—— 前缀永远对不上，
+分叉被当成普通失败，**「推送被拒 → 分叉决策页」这条链路从来没走通过**（测试用手写串，所以一直绿）。
+现在判定改看码 `ERROR:NFF`，三处 `gitPullDetailed` / `gitPushDetailed` / `gitPushSetUpstream`
+收口到纯函数 `gitTriState`（兼容旧 `.so` 的小写写法）。
+
+钉子：Rust 4 例（nff 码 + 文案、认证归类、认不出不塞码、JNI 形状 `ERROR:NFF:`）；
+Kotlin 2 例（`gitTriState` 的生产形状、`EngineError` 对 git 码的映射）；`I18nUiTextTest` 新增 19 键。
+文档：`local-git-engine-design.md` §4 改成「码触发」，并新增 §4.0 记录上面那个老 bug。
 
 ### 1.4.19
 
@@ -4424,7 +4451,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（279 → 129）
+## 三、`versionCode` 流水（280 → 129）
+
+- **280**：git 层换码第一批 —— 19 个稳定码（`NFF` / `AUTH_FAILED` / `LOCKED` / `BRANCH_*` /
+  `MERGE_IN_PROGRESS` …）+ `classify_git_error`；修「`startsWith("ERROR:nff")` 从来没匹配上」的分叉
+  判定 bug（改看 `ERROR:NFF`，三态收口到 `gitTriState`）（一次提交，故 +1）。
 
 - **279**：Rust `api` 层换码 —— `CoreError::Coded` + `HTTP_<status>`（client 12 处 / web 2 处）、
   传输失败映射 `NETWORK`、JNI 输出 `ERROR:<CODE>:<message>`（换行压平）；Kotlin 零改动

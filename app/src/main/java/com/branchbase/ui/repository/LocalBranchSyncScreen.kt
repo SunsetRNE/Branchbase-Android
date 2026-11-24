@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import com.branchbase.core.gitOutcomeText
 import com.branchbase.core.engineErrorOrRaw
 import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
@@ -130,7 +131,7 @@ fun LocalBranchSyncScreen(
             feedback = if (err == null) {
                 Feedback(context.getString(R.string.toast_operation_succeeded, label), ok = true)
             } else {
-                Feedback(context.getString(R.string.toast_operation_failed, label, context.engineErrorOrRaw(err)), ok = false)
+                Feedback(context.getString(R.string.toast_operation_failed, label, context.gitOutcomeText(err).orEmpty()), ok = false)
             }
             if (err == null) {
                 reloadKey++
@@ -163,7 +164,7 @@ fun LocalBranchSyncScreen(
             feedback = if (err == null) {
                 Feedback(context.getString(R.string.toast_switched_and_pulled, name), ok = true)
             } else {
-                Feedback(context.getString(R.string.error_pull_failed, name, context.engineErrorOrRaw(err)), ok = false)
+                Feedback(context.getString(R.string.error_pull_failed, name, context.gitOutcomeText(err).orEmpty()), ok = false)
             }
             reloadKey++
             onChanged()
@@ -196,7 +197,7 @@ fun LocalBranchSyncScreen(
             feedback = if (up == null) {
                 Feedback(context.getString(R.string.toast_created_tracking, name, name), ok = true)
             } else {
-                Feedback(context.getString(R.string.error_created_upstream_failed, name, context.engineErrorOrRaw(up)), ok = false)
+                Feedback(context.getString(R.string.error_created_upstream_failed, name, context.gitOutcomeText(up).orEmpty()), ok = false)
             }
             reloadKey++
             onChanged()
@@ -219,11 +220,11 @@ fun LocalBranchSyncScreen(
             val done = mutableListOf<String>()
             plan.toPush.forEach { name ->
                 val err = withContext(Dispatchers.IO) { RustBridge.gitPushDetailed(dir, token, name) }
-                done += if (err == null) context.getString(R.string.action_push_branch, name) else context.getString(R.string.error_push_branch_failed, name, context.engineErrorOrRaw(err))
+                done += if (err == null) context.getString(R.string.action_push_branch, name) else context.getString(R.string.error_push_branch_failed, name, context.gitOutcomeText(err).orEmpty())
             }
             plan.toPull?.let { name ->
                 val err = withContext(Dispatchers.IO) { RustBridge.gitPullDetailed(dir, token) }
-                done += if (err == null) context.getString(R.string.label_pull, name) else context.getString(R.string.error_pull_branch_failed, name, context.engineErrorOrRaw(err))
+                done += if (err == null) context.getString(R.string.label_pull, name) else context.getString(R.string.error_pull_branch_failed, name, context.gitOutcomeText(err).orEmpty())
             }
             busy = false
             Logger.net("sync all ($repoName): ${done.joinToString("; ")}", "LocalGit")

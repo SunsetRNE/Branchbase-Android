@@ -25,6 +25,26 @@ import kotlinx.coroutines.withContext
 internal fun engineErrorOrNull(raw: String): String? =
     if (raw.startsWith("ERROR:")) raw.removePrefix("ERROR:").take(300) else null
 
+/**
+ * 本地 git 写操作的**三态**：`null` = 成功、`"nff"` = 分叉（要开分叉决策页）、其他 = 失败原因。
+ *
+ * 分叉的判据是**稳定码** `ERROR:NFF`（引擎在 pull 的分叉分支与 `map_push_error` 里发的）。
+ *
+ * ⚠️ 这里修的是一个**一直没生效的判定**：旧实现判 `startsWith("ERROR:nff")`，而引擎吐的是
+ * `ERROR:未知错误: nff: …`（`CoreError::Other` 的 Display 带「未知错误: 」前缀）——
+ * 前缀永远对不上，分叉被当成普通失败，「推送被拒 → 分叉决策页」这条链路从来没走通过。
+ * 旧写法保留一档，只为兼容还没重编的 `.so`（正常发版 APK 里不会有这种组合）。
+ *
+ * 纯函数，钉子：`GitErrorConventionTest`。
+ */
+internal const val GIT_DIVERGED = "nff"
+
+internal fun gitTriState(raw: String): String? = when {
+    raw.isBlank() -> null
+    raw.startsWith("ERROR:NFF") || raw.startsWith("ERROR:nff") -> GIT_DIVERGED
+    else -> raw.removePrefix("ERROR:").take(300)
+}
+
 object RustBridge {
 
     /**
@@ -942,12 +962,7 @@ object RustBridge {
     /** pull 三态（决策页用）：null=成功、"nff"=本地与远端分叉、其他=失败原因。 */
     suspend fun gitPullDetailed(dir: String, token: String = ""): String? = withContext(Dispatchers.IO) {
         try {
-            val r = nativeGitPull(dir, token)
-            when {
-                r.isBlank() -> null
-                r.startsWith("ERROR:nff") -> "nff"
-                else -> r.removePrefix("ERROR:").take(300)
-            }
+            gitTriState(nativeGitPull(dir, token))
         } catch (e: Throwable) {
             ENGINE_UNAVAILABLE
         }
@@ -957,12 +972,7 @@ object RustBridge {
     suspend fun gitPushDetailed(dir: String, token: String = "", branch: String = "main"): String? =
         withContext(Dispatchers.IO) {
             try {
-                val r = nativeGitPush(dir, token, branch)
-                when {
-                    r.isBlank() -> null
-                    r.startsWith("ERROR:nff") -> "nff"
-                    else -> r.removePrefix("ERROR:").take(300)
-                }
+                gitTriState(nativeGitPush(dir, token, branch))
             } catch (e: Throwable) {
                 ENGINE_UNAVAILABLE
             }
@@ -1264,12 +1274,7 @@ object RustBridge {
     suspend fun gitPushSetUpstream(dir: String, remoteUrl: String, branch: String, token: String = ""): String? =
         withContext(Dispatchers.IO) {
             try {
-                val r = nativeGitPushSetUpstream(dir, remoteUrl, branch, token)
-                when {
-                    r.isBlank() -> null
-                    r.startsWith("ERROR:nff") -> "nff"
-                    else -> r.removePrefix("ERROR:").take(300)
-                }
+                gitTriState(nativeGitPushSetUpstream(dir, remoteUrl, branch, token))
             } catch (e: Throwable) {
                 ENGINE_UNAVAILABLE
             }

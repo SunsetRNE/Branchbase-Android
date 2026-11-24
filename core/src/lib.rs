@@ -56,6 +56,14 @@ pub mod error {
         /// 文案保留「未知错误: 」前缀是为了**日志锚点不漂移**：真机日志与若干测试
         /// 按这串中文定位问题（见 `i18n-migration.md` §7）。界面侧不再显示它 ——
         /// Kotlin 的 `EngineError` 会按码换成一条本地化文案，`message` 只进日志。
+        /// 通用构造：`code` 是稳定码，`message` 是旧文案（Display / 日志锚点）。
+        pub fn coded(code: &str, message: impl Into<String>) -> Self {
+            Self::Coded {
+                code: code.to_string(),
+                message: message.into(),
+            }
+        }
+
         pub fn http(status: u16, body: impl AsRef<str>) -> Self {
             let body = body.as_ref();
             Self::Coded {

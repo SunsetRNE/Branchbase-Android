@@ -9,6 +9,70 @@ use crate::error::{CoreError, Result};
 
 pub mod progress;
 
+// ── 错误码（`docs/specs/i18n-migration.md` §14：git 层换码第一批） ──
+//
+// 只给**用户能据此行动**的情况配码；认不出的仍按旧中文文案透出（不猜）。
+// `message` 一律保留原来的中文 —— 日志锚点、测试断言与排障习惯都不动；
+// 界面侧由 Kotlin 的 `EngineError` 按码换成当前界面语言。
+
+/// 把 libgit2 的英文错误归到稳定码（只认确定的几类；其余 `None`）。
+fn classify_git_error(e: &git2::Error) -> Option<&'static str> {
+    let m = e.message().to_ascii_lowercase();
+    if m.contains("authentication required")
+        || m.contains("could not read username")
+        || m.contains("could not read password")
+        || m.contains("invalid credentials")
+        || m.contains("401")
+        || m.contains("403")
+    {
+        return Some("AUTH_FAILED");
+    }
+    if m.contains("index.lock") || m.contains("couldn't lock") || m.contains("failed to lock") {
+        return Some("LOCKED");
+    }
+    if m.contains("could not find repository") {
+        return Some("NOT_GIT_REPO");
+    }
+    if m.contains("prevents checkout") {
+        // 有未提交改动会被这次检出覆盖（libgit2 的 safe 语义拒绝）
+        return Some("CHECKOUT_BLOCKED");
+    }
+    None
+}
+
+/// [`classify_git_error`] 的字符串版：push / pull 的失败是 `&str`，不是 `git2::Error`。
+fn classify_git_message(msg: &str) -> Option<&'static str> {
+    let m = msg.to_ascii_lowercase();
+    if m.contains("authentication")
+        || m.contains("invalid credentials")
+        || m.contains("could not read username")
+        || m.contains("could not read password")
+        || m.contains("401")
+        || m.contains("403")
+    {
+        Some("AUTH_FAILED")
+    } else if m.contains("index.lock") || m.contains("couldn't lock") || m.contains("failed to lock") {
+        Some("LOCKED")
+    } else {
+        None
+    }
+}
+
+/// 「旧文案前缀 + 稳定码」：`ctx` 原样拼在 libgit2 的英文前面（日志锚点），
+/// `default_code` 是调用点给的默认码（[`classify_git_error`] 认出更具体的就用更具体的）。
+fn git_error(e: git2::Error, default_code: &'static str, ctx: &str) -> CoreError {
+    let code = classify_git_error(&e).unwrap_or(default_code);
+    CoreError::coded(code, format!("{ctx}: {e}"))
+}
+
+/// 只归类、**不给默认码**：认不出就保持旧文案透出（用于「失败原因千奇百怪」的操作）。
+fn git_error_opt(e: git2::Error, ctx: &str) -> CoreError {
+    match classify_git_error(&e) {
+        Some(code) => CoreError::coded(code, format!("{ctx}: {e}")),
+        None => CoreError::Other(format!("{ctx}: {e}")),
+    }
+}
+
 /// 浅 clone 仓库到本地目录。
 ///
 /// - `url`：仓库 HTTPS URL（如 `https://github.com/o/r.git`）。
@@ -147,6 +211,12 @@ fn map_clone_error(e: &git2::Error, stale_locks: &[String]) -> CoreError {
     if cancelled() {
         return CoreError::Other("clone 已取消".to_string());
     }
+    // 认证失败是 clone 最常见的一种「用户能自己处理」的失败（令牌无效 / 私有仓库没权限）。
+    // 锁文件那条**不归类**：它的文案带着现场取证（真残留还是文件系统假象），换成一句
+    // 「仓库被占用」会把唯一的诊断线索丢掉。
+    if let Some(code) = classify_git_message(msg) {
+        return CoreError::coded(code, format!("clone 失败: {msg}"));
+    }
     CoreError::Other(format!("clone 失败: {msg}"))
 }
 
@@ -200,9 +270,10 @@ fn prepare_clone_target(into: &str) -> Result<usize> {
         return Ok(0);
     }
     if path.join(".git").exists() {
-        return Err(CoreError::Other(format!(
-            "目标目录里已经有一个仓库（{into}）。先删除本地副本，或换一个目录再拉取。"
-        )));
+        return Err(CoreError::coded(
+            "CLONE_TARGET_NOT_EMPTY",
+            format!("目标目录里已经有一个仓库（{into}）。先删除本地副本，或换一个目录再拉取。"),
+        ));
     }
     Ok(remove_tree(path))
 }
@@ -230,7 +301,7 @@ fn remove_tree(dir: &std::path::Path) -> usize {
 pub fn pull_repo(dir: &str, token: Option<&str>) -> Result<()> {
     use git2::Repository;
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
 
     // 与 `fetch_remote` 走同一条路：同一份 refspec，同一个「本地缺对象就补浅边界再试一次」
     // 的自愈（见 [fetch_origin]）—— 「拉取」与「刷新远端」死在同一个坑里，
@@ -275,7 +346,10 @@ pub fn pull_repo(dir: &str, token: Option<&str>) -> Result<()> {
             .map_err(|e| CoreError::Other(format!("checkout 失败: {e}")))?;
     } else if !analysis.is_up_to_date() {
         // 本地有未推送提交 + 远端领先 → 分叉（对齐 P0-1 分叉决策页触发条件）
-        return Err(CoreError::Other("nff: 本地与远端分叉（non-fast-forward）".into()));
+        return Err(CoreError::coded(
+            "NFF",
+            "nff: 本地与远端分叉（non-fast-forward）",
+        ));
     }
     Ok(())
 }
@@ -284,7 +358,7 @@ pub fn pull_repo(dir: &str, token: Option<&str>) -> Result<()> {
 pub fn commit_repo(dir: &str, message: &str, author_name: &str, author_email: &str) -> Result<String> {
     use git2::{Repository, Signature};
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     let mut index = repo.index().map_err(|e| CoreError::Other(format!("读取索引失败: {e}")))?;
     // 用 "." 而非 "*"：libgit2 的 pathspec 里 "*" 不递归子目录，
     // 会让子目录里的改动被静默漏掉（提交后工作区仍是 dirty）。
@@ -331,7 +405,7 @@ fn head_branch_name(repo: &git2::Repository) -> String {
 pub fn local_branches(dir: &str) -> Result<String> {
     use git2::{BranchType, Repository};
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     let head = head_branch_name(&repo);
 
     let mut out: Vec<serde_json::Value> = Vec::new();
@@ -387,7 +461,7 @@ pub fn local_branches(dir: &str) -> Result<String> {
 pub fn fetch_remote(dir: &str, token: Option<&str>, prune: bool) -> Result<()> {
     use git2::Repository;
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     fetch_origin(&repo, token, prune)
 }
 
@@ -418,7 +492,7 @@ pub fn fetch_deepen(dir: &str, depth: i32, token: Option<&str>) -> Result<()> {
     progress::begin();
     CANCEL_REQUESTED.store(false, Ordering::SeqCst);
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     // depth <= 0 = 全量：发 i32::MAX，与 git 自己的 `--unshallow` 一致
     let effective_depth = if depth <= 0 { i32::MAX } else { depth };
 
@@ -511,7 +585,7 @@ pub fn remote_branches(dir: &str) -> Result<String> {
     use git2::{BranchType, Oid, Repository};
     use std::collections::{HashMap, HashSet};
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
 
     let mut local_oids: HashMap<String, Oid> = HashMap::new();
     let mut no_upstream: HashSet<String> = HashSet::new();
@@ -594,15 +668,15 @@ pub fn checkout_branch(dir: &str, name: &str) -> Result<()> {
     if name.trim().is_empty() {
         return Err(CoreError::Other("分支名不能为空".into()));
     }
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
 
     let (object, reference) = repo
         .revparse_ext(name.trim())
-        .map_err(|e| CoreError::Other(format!("找不到分支 {name}: {e}")))?;
+        .map_err(|e| git_error(e, "BRANCH_NOT_FOUND", &format!("找不到分支 {name}")))?;
 
     // SAFE 模式：冲突时失败而不是静默丢改动
     repo.checkout_tree(&object, Some(CheckoutBuilder::new().safe()))
-        .map_err(|e| CoreError::Other(format!("切换失败: {e}")))?;
+        .map_err(|e| git_error_opt(e, "切换失败"))?;
 
     match reference {
         Some(r) => {
@@ -632,9 +706,9 @@ pub fn create_branch_local(dir: &str, name: &str, from: &str) -> Result<()> {
     if name.contains(' ') {
         return Err(CoreError::Other("分支名不能含空格".into()));
     }
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     if repo.find_branch(name, git2::BranchType::Local).is_ok() {
-        return Err(CoreError::Other(format!("分支 {name} 已存在")));
+        return Err(CoreError::coded("BRANCH_EXISTS", format!("分支 {name} 已存在")));
     }
 
     let base = if from.trim().is_empty() {
@@ -644,7 +718,7 @@ pub fn create_branch_local(dir: &str, name: &str, from: &str) -> Result<()> {
     } else {
         repo.revparse_single(from.trim())
             .and_then(|o| o.peel_to_commit())
-            .map_err(|e| CoreError::Other(format!("找不到起点 {from}: {e}")))?
+            .map_err(|e| git_error(e, "BRANCH_NOT_FOUND", &format!("找不到起点 {from}")))?
     };
 
     repo.branch(name, &base, false)
@@ -656,13 +730,16 @@ pub fn create_branch_local(dir: &str, name: &str, from: &str) -> Result<()> {
 pub fn delete_branch_local(dir: &str, name: &str) -> Result<()> {
     use git2::Repository;
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     if name == head_branch_name(&repo) {
-        return Err(CoreError::Other("不能删除当前分支，请先切换到其他分支".into()));
+        return Err(CoreError::coded(
+            "CURRENT_BRANCH",
+            "不能删除当前分支，请先切换到其他分支",
+        ));
     }
     let mut branch = repo
         .find_branch(name, git2::BranchType::Local)
-        .map_err(|e| CoreError::Other(format!("找不到分支 {name}: {e}")))?;
+        .map_err(|e| git_error(e, "BRANCH_NOT_FOUND", &format!("找不到分支 {name}")))?;
     branch
         .delete()
         .map_err(|e| CoreError::Other(format!("删除分支失败: {e}")))?;
@@ -675,7 +752,7 @@ pub fn delete_branch_local(dir: &str, name: &str) -> Result<()> {
 pub fn discard_all_changes(dir: &str) -> Result<()> {
     use git2::{build::CheckoutBuilder, Repository};
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     let mut cb = CheckoutBuilder::new();
     cb.force();
     cb.remove_untracked(true);
@@ -688,7 +765,7 @@ pub fn discard_all_changes(dir: &str) -> Result<()> {
 pub fn push_repo(dir: &str, token: Option<&str>, branch: &str) -> Result<()> {
     use git2::{PushOptions, Repository};
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     let mut remote = repo
         .find_remote("origin")
         .map_err(|e| CoreError::Other(format!("找不到 origin: {e}")))?;
@@ -859,7 +936,7 @@ fn fetch_origin(repo: &git2::Repository, token: Option<&str>, prune: bool) -> Re
         }
         Err(e) => {
             if !heal_missing_objects(repo, &e) {
-                return Err(CoreError::Other(format!("fetch 失败: {e}")));
+                return Err(git_error_opt(e, "fetch 失败"));
             }
             // 边界补上了：**重开** remote 与 options（失败过一次的 fetch 状态不复用）
             let (mut remote, mut fo) = origin_fetch_parts(repo, token, prune)?;
@@ -868,7 +945,7 @@ fn fetch_origin(repo: &git2::Repository, token: Option<&str>, prune: bool) -> Re
                 // 这一趟的收尾会再删一次刚补上的边界，按同一条口径补回来
                 let _ = repair_shallow_boundary_in(repo);
             }
-            outcome.map_err(|e| CoreError::Other(format!("fetch 失败: {e}")))
+            outcome.map_err(|e| git_error_opt(e, "fetch 失败"))
         }
     }
 }
@@ -976,7 +1053,7 @@ const MAX_SHALLOW_SCAN: usize = 200_000;
 pub fn repair_shallow_boundary(dir: &str) -> Result<usize> {
     use git2::Repository;
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     repair_shallow_boundary_in(&repo)
 }
 
@@ -1119,7 +1196,7 @@ fn write_shallow_roots(
 pub fn repo_status(dir: &str) -> Result<String> {
     use git2::{Repository, StatusOptions};
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
 
     let head = repo.head().map_err(|e| CoreError::Other(format!("读取 HEAD 失败: {e}")))?;
     let branch = head.shorthand().unwrap_or("").to_string();
@@ -1236,14 +1313,14 @@ pub fn repo_status(dir: &str) -> Result<String> {
 pub fn reset_soft(dir: &str) -> Result<()> {
     use git2::{Repository, ResetType};
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     let parent_oid = repo
         .head()
         .map_err(|e| CoreError::Other(format!("读取 HEAD 失败: {e}")))?
         .peel_to_commit()
         .map_err(|e| CoreError::Other(format!("解析 HEAD 失败: {e}")))?
         .parent_id(0)
-        .map_err(|e| CoreError::Other(format!("没有父提交可撤销: {e}")))?;
+        .map_err(|e| git_error(e, "NO_PARENT_COMMIT", "没有父提交可撤销"))?;
     let obj = repo
         .find_object(parent_oid, None)
         .map_err(|e| CoreError::Other(format!("找对象失败: {e}")))?;
@@ -1256,11 +1333,11 @@ pub fn reset_soft(dir: &str) -> Result<()> {
 pub fn reset_hard_to_remote(dir: &str, branch: &str) -> Result<()> {
     use git2::{Repository, ResetType};
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     let remote_ref_name = format!("refs/remotes/origin/{branch}");
     let remote_ref = repo
         .find_reference(&remote_ref_name)
-        .map_err(|e| CoreError::Other(format!("找不到 {remote_ref_name}: {e}")))?;
+        .map_err(|e| git_error(e, "REMOTE_REF_MISSING", &format!("找不到 {remote_ref_name}")))?;
     let oid = remote_ref
         .target()
         .ok_or_else(|| CoreError::Other("远端引用无目标".into()))?;
@@ -1276,7 +1353,7 @@ pub fn reset_hard_to_remote(dir: &str, branch: &str) -> Result<()> {
 pub fn amend_message(dir: &str, new_message: &str) -> Result<()> {
     use git2::{Repository, Signature};
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     let head = repo.head().map_err(|e| CoreError::Other(format!("读取 HEAD 失败: {e}")))?;
     let commit = head
         .peel_to_commit()
@@ -1327,7 +1404,7 @@ pub fn revert_commit(
 ) -> Result<String> {
     use git2::{Repository, Signature};
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     let obj = repo
         .revparse_single(sha)
         .map_err(|e| CoreError::Other(format!("解析提交 {sha} 失败: {e}")))?;
@@ -1342,7 +1419,10 @@ pub fn revert_commit(
         .statuses(Some(&mut st_opts))
         .map_err(|e| CoreError::Other(format!("读取工作区状态失败: {e}")))?;
     if !statuses.is_empty() {
-        return Err(CoreError::Other("工作区有未提交改动，无法 revert".into()));
+        return Err(CoreError::coded(
+            "DIRTY_WORKTREE",
+            "工作区有未提交改动，无法 revert",
+        ));
     }
 
     // git2 0.18：revert 直接应用到工作区与索引，返回 ()；随后从索引取树
@@ -1378,7 +1458,7 @@ pub fn push_set_upstream(
 ) -> Result<()> {
     use git2::{BranchType, PushOptions, RemoteCallbacks, Repository};
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     let mut remote = match repo.find_remote("origin") {
         Ok(r) => r,
         Err(_) => repo
@@ -1560,7 +1640,10 @@ pub fn set_git_proxy(dir: &str, proxy: &str) -> Result<()> {
 /// 其余原样透出为 `push 失败:`。
 fn map_push_error(msg: &str) -> CoreError {
     if msg.contains("non-fast-forward") || msg.contains("cannot lock ref") || msg.contains("rejected") {
-        CoreError::Other(format!("nff: 推送被拒（远端领先）: {msg}"))
+        // 码是触发分叉决策页的信号；`nff: ` 文本保留 —— 日志锚点与旧版排障习惯不变
+        CoreError::coded("NFF", format!("nff: 推送被拒（远端领先）: {msg}"))
+    } else if let Some(code) = classify_git_message(msg) {
+        CoreError::coded(code, format!("push 失败: {msg}"))
     } else {
         CoreError::Other(format!("push 失败: {msg}"))
     }
@@ -1612,20 +1695,25 @@ pub fn merge_branch(
     if branch.is_empty() {
         return Err(CoreError::Other("合并需要一个分支名".into()));
     }
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
 
     if repo.is_shallow() {
-        return Err(CoreError::Other(
-            "本地是浅克隆，没有共同祖先，合并不了。先「加深历史」把完整历史拉到本地。".into(),
+        return Err(CoreError::coded(
+            "SHALLOW_CLONE",
+            "本地是浅克隆，没有共同祖先，合并不了。先「加深历史」把完整历史拉到本地。",
         ));
     }
     if repo.state() == RepositoryState::Merge {
-        return Err(CoreError::Other(
-            "上一次合并还没结束：先解决冲突并「提交合并」，或者「放弃合并」。".into(),
+        return Err(CoreError::coded(
+            "MERGE_IN_PROGRESS",
+            "上一次合并还没结束：先解决冲突并「提交合并」，或者「放弃合并」。",
         ));
     }
     if worktree_dirty(&repo)? {
-        return Err(CoreError::Other("工作区有未提交改动，无法合并".into()));
+        return Err(CoreError::coded(
+            "DIRTY_WORKTREE",
+            "工作区有未提交改动，无法合并",
+        ));
     }
 
     let head_commit = repo
@@ -1692,9 +1780,10 @@ pub fn merge_branch(
     if !analysis.is_normal() {
         // NONE：两边没有共同祖先（本地历史与对方是两条无关的根）。
         // 报清楚，不假装能合 —— 用户能做的判断（是不是拉错仓库了）只有看到这句才做得了
-        return Err(CoreError::Other(format!(
-            "合并不了：当前分支与本地的 {branch} 没有共同祖先（不是同一条历史）。"
-        )));
+        return Err(CoreError::coded(
+            "NO_COMMON_ANCESTOR",
+            format!("合并不了：当前分支与本地的 {branch} 没有共同祖先（不是同一条历史）。"),
+        ));
     }
 
     // ── 普通三方合并：libgit2 把结果写进索引与工作区（冲突文件带标记） ──
@@ -1752,7 +1841,7 @@ pub fn merge_branch(
 pub fn merge_state(dir: &str) -> Result<String> {
     use git2::{Repository, RepositoryState};
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     let mut index = repo
         .index()
         .map_err(|e| CoreError::Other(format!("读取索引失败: {e}")))?;
@@ -1799,7 +1888,7 @@ pub fn merge_state(dir: &str) -> Result<String> {
 pub fn analyze_conflicts(dir: &str) -> Result<String> {
     use git2::{DiffOptions, Repository};
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     require_merging(&repo)?;
 
     let entries = conflicted_blob_entries(&repo)?;
@@ -1877,7 +1966,7 @@ pub fn analyze_conflicts(dir: &str) -> Result<String> {
 pub fn resolve_conflict(dir: &str, path: &str, side: &str) -> Result<()> {
     use git2::Repository;
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     require_merging(&repo)?;
     let rel = safe_rel_path(path)?;
     let wanted = match side {
@@ -1939,12 +2028,15 @@ pub fn resolve_conflict(dir: &str, path: &str, side: &str) -> Result<()> {
 pub fn write_resolved(dir: &str, path: &str, content: &str) -> Result<()> {
     use git2::Repository;
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     require_merging(&repo)?;
     let rel = safe_rel_path(path)?;
     let entries = conflicted_blob_entries(&repo)?;
     if !entries.iter().any(|e| e.path == rel) {
-        return Err(CoreError::Other(format!("{rel} 现在不在冲突清单里")));
+        return Err(CoreError::coded(
+            "NOT_IN_CONFLICT",
+            format!("{rel} 现在不在冲突清单里"),
+        ));
     }
     let workdir = repo
         .workdir()
@@ -1981,16 +2073,17 @@ pub fn merge_continue(
 ) -> Result<String> {
     use git2::Repository;
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     require_merging(&repo)?;
     let mut index = repo
         .index()
         .map_err(|e| CoreError::Other(format!("读取索引失败: {e}")))?;
     if index.has_conflicts() {
         let left = conflict_entries(&mut index)?.len();
-        return Err(CoreError::Other(format!(
-            "还有 {left} 个文件没解决，先解决完再提交合并"
-        )));
+        return Err(CoreError::coded(
+            "CONFLICTS_REMAIN",
+            format!("还有 {left} 个文件没解决，先解决完再提交合并"),
+        ));
     }
     let merge_head = merge_head_oid(&repo).ok_or_else(|| {
         CoreError::Other("仓库里没有 MERGE_HEAD —— 这次合并不完整，请「放弃合并」后重来".into())
@@ -2022,7 +2115,7 @@ pub fn merge_continue(
 pub fn merge_abort(dir: &str) -> Result<()> {
     use git2::{Repository, ResetType};
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     require_merging(&repo)?;
     let head = repo
         .head()
@@ -2118,7 +2211,10 @@ fn conflicted_blob_entries(repo: &git2::Repository) -> Result<Vec<ConflictBlobs>
 /// 合并状态的统一前置检查：不在合并中就报错（**不**静默当成空操作）。
 fn require_merging(repo: &git2::Repository) -> Result<()> {
     if repo.state() != git2::RepositoryState::Merge {
-        return Err(CoreError::Other("当前没有进行中的合并".into()));
+        return Err(CoreError::coded(
+            "NO_MERGE_IN_PROGRESS",
+            "当前没有进行中的合并",
+        ));
     }
     Ok(())
 }
@@ -2312,7 +2408,7 @@ fn safe_rel_path(path: &str) -> Result<String> {
 pub fn log_graph(dir: &str, limit: usize, skip: usize) -> Result<String> {
     use git2::{Repository, Sort};
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     let mut out: Vec<serde_json::Value> = Vec::new();
 
     // 空仓库 / detached 且无提交：head() 会失败，这不是「错了」
@@ -2407,7 +2503,7 @@ fn unpushed_oids(
 pub fn list_tags(dir: &str) -> Result<String> {
     use git2::Repository;
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     let names = repo
         .tag_names(None)
         .map_err(|e| CoreError::Other(format!("读取 tag 失败: {e}")))?;
@@ -2476,7 +2572,7 @@ pub fn log_file(dir: &str, path: &str, limit: usize, skip: usize) -> Result<Stri
     if path.trim().is_empty() {
         return Err(CoreError::Other("文件路径不能为空".into()));
     }
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     let mut out: Vec<serde_json::Value> = Vec::new();
 
     let head = repo.head().map_err(|e| CoreError::Other(format!("读取 HEAD 失败: {e}")))?;
@@ -2553,7 +2649,7 @@ pub fn log_file(dir: &str, path: &str, limit: usize, skip: usize) -> Result<Stri
 pub fn diff_worktree(dir: &str) -> Result<String> {
     use git2::{DiffOptions, Repository};
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     let mut opts = DiffOptions::new();
     opts.include_untracked(true);
     opts.recurse_untracked_dirs(true);
@@ -2581,7 +2677,7 @@ pub fn diff_worktree(dir: &str) -> Result<String> {
 pub fn diff_commit(dir: &str, sha: &str) -> Result<String> {
     use git2::{DiffOptions, Repository};
 
-    let repo = Repository::open(dir).map_err(|e| CoreError::Other(format!("打开仓库失败: {e}")))?;
+    let repo = Repository::open(dir).map_err(|e| git_error(e, "REPO_OPEN_FAILED", "打开仓库失败"))?;
     let oid = git2::Oid::from_str(sha.trim())
         .map_err(|e| CoreError::Other(format!("无效的提交 sha: {e}")))?;
     let commit = repo
@@ -2794,14 +2890,15 @@ mod tests {
 
     // ───────────────────── map_push_error：nff 归一 ─────────────────────
 
-    /// 取 `CoreError::Other` 的内部消息。
+    /// 取错误里的**文案**（不含 `未知错误: ` 那层 Display 前缀）。
     ///
-    /// 注意不能用 `format!("{}", e)`：`CoreError` 的 Display 会加
-    /// `未知错误: ` 前缀（见 lib.rs 的 thiserror 定义），断言前缀会失败。
-    fn other_message(e: CoreError) -> String {
+    /// 两种变体都要能取：`Other` 取内层，`Coded` 取 `message`（引擎保证它就是旧文案）——
+    /// 1.4.20 起 git 的一些错误从 `Other` 换成了 `Coded`，测试不该因此改断言。
+    fn error_text(e: &CoreError) -> String {
         match e {
-            CoreError::Other(s) => s,
-            other => panic!("应为 CoreError::Other，实际: {other:?}"),
+            CoreError::Coded { message, .. } => message.clone(),
+            CoreError::Other(s) => s.clone(),
+            other => other.to_string(),
         }
     }
 
@@ -2809,19 +2906,45 @@ mod tests {
     fn push_error_maps_rejection_to_nff() {
         for msg in [
             "remote rejected (non-fast-forward)",
-            "cannot lock ref 'refs/heads/main'",
             "! [rejected] main -> main",
+            "cannot lock ref 'refs/heads/main'",
         ] {
-            let text = other_message(map_push_error(msg));
-            assert!(text.starts_with("nff: "), "应归一为 nff 前缀，实际: {text}");
+            let e = map_push_error(msg);
+            // 分叉决策页的触发信号是**码**（文本前缀 `nff: ` 只留给日志）
+            assert_eq!(Some("NFF"), e.code(), "实际: {e:?}");
+            assert!(
+                error_text(&e).starts_with("nff: 推送被拒（远端领先）: "),
+                "日志锚点不许漂移，实际: {}",
+                error_text(&e)
+            );
         }
     }
 
     #[test]
-    fn push_error_keeps_other_failures() {
-        let text = other_message(map_push_error("authentication failed"));
-        assert!(text.starts_with("push 失败: "), "实际: {text}");
-        assert!(!text.contains("nff:"), "非快进之外不应带 nff 前缀");
+    fn push_error_classifies_auth_failure() {
+        let e = map_push_error("authentication failed for 'https://github.com/...'");
+        assert_eq!(Some("AUTH_FAILED"), e.code(), "实际: {e:?}");
+        assert!(error_text(&e).starts_with("push 失败: "));
+    }
+
+    #[test]
+    fn push_error_keeps_unclassified_failures() {
+        let e = map_push_error("remote hung up unexpectedly");
+        assert_eq!(None, e.code(), "认不出就别硬塞码");
+        assert!(error_text(&e).starts_with("push 失败: "), "实际: {}", error_text(&e));
+        assert!(!error_text(&e).contains("nff:"));
+    }
+
+    /// JNI 串的**形状**：分叉错误必须长成 `ERROR:NFF:…`。
+    ///
+    /// 这条钉住的是 1.4.20 修掉的那个 bug：旧实现把 nff 塞在 `CoreError::Other` 里，
+    /// JNI 吐的是 `ERROR:未知错误: nff: …`，Kotlin 的 `startsWith("ERROR:nff")` 永远匹配不上，
+    /// 分叉决策页从来没被触发过。构造方式与 `bridge/jni.rs` 的 `into_jstring` 逐字一致。
+    #[test]
+    fn push_rejection_wire_shape_starts_with_code() {
+        let e = map_push_error("non-fast-forward");
+        let wire = format!("ERROR:{}:{}", e.code().unwrap(), e);
+        assert!(wire.starts_with("ERROR:NFF:"), "实际: {wire}");
     }
 
     // ───────────────────── scan_sensitive：提交前敏感信息扫描 ─────────────────────
@@ -3110,7 +3233,7 @@ mod tests {
 
         let err = prepare_clone_target(dir.to_str().unwrap()).unwrap_err();
         assert!(
-            other_message(err).contains("已经有一个仓库"),
+            error_text(&err).contains("已经有一个仓库"),
             "应给出「目录里已有仓库」的可读原因"
         );
         assert!(dir.join(".git/HEAD").exists(), "拒绝之后仓库必须原样保留");
@@ -3136,7 +3259,7 @@ mod tests {
     fn clone_error_keeps_lock_path_and_reports_scene() {
         // 真机 1.0.90 日志里的原文（HEAD.lock 那一条）
         let raw = "failed to lock file '/storage/emulated/0/Android/data/com.branchbase/files/repos/SunsetRNE/Branchbase-Android/.git/HEAD.lock' for writing";
-        let text = other_message(map_clone_error(&git2::Error::from_str(raw), &[]));
+        let text = error_text(&map_clone_error(&git2::Error::from_str(raw), &[]));
         assert!(
             text.contains("/repos/SunsetRNE/Branchbase-Android/.git/HEAD.lock"),
             "路径不能被截断或改写: {text}"
@@ -3149,7 +3272,7 @@ mod tests {
     fn clone_error_lists_cleaned_locks() {
         let raw = "failed to lock file '/tmp/r/.git/HEAD.lock' for writing";
         let cleaned = vec!["HEAD.lock".to_string(), "refs/heads/main.lock".to_string()];
-        let text = other_message(map_clone_error(&git2::Error::from_str(raw), &cleaned));
+        let text = error_text(&map_clone_error(&git2::Error::from_str(raw), &cleaned));
         assert!(text.contains("已清掉 2 个残留锁文件"), "实际: {text}");
         assert!(text.contains("HEAD.lock"), "清单要能看出是哪个文件: {text}");
         assert!(text.contains("refs/heads/main.lock"), "实际: {text}");
@@ -3195,7 +3318,7 @@ mod tests {
     /// 其余失败原样透出（只加 `clone 失败: ` 前缀），不做二次解释。
     #[test]
     fn clone_error_keeps_other_failures_verbatim() {
-        let text = other_message(map_clone_error(
+        let text = error_text(&map_clone_error(
             &git2::Error::from_str("authentication required but no callback set"),
             &[],
         ));
@@ -3207,7 +3330,7 @@ mod tests {
     #[test]
     fn clone_error_reports_cancel() {
         CANCEL_REQUESTED.store(true, Ordering::SeqCst);
-        let text = other_message(map_clone_error(&git2::Error::from_str("callback returned non-zero"), &[]));
+        let text = error_text(&map_clone_error(&git2::Error::from_str("callback returned non-zero"), &[]));
         CANCEL_REQUESTED.store(false, Ordering::SeqCst);
         assert_eq!(text, "clone 已取消");
     }
@@ -3239,7 +3362,7 @@ mod tests {
     fn fetch_deepen_没有_origin_时如实报错() {
         let (dir, _repo) = temp_repo("deepen-no-origin");
         let err = fetch_deepen(dir.to_str().unwrap(), 0, None).unwrap_err();
-        let text = other_message(err);
+        let text = error_text(&err);
         assert!(text.contains("找不到 origin"), "实际：{text}");
     }
 
@@ -3805,7 +3928,7 @@ mod tests {
         assert_eq!(status["head_sha"], out["head_sha"]);
 
         // 已在合并中：不许再叠一次 —— MERGE_HEAD 被覆盖后「放弃合并」会回到错的地方
-        let err = other_message(
+        let err = error_text(&
             merge_branch(dir.to_str().unwrap(), "feature", None, "合并者", "m@example.com")
                 .unwrap_err(),
         );
@@ -3869,10 +3992,10 @@ mod tests {
         assert_eq!(st["merging"], true, "解决完不等于合并结束 —— 还要「提交合并」");
 
         // 拼错的一侧要被拒绝：静默成默认值的话，「用对方」会变成「用我方」而没人发现
-        let err = other_message(resolve_conflict(dir.to_str().unwrap(), "a.txt", "their").unwrap_err());
+        let err = error_text(&resolve_conflict(dir.to_str().unwrap(), "a.txt", "their").unwrap_err());
         assert!(err.contains("ours / theirs"), "实际：{err}");
         // 已经解决过的路径也不许再「解决」一遍（那会把手工结果冲掉）
-        let err = other_message(resolve_conflict(dir.to_str().unwrap(), "a.txt", "theirs").unwrap_err());
+        let err = error_text(&resolve_conflict(dir.to_str().unwrap(), "a.txt", "theirs").unwrap_err());
         assert!(err.contains("不在冲突清单里"), "实际：{err}");
     }
 
@@ -3882,7 +4005,7 @@ mod tests {
         assert_eq!(merge(&dir, "feature")["outcome"], "conflict");
 
         // 还有没解决的 → 报错并给出**条数**（不是一句「失败」）
-        let err = other_message(
+        let err = error_text(&
             merge_continue(dir.to_str().unwrap(), "msg", "合并者", "m@example.com").unwrap_err(),
         );
         assert!(err.contains("还有 1 个文件没解决"), "实际：{err}");
@@ -3973,7 +4096,7 @@ mod tests {
     fn merge_工作区脏时拒绝而不是覆盖() {
         let (dir, repo, _) = conflict_repo("merge-dirty");
         std::fs::write(dir.join("a.txt"), "还没提交的改动\n").unwrap();
-        let err = other_message(
+        let err = error_text(&
             merge_branch(dir.to_str().unwrap(), "feature", None, "合并者", "m@example.com")
                 .unwrap_err(),
         );
@@ -3994,7 +4117,7 @@ mod tests {
         std::fs::write(dir.join(".git/shallow"), format!("{tip}\n")).unwrap();
         assert!(repo.is_shallow(), "前置：这个仓库此刻应是浅克隆");
 
-        let err = other_message(
+        let err = error_text(&
             merge_branch(dir.to_str().unwrap(), "feature", None, "合并者", "m@example.com")
                 .unwrap_err(),
         );
@@ -4032,7 +4155,7 @@ mod tests {
         assert_eq!(read(&into, "b.txt"), "bee\n");
 
         // 拉不到的分支要给可读原因，而不是一句 libgit2 的英文
-        let err = other_message(
+        let err = error_text(&
             merge_branch(into.to_str().unwrap(), "根本不存在", None, "合并者", "m@example.com")
                 .unwrap_err(),
         );
@@ -4099,7 +4222,7 @@ mod tests {
         let (dir, repo) = temp_repo("merge-explicit-missing");
         commit_file(&repo, "a.txt", "one\n", "基线", "Alice");
 
-        let err = other_message(
+        let err = error_text(&
             merge_branch(
                 dir.to_str().unwrap(),
                 "origin/根本不存在",

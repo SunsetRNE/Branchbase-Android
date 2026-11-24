@@ -36,6 +36,18 @@ class GitErrorConventionTest {
     }
 
     @Test
+    fun `分叉三态必须能被决策页认出来_码与旧写法都认`() {
+        // 生产形状：`ERROR:NFF:<旧文案>`（见 core/src/git/mod.rs 的 map_push_error）
+        assertEquals("nff", gitTriState("ERROR:NFF:nff: 推送被拒（远端领先）: non-fast-forward"))
+        assertEquals("nff", gitTriState("ERROR:NFF:nff: 本地与远端分叉（non-fast-forward）"))
+        // 兼容还没重编的 .so（旧版吐的是小写前缀，虽然它被 `未知错误: ` 挡着从来没生效过）
+        assertEquals("nff", gitTriState("ERROR:nff: 推送被拒（远端领先）"))
+        // 成功与普通失败
+        assertNull("成功返回空串", gitTriState(""))
+        assertEquals("push 失败: boom", gitTriState("ERROR:push 失败: boom"))
+    }
+
+    @Test
     fun `不是 ERROR 开头的返回按成功处理`() {
         // native 的写操作成功返回空串；非空且不以 ERROR: 开头的返回属于「非预期但不算失败」，
         // 与旧 Boolean 实现的判定保持一致（!startsWith("ERROR:")），避免行为漂移

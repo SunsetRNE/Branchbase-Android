@@ -62,11 +62,37 @@ sealed interface EngineError {
     }
 }
 
-/** 引擎错误里出现过的稳定码（只有这几条已经接线；新增要同时改 [engineErrorRes] 与资源）。 */
+/**
+ * 引擎错误里出现过的稳定码（新增要同时改 [CODE_TABLE] 与资源）。
+ *
+ * 码由引擎侧定义（`core/src/lib.rs` 的 `CoreError::coded` 与 `core/src/git/mod.rs` 的
+ * `classify_git_error`），这里只是同名的常量 —— 字符串必须**逐字一致**。
+ */
 internal object EngineCodes {
     const val ENGINE_UNAVAILABLE = "ENGINE_UNAVAILABLE"
     const val NETWORK = "NETWORK"
     const val HTTP = "HTTP"
+
+    // ── git 层（1.4.20 起：只给「用户能据此行动」的情况配码） ──
+    const val NFF = "NFF"
+    const val AUTH_FAILED = "AUTH_FAILED"
+    const val LOCKED = "LOCKED"
+    const val NOT_GIT_REPO = "NOT_GIT_REPO"
+    const val REPO_OPEN_FAILED = "REPO_OPEN_FAILED"
+    const val CLONE_TARGET_NOT_EMPTY = "CLONE_TARGET_NOT_EMPTY"
+    const val DIRTY_WORKTREE = "DIRTY_WORKTREE"
+    const val CHECKOUT_BLOCKED = "CHECKOUT_BLOCKED"
+    const val BRANCH_EXISTS = "BRANCH_EXISTS"
+    const val BRANCH_NOT_FOUND = "BRANCH_NOT_FOUND"
+    const val CURRENT_BRANCH = "CURRENT_BRANCH"
+    const val MERGE_IN_PROGRESS = "MERGE_IN_PROGRESS"
+    const val NO_MERGE_IN_PROGRESS = "NO_MERGE_IN_PROGRESS"
+    const val CONFLICTS_REMAIN = "CONFLICTS_REMAIN"
+    const val NO_PARENT_COMMIT = "NO_PARENT_COMMIT"
+    const val REMOTE_REF_MISSING = "REMOTE_REF_MISSING"
+    const val SHALLOW_CLONE = "SHALLOW_CLONE"
+    const val NO_COMMON_ANCESTOR = "NO_COMMON_ANCESTOR"
+    const val NOT_IN_CONFLICT = "NOT_IN_CONFLICT"
 }
 
 /**
@@ -148,6 +174,16 @@ fun engineErrorText(context: Context, raw: String?): String? = when (val e = par
 internal fun Context.engineErrorOrRaw(raw: String?): String = engineErrorText(this, raw).orEmpty()
 
 /**
+ * git 三态的渲染版本：`"nff"`（[GIT_DIVERGED]）渲染成「远端有新的提交（分叉）…」。
+ *
+ * 有的调用点（本地分支同步页的推送 / 设置上游）拿到的就是 `"nff"` 这个**哨兵**而不是错误串 ——
+ * 直接把哨兵拼进提示会显示成「推送 main 失败：nff」。决策页的入口用 [gitTriState] 自己判，
+ * 不经过这里。
+ */
+internal fun Context.gitOutcomeText(raw: String?): String? =
+    if (raw == GIT_DIVERGED) getString(R.string.engine_error_nff) else engineErrorText(this, raw)
+
+/**
  * 引擎错误里的 HTTP 状态码（纯函数；`null` = 不是 HTTP 错误 / 认不出）。
  *
  * 这替代了 `AccountStore.HTTP_CODE`、`RepositoryListScreens` 里那几份手写正则：
@@ -194,17 +230,40 @@ private fun stripLegacyWrapper(body: String): String = when {
 }
 
 /**
- * 码 → 资源。HTTP 5xx 与未单列的 4xx 折成两条带参数的通用文案：
- * 每个状态码单列一条资源是维护负担，而用户可以行动的信息（重试 / 重新登录）按**类**区分。
+ * 码 → 资源（两段：git 层查 [CODE_TABLE]，HTTP 按状态码分组）。
+ *
+ * HTTP 5xx 与未单列的 4xx 折成两条带参数的通用文案：每个状态码单列一条资源是维护负担，
+ * 而用户可以行动的信息（重试 / 重新登录）按**类**区分。
  */
+private val CODE_TABLE: Map<String, Int> = mapOf(
+    EngineCodes.ENGINE_UNAVAILABLE to R.string.engine_error_unavailable,
+    EngineCodes.NETWORK to R.string.engine_error_network,
+    EngineCodes.NFF to R.string.engine_error_nff,
+    EngineCodes.AUTH_FAILED to R.string.engine_error_auth_failed,
+    EngineCodes.LOCKED to R.string.engine_error_locked,
+    EngineCodes.NOT_GIT_REPO to R.string.engine_error_not_git_repo,
+    EngineCodes.REPO_OPEN_FAILED to R.string.engine_error_repo_open_failed,
+    EngineCodes.CLONE_TARGET_NOT_EMPTY to R.string.engine_error_clone_target_not_empty,
+    EngineCodes.DIRTY_WORKTREE to R.string.engine_error_dirty_worktree,
+    EngineCodes.CHECKOUT_BLOCKED to R.string.engine_error_checkout_blocked,
+    EngineCodes.BRANCH_EXISTS to R.string.engine_error_branch_exists,
+    EngineCodes.BRANCH_NOT_FOUND to R.string.engine_error_branch_not_found,
+    EngineCodes.CURRENT_BRANCH to R.string.engine_error_current_branch,
+    EngineCodes.MERGE_IN_PROGRESS to R.string.engine_error_merge_in_progress,
+    EngineCodes.NO_MERGE_IN_PROGRESS to R.string.engine_error_no_merge_in_progress,
+    EngineCodes.CONFLICTS_REMAIN to R.string.engine_error_conflicts_remain,
+    EngineCodes.NO_PARENT_COMMIT to R.string.engine_error_no_parent_commit,
+    EngineCodes.REMOTE_REF_MISSING to R.string.engine_error_remote_ref_missing,
+    EngineCodes.SHALLOW_CLONE to R.string.engine_error_shallow_clone,
+    EngineCodes.NO_COMMON_ANCESTOR to R.string.engine_error_no_common_ancestor,
+    EngineCodes.NOT_IN_CONFLICT to R.string.engine_error_not_in_conflict,
+)
+
 private fun codedFor(code: String, detail: String?): EngineError.Coded? {
-    when (code) {
-        EngineCodes.ENGINE_UNAVAILABLE ->
-            return EngineError.Coded(code, R.string.engine_error_unavailable, detail = detail)
-        EngineCodes.NETWORK ->
-            return EngineError.Coded(code, R.string.engine_error_network, detail = detail)
+    if (!code.startsWith("${EngineCodes.HTTP}_")) {
+        val res = CODE_TABLE[code] ?: return null
+        return EngineError.Coded(code, res, detail = detail)
     }
-    if (!code.startsWith("${EngineCodes.HTTP}_")) return null
     val status = code.removePrefix("${EngineCodes.HTTP}_").toIntOrNull() ?: return null
     val res = when (status) {
         401 -> R.string.engine_error_http_401

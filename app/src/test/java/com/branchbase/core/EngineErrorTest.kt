@@ -75,9 +75,25 @@ class EngineErrorTest {
     }
 
     @Test
+    fun `git 层的稳定码也能认`() {
+        // 1.4.20 起 git 的若干错误带码；`message` 里还留着「nff: …」这类旧锚点，
+        // 界面按码换成一句本地化文案，锚点只进日志。
+        val nff = parseEngineError("ERROR:NFF:nff: 推送被拒（远端领先）: non-fast-forward") as EngineError.Coded
+        assertEquals("NFF", nff.code)
+        assertEquals(R.string.engine_error_nff, nff.res)
+
+        val dirty = parseEngineError("ERROR:DIRTY_WORKTREE:工作区有未提交改动，无法合并") as EngineError.Coded
+        assertEquals(R.string.engine_error_dirty_worktree, dirty.res)
+
+        val auth = parseEngineError("ERROR:AUTH_FAILED:push 失败: authentication required") as EngineError.Coded
+        assertEquals(R.string.engine_error_auth_failed, auth.res)
+    }
+
+    @Test
     fun `没见过的码原样透出_不猜`() {
-        val raw = parseEngineError("ERROR:NOT_GIT_REPO:不是 git 仓库") as EngineError.Raw
-        assertTrue("未知码要原样带着，不能吞掉：${raw.text}", raw.text.contains("NOT_GIT_REPO"))
+        // 用一个**永远不该出现**的码：`NOT_GIT_REPO` 之类已经进码表了，拿它测「未知码」会假红。
+        val raw = parseEngineError("ERROR:SOMETHING_NEW:不是 git 仓库") as EngineError.Raw
+        assertTrue("未知码要原样带着，不能吞掉：${raw.text}", raw.text.contains("SOMETHING_NEW"))
         assertTrue(raw.text.contains("不是 git 仓库"))
     }
 

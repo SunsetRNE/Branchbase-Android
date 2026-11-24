@@ -1975,4 +1975,27 @@
     <string name="repo_access_hint_403">HTTP 403：权限不足或被限流 —— 细粒度令牌缺 Contents 权限、组织 SSO 未授权、或触发了二级限流都会这样</string>
     <string name="repo_scope_has_repo">当前令牌有 repo 权限，所以这多半不是权限问题：仓库可能不存在、已改名，或组织要求先授权 SSO。</string>
     <string name="repo_scope_missing_repo">当前令牌没有 repo 权限 —— 私有仓库必然看不到，用它换一个带 repo 的令牌即可。</string>
+
+    <!-- ── git 层稳定码（`EngineError.kt` 的 CODE_TABLE · 1.4.20） ──────────────────
+         只给「用户能据此行动」的情况配码，其余仍按旧中文文案透出。
+         `message`（旧文案）里保留中文与 libgit2 原话，只进日志；这里只写界面上那一句。 -->
+    <string name="engine_error_nff">远端有新的提交（分叉）：先拉取并合并，再推送</string>
+    <string name="engine_error_auth_failed">认证失败：令牌无效、没有该仓库的权限，或需要重新登录</string>
+    <string name="engine_error_locked">仓库正被占用（锁文件未释放）：稍后重试</string>
+    <string name="engine_error_not_git_repo">这里不是 git 仓库（或目录已被删除）</string>
+    <string name="engine_error_repo_open_failed">本地仓库打不开：可能已被移动或删除，重新拉取一次</string>
+    <string name="engine_error_clone_target_not_empty">目标目录里已经有一个仓库：先删除本地副本，或换一个目录</string>
+    <string name="engine_error_dirty_worktree">工作区有未提交改动：先提交或放弃这些改动</string>
+    <string name="engine_error_checkout_blocked">有未提交改动会被这次切换覆盖：先提交或放弃它们</string>
+    <string name="engine_error_branch_exists">同名分支已存在：换一个名字</string>
+    <string name="engine_error_branch_not_found">找不到这个分支（可能已被删除，或还没获取到）</string>
+    <string name="engine_error_current_branch">不能删除当前分支：先切换到其他分支</string>
+    <string name="engine_error_merge_in_progress">仓库停在一次合并里：先解决冲突并提交合并，或放弃合并</string>
+    <string name="engine_error_no_merge_in_progress">当前没有进行中的合并</string>
+    <string name="engine_error_conflicts_remain">还有未解决的冲突文件：逐个解决后再提交合并</string>
+    <string name="engine_error_no_parent_commit">这是仓库的第一个提交，没有可撤销的上一次提交</string>
+    <string name="engine_error_remote_ref_missing">本地还没有这个远端分支的记录：先获取一次</string>
+    <string name="engine_error_shallow_clone">本地是浅克隆（历史不全）：先「加深历史」再合并</string>
+    <string name="engine_error_no_common_ancestor">两个分支没有共同祖先（不是同一条历史）</string>
+    <string name="engine_error_not_in_conflict">这个文件现在不在冲突清单里（可能已经解决）</string>
 </resources>

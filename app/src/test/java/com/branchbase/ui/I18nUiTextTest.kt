@@ -240,6 +240,16 @@ class I18nUiTextTest {
             "engine_error_http_401", "engine_error_http_403", "engine_error_http_404",
             "engine_error_http_409", "engine_error_http_422", "engine_error_http_429",
             "engine_error_http_server", "engine_error_http",
+            // git 层稳定码（1.4.20：只给「用户能据此行动」的情况配码）
+            "engine_error_nff", "engine_error_auth_failed", "engine_error_locked",
+            "engine_error_not_git_repo", "engine_error_repo_open_failed",
+            "engine_error_clone_target_not_empty", "engine_error_dirty_worktree",
+            "engine_error_checkout_blocked", "engine_error_branch_exists",
+            "engine_error_branch_not_found", "engine_error_current_branch",
+            "engine_error_merge_in_progress", "engine_error_no_merge_in_progress",
+            "engine_error_conflicts_remain", "engine_error_no_parent_commit",
+            "engine_error_remote_ref_missing", "engine_error_shallow_clone",
+            "engine_error_no_common_ancestor", "engine_error_not_in_conflict",
             // 仓库打不开的解释（404 歧义 / 403 权限与限流 / 令牌 scope 判读）
             "repo_access_hint_404", "repo_access_hint_403",
             "repo_scope_has_repo", "repo_scope_missing_repo",
