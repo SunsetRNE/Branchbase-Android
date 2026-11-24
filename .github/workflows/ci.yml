@@ -1,8 +1,10 @@
 name: CI
 
 # 每次 push / PR 的**快速编译与单测**（不发版、不签名、不打包 APK）：
-#   · android —— i18n 门禁 + 四个渠道变体的 Kotlin 编译 + JVM 单测
-#   · rust    —— core/ 的 check / test / clippy（原 `build-core.yml` 并入这里）
+#   · i18n            —— 独立门禁：只解析 XML，几毫秒；失败时后面几条腿直接不启动
+#   · android         —— debug 变体 Kotlin 编译 + JVM 单测（:app 与 :translate）
+#   · android-variants —— 矩阵：release / dev / trial / perfBeta 各自一个 job、只编译
+#   · rust            —— core/ 的 check / test / clippy（原 `build-core.yml` 并入这里）
 #
 # 发版仍然走两条完整矩阵：
 #   · build-beta.yml    —— 渠道矩阵（debug / dev / test / perfBeta），Pre-release
@@ -19,15 +21,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # 门禁单独成一个节点：它不依赖 JDK/Gradle/SDK，失败时下面几条腿连队都不用排。
+  # （原先是 android job 的第一步 —— 那样每个变体 leg 仍会重复跑一遍同样的 XML 解析。）
+  i18n:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: i18n 校验
+        run: python3 tools/i18n/check-i18n.py --min-coverage 100
+
   android:
     runs-on: ubuntu-latest
+    needs: i18n
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-
-      # i18n 门禁排在工具链之前：只解析 XML，几毫秒；不达标就没必要再拉 Gradle。
-      - name: i18n 校验
-        run: python3 tools/i18n/check-i18n.py --min-coverage 100
 
       - uses: ./.github/actions/setup-branchbase-env
         with:
@@ -47,11 +56,21 @@ jobs:
   # 其余渠道各自一个 job（矩阵）：每个 job 只编一个变体，峰值内存回到单变体水平。
   android-variants:
     runs-on: ubuntu-latest
+    needs: i18n
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        task: [compileDevKotlin, compileTrialKotlin, compilePerfBetaKotlin]
+        include:
+          # release 变体此前没有任何快速编译覆盖：只有发正式版时才会第一次编译它。
+          - channel: release
+            task: compileReleaseKotlin
+          - channel: dev
+            task: compileDevKotlin
+          - channel: trial
+            task: compileTrialKotlin
+          - channel: perfBeta
+            task: compilePerfBetaKotlin
     steps:
       - uses: actions/checkout@v4
 
@@ -59,7 +78,7 @@ jobs:
         with:
           gradle-cache-read-only: 'false'
 
-      - name: Kotlin 编译（${{ matrix.task }}）
+      - name: Kotlin 编译（${{ matrix.channel }}）
         run: ./gradlew --console=plain :app:${{ matrix.task }}
 
   rust:

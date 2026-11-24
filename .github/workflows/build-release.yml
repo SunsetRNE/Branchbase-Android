@@ -1,32 +1,23 @@
 name: Build Release (正式版)
 
-# 正式版：三步骤流水线（手动 workflow_dispatch 触发）
-#   ① prepare —— 环境准备 / 检索资产 / 判定缓存命中（写缓存）
-#   ② build   —— 执行编译（编译 .so + assembleRelease），注入关键版本参数 + 签名
-#   ③ publish —— 收集产物 / 类型判定发布（正式 Release）/ 代码变更整合（源码包）
+# 正式版：五段流水线（手动 workflow_dispatch 触发）
+#   ① prepare —— i18n 门禁 + 钉住版本参数 + 环境准备 / 检索资产 / 判定缓存命中
+#   ② core    —— Rust 核心 .so（core/** 未改则命中缓存）
+#   ③ compile —— 编译节点矩阵（release + beta 签名的四个渠道），只编译不打包
+#   ④ package —— 合并打包矩阵：dex / 资源链接 / 签名 / 出 APK（release 签名材料只在这一段注入）
+#   ⑤ publish —— 收集产物 / 类型判定发布（正式 Release）/ 代码变更整合（源码包）
 on:
   workflow_dispatch:
 
 jobs:
   prepare:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       actions: write
-    steps:
-      - uses: actions/checkout@v4
-      - name: 环境准备 / 检索资产 / 判定命中
-        uses: ./.github/actions/setup-branchbase-env
-        with:
-          gradle-cache-read-only: 'false'
-
-  build:
-    runs-on: ubuntu-latest
-    needs: prepare
-    timeout-minutes: 40
-    permissions:
-      contents: read
-      actions: write
+    # 版本参数在 prepare 钉住一次，后面的 compile / package 矩阵都引用同一份 ——
+    # 否则每个 leg 各自按当前时间算时间戳，APK 名字会差一分钟、发布页按名字取附件就取不到。
     outputs:
       versionName: ${{ steps.ver.outputs.versionName }}
       versionCode: ${{ steps.ver.outputs.versionCode }}
@@ -44,14 +35,46 @@ jobs:
       - name: i18n 校验
         run: python3 tools/i18n/check-i18n.py --min-coverage 100
 
+      - name: 版本参数（五个渠道共用）
+        id: ver
+        run: |
+          set -euo pipefail
+          V=$(grep '^versionName=' version.properties | cut -d= -f2 | tr -d '[:space:]')
+          C=$(grep '^versionCode=' version.properties | cut -d= -f2 | tr -d '[:space:]')
+          H=$(git rev-parse --short=7 HEAD)
+          T=$(TZ=Asia/Shanghai date +%Y%m%d-%H%M)
+          S="${V}-${T}-${H}"
+          {
+            echo "versionName=$V"
+            echo "versionCode=$C"
+            echo "gitHash=$H"
+            echo "buildTime=$T"
+            echo "standardVersion=$S"
+          } >> "$GITHUB_OUTPUT"
+          echo "[version] $S"
+
+      - name: 环境准备 / 检索资产 / 判定命中
+        uses: ./.github/actions/setup-branchbase-env
+        with:
+          gradle-cache-read-only: 'false'
+
+  # ① core —— Rust 核心 .so（与 beta 同一条缓存键，只含 core/**）
+  core:
+    runs-on: ubuntu-latest
+    needs: prepare
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: ./.github/actions/setup-branchbase-env
         with:
           gradle-cache-read-only: 'false'
 
-      - name: Inject client secret
-        run: echo "branchbase.client.secret=${{ secrets.BRANCHBASE_CLIENT_SECRET }}" >> local.properties
-
-      # 核心没改就直接用缓存里的 .so：UI 改动的发版不再等一轮 Rust 交叉编译。
       - name: Restore Rust core cache
         id: so-cache
         uses: actions/cache@v4
@@ -63,68 +86,7 @@ jobs:
         if: steps.so-cache.outputs.cache-hit != 'true'
         run: bash tools/build/build-core.sh --mode=ci
 
-      - name: Build Release APK (注入版本参数 + 签名)
-        id: ver
-        run: bash tools/build/assemble.sh assembleRelease
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-
-      - name: Collect artifacts (复制到非 gitignore 的 dist/)
-        run: |
-          mkdir -p dist
-          cp app/build/outputs/apk/release/*.apk dist/ || true
-          ls -la dist/
-      # 签名指纹必须从**实际产物**现算：写死的常量在换钥 / 配错钥时会继续「证明」旧指纹。
-      - name: Generate signature file（现算指纹）
-        run: |
-          set -uo pipefail
-          APKSIGNER=$(command -v apksigner || true)
-          if [ -z "$APKSIGNER" ]; then
-            APKSIGNER=$(ls "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"/build-tools/*/apksigner 2>/dev/null | tail -1 || true)
-          fi
-          echo "apksigner=${APKSIGNER:-<未找到>}"
-          APK=$(ls dist/*.apk | head -1)
-          # 不启用 -e：先把 apksigner 的实际输出打出来，再决定；否则失败时只剩下我们自己的一句话。
-          RAW=$("$APKSIGNER" verify --print-certs "$APK" 2>&1 || true)
-          echo "--- apksigner output（前 8 行）---"
-          printf '%s\n' "$RAW" | head -8
-          # 抽第一段 64 位十六进制（= 证书 SHA-256），不依赖 apksigner 的行前缀格式
-          FPRINT=$(printf '%s\n' "$RAW" | grep -oE '[0-9a-fA-F]{64}' | head -1 \
-            | tr '[:lower:]' '[:upper:]' | sed -E 's/(..)/\1:/g; s/:$//')
-          if [ -z "$FPRINT" ]; then
-            echo "::error title=signature::无法从 $APK 读出签名指纹（见上面的 apksigner 输出）"
-            exit 1
-          fi
-          {
-            echo "variant=release"
-            echo "version=${{ needs.build.outputs.versionName }}"
-            echo "fingerprint=$FPRINT"
-          } > dist/signature.txt
-          cat dist/signature.txt
-
-      # 一个 APK 一个 artifact，且**不打包**（理由与两条硬约束同 build-beta.yml：
-      # 产物是发布页之外的第二条取包通道；`archive: false` 只能传单个文件，
-      # 且产物名直接取文件名 —— 所以不写 `name:`，`.apk` 后缀由 outputFileName 保证）。
-      - name: Upload artifacts（release APK，不打包）
-        uses: actions/upload-artifact@v7
-        with:
-          path: dist/*.apk
-          retention-days: 30
-          if-no-files-found: error
-          archive: false
-
-      - name: Upload artifacts（signature.txt，不打包）
-        uses: actions/upload-artifact@v7
-        with:
-          path: dist/signature.txt
-          retention-days: 30
-          if-no-files-found: error
-          archive: false
-
-      - name: Upload artifacts（libbranchbase_core.so，不打包）
+      - name: Upload artifact（libbranchbase_core.so，不打包）
         uses: actions/upload-artifact@v7
         with:
           path: app/src/main/jniLibs/arm64-v8a/libbranchbase_core.so
@@ -132,12 +94,13 @@ jobs:
           if-no-files-found: error
           archive: false
 
-  # 正式版也带四渠道矩阵（2026-11-24 决策）：release 由上一个 job 出，这里补 beta 签名的三条渠道。
-  # 每个 leg 独立 Gradle 进程、只编一个变体（同 build-beta 的拆分理由：同进程编多个变体会 OOM）。
-  channels:
+  # ② compile —— 编译节点矩阵（release + beta 签名的四个渠道）
+  #    每个 job 只做「编译 + 资源合并 + 合并 jniLibs」，不打包、不签名；
+  #    产物进 Gradle 构建缓存，供 package 节点复用。
+  compile:
     runs-on: ubuntu-latest
-    needs: build
-    timeout-minutes: 40
+    needs: [prepare, core]
+    timeout-minutes: 30
     permissions:
       contents: read
       actions: write
@@ -145,6 +108,70 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - channel: release
+            tasks: ":app:compileReleaseKotlin :app:mergeReleaseResources :app:mergeReleaseJniLibFolders"
+          - channel: debug
+            tasks: ":app:compileDebugKotlin :app:mergeDebugResources :app:mergeDebugJniLibFolders"
+          - channel: dev
+            tasks: ":app:compileDevKotlin :app:mergeDevResources :app:mergeDevJniLibFolders"
+          - channel: trial
+            tasks: ":app:compileTrialKotlin :app:mergeTrialResources :app:mergeTrialJniLibFolders"
+          - channel: perfBeta
+            tasks: ":app:compilePerfBetaKotlin :app:mergePerfBetaResources :app:mergePerfBetaJniLibFolders"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-branchbase-env
+        with:
+          gradle-cache-read-only: 'false'
+
+      - name: Download Rust core (.so)
+        uses: actions/download-artifact@v8
+        with:
+          name: libbranchbase_core.so
+          path: app/src/main/jniLibs/arm64-v8a/
+
+      - name: Inject client secret
+        run: echo "branchbase.client.secret=${{ secrets.BRANCHBASE_CLIENT_SECRET }}" >> local.properties
+
+      - name: Compile ${{ matrix.channel }}（只编译，不打包）
+        env:
+          BRANCHBASE_GIT_HASH: ${{ needs.prepare.outputs.gitHash }}
+          BRANCHBASE_BUILD_TIME: ${{ needs.prepare.outputs.buildTime }}
+          BRANCHBASE_STANDARD_VERSION: ${{ needs.prepare.outputs.standardVersion }}
+        run: |
+          set -o pipefail
+          if ! bash tools/build/assemble.sh ${{ matrix.tasks }} 2>&1 | tee /tmp/compile.log; then
+            echo "::error title=compile::${{ matrix.channel }} 编译失败，关键行如下"
+            {
+              grep -aE "^e: |^error:" /tmp/compile.log | tail -12
+              awk '/^FAILURE:|What went wrong/{flag=1} flag{print; n++} n>=30{exit}' /tmp/compile.log
+            } | tail -40 \
+              | while IFS= read -r line; do
+                  safe=$(printf '%s' "$line" | tr -d '\r' | sed 's/::/%3A%3A/g' | cut -c1-400)
+                  echo "::error title=compile::$safe"
+                done
+            exit 1
+          fi
+
+  # ③ package —— 合并打包节点矩阵：dex / 资源链接 / 签名 / 出 APK。
+  #    release 的 keystore 只在这一段注入（编译节点不接触签名材料）。
+  package:
+    runs-on: ubuntu-latest
+    needs: [prepare, core, compile]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - channel: release
+            task: assembleRelease
+            outDir: release
           - channel: debug
             task: assembleDebug
             outDir: debug
@@ -175,33 +202,65 @@ jobs:
       - name: Inject client secret
         run: echo "branchbase.client.secret=${{ secrets.BRANCHBASE_CLIENT_SECRET }}" >> local.properties
 
-      - name: Assemble ${{ matrix.channel }}
+      - name: Package ${{ matrix.channel }}
         env:
-          BRANCHBASE_GIT_HASH: ${{ needs.build.outputs.gitHash }}
-          BRANCHBASE_BUILD_TIME: ${{ needs.build.outputs.buildTime }}
-          BRANCHBASE_STANDARD_VERSION: ${{ needs.build.outputs.standardVersion }}
+          BRANCHBASE_GIT_HASH: ${{ needs.prepare.outputs.gitHash }}
+          BRANCHBASE_BUILD_TIME: ${{ needs.prepare.outputs.buildTime }}
+          BRANCHBASE_STANDARD_VERSION: ${{ needs.prepare.outputs.standardVersion }}
+          # release 腿才用得到签名材料；其它腿由入库的固定 beta 钥匙签（不需要 secret）。
+          KEYSTORE_BASE64: ${{ matrix.channel == 'release' && secrets.KEYSTORE_BASE64 || '' }}
+          KEYSTORE_PASSWORD: ${{ matrix.channel == 'release' && secrets.KEYSTORE_PASSWORD || '' }}
+          KEY_ALIAS: ${{ matrix.channel == 'release' && secrets.KEY_ALIAS || '' }}
+          KEY_PASSWORD: ${{ matrix.channel == 'release' && secrets.KEY_PASSWORD || '' }}
         run: |
           set -o pipefail
-          if ! bash tools/build/assemble.sh ${{ matrix.task }} 2>&1 | tee /tmp/assemble.log; then
-            echo "::error title=assemble::${{ matrix.channel }} 编译失败，关键行如下"
+          if ! bash tools/build/assemble.sh ${{ matrix.task }} 2>&1 | tee /tmp/package.log; then
+            echo "::error title=package::${{ matrix.channel }} 打包失败，关键行如下"
             {
-              grep -aE "^e: |^error:" /tmp/assemble.log | tail -12
-              awk '/^FAILURE:|What went wrong/{flag=1} flag{print; n++} n>=30{exit}' /tmp/assemble.log
+              grep -aE "^e: |^error:" /tmp/package.log | tail -12
+              awk '/^FAILURE:|What went wrong/{flag=1} flag{print; n++} n>=30{exit}' /tmp/package.log
             } | tail -40 \
               | while IFS= read -r line; do
                   safe=$(printf '%s' "$line" | tr -d '\r' | sed 's/::/%3A%3A/g' | cut -c1-400)
-                  echo "::error title=assemble::$safe"
+                  echo "::error title=package::$safe"
                 done
             exit 1
           fi
 
-      - name: Collect artifacts
+      - name: Collect artifacts (复制到非 gitignore 的 dist/)
         run: |
           mkdir -p dist
           cp app/build/outputs/apk/${{ matrix.outDir }}/*.apk dist/ || true
           ls -la dist/
 
-      # beta 签名的三个渠道（debug/dev/trial/perfBeta）共用一把钥匙：只算一次指纹。
+      # 签名指纹必须从**实际产物**现算：写死的常量在换钥 / 配错钥时会继续「证明」旧指纹。
+      - name: Generate release signature file（现算指纹，仅 release）
+        if: matrix.channel == 'release'
+        run: |
+          set -uo pipefail
+          APKSIGNER=$(command -v apksigner || true)
+          if [ -z "$APKSIGNER" ]; then
+            APKSIGNER=$(ls "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"/build-tools/*/apksigner 2>/dev/null | tail -1 || true)
+          fi
+          echo "apksigner=${APKSIGNER:-<未找到>}"
+          APK=$(ls dist/*.apk | head -1)
+          # 不启用 -e：先把 apksigner 的实际输出打出来，再决定；否则失败时只剩下我们自己的一句话。
+          RAW=$("$APKSIGNER" verify --print-certs "$APK" 2>&1 || true)
+          echo "--- apksigner output（前 8 行）---"
+          printf '%s\n' "$RAW" | head -8
+          FPRINT=$(printf '%s\n' "$RAW" | grep -oE '[0-9a-fA-F]{64}' | head -1 \
+            | tr '[:lower:]' '[:upper:]' | sed -E 's/(..)/\1:/g; s/:$//')
+          if [ -z "$FPRINT" ]; then
+            echo "::error title=signature::无法从 $APK 读出签名指纹（见上面的 apksigner 输出）"
+            exit 1
+          fi
+          {
+            echo "variant=release"
+            echo "version=${{ needs.prepare.outputs.standardVersion }}"
+            echo "fingerprint=$FPRINT"
+          } > dist/signature.txt
+          cat dist/signature.txt
+
       - name: Generate beta signature file（现算指纹，仅 debug）
         if: matrix.channel == 'debug'
         run: |
@@ -221,7 +280,7 @@ jobs:
           fi
           {
             echo "variant=beta"
-            echo "version=${{ needs.build.outputs.standardVersion }}"
+            echo "version=${{ needs.prepare.outputs.standardVersion }}"
             echo "fingerprint=$FPRINT"
           } > dist/signature-beta.txt
           cat dist/signature-beta.txt
@@ -230,6 +289,15 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           path: dist/*.apk
+          retention-days: 30
+          if-no-files-found: error
+          archive: false
+
+      - name: Upload artifact（signature.txt，不打包，仅 release）
+        if: matrix.channel == 'release'
+        uses: actions/upload-artifact@v7
+        with:
+          path: dist/signature.txt
           retention-days: 30
           if-no-files-found: error
           archive: false
@@ -245,7 +313,7 @@ jobs:
 
   publish:
     runs-on: ubuntu-latest
-    needs: [build, channels]
+    needs: [prepare, core, compile, package]
     timeout-minutes: 20
     permissions:
       contents: write
@@ -271,7 +339,7 @@ jobs:
           # 正文只含两个引用区；版本信息由最后一步追加到整页末尾
           bash tools/build/release-notes.sh \
             --repo "${{ github.repository }}" \
-            --tag "v${{ needs.build.outputs.versionName }}" \
+            --tag "v${{ needs.prepare.outputs.versionName }}" \
             --previous-pattern 'v*' \
             --exclude-substring '-beta' \
             --exclude-author 'github-actions[bot]' \
@@ -288,13 +356,13 @@ jobs:
           echo "--- beta ---"; cat signature-beta.txt
 
       - name: 代码变更整合（生成源码包）
-        run: git archive --format=tar.gz -o "source-${{ needs.build.outputs.versionName }}.tar.gz" HEAD
+        run: git archive --format=tar.gz -o "source-${{ needs.prepare.outputs.versionName }}.tar.gz" HEAD
 
       - name: 类型判定发布（正式 Release）
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.build.outputs.versionName }}
-          name: 正式版 v${{ needs.build.outputs.versionName }}
+          tag_name: v${{ needs.prepare.outputs.versionName }}
+          name: 正式版 v${{ needs.prepare.outputs.versionName }}
           body_path: release-body.md
           # 官方自动生成说明（合并的 PR + 贡献者 + 完整变更链接），分类见 .github/release.yml
           generate_release_notes: true
@@ -303,14 +371,14 @@ jobs:
           # **默认仍算成功**（`fail_on_unmatched_files` 默认 false）—— release 建出来了、
           # 附件一个没有、CI 全绿。正式版是用户实际下载的唯一来源，这种静默失败代价最大。
           files: |
-            Branchbase-${{ needs.build.outputs.standardVersion }}.apk
-            Branchbase-${{ needs.build.outputs.standardVersion }}-debug.apk
-            Branchbase-${{ needs.build.outputs.standardVersion }}-dev.apk
-            Branchbase-${{ needs.build.outputs.standardVersion }}-test.apk
-            Branchbase-${{ needs.build.outputs.standardVersion }}-perfBeta.apk
+            Branchbase-${{ needs.prepare.outputs.standardVersion }}.apk
+            Branchbase-${{ needs.prepare.outputs.standardVersion }}-debug.apk
+            Branchbase-${{ needs.prepare.outputs.standardVersion }}-dev.apk
+            Branchbase-${{ needs.prepare.outputs.standardVersion }}-test.apk
+            Branchbase-${{ needs.prepare.outputs.standardVersion }}-perfBeta.apk
             signature.txt
             signature-beta.txt
-            source-${{ needs.build.outputs.versionName }}.tar.gz
+            source-${{ needs.prepare.outputs.versionName }}.tar.gz
           fail_on_unmatched_files: true
           prerelease: false
           draft: false
@@ -322,7 +390,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v${{ needs.build.outputs.versionName }}"
+          TAG="v${{ needs.prepare.outputs.versionName }}"
           BODY=$(gh release view "$TAG" --repo "${{ github.repository }}" --json body -q .body)
           {
             printf '%s\n\n' "$BODY"
@@ -333,9 +401,9 @@ jobs:
             echo "| 项 | 值 |"
             echo "| --- | --- |"
             echo "| 版本 | \`$TAG\` |"
-            echo "| 版本码 | \`${{ needs.build.outputs.versionCode }}\` |"
-            echo "| 提交 | \`${{ needs.build.outputs.gitHash }}\` |"
-            echo "| 构建时间 | ${{ needs.build.outputs.buildTime }} |"
+            echo "| 版本码 | \`${{ needs.prepare.outputs.versionCode }}\` |"
+            echo "| 提交 | \`${{ needs.prepare.outputs.gitHash }}\` |"
+            echo "| 构建时间 | ${{ needs.prepare.outputs.buildTime }} |"
             echo "| 签名 | Release 签名 |"
           } > final-body.md
           gh release edit "$TAG" --repo "${{ github.repository }}" --notes-file final-body.md
@@ -348,7 +416,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v${{ needs.build.outputs.versionName }}"
+          TAG="v${{ needs.prepare.outputs.versionName }}"
           echo "附件清单："
           gh release view "$TAG" --repo "${{ github.repository }}" --json assets -q '.assets[].name'
           N=$(gh release view "$TAG" --repo "${{ github.repository }}" --json assets -q '.assets | length' | tr -dc '0-9')

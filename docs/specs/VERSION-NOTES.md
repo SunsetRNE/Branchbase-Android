@@ -74,7 +74,32 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.6 → 1.0.22）
+## 二、`versionName` 流水（1.4.7 → 1.0.22）
+
+### 1.4.7
+
+**编译流水线节点化：`version → core → compile(矩阵) → package(矩阵) → publish`。**
+
+① 把原来 `build` 腿里的 `assembleX` 黑盒拆成两段：**compile**（`compileXKotlin` +
+`mergeXResources` + `mergeXJniLibFolders`，只编译不打包）与 **package**（`assembleX`：
+dex / 资源链接 / 签名 / 出 APK）。失败 annotation 的标题分别是 `compile::` / `package::`，
+不必再从一行 `FAILURE:` 里猜卡在哪。
+
+② **签名材料范围最小化**：release 的 keystore 只在 `package(release)` 注入。`compile` 节点
+完全不接触签名材料 —— `app/build.gradle.kts` 的 release signingConfig 本就是「提供
+`KEYSTORE_BASE64` 才创建」，所以 `compileReleaseKotlin` 不带 secret 也能跑。
+
+③ 版本参数提到 `version` / `prepare` 统一钉住（正式版原来在 `build` 腿里算）：
+compile / package 的所有矩阵腿引用同一份 outputs，否则各腿各算一次时间戳，
+APK 名会差一分钟、发布页按名字取附件就取不到。
+
+④ **矩阵补齐**：`ci.yml` 把 i18n 门禁独立成一个 job（失败时后面几条腿直接不启动，
+也不再每个变体重复解析 XML），`android-variants` 增加 `release` 变体 —— 此前 release
+只有发正式版时才第一次被编译。
+
+⑤ 代价与边界写进 `BUILD-NOTES.md` §七：跨 job 交接靠 Gradle 构建缓存，多个矩阵腿写同一键
+是「先写者赢」，别的腿**可能重编**（性能问题，不是正确性问题）；`mergeXJniLibFolders` 依赖
+`.so`，所以 compile 腿也要先下 core 产物。
 
 ### 1.4.6
 
@@ -4153,13 +4178,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（266 → 129）
+## 三、`versionCode` 流水（267 → 129）
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 
 - **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
 
 - **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **267**：编译流水线节点化 —— beta/release 均拆成 `version/prepare → core → compile(矩阵) → package(矩阵) → publish`；release 签名材料只在 package(release) 注入；版本参数统一在 version/prepare 钉住；CI 的 i18n 独立成节点、变体矩阵补 release（一次提交，故 +1）。
 
 - **266**：中文界面里的英文硬编码第一批（`RepoRelationSheets` 的关注设置标题 / 复刻对话框 6 处）；`i18n-migration.md` 新增 §十四 Rust 结构化错误方案（`ERROR:<CODE>[:detail]` + `EngineError` 边界，未实施）（一次提交，故 +1）。
 

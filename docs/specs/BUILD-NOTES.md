@@ -300,5 +300,42 @@ ping 通 ≠ HTTP 能下（ICMP 被禁或走 CDN 的镜像上两者没有稳定�
 不能起外部进程（`gradle.properties:17` 开着配置缓存），`git rev-parse` 会直接打挂它，IDE 直连构建只能
 退化成 `unknown`（`app/build.gradle.kts:41-45`）；工程版本号 / 版本码始终直接读文件（`:26-32`）。
 这个 `standardVersion` 同时进 `BuildConfig`（`:89-92`）与 APK 文件名（`:185-198`）；publish 阶段
-**不重算**版本号，直接用 build job 的 output（`build-beta.yml:31-36`、`:109`）—— 所以 tag、APK 名、
+**不重算**版本号，直接用 version / prepare job 的 output（`build-beta.yml` 的 `version` job、`build-release.yml` 的 `prepare` job）—— 所以 tag、APK 名、
 发布页里的版本信息永远同源，不会出现「三个地方三个版本」。
+
+---
+
+## 七、流水线节点化：五段 + 矩阵合并打包（2026-11-24）
+
+原先发版是一条 `build` 腿里的 `assembleX` **黑盒**：Kotlin 编译、资源合并、dex、签名、出 APK 全在一起，
+失败时只能从一行 `FAILURE:` 猜是哪一段。现在拆成五段（beta 与 release 同一形状）：
+
+| 段 | 做什么 | 交接物 |
+|---|---|---|
+| `version` / `prepare` | i18n 门禁 + **钉住**版本参数（时间戳 / 短哈希 / standardVersion） | job outputs |
+| `core` | Rust 核心 `.so`（`core/**` 未改则命中缓存） | artifact |
+| `compile` | 矩阵：`compileXKotlin` + `mergeXResources` + `mergeXJniLibFolders` | Gradle 构建缓存 |
+| `package` | 矩阵：`assembleX`（dex / 资源链接 / 签名 / 出 APK） | APK + `signature*.txt` |
+| `publish` | 汇总产物 / 发布页 / 代码变更整合 | Release |
+
+**为什么这么拆：**
+
+1. **定位**：编译错与打包错的 annotation 标题分别是 `compile::` / `package::`，不必再猜。
+2. **签名材料范围最小化**：release 的 keystore 只在 `package(release)` 注入 ——
+   `compile` 节点完全不接触签名材料。`app/build.gradle.kts` 的 release signingConfig 本就是
+   「提供 `KEYSTORE_BASE64` 才创建」，所以 `compileReleaseKotlin` 不带 secret 也能跑。
+3. **每段单独限时**：compile / package 各自 30 分钟，不会出现「整个 build 40 分钟超时、卡在哪不知道」。
+4. **矩阵更完整**：CI 补上 `compileReleaseKotlin`（此前 release 变体只有发正式版时才第一次被编译）。
+
+**三个必须知道的实现约束：**
+
+- **跨 job 的交接靠 Gradle 构建缓存**（`setup-gradle` 在 job 结束时落盘，`package` 按同一批 task 输入复用）。
+  ⚠️ 多个矩阵腿写同一个缓存键时是「先写者赢」，所以别的腿**可能拿不到缓存而重编** ——
+  这是**性能**问题、不是正确性问题；要彻底共享得换远程构建缓存后端（S3/GCS），暂未做。
+- `mergeXJniLibFolders` 依赖 `.so`，所以 **compile 节点也必须先下载 core 产物**，不能只放在 package。
+- 任务名必须真实存在。改任务列表前先 dry-run 一次：
+  `./gradlew --dry-run :app:compileXKotlin :app:mergeXResources :app:mergeXJniLibFolders`
+  （release 变体同理，`:app:mergeReleaseResources` 等）。
+
+**怎么验证这条流水线**：「测试性发版」—— push 到 `main` 触发 `build-beta.yml`，看五个 job 的
+依赖关系与 annotation 标题是否符合预期；正式版再手动 `workflow_dispatch` 跑一次 `build-release.yml`。

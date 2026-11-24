@@ -4,10 +4,11 @@ name: Build Beta (Channels)
 #
 #   ① version —— 算一次**钉住**的版本参数（四个渠道共用同一个时间戳，否则 APK 名字差一分钟对不上）
 #   ② core    —— 编一次 Rust 核心 .so，作为 artifact 下发
-#   ③ build   —— **矩阵**：debug / dev / trial / perfBeta 各自一个 job、各自一个 Gradle 进程
+#   ③ compile —— **编译节点矩阵**：每渠道一个 job，只做「编译 + 资源合并 + 合并 jniLibs」
 #                （2026-11-24：四渠道塞进一个 Gradle 调用会在 Compose 代码生成阶段 OOM；
 #                 拆开后每个 job 只编一个变体，峰值内存回到单变体水平，同时四条腿并行跑）
-#   ④ publish —— 汇总产物 / 双语发布页 / 提交 .so 与校验文件到 beta 分支 / 发 Pre-release
+#   ④ package —— **合并打包节点矩阵**：拿编译节点暖过的构建缓存，做 dex / 资源链接 / 签名 / 出 APK
+#   ⑤ publish —— 汇总产物 / 双语发布页 / 提交 .so 与校验文件到 beta 分支 / 发 Pre-release
 on:
   workflow_dispatch:
   push:
@@ -86,10 +87,74 @@ jobs:
           if-no-files-found: error
           archive: false
 
-  build:
+  # ③ compile —— **编译节点**（矩阵）：每个 job 只做「编译 + 资源合并 + 合并 jniLibs」，
+  #    不产出 APK、不签名。产物写进 Gradle 构建缓存（`setup-gradle` 在 job 结束时落盘），
+  #    由下一段 package 节点按同一批 task 输入复用 —— 这样「编译」与「打包」可以分别重跑、
+  #    分别限时，哪一段慢/挂一眼看得出来（原来是一段 `assemble` 黑盒）。
+  compile:
     runs-on: ubuntu-latest
     needs: [version, core]
-    timeout-minutes: 40
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - channel: debug
+            tasks: ":app:compileDebugKotlin :app:mergeDebugResources :app:mergeDebugJniLibFolders"
+          - channel: dev
+            tasks: ":app:compileDevKotlin :app:mergeDevResources :app:mergeDevJniLibFolders"
+          - channel: trial
+            tasks: ":app:compileTrialKotlin :app:mergeTrialResources :app:mergeTrialJniLibFolders"
+          - channel: perfBeta
+            tasks: ":app:compilePerfBetaKotlin :app:mergePerfBetaResources :app:mergePerfBetaJniLibFolders"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-branchbase-env
+        with:
+          gradle-cache-read-only: 'false'
+
+      - name: Download Rust core (.so)
+        uses: actions/download-artifact@v8
+        with:
+          name: libbranchbase_core.so
+          path: app/src/main/jniLibs/arm64-v8a/
+
+      - name: Inject client secret
+        run: echo "branchbase.client.secret=${{ secrets.BRANCHBASE_CLIENT_SECRET }}" >> local.properties
+
+      - name: Compile ${{ matrix.channel }}（只编译，不打包）
+        env:
+          BRANCHBASE_GIT_HASH: ${{ needs.version.outputs.gitHash }}
+          BRANCHBASE_BUILD_TIME: ${{ needs.version.outputs.buildTime }}
+          BRANCHBASE_STANDARD_VERSION: ${{ needs.version.outputs.standardVersion }}
+        run: |
+          set -o pipefail
+          if ! bash tools/build/assemble.sh ${{ matrix.tasks }} 2>&1 | tee /tmp/compile.log; then
+            echo "::error title=compile::${{ matrix.channel }} 编译失败，关键行如下"
+            {
+              grep -aE "^e: |^error:" /tmp/compile.log | tail -12
+              awk '/^FAILURE:|What went wrong/{flag=1} flag{print; n++} n>=30{exit}' /tmp/compile.log
+            } | tail -40 \
+              | while IFS= read -r line; do
+                  safe=$(printf '%s' "$line" | tr -d '\r' | sed 's/::/%3A%3A/g' | cut -c1-400)
+                  echo "::error title=compile::$safe"
+                done
+            exit 1
+          fi
+
+  # ④ package —— **合并打包节点**（矩阵）：拿着编译节点暖过的缓存，只做
+  #    「dex + 合并 jniLibs/资源 + 链接 + 签名 + 出 APK」。签名也在这一段完成，
+  #    所以 release 的 keystore 只需要在这一段注入。
+  package:
+    runs-on: ubuntu-latest
+    needs: [version, core, compile]
+    timeout-minutes: 30
     permissions:
       contents: read
       actions: write
@@ -131,22 +196,22 @@ jobs:
 
       # 四个渠道共用 version job 钉住的版本参数 —— 不这样做，每个 leg 各自算时间戳，
       # APK 名字会差一分钟，发布页按名字取附件就取不到。
-      - name: Assemble ${{ matrix.channel }}
+      - name: Package ${{ matrix.channel }}
         env:
           BRANCHBASE_GIT_HASH: ${{ needs.version.outputs.gitHash }}
           BRANCHBASE_BUILD_TIME: ${{ needs.version.outputs.buildTime }}
           BRANCHBASE_STANDARD_VERSION: ${{ needs.version.outputs.standardVersion }}
         run: |
           set -o pipefail
-          if ! bash tools/build/assemble.sh ${{ matrix.task }} 2>&1 | tee /tmp/assemble.log; then
-            echo "::error title=assemble::${{ matrix.channel }} 编译失败，关键行如下"
+          if ! bash tools/build/assemble.sh ${{ matrix.task }} 2>&1 | tee /tmp/package.log; then
+            echo "::error title=package::${{ matrix.channel }} 打包失败，关键行如下"
             {
-              grep -aE "^e: |^error:" /tmp/assemble.log | tail -12
-              awk '/^FAILURE:|What went wrong/{flag=1} flag{print; n++} n>=30{exit}' /tmp/assemble.log
+              grep -aE "^e: |^error:" /tmp/package.log | tail -12
+              awk '/^FAILURE:|What went wrong/{flag=1} flag{print; n++} n>=30{exit}' /tmp/package.log
             } | tail -40 \
               | while IFS= read -r line; do
                   safe=$(printf '%s' "$line" | tr -d '\r' | sed 's/::/%3A%3A/g' | cut -c1-400)
-                  echo "::error title=assemble::$safe"
+                  echo "::error title=package::$safe"
                 done
             exit 1
           fi
@@ -158,7 +223,6 @@ jobs:
           ls -la dist/
 
       # 签名指纹从**实际产物**现算（四个渠道同一把 beta 钥匙，取 debug 那份即可）。
-      # 放在 build 阶段是因为这里才有 Android SDK（apksigner 随 build-tools 由 AGP 装好）。
       - name: Generate signature file（现算指纹，仅 debug）
         if: matrix.channel == 'debug'
         run: |
@@ -204,7 +268,7 @@ jobs:
 
   publish:
     runs-on: ubuntu-latest
-    needs: [version, core, build]
+    needs: [version, core, compile, package]
     timeout-minutes: 20
     permissions:
       contents: write
