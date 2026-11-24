@@ -5,7 +5,7 @@
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
 **每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.2.5**）
-与 §三 `versionCode` 流水（129 → **256**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+与 §三 `versionCode` 流水（129 → **257**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,23 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.3.0 → 1.0.22）
+## 二、`versionName` 流水（1.3.1 → 1.0.22）
+
+### 1.3.1
+
+**修 1.3.0 的 Beta 失败：四渠道一次编译时 Kotlin/Compose 撞 `OutOfMemoryError`，统一抬高 Gradle 与 Kotlin 的堆。**
+
+① **现场**：1.3.0 的 `build-beta` 在 Kotlin + Compose 代码生成阶段报
+`java.lang.OutOfMemoryError: GC overhead limit exceeded`，随后是一串
+`RuntimeException: Exception while generating code for …`（失败的编译单元是 `AdaptiveContent`）。
+不是代码问题（本地三渠道实打通过），是 **CI 里 2 GB 的 Gradle 堆装不下四个渠道的 Compose 编译**。
+
+② **改法**：`gradle.properties` 的 `org.gradle.jvmargs` 从 2048m 提到 **3072m**（外加
+`-XX:MaxMetaspaceSize=768m`），并显式给 `kotlin.daemon.jvmargs=-Xmx2048m` —— Kotlin 编译器
+走独立 daemon 时不再继承一个偏小的默认值。CI runner 16 GB、本机 23 GB，这个量级是安全的。
+
+③ **边界**：这只改构建期内存，产物与运行时行为不变；若以后渠道继续增加（或 Compose 编译更重），
+应优先考虑**拆分 Gradle 调用**而不是继续加堆。
 
 ### 1.3.0
 
@@ -3905,13 +3921,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（256 → 129）
+## 三、`versionCode` 流水（257 → 129）
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 
 - **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
 
 - **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **257**：修 1.3.0 的 Beta 失败 —— 四渠道一次编译时 Kotlin/Compose `OutOfMemoryError: GC overhead limit exceeded`；`org.gradle.jvmargs` 2048m→3072m（+Metaspace 768m）、显式 `kotlin.daemon.jvmargs=-Xmx2048m`（一次提交，故 +1）。
 
 - **256**：渠道拆分 —— 新增 `dev`（`com.branchbase.dev`）/ `test`（`com.branchbase.test`）两个 build type，统一 beta 签名、独立标签与 APK 后缀，可与 beta 并排安装；新增 `ci.yml`（四渠道编译 + :app/:translate 单测 + core check/test/clippy），原 `build-core.yml` 并入后删除；`build-beta.yml` 一次编译四渠道并发布 5 个附件；`release-notes.sh` 增加固定英文段（英文在前、中文权威）；`README.md` 压缩为英文展示页并加八枚徽章，`README.zh.md` 下载表补渠道（一次提交，故 +1）。
 
