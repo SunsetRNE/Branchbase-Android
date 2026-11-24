@@ -2,6 +2,8 @@ package com.branchbase.ui.repository
 
 import org.json.JSONArray
 import org.json.JSONObject
+import com.branchbase.R
+import com.branchbase.ui.LocalizedText
 
 /**
  * 分支对比（`GET /repos/{o}/{r}/compare/{base}...{head}`）的数据模型与解析。
@@ -51,15 +53,19 @@ data class CompareFile(
     /** 文件级增删摘要（`+12 -3`）。 */
     val changeSummary: String get() = "+$additions -$deletions"
 
-    /** 状态中文标签（GitHub 的 status 取值：added/removed/modified/renamed/changed）。 */
-    val statusLabel: String
+    /**
+     * 状态标签（GitHub 的 status 取值：added/removed/modified/renamed/changed）。
+     *
+     * 未知取值**原样透出**（[LocalizedText.raw]）：后端新增一种状态不能被吞成「变更」。
+     */
+    val statusLabel: LocalizedText
         get() = when (status) {
-            "added" -> "新增"
-            "removed" -> "删除"
-            "renamed" -> "重命名"
-            "modified" -> "修改"
-            "changed" -> "变更"
-            else -> status
+            "added" -> LocalizedText(R.string.compare_status_added)
+            "removed" -> LocalizedText(R.string.compare_status_removed)
+            "renamed" -> LocalizedText(R.string.compare_status_renamed)
+            "modified" -> LocalizedText(R.string.compare_status_modified)
+            "changed" -> LocalizedText(R.string.compare_status_changed)
+            else -> LocalizedText(raw = status)
         }
 
     /** GitHub 对大 diff 不返回 patch：界面要提示「无代码片段」而不是留白。 */

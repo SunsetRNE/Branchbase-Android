@@ -595,6 +595,24 @@
     <string name="label_new_commit_message">新的提交信息</string>
     <string name="note_remove_git_desc">工作树文件不变，但历史与 %1$s 个未推送提交永久丢失（需二次确认）。</string>
     <string name="label_local_branch">本地 %1$s</string>
+    <!-- 本地仓库面板摘要与 Git 悬浮球的三个标签映射（都是纯函数，只返回 LocalizedText / @StringRes）。
+         Git 的 status 取值（added/removed/…）是**判别值**，没有对应资源时原样透出。 -->
+    <string name="local_repo_summary_missing">未拉取到本地</string>
+    <string name="local_repo_summary_diverged">%1$s · 分叉 ↑%2$s ↓%3$s</string>
+    <string name="local_repo_summary_ahead">%1$s · 待推送 %2$s</string>
+    <string name="local_repo_summary_behind">%1$s · 待拉取 %2$s</string>
+    <string name="local_repo_summary_dirty">%1$s · 改动 %2$s</string>
+    <string name="local_repo_summary_synced">%1$s · 已同步</string>
+    <string name="compare_status_added">新增</string>
+    <string name="compare_status_removed">删除</string>
+    <string name="compare_status_renamed">重命名</string>
+    <string name="compare_status_modified">修改</string>
+    <string name="compare_status_changed">变更</string>
+    <string name="sync_state_synced">已同步</string>
+    <string name="sync_state_ahead">可推送</string>
+    <string name="sync_state_behind">可拉取</string>
+    <string name="sync_state_diverged">分叉</string>
+    <string name="sync_state_untracked">未跟踪</string>
     <string name="note_diverged_explain">本地与远端各领先对方，无法快进合并（non-fast-forward）。可以把远端合进本地（merge 只新增提交，已有历史一字不改），也可以保留或放弃本地提交。</string>
     <string name="hint_brief_description">简要描述…</string>
     <string name="confirm_discard_commits_checkbox">我确认放弃这些提交</string>
@@ -1672,6 +1690,21 @@
     <string name="release_variant_release">正式版</string>
     <string name="release_variant_beta">测试版</string>
     <string name="release_variant_abnormal">异常</string>
+    <!--
+        关于页「构建校验」横幅（`SigningVerify.verifyCopy`，纯函数只返回 LocalizedText）。
+        五态各一句胶囊结论 + 一句依据；两个指纹作为嵌套 LocalizedText 传进 %1$s / %2$s。
+    -->
+    <string name="verify_chip_checking">校验中…</string>
+    <string name="verify_detail_checking">正在读取本地签名指纹，并拉取远端校验文件</string>
+    <string name="verify_chip_local_build">本地编译</string>
+    <string name="verify_detail_local_build">签名不在正式版 / 测试版之列，不参与远端校验（远端只登记官方发布产物）</string>
+    <string name="verify_chip_unavailable">无法校验</string>
+    <string name="verify_detail_unavailable">取不到远端校验文件：网络不可达，或该分支尚未发布校验文件</string>
+    <string name="verify_chip_matched">✓ 签名一致</string>
+    <string name="verify_detail_matched">本地 APK 签名 = 远端%1$s校验文件（%2$s）</string>
+    <string name="verify_chip_mismatched">✗ 签名不一致</string>
+    <string name="verify_detail_mismatched">本地 %1$s / 远端 %2$s，该 APK 可能被重新打包，建议立即卸载</string>
+    <string name="verify_fingerprint_unreadable">（读取失败）</string>
     <!-- 发版三档（`ReleaseType`）：「预发布 / 草稿」复用 `label_prerelease` / `label_draft`，这里补正式发布与三条说明。 -->
     <string name="release_type_stable">正式发布</string>
     <string name="release_type_stable_hint">所有人可见，并占据仓库的「最新发布」</string>

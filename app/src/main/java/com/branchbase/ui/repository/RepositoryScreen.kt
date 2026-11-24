@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import org.json.JSONObject
 import androidx.compose.ui.unit.sp
 import com.branchbase.R
+import com.branchbase.ui.resolve
 import com.branchbase.ui.theme.selectionColor
 import com.branchbase.cache.PreloadStore
 import com.branchbase.cache.PrefetchReason
@@ -1932,7 +1933,7 @@ private fun CodePageGitPanel(
                 upstream = upstream,
             )
         },
-        title = localGit.summary(),
+        title = localGit.summary().resolve(),
         handleBadge = when {
             localGit.diverged -> "!"
             localGit.dirtyCount > 0 -> localGit.dirtyCount.toString()

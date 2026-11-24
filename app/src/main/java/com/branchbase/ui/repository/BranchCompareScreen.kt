@@ -46,6 +46,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.R
+import com.branchbase.ui.resolve
 import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
@@ -443,7 +444,7 @@ private fun StatusTag(file: CompareFile) {
         Modifier.width(38.dp).clip(RoundedCornerShape(6.dp)).background(bg).padding(vertical = 1.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(file.statusLabel, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = fg)
+        Text(file.statusLabel.resolve(), fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = fg)
     }
 }
 

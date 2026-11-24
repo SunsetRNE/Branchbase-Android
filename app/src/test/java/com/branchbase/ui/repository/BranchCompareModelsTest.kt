@@ -1,5 +1,7 @@
 package com.branchbase.ui.repository
 
+import com.branchbase.R
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -64,7 +66,8 @@ class BranchCompareModelsTest {
         assertEquals(1, r.files.size)
         val f = r.files[0]
         assertEquals("CONTRIBUTING.md", f.filename)
-        assertEquals("新增", f.statusLabel)
+        // 钉资源 ID（文案会搬家）；unknown 才原样透出 raw
+        assertEquals(R.string.compare_status_added, f.statusLabel.res)
         assertEquals("+1 -0", f.changeSummary)
         assertTrue(f.hasPatch)
         assertTrue(f.patch.startsWith("@@ -0,0 +1 @@"))
@@ -111,7 +114,7 @@ class BranchCompareModelsTest {
             """{"files":[{"filename":"b.md","previous_filename":"a.md","status":"renamed","additions":0,"deletions":0}]}""",
         )!!
 
-        assertEquals("重命名", r.files.single().statusLabel)
+        assertEquals(R.string.compare_status_renamed, r.files.single().statusLabel.res)
         assertEquals("a.md", r.files.single().previousFilename)
     }
 

@@ -1,6 +1,8 @@
 package com.branchbase.ui.repository
 
 import org.json.JSONArray
+import androidx.annotation.StringRes
+import com.branchbase.R
 
 /** 本地分支（`nativeLocalBranches` 的输出元素）。 */
 data class LocalBranchInfo(
@@ -36,14 +38,15 @@ fun syncStateOf(branch: LocalBranchInfo): SyncState = when {
     else -> SyncState.Synced
 }
 
-/** 状态标签（列表右侧展示）。 */
-val SyncState.label: String
+/** 状态标签的资源（列表右侧展示；解析留在渲染层）。 */
+@get:StringRes
+val SyncState.labelRes: Int
     get() = when (this) {
-        SyncState.Synced -> "已同步"
-        SyncState.Ahead -> "可推送"
-        SyncState.Behind -> "可拉取"
-        SyncState.Diverged -> "分叉"
-        SyncState.Untracked -> "未跟踪"
+        SyncState.Synced -> R.string.sync_state_synced
+        SyncState.Ahead -> R.string.sync_state_ahead
+        SyncState.Behind -> R.string.sync_state_behind
+        SyncState.Diverged -> R.string.sync_state_diverged
+        SyncState.Untracked -> R.string.sync_state_untracked
     }
 
 fun parseLocalBranchInfos(json: String?): List<LocalBranchInfo> {

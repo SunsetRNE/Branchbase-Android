@@ -326,9 +326,10 @@ aapt2 dump resources <apk> | grep -A 2 'string/repo_page_issues'
 
 1. **`LoginScreens.kt` 的 OAuth / PAT 引导页 19 条** + `LoginViewModel` 的错误提示 7 条 —— 登录是首次启动路径；
 2. **搜索**（`SearchQuery` / `SearchScreen` / `SearchViewModel` 共 ~40 条）；
-3. **`SigningVerify.verifyCopy` 的 14 条**：它是纯函数返回整句文案，要走 §5.4 C′（先枚举化分类，
-   文案在调用方解析）—— 这次只把它的 `variant.label` 换成传参（`variantLabel: String`），
-   整段文案仍是中文；
+3. **`SigningVerify.verifyCopy`** —— **1.4.3 已按 §5.4 C′ 改完**：`VerifyCopy` 现在只带
+   `LocalizedText`（chip / detail 各一条），指纹作为嵌套参数；`fingerprintShort` 读不到时
+   也只返回资源。同类小项（`LocalRepoGitState.summary`、`CompareFile.statusLabel`、
+   `SyncState.labelRes`）同批处理；
 4. **`LocalBranchSyncModels` / `RepoActions` / `GitProxy` 校验提示** 等纯逻辑里的提示。
 
 > 动手前照旧先空跑一次：`python3 tools/i18n/extract.py --file <文件>` ——

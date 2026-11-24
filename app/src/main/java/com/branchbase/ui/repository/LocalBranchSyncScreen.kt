@@ -427,7 +427,7 @@ private fun LocalBranchRow(
                 color = Primer.TextPrimary, modifier = Modifier.weight(1f), maxLines = 1,
             )
             Text(
-                state.label,
+                stringResource(state.labelRes),
                 fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold,
                 color = when (state) {
                     SyncState.Synced -> Primer.Green500

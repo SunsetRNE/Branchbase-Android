@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import com.branchbase.ui.navigation.BranchbaseLazyColumn
+import com.branchbase.ui.resolve
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -2118,7 +2119,7 @@ fun AboutScreen(onBack: () -> Unit) {
             modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
         ) {
             // 身份行：图标 + 名称/副标题 + 校验结论胶囊（原来结论在页尾横幅，这里第一眼就能看到）
-            AboutIdentityRow(copy.chip, fg, bg)
+            AboutIdentityRow(copy.chip.resolve(), fg, bg)
 
             // 版本信息
             AboutCard(topGap = 10.dp) {
@@ -2155,7 +2156,7 @@ fun AboutScreen(onBack: () -> Unit) {
                     },
                 )
                 AboutRowDivider()
-                AboutVerifyNote(copy.detail, fg)
+                AboutVerifyNote(copy.detail.resolve(), fg)
             }
 
             // 开源协议 + 第三方声明：关于页是用户核对「这个包是什么、里面装了什么」的地方，

@@ -51,6 +51,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.R
+import com.branchbase.ui.resolve
 import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
@@ -834,7 +835,7 @@ fun FileViewerScreen(
                         upstream = upstreamRel,
                     )
                 },
-                title = localGit.summary(),
+                title = localGit.summary().resolve(),
                 // 顶部停靠：编辑态的底部是「提交信息 + 按钮」，面板停右上角避免遮挡
                 alignment = Alignment.TopEnd,
                 edgePadding = androidx.compose.foundation.layout.PaddingValues(end = 12.dp, top = 52.dp),

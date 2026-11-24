@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.annotation.StringRes
 import com.branchbase.R
+import com.branchbase.ui.LocalizedText
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
@@ -78,12 +79,17 @@ fun buildVerifyState(
     else -> BuildVerifyState.Mismatched
 }
 
-/** 指纹短显（默认前 4 组，如 `B3:72:AB:52…`）：横幅只用来给人眼做粗略比对，不必铺满 32 组 */
-fun fingerprintShort(fingerprint: String, groups: Int = 4): String {
-    if (fingerprint.isBlank()) return "（读取失败）"
+/**
+ * 指纹短显（默认前 4 组，如 `B3:72:AB:52…`）：横幅只用来给人眼做粗略比对，不必铺满 32 组。
+ *
+ * 读不到指纹时返回**资源**而不是中文常量：这个值是 `verifyCopy` 的参数之一，
+ * 纯函数里不能有界面文案（§5.4 C′）。
+ */
+fun fingerprintShort(fingerprint: String, groups: Int = 4): LocalizedText {
+    if (fingerprint.isBlank()) return LocalizedText(R.string.verify_fingerprint_unreadable)
     val parts = fingerprint.split(':')
-    if (parts.size <= groups) return fingerprint
-    return parts.take(groups).joinToString(":") + "…"
+    if (parts.size <= groups) return LocalizedText(raw = fingerprint)
+    return LocalizedText(raw = parts.take(groups).joinToString(":") + "…")
 }
 
 /**
@@ -93,7 +99,7 @@ fun fingerprintShort(fingerprint: String, groups: Int = 4): String {
  * 胶囊给结论（一致 / 不一致 / 本地编译 / 无法校验 / 校验中），说明给依据（指针对照、失败原因）。
  * 颜色不在这里取 —— `Primer` 是 `@Composable` 色板，配色留在 composable 里按状态取。
  */
-data class VerifyCopy(val chip: String, val detail: String)
+data class VerifyCopy(val chip: LocalizedText, val detail: LocalizedText)
 
 /** 由校验状态与指纹推导文案（判定本身见 [buildVerifyState]）。 */
 fun verifyCopy(
@@ -104,25 +110,31 @@ fun verifyCopy(
     remoteFingerprint: String?,
 ): VerifyCopy = when (state) {
     BuildVerifyState.Checking -> VerifyCopy(
-        "校验中…",
-        "正在读取本地签名指纹，并拉取远端校验文件",
+        LocalizedText(R.string.verify_chip_checking),
+        LocalizedText(R.string.verify_detail_checking),
     )
     BuildVerifyState.LocalBuild -> VerifyCopy(
-        "本地编译",
-        "签名不在正式版 / 测试版之列，不参与远端校验（远端只登记官方发布产物）",
+        LocalizedText(R.string.verify_chip_local_build),
+        LocalizedText(R.string.verify_detail_local_build),
     )
     BuildVerifyState.RemoteUnavailable -> VerifyCopy(
-        "无法校验",
-        "取不到远端校验文件：网络不可达，或该分支尚未发布校验文件",
+        LocalizedText(R.string.verify_chip_unavailable),
+        LocalizedText(R.string.verify_detail_unavailable),
     )
     BuildVerifyState.Matched -> VerifyCopy(
-        "✓ 签名一致",
-        "本地 APK 签名 = 远端${variantLabel}校验文件（${fingerprintShort(localFingerprint)}）",
+        LocalizedText(R.string.verify_chip_matched),
+        // variantLabel 由调用方按当前语言解析后传进来；指纹作为嵌套参数（句子里只有一个位置）
+        LocalizedText(
+            R.string.verify_detail_matched,
+            listOf(variantLabel, fingerprintShort(localFingerprint)),
+        ),
     )
     BuildVerifyState.Mismatched -> VerifyCopy(
-        "✗ 签名不一致",
-        "本地 ${fingerprintShort(localFingerprint)} / 远端 ${fingerprintShort(remoteFingerprint.orEmpty())}，" +
-            "该 APK 可能被重新打包，建议立即卸载",
+        LocalizedText(R.string.verify_chip_mismatched),
+        LocalizedText(
+            R.string.verify_detail_mismatched,
+            listOf(fingerprintShort(localFingerprint), fingerprintShort(remoteFingerprint.orEmpty())),
+        ),
     )
 }
 

@@ -1,5 +1,6 @@
 package com.branchbase.ui.repository
 
+import com.branchbase.R
 import com.branchbase.ui.decision.DirtyFile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -52,12 +53,15 @@ class LocalBranchSyncModelsTest {
     }
 
     @Test
-    fun `状态标签中文`() {
-        assertEquals("已同步", SyncState.Synced.label)
-        assertEquals("可推送", SyncState.Ahead.label)
-        assertEquals("可拉取", SyncState.Behind.label)
-        assertEquals("分叉", SyncState.Diverged.label)
-        assertEquals("未跟踪", SyncState.Untracked.label)
+    fun `状态标签是资源且五态互不相同`() {
+        // 钉资源 ID（文案会搬家）；五态必须两两不同，否则列表右侧分不出状态
+        assertEquals(R.string.sync_state_synced, SyncState.Synced.labelRes)
+        assertEquals(R.string.sync_state_ahead, SyncState.Ahead.labelRes)
+        assertEquals(R.string.sync_state_behind, SyncState.Behind.labelRes)
+        assertEquals(R.string.sync_state_diverged, SyncState.Diverged.labelRes)
+        assertEquals(R.string.sync_state_untracked, SyncState.Untracked.labelRes)
+        val all = SyncState.entries.map { it.labelRes }
+        assertEquals(all.size, all.distinct().size)
     }
 
     // ── 同步计划 ──
@@ -163,7 +167,8 @@ class LocalBranchSyncModelsTest {
     @Test
     fun `本地仓库状态摘要与动作开关`() {
         val missing = LocalRepoGitState(exists = false)
-        assertEquals("未拉取到本地", missing.summary())
+        // 摘要返回 LocalizedText：断言资源 ID + 参数（分支名 / 计数按位置传）
+        assertEquals(R.string.local_repo_summary_missing, missing.summary().res)
         assertFalse(missing.needsPush)
         assertFalse(missing.needsPull)
 
@@ -175,25 +180,30 @@ class LocalBranchSyncModelsTest {
             dirty = listOf(DirtyFile("a.txt", "M"), DirtyFile("b.txt", "??")),
         )
         assertEquals(2, dirty.dirtyCount)
-        assertEquals("main · 改动 2", dirty.summary())
+        assertEquals(R.string.local_repo_summary_dirty, dirty.summary().res)
+        assertEquals(listOf("main", 2), dirty.summary().args)
         assertFalse(dirty.needsPush)
 
         val ahead = LocalRepoGitState(exists = true, branch = "main", ahead = 3)
-        assertEquals("main · 待推送 3", ahead.summary())
+        assertEquals(R.string.local_repo_summary_ahead, ahead.summary().res)
+        assertEquals(listOf("main", 3), ahead.summary().args)
         assertTrue(ahead.needsPush)
         assertFalse(ahead.needsPull)
 
         val behind = LocalRepoGitState(exists = true, branch = "main", behind = 4)
-        assertEquals("main · 待拉取 4", behind.summary())
+        assertEquals(R.string.local_repo_summary_behind, behind.summary().res)
+        assertEquals(listOf("main", 4), behind.summary().args)
         assertTrue(behind.needsPull)
 
         val diverged = LocalRepoGitState(exists = true, branch = "main", ahead = 1, behind = 2)
-        assertEquals("main · 分叉 ↑1 ↓2", diverged.summary())
+        assertEquals(R.string.local_repo_summary_diverged, diverged.summary().res)
+        assertEquals(listOf("main", 1, 2), diverged.summary().args)
         assertTrue(diverged.diverged)
         // 分叉时既不能无脑推送也不能无脑拉取
         assertFalse(diverged.needsPull)
 
         val synced = LocalRepoGitState(exists = true, branch = "main")
-        assertEquals("main · 已同步", synced.summary())
+        assertEquals(R.string.local_repo_summary_synced, synced.summary().res)
+        assertEquals(listOf("main"), synced.summary().args)
     }
 }

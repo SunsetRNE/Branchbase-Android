@@ -1,5 +1,7 @@
 package com.branchbase.ui.profile
 
+import com.branchbase.R
+import com.branchbase.ui.LocalizedText
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -79,9 +81,10 @@ class SigningVerifyTest {
 
     @Test
     fun `指纹短显只取前四组`() {
-        assertEquals("AC:AB:BC:09…", fingerprintShort(local))
-        assertEquals("AC:AB", fingerprintShort("AC:AB", groups = 4))
-        assertEquals("（读取失败）", fingerprintShort(""))
+        // 返回值是 LocalizedText：截断后的指纹走 raw，读不到时才用资源（§5.4 C′）
+        assertEquals("AC:AB:BC:09…", fingerprintShort(local).raw)
+        assertEquals("AC:AB", fingerprintShort("AC:AB", groups = 4).raw)
+        assertEquals(R.string.verify_fingerprint_unreadable, fingerprintShort("").res)
     }
 
     // ── 紧凑版关于页的文案（胶囊短标签 + 一行说明）──
@@ -89,13 +92,17 @@ class SigningVerifyTest {
     // 以前这段文案写在 UI 里，改版时最容易漏掉某一态（会出现空胶囊或只有结论没有依据），
     // 所以抽成纯函数在这里逐态钉住。
 
-    // `verifyCopy` 的整段文案仍是中文（该块尚未资源化，见 i18n-migration §11 的「需接口改造」），
-    // 所以这里传的是**中文名**；`ReleaseVariant` 自己只带 `labelRes`，界面侧走 stringResource。
+    // `verifyCopy` 现在只返回 `LocalizedText`（§5.4 C′），不再产出中文：这里传的是
+    // **变体名的中文样本**，只用于检查它被原样放进 `%1$s` 参数；界面侧走 stringResource。
+    // 断言一律看资源 ID + args，不看会被搬走的字面量。
     private fun copyOf(
         state: BuildVerifyState,
         variantLabel: String = "测试版",
         remote: String? = local,
     ) = verifyCopy(state, variantLabel, local, remote)
+
+    /** 一条 LocalizedText 是否“有内容”：有资源，或 raw 非空。 */
+    private fun LocalizedText.hasContent() = res != 0 || raw.isNotBlank()
 
     /** 五态清单（`BuildVerifyState` 是 sealed interface，没有 `entries`）。 */
     private val allStates = listOf(
@@ -110,38 +117,45 @@ class SigningVerifyTest {
     fun `五态都有非空的胶囊与说明`() {
         allStates.forEach { state ->
             val copy = copyOf(state)
-            assertTrue("$state 的胶囊标签不能为空", copy.chip.isNotBlank())
-            assertTrue("$state 的说明不能为空", copy.detail.isNotBlank())
+            assertTrue("$state 的胶囊标签不能为空", copy.chip.hasContent())
+            assertTrue("$state 的说明不能为空", copy.detail.hasContent())
+            // 而且必须是资源（同一句文案要能跟界面语言走），不能是写死的中文
+            assertTrue("$state 的胶囊标签必须是资源", copy.chip.res != 0)
+            assertTrue("$state 的说明必须是资源", copy.detail.res != 0)
         }
     }
 
     @Test
     fun `胶囊标签是短结论且能一眼区分`() {
-        assertEquals("✓ 签名一致", copyOf(BuildVerifyState.Matched).chip)
-        assertEquals("✗ 签名不一致", copyOf(BuildVerifyState.Mismatched).chip)
-        assertEquals("校验中…", copyOf(BuildVerifyState.Checking, remote = null).chip)
-        assertEquals("本地编译", copyOf(BuildVerifyState.LocalBuild, "异常").chip)
-        assertEquals("无法校验", copyOf(BuildVerifyState.RemoteUnavailable, remote = null).chip)
+        assertEquals(R.string.verify_chip_matched, copyOf(BuildVerifyState.Matched).chip.res)
+        assertEquals(R.string.verify_chip_mismatched, copyOf(BuildVerifyState.Mismatched).chip.res)
+        assertEquals(R.string.verify_chip_checking, copyOf(BuildVerifyState.Checking, remote = null).chip.res)
+        assertEquals(R.string.verify_chip_local_build, copyOf(BuildVerifyState.LocalBuild, "异常").chip.res)
+        assertEquals(R.string.verify_chip_unavailable, copyOf(BuildVerifyState.RemoteUnavailable, remote = null).chip.res)
         // 五种状态两两不同：胶囊是结论，不能出现两个状态同一句话
-        val chips = allStates.map { copyOf(it, remote = null).chip }
+        val chips = allStates.map { copyOf(it, remote = null).chip.res }
         assertEquals(chips.size, chips.distinct().size)
     }
 
     @Test
     fun `说明里带上依据而不是只重复结论`() {
-        // 一致：给出与哪份远端文件比对的 + 指纹短显
+        // 一致：给出与哪份远端文件比对的 + 指纹短显（参数按 %1$s / %2$s 的顺序）
         val matched = copyOf(BuildVerifyState.Matched).detail
-        assertTrue("一致态要说明比对对象：$matched", matched.contains("测试版"))
-        assertTrue("一致态要给指纹短显：$matched", matched.contains("AC:AB:BC:09…"))
+        assertEquals(R.string.verify_detail_matched, matched.res)
+        assertEquals("测试版", matched.args[0])
+        assertEquals("AC:AB:BC:09…", (matched.args[1] as LocalizedText).raw)
 
-        // 不一致：两个指纹都要给，并且明确提示风险
+        // 不一致：两个指纹都要给（处置建议在资源里，不在这里拼）
         val other = "B3:72:AB:52:EE:47:A0:8E:45:26:6F:1C:11:E0:75:6D:86:E3:83:A0:74:BE:EB:A3:77:FD:3E:BA:7C:F7:99:94"
         val mismatched = verifyCopy(BuildVerifyState.Mismatched, "测试版", local, other).detail
-        assertTrue("不一致态要给出本地指纹：$mismatched", mismatched.contains("AC:AB:BC:09…"))
-        assertTrue("不一致态要给出远端指纹：$mismatched", mismatched.contains("B3:72:AB:52…"))
-        assertTrue("不一致态要给出处置建议：$mismatched", mismatched.contains("建议立即卸载"))
+        assertEquals(R.string.verify_detail_mismatched, mismatched.res)
+        assertEquals("AC:AB:BC:09…", (mismatched.args[0] as LocalizedText).raw)
+        assertEquals("B3:72:AB:52…", (mismatched.args[1] as LocalizedText).raw)
 
-        // 本地编译：要说明「为什么不校验」，而不是让用户以为网络坏了
-        assertTrue(copyOf(BuildVerifyState.LocalBuild, "异常").detail.contains("不参与远端校验"))
+        // 本地编译：要用「不参与远端校验」那一条，而不是让用户以为网络坏了
+        assertEquals(
+            R.string.verify_detail_local_build,
+            copyOf(BuildVerifyState.LocalBuild, "异常").detail.res,
+        )
     }
 }

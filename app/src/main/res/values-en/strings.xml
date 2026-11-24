@@ -590,6 +590,25 @@
     <string name="label_new_commit_message">New commit message</string>
     <string name="note_remove_git_desc">Working tree files are untouched, but the history and %1$s unpushed commits are lost permanently (confirmation required).</string>
     <string name="label_local_branch">Local %1$s</string>
+    <!-- Local-repository panel summary and the three label mappers (pure functions returning
+         LocalizedText / @StringRes). Git status values (added/removed/…) are discriminators and
+         pass through unchanged when there is no resource. -->
+    <string name="local_repo_summary_missing">Not fetched locally</string>
+    <string name="local_repo_summary_diverged">%1$s · diverged ↑%2$s ↓%3$s</string>
+    <string name="local_repo_summary_ahead">%1$s · %2$s to push</string>
+    <string name="local_repo_summary_behind">%1$s · %2$s to pull</string>
+    <string name="local_repo_summary_dirty">%1$s · %2$s changes</string>
+    <string name="local_repo_summary_synced">%1$s · up to date</string>
+    <string name="compare_status_added">Added</string>
+    <string name="compare_status_removed">Removed</string>
+    <string name="compare_status_renamed">Renamed</string>
+    <string name="compare_status_modified">Modified</string>
+    <string name="compare_status_changed">Changed</string>
+    <string name="sync_state_synced">Up to date</string>
+    <string name="sync_state_ahead">To push</string>
+    <string name="sync_state_behind">To pull</string>
+    <string name="sync_state_diverged">Diverged</string>
+    <string name="sync_state_untracked">Untracked</string>
     <string name="note_diverged_explain">Local and remote have each moved ahead, so this cannot fast-forward. You can merge the remote into the local branch (a merge only adds commits — existing history is never rewritten), or keep / discard the local commits.</string>
     <string name="hint_brief_description">Brief description…</string>
     <string name="confirm_discard_commits_checkbox">I confirm discarding these commits</string>
@@ -1638,6 +1657,22 @@
     <string name="release_variant_release">Release</string>
     <string name="release_variant_beta">Beta</string>
     <string name="release_variant_abnormal">Abnormal</string>
+    <!--
+        About page build-verification banner (`SigningVerify.verifyCopy`, a pure function returning
+        LocalizedText). Five states: a short chip plus one line of evidence; the two fingerprints
+        are passed as nested LocalizedText for %1$s / %2$s.
+    -->
+    <string name="verify_chip_checking">Verifying…</string>
+    <string name="verify_detail_checking">Reading the local signing certificate and fetching the remote verification file</string>
+    <string name="verify_chip_local_build">Local build</string>
+    <string name="verify_detail_local_build">This signature is neither the release nor the beta key, so it is not checked remotely (the remote file lists official builds only)</string>
+    <string name="verify_chip_unavailable">Cannot verify</string>
+    <string name="verify_detail_unavailable">Could not fetch the remote verification file: the network is unreachable, or this branch has not published one yet</string>
+    <string name="verify_chip_matched">✓ Signature matches</string>
+    <string name="verify_detail_matched">Local APK signature = remote %1$s verification file (%2$s)</string>
+    <string name="verify_chip_mismatched">✗ Signature mismatch</string>
+    <string name="verify_detail_mismatched">Local %1$s / remote %2$s — this APK may have been repackaged; uninstall it immediately</string>
+    <string name="verify_fingerprint_unreadable">(unreadable)</string>
     <string name="release_type_stable">Public release</string>
     <string name="release_type_stable_hint">Visible to everyone; becomes the repository’s “Latest release”</string>
     <string name="release_type_prerelease_hint">Visible to everyone, but not marked as “Latest release”</string>

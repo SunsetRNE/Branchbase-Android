@@ -200,6 +200,21 @@ class I18nUiTextTest {
             "merge_blocked_merging", "merge_blocked_dirty", "merge_blocked_shallow",
             "error_action_failed", "error_action_failed_reason",
             "revert_title_status_unknown", "revert_title_no_upstream", "revert_title_pushed",
+            // 关于页构建校验横幅：五态各一句胶囊 + 一句依据，指纹读不到时也有资源
+            "verify_chip_checking", "verify_detail_checking",
+            "verify_chip_local_build", "verify_detail_local_build",
+            "verify_chip_unavailable", "verify_detail_unavailable",
+            "verify_chip_matched", "verify_detail_matched",
+            "verify_chip_mismatched", "verify_detail_mismatched",
+            "verify_fingerprint_unreadable",
+            // 本地仓库摘要 / 分支对比状态 / 本地分支同步状态（三个纯函数标签映射）
+            "local_repo_summary_missing", "local_repo_summary_diverged",
+            "local_repo_summary_ahead", "local_repo_summary_behind",
+            "local_repo_summary_dirty", "local_repo_summary_synced",
+            "compare_status_added", "compare_status_removed", "compare_status_renamed",
+            "compare_status_modified", "compare_status_changed",
+            "sync_state_synced", "sync_state_ahead", "sync_state_behind",
+            "sync_state_diverged", "sync_state_untracked",
         ).forEach { key ->
             val z = value(zh, key)
             val e = value(en, key)

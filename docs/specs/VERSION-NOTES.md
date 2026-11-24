@@ -74,7 +74,33 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.2 → 1.0.22）
+## 二、`versionName` 流水（1.4.3 → 1.0.22）
+
+### 1.4.3
+
+**纯函数里剩下的界面文案（第三批）：关于页构建校验、本地仓库摘要、分支对比 / 同步状态标签。**
+
+① **关于页构建校验**（`SigningVerify.kt`，§5.4 路径 C′）：`verifyCopy` 原来返回
+`VerifyCopy(chip: String, detail: String)` —— 五态的中文写死在纯函数里。现在
+`VerifyCopy` 的值是 `LocalizedText`，`fingerprintShort` 也改 `LocalizedText`
+（截断后的指纹走 `raw`、读不到时才用 `verify_fingerprint_unreadable` 资源）。
+一致 / 不一致两条把**两个指纹作为嵌套参数**传进 `%1$s` / `%2$s`，语序交给资源；
+`SubPageScreens` 的两处渲染点 `.resolve()`。
+
+② **本地仓库面板摘要**（`LocalRepoGitState.summary`）：`"$branch · 待推送 $ahead"` 这类
+拼接改成 6 条资源 + 位置参数（分支名、计数）。注意计数器用的是 `%s` 而不是 `%d`：
+计数已经是 `Int`，`getString` 的 `Any` 参数走 `String.format`，`%s` 对数字同样成立，
+而这条串在中文里与分支名共用一句话，保持 `%1$s` 形态最省事。
+
+③ **分支对比 / 本地分支同步的状态标签**：`CompareFile.statusLabel` 改 `LocalizedText`
+（GitHub 的 `status` 是判别值，**未知取值原样透出**，不吞成「变更」）；
+`SyncState.label: String` 改成 `@get:StringRes SyncState.labelRes: Int` —— 这两个映射都是
+纯函数，返回值只该是「资源 ID」或「待解析文案」，解析留在渲染层。
+
+④ **钉子**：`SigningVerifyTest` / `BranchCompareModelsTest` / `LocalBranchSyncModelsTest`
+从断言中文改成断言**资源 ID + 参数**；`I18nUiTextTest` 的新键清单加入本批 27 条。
+其中 `LocalBranchSyncModelsTest` 顺带把「状态标签中文」改成「五态资源互不相同」——
+真正会坏的从来不是措辞，是两态共用一句话。
 
 ### 1.4.2
 
@@ -4067,13 +4093,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（262 → 129）
+## 三、`versionCode` 流水（263 → 129）
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 
 - **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
 
 - **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **263**：纯函数界面文案第三批 —— 关于页构建校验（`VerifyCopy` 改 `LocalizedText`，两个指纹作嵌套参数）、本地仓库面板摘要（6 条资源 + 位置参数）、分支对比状态与本地分支同步状态（`LocalizedText` / `labelRes`）；三份单测改断言资源 ID + 参数，`I18nUiTextTest` 新增 27 条键（一次提交，故 +1）。
 
 - **262**：其余页面硬编码中文第二批 —— 搜索（排序/高级筛选/仓库 meta，显示名与 ASCII 稳定 key 分离）、PR 一条龙与仓库设置页判据（`LocalizedText` + 五个 `<plurals>`）、同步回退决策页（预检原因与失败文案整句资源化，日志改记布尔并删除 7 条死资源）、星标/关注/复刻列表与写入失败提示（嵌套参数 + 产生方解析）；`I18nUiTextTest` 新增复数钉子，三份单测改断言资源 ID（一次提交，故 +1）。
 

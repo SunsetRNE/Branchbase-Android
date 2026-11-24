@@ -5,8 +5,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import com.branchbase.core.AccountStore
+import com.branchbase.R
 import com.branchbase.core.LocalRepos
 import com.branchbase.core.RustBridge
+import com.branchbase.ui.LocalizedText
 import com.branchbase.ui.decision.DirtyFile
 import com.branchbase.ui.decision.GitStatus
 import com.branchbase.ui.decision.parseGitStatus
@@ -59,14 +61,19 @@ data class LocalRepoGitState(
     val needsPull: Boolean get() = exists && behind > 0 && ahead == 0
     val diverged: Boolean get() = exists && ahead > 0 && behind > 0
 
-    /** 一句话摘要（面板标题）。 */
-    fun summary(): String = when {
-        !exists -> "未拉取到本地"
-        diverged -> "$branch · 分叉 ↑$ahead ↓$behind"
-        ahead > 0 -> "$branch · 待推送 $ahead"
-        behind > 0 -> "$branch · 待拉取 $behind"
-        dirtyCount > 0 -> "$branch · 改动 $dirtyCount"
-        else -> "$branch · 已同步"
+    /**
+     * 一句话摘要（面板标题）。
+     *
+     * 返回 [LocalizedText]：模型不认识 Context，解析交给渲染层（§5.1 A′）。
+     * 分支名与计数作为位置参数，语序由资源决定。
+     */
+    fun summary(): LocalizedText = when {
+        !exists -> LocalizedText(R.string.local_repo_summary_missing)
+        diverged -> LocalizedText(R.string.local_repo_summary_diverged, listOf(branch, ahead, behind))
+        ahead > 0 -> LocalizedText(R.string.local_repo_summary_ahead, listOf(branch, ahead))
+        behind > 0 -> LocalizedText(R.string.local_repo_summary_behind, listOf(branch, behind))
+        dirtyCount > 0 -> LocalizedText(R.string.local_repo_summary_dirty, listOf(branch, dirtyCount))
+        else -> LocalizedText(R.string.local_repo_summary_synced, listOf(branch))
     }
 }
 
