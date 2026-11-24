@@ -211,6 +211,7 @@ color = if (msg.startsWith("已")) …   // 同上；而且「默认分支已改
 |---|---|
 | `FrameWatch` 的 8 个帧阶段名（等待/输入/动画/布局/绘制/上传/下发/交换） | `tools/perf/frame-baseline.py` 把这份清单**写死在工具里**，翻译即打断性能报表 |
 | `Logging` / `DeviceProfile` 的日志类别与设备信息 | 进的是导出的日志包，是排障产物 |
+| `LogExporter.buildLogReport` 的 `report.md` 正文（约 32 条） | 与上一条同理：索引里引用的类别名（UI / 网络 / 本地）与锚点词（慢帧 / 启动）本身就是固定中文，翻译会让同一份包对不上锚点词典、grep 示例失效。**要跟界面语言走的只有 `Result.Failed` 的 9 条失败提示**（1.4.5 已资源化） |
 | 缓存键常量（`PageCache.TYPE_*` 等） | 落库标识，改了旧行成孤儿 |
 | `ProfileTab.logLabel` / `RepoPage.logLabel` / `SubPage.label` | **日志**专用的中文名，与界面文案是两个字段 |
 | `TranslateEngine.classify` 里的中文匹配 | 匹配的是 **Rust 返回的错误文案**，等 Rust 侧结构化错误方案定了再动 |

@@ -74,7 +74,24 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.4 → 1.0.22）
+## 二、`versionName` 流水（1.4.5 → 1.0.22）
+
+### 1.4.5
+
+**日志导出的失败提示资源化；报告正文按约定保留中文（并写进规范）。**
+
+① `LogExporter.Result.Failed.message` 的 9 条（空日志 / MediaStore 拒写 / 打不开写入流 /
+缺存储权限 / 建目录失败 / SecurityException / IOException / 其它）改成 `context.getString(...)`。
+这条路线的理由与 1.4.2 的 `RepoActions` 一致：**执行层本来就拿得到 Context**，
+不必为了「纯函数」绕一圈枚举再解析；`needsStoragePermission` 仍然独立承担「该不该引导去授权」的判定。
+
+② `buildLogReport` 产出的 `report.md` 正文（约 32 条）**刻意不译**。它不是界面文案，而是
+排障产物：正文里引用的类别名（UI / 网络 / 远端 / 本地）与锚点词（慢帧 / 启动 / 设备）本身就是
+固定中文（§7），翻译会让同一份包在不同语言下对不上锚点词典，`- 常用检索：\`[网络]\`\`慢帧\``
+这类 grep 示例也会跟着失效。该判断已写进 `i18n-migration.md` §7 的表里，
+并在 `buildLogReport` 上方留下注释 —— 否则下一轮扫描还会把这 32 条当欠账。
+
+③ **钉子**：9 条新键加入 `I18nUiTextTest` 的「中英都有且不同」清单。
 
 ### 1.4.4
 
@@ -4117,13 +4134,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（264 → 129）
+## 三、`versionCode` 流水（265 → 129）
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 
 - **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
 
 - **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **265**：日志导出失败提示 9 条资源化（`context.getString`，执行层解析）；`report.md` 正文约 32 条**按约定不译**并写入 i18n 规范 §7（类别名/锚点词本身固定中文，翻译会打断锚点词典与 grep 示例）（一次提交，故 +1）。
 
 - **264**：搜索提示与结果计数、翻译「测试连接」结论资源化 —— `friendlySearchError` 六条 / `resultCountText` 单位嵌套参数 / `loadMoreText`；`TestOutcome(LocalizedText, ok)` 修掉「用文案猜语气」与「remember 存字符串」两个老坑；删除失去引用的 `translate_test_ok`（含翻译表一行）（一次提交，故 +1）。
 

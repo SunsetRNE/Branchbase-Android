@@ -223,6 +223,10 @@ class I18nUiTextTest {
             "translate_test_ok_detail", "translate_test_fail_auth", "translate_test_fail_quota",
             "translate_test_fail_network", "translate_test_fail_unsupported", "translate_test_fail_raw",
             "translate_status_auth_failed", "translate_status_quota_blocked", "translate_status_paused",
+            // 日志导出失败提示（report.md 正文按约定保持中文，不在此列）
+            "log_export_empty", "log_export_denied_uri", "log_export_open_stream_failed",
+            "log_export_need_permission", "log_export_mkdir_failed", "log_export_security",
+            "log_export_io_failed", "log_export_io_unknown", "log_export_failed",
         ).forEach { key ->
             val z = value(zh, key)
             val e = value(en, key)

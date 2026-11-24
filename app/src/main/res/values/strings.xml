@@ -1085,6 +1085,18 @@
     <string name="error_export_failed">导出失败</string>
     <string name="label_all_tags">全部 tag</string>
     <string name="action_share_log_bundle">分享日志包</string>
+    <!-- 日志导出的失败提示（`LogExporter.Result.Failed.message`，上屏）。
+         注意与报告正文区分：压缩包里的 report.md **按约定保持中文**（排障产物，见 i18n 规范 §7），
+         只有这里的「导出失败原因」跟界面语言走。 -->
+    <string name="log_export_empty">还没有日志内容可导出</string>
+    <string name="log_export_denied_uri">系统拒绝了写入（MediaStore 未返回 Uri）</string>
+    <string name="log_export_open_stream_failed">打不开写入流（MediaStore）</string>
+    <string name="log_export_need_permission">需要存储权限才能写入下载目录</string>
+    <string name="log_export_mkdir_failed">创建目录失败：%1$s</string>
+    <string name="log_export_security">没有存储权限，系统拒绝了写入。</string>
+    <string name="log_export_io_failed">写入失败：%1$s（磁盘满或系统拒绝？）</string>
+    <string name="log_export_io_unknown">IO 错误</string>
+    <string name="log_export_failed">导出失败：%1$s</string>
     <string name="label_module_tag">模块 tag</string>
     <string name="action_later">稍后</string>
     <string name="label_log_category">日志类别</string>

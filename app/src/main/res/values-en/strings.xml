@@ -1082,6 +1082,18 @@
     <string name="error_export_failed">Export failed</string>
     <string name="label_all_tags">All tags</string>
     <string name="action_share_log_bundle">Share the log bundle</string>
+    <!-- Log export failures (`LogExporter.Result.Failed.message`, shown on screen).
+         Distinct from the report body: report.md inside the zip **stays Chinese by design**
+         (a debugging artifact, i18n spec §7); only these failure reasons follow the UI language. -->
+    <string name="log_export_empty">There is no log content to export yet</string>
+    <string name="log_export_denied_uri">The system rejected the write (MediaStore returned no Uri)</string>
+    <string name="log_export_open_stream_failed">Could not open the write stream (MediaStore)</string>
+    <string name="log_export_need_permission">Storage permission is required to write to the Downloads folder</string>
+    <string name="log_export_mkdir_failed">Could not create the folder: %1$s</string>
+    <string name="log_export_security">No storage permission — the system rejected the write.</string>
+    <string name="log_export_io_failed">Write failed: %1$s (disk full or rejected by the system?)</string>
+    <string name="log_export_io_unknown">I/O error</string>
+    <string name="log_export_failed">Export failed: %1$s</string>
     <string name="label_module_tag">Module tag</string>
     <string name="action_later">Later</string>
     <string name="label_log_category">Log category</string>

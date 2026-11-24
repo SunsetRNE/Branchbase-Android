@@ -12,6 +12,7 @@ import android.provider.MediaStore
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.branchbase.BuildConfig
+import com.branchbase.R
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.text.SimpleDateFormat
@@ -87,7 +88,7 @@ object LogExporter {
     suspend fun export(context: Context): Result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         LogManager.flush()
         val text = currentLogText()
-        if (text.isBlank()) return@withContext Result.Failed("还没有日志内容可导出", false)
+        if (text.isBlank()) return@withContext Result.Failed(context.getString(R.string.log_export_empty), false)
 
         val fileName = zipFileName(System.currentTimeMillis())
         // 一个包两份文件：索引在前（人先看到），原始日志在后
@@ -155,10 +156,10 @@ object LogExporter {
                 put(MediaStore.Downloads.IS_PENDING, 1)
             }
             val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                ?: return Result.Failed("系统拒绝了写入（MediaStore 未返回 Uri）", false)
+                ?: return Result.Failed(context.getString(R.string.log_export_denied_uri), false)
 
             resolver.openOutputStream(uri)?.use { it.write(bytes) }
-                ?: return Result.Failed("打不开写入流（MediaStore）", false)
+                ?: return Result.Failed(context.getString(R.string.log_export_open_stream_failed), false)
 
             resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
             Result.Ok(uri, fileName, "Download/$DIR_NAME", bytes.size.toLong())
@@ -167,7 +168,7 @@ object LogExporter {
     private fun writeViaLegacyDir(context: Context, fileName: String, bytes: ByteArray): Result =
         runCatching {
             if (needsStoragePermission(context)) {
-                return Result.Failed("需要存储权限才能写入下载目录", true)
+                return Result.Failed(context.getString(R.string.log_export_need_permission), true)
             }
             val dir = File(
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
@@ -175,7 +176,10 @@ object LogExporter {
             )
             // 首次导出没有这个文件夹就创建；用户删掉之后再导出也会重建
             if (!dir.isDirectory && !dir.mkdirs()) {
-                return Result.Failed("创建目录失败：${dir.absolutePath}", true)
+                return Result.Failed(
+                    context.getString(R.string.log_export_mkdir_failed, dir.absolutePath),
+                    true,
+                )
             }
             val file = File(dir, fileName)
             file.writeBytes(bytes)
@@ -187,9 +191,15 @@ object LogExporter {
     private fun failureOf(t: Throwable, context: Context): Result.Failed {
         val needsPerm = needsStoragePermission(context) || t is SecurityException
         val message = when {
-            t is SecurityException -> "没有存储权限，系统拒绝了写入。"
-            t is java.io.IOException -> "写入失败：${t.message ?: "IO 错误"}（磁盘满或系统拒绝？）"
-            else -> "导出失败：${t.message ?: t::class.java.simpleName}"
+            t is SecurityException -> context.getString(R.string.log_export_security)
+            t is java.io.IOException -> context.getString(
+                R.string.log_export_io_failed,
+                t.message ?: context.getString(R.string.log_export_io_unknown),
+            )
+            else -> context.getString(
+                R.string.log_export_failed,
+                t.message ?: t::class.java.simpleName,
+            )
         }
         return Result.Failed(message, needsPerm)
     }
@@ -258,6 +268,10 @@ internal fun buildLogReport(
         .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
         .take(8)
 
+    // ⚠️ 这段报告正文**按约定保持中文**（§7：导出包是排障产物，不是界面文案）：
+    // 它引用的类别名（UI / 网络 / …）、锚点词（慢帧 / 启动 …）本身就是固定中文，
+    // 翻译会让同一份包在不同语言下对不上锚点词典，也会让 grep 示例失效。
+    // 要跟界面语言走的只有上面的 `Result.Failed` 提示。
     sb.appendLine("# Branchbase 日志包 · 索引")
     sb.appendLine()
     sb.appendLine("> 这个压缩包里是**两份文件**：本索引（概览，给人看）与 `branchbase.log`（原始日志，全文检索用）。")
