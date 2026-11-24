@@ -40,6 +40,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.R
+import com.branchbase.ui.LocalizedText
+import com.branchbase.ui.resolve
 import com.branchbase.translate.EngineResult
 import com.branchbase.translate.FailKind
 import com.branchbase.translate.PageRules
@@ -113,7 +115,7 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
     var baseUrlDraft by remember { mutableStateOf(config.baseUrl) }
     var keyVisible by remember { mutableStateOf(false) }
     var testing by remember { mutableStateOf(false) }
-    var testResult by remember { mutableStateOf<String?>(null) }
+    var testResult by remember { mutableStateOf<TestOutcome?>(null) }
 
     LaunchedEffect(Unit) { stats = translator.stats() }
 
@@ -345,10 +347,16 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
             )
             // 原先这里是自制的 Row + clickable —— 规范 §4.1 要求行必须来自 6 种行型之一。
             // 归位成 ActionRow：行为不变（仍然立即清空）；是否该按 §7 补二次确认见规范 §11 待办。
+            val cacheLine = stringResource(R.string.translate_cache_stats, stats.memoryCount, stats.diskCount)
+            val cacheNote = statusNote(stats)
             ActionRow(
                 icon = Icons.Filled.Delete,
                 name = stringResource(R.string.translate_cache_clear),
-                sub = stringResource(R.string.translate_cache_stats, stats.memoryCount, stats.diskCount) + statusSuffix(stats),
+                sub = if (cacheNote == null) {
+                    cacheLine
+                } else {
+                    stringResource(R.string.translate_cache_with_status, cacheLine, cacheNote.resolve())
+                },
                 hint = stringResource(R.string.action_clear),
                 onClick = {
                     scope.launch {
@@ -384,23 +392,44 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
     }
 }
 
-/** 状态后缀（缓存行里的熔断提示）。 */
-private fun statusSuffix(stats: TranslateStats): String = when {
-    stats.authFailed -> " · API Key 无效或未配置"
-    stats.quotaBlocked -> " · 额度已用尽（会话内暂停）"
-    stats.paused -> " · 连续失败已暂停"
-    else -> ""
+/**
+ * 「测试连接」的结论：文案 + 语气。
+ *
+ * 语气由**产生方**给出（`ok`），不从文案里猜 —— 原来 `TestResultText` 用
+ * `startsWith("连接正常")` 判颜色，界面切英文后那句永远不成立，失败会被渲染成绿色
+ * （§5.3 记录的同一个坑）。文案存 [LocalizedText]，语言切换后不会停在旧语言。
+ */
+private data class TestOutcome(val text: LocalizedText, val ok: Boolean)
+
+/** 缓存行里的熔断说明（纯函数只返回资源；没有提示时返回 null）。 */
+private fun statusNote(stats: TranslateStats): LocalizedText? = when {
+    stats.authFailed -> LocalizedText(R.string.translate_status_auth_failed)
+    stats.quotaBlocked -> LocalizedText(R.string.translate_status_quota_blocked)
+    stats.paused -> LocalizedText(R.string.translate_status_paused)
+    else -> null
 }
 
-/** 把「测试连接」的结果翻成一句人话。 */
-private fun describeTestResult(result: EngineResult): String = when (result) {
-    is EngineResult.Ok -> "连接正常，译文：${result.text.take(60)}"
+/** 把「测试连接」的结果翻成一句人话（判定见 [TestOutcome.ok]，文案交给资源）。 */
+private fun describeTestResult(result: EngineResult): TestOutcome = when (result) {
+    is EngineResult.Ok -> TestOutcome(
+        LocalizedText(R.string.translate_test_ok_detail, listOf(result.text.take(60))),
+        ok = true,
+    )
     is EngineResult.Fail -> when (result.kind) {
-        FailKind.AUTH -> "失败：Key 无效或未填写"
-        FailKind.QUOTA -> "失败：额度不足或被限流"
-        FailKind.NETWORK -> "失败：网络不可达（${result.message.take(60)}）"
-        FailKind.UNSUPPORTED -> "失败：参数不被接受（${result.message.take(60)}）"
-        FailKind.UNKNOWN -> "失败：${result.message.take(80)}"
+        FailKind.AUTH -> TestOutcome(LocalizedText(R.string.translate_test_fail_auth), ok = false)
+        FailKind.QUOTA -> TestOutcome(LocalizedText(R.string.translate_test_fail_quota), ok = false)
+        FailKind.NETWORK -> TestOutcome(
+            LocalizedText(R.string.translate_test_fail_network, listOf(result.message.take(60))),
+            ok = false,
+        )
+        FailKind.UNSUPPORTED -> TestOutcome(
+            LocalizedText(R.string.translate_test_fail_unsupported, listOf(result.message.take(60))),
+            ok = false,
+        )
+        FailKind.UNKNOWN -> TestOutcome(
+            LocalizedText(R.string.translate_test_fail_raw, listOf(result.message.take(80))),
+            ok = false,
+        )
     }
 }
 
@@ -487,13 +516,12 @@ private fun ActionPill(text: String, enabled: Boolean, onClick: () -> Unit) {
 
 /** 测试结果文字（成功绿色 / 失败红色）。 */
 @Composable
-private fun TestResultText(result: String?) {
+private fun TestResultText(result: TestOutcome?) {
     if (result == null) return
-    val ok = result.startsWith(stringResource(R.string.translate_test_ok))
     Text(
-        result,
+        result.text.resolve(),
         fontSize = 11.5.sp,
-        color = if (ok) Primer.Green500 else Primer.Red500,
+        color = if (result.ok) Primer.Green500 else Primer.Red500,
         lineHeight = 16.sp,
     )
 }

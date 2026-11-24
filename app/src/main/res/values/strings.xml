@@ -78,7 +78,16 @@
     <string name="translate_title">沉浸式翻译</string>
     <string name="translate_mode_only">仅显示译文</string>
     <string name="translate_style_card_desc">蓝色左边框 + 浅灰底，边界最清楚（默认）</string>
-    <string name="translate_test_ok">连接正常</string>
+    <string name="translate_test_ok_detail">连接正常，译文：%1$s</string>
+    <string name="translate_test_fail_auth">失败：Key 无效或未填写</string>
+    <string name="translate_test_fail_quota">失败：额度不足或被限流</string>
+    <string name="translate_test_fail_network">失败：网络不可达（%1$s）</string>
+    <string name="translate_test_fail_unsupported">失败：参数不被接受（%1$s）</string>
+    <string name="translate_test_fail_raw">失败：%1$s</string>
+    <string name="translate_cache_with_status" translatable="false">%1$s · %2$s</string>
+    <string name="translate_status_auth_failed">API Key 无效或未配置</string>
+    <string name="translate_status_quota_blocked">额度已用尽（会话内暂停）</string>
+    <string name="translate_status_paused">连续失败已暂停</string>
     <string name="translate_style_underline">下划线</string>
     <string name="translate_model_label">模型（可留空用默认）</string>
     <string name="translate_cache_stats">内存 %1$s 段 / 本地 %2$s 段</string>
@@ -952,6 +961,18 @@
     <string name="greet_with_login">%1$s，%2$s</string>
     <string name="greet_afternoon">下午好</string>
     <string name="hint_search_github">搜索 GitHub</string>
+    <!-- 搜索失败的可行动提示（`SearchQuery.friendlySearchError`，纯函数只返回 LocalizedText）。
+         422 里「翻到 1000 条上限」与「语法错」必须分开：前者改筛选无用、后者才有用。 -->
+    <string name="search_error_rate_limited">被 GitHub 限流了。搜索类接口限制很严（代码搜索约 10 次/分钟、其它约 30 次/分钟），等 1 分钟再试。</string>
+    <string name="search_error_cap_reached">已到 GitHub 的搜索上限（只提供前 1000 条结果）。用语言 / 星标数 / 组织等条件缩小范围，比继续翻页有效。</string>
+    <string name="search_error_validation">搜索条件不被接受（语法或筛选值有误）。可清掉部分高级筛选后重试。</string>
+    <string name="search_error_unauthorized">登录状态已失效，请重新登录。</string>
+    <string name="search_error_no_response">搜索失败（无响应）。检查网络后重试。</string>
+    <string name="search_error_raw">搜索失败：%1$s</string>
+    <!-- 结果计数：单位（代码结果 / 拉取请求结果 / 结果）作为 %2$s / %3$s 传入 -->
+    <string name="result_count_all">%1$s 个%2$s</string>
+    <string name="result_count_partial">已显示前 %1$s 条 · 共 %2$s 条%3$s</string>
+    <string name="search_load_more_progress">加载更多（已显示 %1$s / 共 %2$s）</string>
     <string name="note_todo_hint">需要你处理的 PR / 讨论 / 通知会出现在这里</string>
     <string name="greet_evening">晚上好</string>
     <string name="state_no_todo">没有待办</string>

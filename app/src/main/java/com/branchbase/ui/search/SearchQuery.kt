@@ -1,5 +1,9 @@
 package com.branchbase.ui.search
 
+import androidx.annotation.StringRes
+import com.branchbase.R
+import com.branchbase.ui.LocalizedText
+
 /**
  * 搜索链路的纯逻辑（查询组装 / 缓存键 / 错误分级）。
  *
@@ -62,30 +66,28 @@ internal fun searchCacheKey(type: SearchType, query: String, sortKey: String, lo
  * 状态码与 GitHub 的 message 都在里面，所以这里能区分限流 / 语法错误 / 未登录 / 网络问题。
  * 原来一律回「搜索失败，请稍后重试（可能触发速率限制）」——用户既不知道等多久，也不知道是不是自己搜错了。
  */
-internal fun friendlySearchError(raw: String?): String {
+internal fun friendlySearchError(raw: String?): LocalizedText {
     val msg = raw.orEmpty()
     return when {
         msg.contains("rate limit", ignoreCase = true) ||
             msg.contains("secondary rate", ignoreCase = true) ||
             msg.contains("429") ||
-            msg.contains("403") ->
-            "被 GitHub 限流了。搜索类接口限制很严（代码搜索约 10 次/分钟、其它约 30 次/分钟），等 1 分钟再试。"
+            msg.contains("403") -> LocalizedText(R.string.search_error_rate_limited)
 
         // 422 里有一类是「翻到底了」：GitHub 只提供前 1000 条搜索结果，
         // 再往下翻会返回这条 message。把它当成语法错误会让用户白改筛选。
-        searchResultCapReached(msg) ->
-            "已到 GitHub 的搜索上限（只提供前 1000 条结果）。用语言 / 星标数 / 组织等条件缩小范围，比继续翻页有效。"
+        searchResultCapReached(msg) -> LocalizedText(R.string.search_error_cap_reached)
 
         msg.contains("422") || msg.contains("Validation Failed", ignoreCase = true) ||
             msg.contains("validation failed", ignoreCase = true) ->
-            "搜索条件不被接受（语法或筛选值有误）。可清掉部分高级筛选后重试。"
+            LocalizedText(R.string.search_error_validation)
 
         msg.contains("401") || msg.contains("Bad credentials", ignoreCase = true) ->
-            "登录状态已失效，请重新登录。"
+            LocalizedText(R.string.search_error_unauthorized)
 
-        msg.isBlank() -> "搜索失败（无响应）。检查网络后重试。"
+        msg.isBlank() -> LocalizedText(R.string.search_error_no_response)
 
-        else -> "搜索失败：${msg.take(120)}"
+        else -> LocalizedText(R.string.search_error_raw, listOf(msg.take(120)))
     }
 }
 
@@ -109,8 +111,15 @@ internal fun searchResultCapReached(raw: String?): Boolean {
  * 直接写「共 1200 个结果」会让人以为能翻到 1200 条。这里把「已显示多少 / 共多少」说清楚，
  * 避免用户反复下拉却"加载不出来"。
  */
-internal fun resultCountText(total: Long, shown: Int, unit: String): String =
-    if (total <= shown) "$total 个$unit" else "已显示前 $shown 条 · 共 $total 条$unit"
+internal fun resultCountText(total: Long, shown: Int, @StringRes unitRes: Int): LocalizedText =
+    if (total <= shown) {
+        LocalizedText(R.string.result_count_all, listOf(total, LocalizedText(unitRes)))
+    } else {
+        LocalizedText(
+            R.string.result_count_partial,
+            listOf(shown, total, LocalizedText(unitRes)),
+        )
+    }
 
 /**
  * 分页状态。
@@ -150,5 +159,5 @@ internal fun <T> mergePage(existing: List<T>, incoming: List<T>, key: (T) -> Str
 internal fun nextPage(currentPage: Int, received: Int): Int = if (received <= 0) currentPage else currentPage + 1
 
 /** 底部「加载更多」的文案（既说清进度，也避免用户以为能一直下拉）。 */
-internal fun loadMoreText(shown: Int, total: Long): String =
-    "加载更多（已显示 $shown / 共 $total）"
+internal fun loadMoreText(shown: Int, total: Long): LocalizedText =
+    LocalizedText(R.string.search_load_more_progress, listOf(shown, total))

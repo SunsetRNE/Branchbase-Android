@@ -1,5 +1,8 @@
 package com.branchbase.ui.search
 
+import com.branchbase.R
+import com.branchbase.ui.LocalizedText
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -80,27 +83,41 @@ class SearchQueryTest {
 
     @Test
     fun `限流与语法错误分别给出可行动的提示`() {
+        // 钉资源 ID（文案会搬家）：限流 / 语法 / 登录失效 / 无响应各是一条独立提示，
+        // 认错任何一个都会让用户按错误的办法行动（白改筛选 / 白等一分钟）。
         val limited = friendlySearchError(
             """ERROR:HTTP 403 Forbidden: {"message":"API rate limit exceeded for user ID 1"}""",
         )
-        assertTrue(limited.contains("限流"))
-        assertTrue(limited.contains("1 分钟"))
+        assertEquals(R.string.search_error_rate_limited, limited.res)
 
         val invalid = friendlySearchError("""ERROR:HTTP 422 Unprocessable Entity: {"message":"Validation Failed"}""")
-        assertTrue(invalid.contains("筛选"))
+        assertEquals(R.string.search_error_validation, invalid.res)
 
-        assertTrue(friendlySearchError("ERROR:HTTP 401 Unauthorized").contains("重新登录"))
+        assertEquals(
+            R.string.search_error_unauthorized,
+            friendlySearchError("ERROR:HTTP 401 Unauthorized").res,
+        )
         // 拿不到任何细节时也要说清是「无响应」，而不是含糊的「失败」
-        assertTrue(friendlySearchError(null).contains("无响应"))
+        assertEquals(R.string.search_error_no_response, friendlySearchError(null).res)
+
+        // 有原始报文时透出截断后的原文（不吞掉后端信息）
+        val raw = friendlySearchError("ERROR:boom")
+        assertEquals(R.string.search_error_raw, raw.res)
+        assertEquals(listOf("ERROR:boom"), raw.args)
     }
 
     @Test
     fun `结果计数说清只显示第一页`() {
-        // 只显示 30 条却写「共 1200 个结果」，用户会一直下拉找剩下的
-        val text = resultCountText(total = 1200, shown = 30, unit = "结果")
-        assertTrue(text.contains("已显示前 30"))
-        assertTrue(text.contains("1200"))
+        // 只显示 30 条却写「共 1200 个结果」，用户会一直下拉找剩下的 —— 用两条资源分开表达
+        val partial = resultCountText(total = 1200, shown = 30, unitRes = R.string.label_results)
+        assertEquals(R.string.result_count_partial, partial.res)
+        assertEquals(30, partial.args[0])
+        assertEquals(1200L, partial.args[1])
+        assertEquals(R.string.label_results, (partial.args[2] as LocalizedText).res)
         // 一页装得下时不必画蛇添足
-        assertEquals("12 个结果", resultCountText(total = 12, shown = 30, unit = "结果"))
+        val all = resultCountText(total = 12, shown = 30, unitRes = R.string.label_results)
+        assertEquals(R.string.result_count_all, all.res)
+        assertEquals(12L, all.args[0])
+        assertEquals(R.string.label_results, (all.args[1] as LocalizedText).res)
     }
 }

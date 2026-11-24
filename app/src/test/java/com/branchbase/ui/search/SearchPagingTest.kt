@@ -1,5 +1,8 @@
 package com.branchbase.ui.search
 
+import com.branchbase.R
+import com.branchbase.ui.LocalizedText
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -66,7 +69,11 @@ class SearchPagingTest {
 
     @Test
     fun `底部按钮文案把进度说清`() {
-        assertEquals("加载更多（已显示 30 / 共 1200）", loadMoreText(30, 1200))
+        val more = loadMoreText(30, 1200)
+        assertEquals(R.string.search_load_more_progress, more.res)
+        // 逐项断言：`listOf(30, 1200L)` 会被推断成 List<Long>，和 [Int, Long] 的 args 不等
+        assertEquals(30, more.args[0])
+        assertEquals(1200L, more.args[1])
         // 只有一页时不该出现按钮文案（页脚会走「已到底」分支）
         assertFalse(PagingState(page = 1, total = 12, shown = 12).hasMore)
     }
@@ -76,8 +83,9 @@ class SearchPagingTest {
         val raw = "ERROR:HTTP 422 Unprocessable Entity: {\"message\":\"Only the first 1000 search results are available\"}"
         assertTrue(searchResultCapReached(raw))
         // 提示要指向「缩小范围」而不是「改语法」
-        assertTrue(friendlySearchError(raw).contains("1000"))
-        assertFalse(friendlySearchError(raw).contains("语法"))
+        // 上限与语法错是两条不同资源：提示要指向「缩小范围」而不是「改语法」
+        assertEquals(R.string.search_error_cap_reached, friendlySearchError(raw).res)
+        assertTrue(friendlySearchError(raw).res != R.string.search_error_validation)
         // 普通 422（筛选值写错）不能被误判成上限
         val syntax = "ERROR:HTTP 422 Unprocessable Entity: {\"message\":\"Validation Failed\"}"
         assertFalse(searchResultCapReached(syntax))
@@ -99,9 +107,13 @@ class SearchPagingTest {
 
     @Test
     fun `计数文案在只有一页时说共多少_多页时说已显示多少`() {
-        assertEquals("12 个代码结果", resultCountText(12, 12, "代码结果"))
-        assertEquals("已显示前 30 条 · 共 1200 条代码结果", resultCountText(1200, 30, "代码结果"))
-        // total 比已展示还小（服务端 total 抖动）也不能写出「已显示 30 · 共 12」
-        assertEquals("12 个代码结果", resultCountText(12, 30, "代码结果"))
+        assertEquals(R.string.result_count_all, resultCountText(12, 12, R.string.label_code_results).res)
+        val partial = resultCountText(1200, 30, R.string.label_code_results)
+        assertEquals(R.string.result_count_partial, partial.res)
+        assertEquals(30, partial.args[0])
+        assertEquals(1200L, partial.args[1])
+        assertEquals(R.string.label_code_results, (partial.args[2] as LocalizedText).res)
+        // total 比已展示还小（服务端 total 抖动）也不能走「已显示 30 · 共 12」那条
+        assertEquals(R.string.result_count_all, resultCountText(12, 30, R.string.label_code_results).res)
     }
 }

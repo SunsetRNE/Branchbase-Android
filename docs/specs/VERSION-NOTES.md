@@ -74,7 +74,31 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.3 → 1.0.22）
+## 二、`versionName` 流水（1.4.4 → 1.0.22）
+
+### 1.4.4
+
+**搜索失败提示与结果计数、沉浸式翻译「测试连接」结论资源化；顺带修掉两个 i18n 老坑。**
+
+① **搜索**（`SearchQuery.kt`，§5.4 C′）：`friendlySearchError` 的六条提示
+（限流 / 1000 条上限 / 语法 / 登录失效 / 无响应 / 原文透出）改 `LocalizedText`；
+`resultCountText` 的**单位**从 `String` 改成 `@StringRes` 并作为嵌套参数传进句子，
+`loadMoreText` 同改。原来单位是调用方 `stringResource(...)` 后拼进
+`"$total 个$unit"` —— 中文能拼、英文语序拼不出来（`"12 code results"` 需要
+`%1$s %2$s`，而 `"Showing the first 30 of 1200 code results"` 是另一条）。
+
+② **沉浸式翻译 → 测试连接**（`TranslateSettingsScreen.kt`）：`describeTestResult` 改返回
+`TestOutcome(text: LocalizedText, ok: Boolean)`，`statusSuffix` 改 `LocalizedText?`。
+顺手修了两个 §9 里点过名的坑：
+- **用文案猜语气**：`TestResultText` 原来用 `result.startsWith(stringResource(translate_test_ok))`
+  判颜色 —— 界面切英文后那句永远不成立，**失败会被渲染成绿色**。现在 `ok` 由产生方给出（§5.3）。
+- **`remember { mutableStateOf(字符串) }`**：`testResult` 原来存解析好的中文，切语言后停在旧语言；
+  现在存 `TestOutcome`（资源 ID + 参数），渲染时才解析。
+- 缓存行的熔断说明（Key 无效 / 额度用尽 / 连续失败）也从 `+` 拼接改成整句资源
+  `translate_cache_with_status`（标 `translatable="false"`，只放默认语言）。
+
+③ **清收**：`translate_test_ok` 失去引用，连同 `tools/i18n/strings.tsv` 里对应的一行一并删除
+（否则 `resync_resources` 会把它重新写回来）。
 
 ### 1.4.3
 
@@ -4093,13 +4117,15 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（263 → 129）
+## 三、`versionCode` 流水（264 → 129）
 
 - **247**：平板验证包（悬浮栏底部清障）—— 新增 `BranchbaseLazyColumn` 与 `FloatingBarAwareLists` 规则，全项目 28 处列表接入（分支验证包，随本版并入主线）。
 
 - **246**：平板验证包（横竖屏内容宽度）—— `AdaptiveContent` 840/760dp 内容居中 + 横屏手机栏高与滑块压缩（分支验证包）。
 
 - **245**：平板验证包（自适应布局第一步 + 安装基线）—— `ui/adaptive/` 引擎、`NavMetrics` 栏宽封顶；分支上为覆盖用户平板上已装的 244 而取 245（236–244 无对应提交，不在本流水内）。
+
+- **264**：搜索提示与结果计数、翻译「测试连接」结论资源化 —— `friendlySearchError` 六条 / `resultCountText` 单位嵌套参数 / `loadMoreText`；`TestOutcome(LocalizedText, ok)` 修掉「用文案猜语气」与「remember 存字符串」两个老坑；删除失去引用的 `translate_test_ok`（含翻译表一行）（一次提交，故 +1）。
 
 - **263**：纯函数界面文案第三批 —— 关于页构建校验（`VerifyCopy` 改 `LocalizedText`，两个指纹作嵌套参数）、本地仓库面板摘要（6 条资源 + 位置参数）、分支对比状态与本地分支同步状态（`LocalizedText` / `labelRes`）；三份单测改断言资源 ID + 参数，`I18nUiTextTest` 新增 27 条键（一次提交，故 +1）。
 

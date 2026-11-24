@@ -241,7 +241,7 @@ fun SearchScreen(
             } else {
                 // 搜索失败（网络错误 / 速率限制 / 权限不足等），区别于「无结果」
                 searched = true
-                searchError = friendlySearchError(json)
+                searchError = friendlySearchError(json).resolve(context)
             }
             loading = false
         }
@@ -344,7 +344,7 @@ fun SearchScreen(
             // 序号过期（期间有更新的搜索）：整份丢弃
             if (!vm.isCurrent(token0)) return@launch
             if (json == null || json.startsWith("ERROR:")) {
-                searchError = friendlySearchError(json)
+                searchError = friendlySearchError(json).resolve(context)
                 // 翻到 GitHub 的 1000 条上限：把总量收敛到已展示数，底部按钮随之收掉，
                 // 不然用户会对着一个永远失败的按钮反复点。
                 if (searchResultCapReached(json)) total = shownCount().toLong()
@@ -533,7 +533,7 @@ fun SearchScreen(
                 }
             } else {
                 Column {
-                    Text(resultCountText(total, codeResults.size, stringResource(R.string.label_code_results)), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    Text(resultCountText(total, codeResults.size, R.string.label_code_results).resolve(), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                     BranchbaseLazyColumn {
                         items(codeResults) { code -> CodeResultCard(code) { openTarget(code.target) } }
                         pagingFooter(codeResults.size)
@@ -547,7 +547,7 @@ fun SearchScreen(
                 }
             } else {
                 Column {
-                    Text(resultCountText(total, pullResults.size, stringResource(R.string.label_pull_results)), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    Text(resultCountText(total, pullResults.size, R.string.label_pull_results).resolve(), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                     BranchbaseLazyColumn {
                         items(pullResults) { pull -> PullCard(pull) { openTarget(pull.target) } }
                         pagingFooter(pullResults.size)
@@ -561,7 +561,7 @@ fun SearchScreen(
                 }
             } else {
                 Column {
-                    Text(resultCountText(total, commitResults.size, stringResource(R.string.label_commit_results)), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    Text(resultCountText(total, commitResults.size, R.string.label_commit_results).resolve(), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                     BranchbaseLazyColumn {
                         items(commitResults) { commit -> CommitCard(commit) { openTarget(commit.target) } }
                         pagingFooter(commitResults.size)
@@ -575,7 +575,7 @@ fun SearchScreen(
                 }
             } else {
                 Column {
-                    Text(resultCountText(total, topicResults.size, stringResource(R.string.label_topic_results)), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    Text(resultCountText(total, topicResults.size, R.string.label_topic_results).resolve(), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                     BranchbaseLazyColumn {
                         item { TopicCard(topicResults) { openTarget(it.target) } }
                         pagingFooter(topicResults.size)
@@ -588,7 +588,7 @@ fun SearchScreen(
             }
         } else {
             Column {
-                Text(resultCountText(total, results.size, stringResource(R.string.label_results)), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                Text(resultCountText(total, results.size, R.string.label_results).resolve(), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                 BranchbaseLazyColumn {
                     items(results) { item -> SearchItemCard(item) { openTarget(item.target) } }
                     pagingFooter(results.size)
@@ -1561,7 +1561,7 @@ private fun SearchPagingFooter(
                 // 按下反馈：原来只有水波纹，按下去的那 100ms 里按钮本身是死的（没有中间帧）。
                 val press = rememberPressFeedback()
                 Text(
-                    loadMoreText(shown, total),
+                    loadMoreText(shown, total).resolve(),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Primer.Blue500,

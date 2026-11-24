@@ -215,6 +215,14 @@ class I18nUiTextTest {
             "compare_status_modified", "compare_status_changed",
             "sync_state_synced", "sync_state_ahead", "sync_state_behind",
             "sync_state_diverged", "sync_state_untracked",
+            // 搜索失败的可行动提示与结果计数（纯函数返回 LocalizedText）
+            "search_error_rate_limited", "search_error_cap_reached", "search_error_validation",
+            "search_error_unauthorized", "search_error_no_response", "search_error_raw",
+            "result_count_all", "result_count_partial", "search_load_more_progress",
+            // 沉浸式翻译「测试连接」的结论与缓存行的熔断说明
+            "translate_test_ok_detail", "translate_test_fail_auth", "translate_test_fail_quota",
+            "translate_test_fail_network", "translate_test_fail_unsupported", "translate_test_fail_raw",
+            "translate_status_auth_failed", "translate_status_quota_blocked", "translate_status_paused",
         ).forEach { key ->
             val z = value(zh, key)
             val e = value(en, key)

@@ -71,7 +71,15 @@
     <string name="translate_title">Immersive translation</string>
     <string name="translate_mode_only">Translation only</string>
     <string name="translate_style_card_desc">Blue left border on a light grey background — the clearest boundary (default)</string>
-    <string name="translate_test_ok">Connection OK</string>
+    <string name="translate_test_ok_detail">Connection OK. Translation: %1$s</string>
+    <string name="translate_test_fail_auth">Failed: the key is invalid or missing</string>
+    <string name="translate_test_fail_quota">Failed: quota exhausted or rate-limited</string>
+    <string name="translate_test_fail_network">Failed: network unreachable (%1$s)</string>
+    <string name="translate_test_fail_unsupported">Failed: parameters rejected (%1$s)</string>
+    <string name="translate_test_fail_raw">Failed: %1$s</string>
+    <string name="translate_status_auth_failed">API key invalid or not configured</string>
+    <string name="translate_status_quota_blocked">Quota exhausted (paused this session)</string>
+    <string name="translate_status_paused">Paused after repeated failures</string>
     <string name="translate_style_underline">Underline</string>
     <string name="translate_model_label">Model (leave blank for the default)</string>
     <string name="translate_cache_stats">In memory: %1$s segments / On disk: %2$s segments</string>
@@ -949,6 +957,18 @@
     <string name="greet_with_login">%1$s, %2$s</string>
     <string name="greet_afternoon">Good afternoon</string>
     <string name="hint_search_github">Search GitHub</string>
+    <!-- Actionable search failures (`SearchQuery.friendlySearchError`, a pure function returning
+         LocalizedText). The 1000-result cap and a syntax error are both 422 but need different advice. -->
+    <string name="search_error_rate_limited">GitHub rate-limited the search. Search endpoints are strict (about 10 requests per minute for code search, 30 for the rest) — wait a minute and try again.</string>
+    <string name="search_error_cap_reached">Reached GitHub\'s search cap (only the first 1000 results are available). Narrowing by language / stars / organization works better than paging further.</string>
+    <string name="search_error_validation">The search conditions were rejected (bad syntax or filter value). Clear some advanced filters and try again.</string>
+    <string name="search_error_unauthorized">Your session has expired; sign in again.</string>
+    <string name="search_error_no_response">Search failed (no response). Check your network and try again.</string>
+    <string name="search_error_raw">Search failed: %1$s</string>
+    <!-- Result counts: the unit (code results / results) is passed as %2$s / %3$s -->
+    <string name="result_count_all">%1$s %2$s</string>
+    <string name="result_count_partial">Showing the first %1$s of %2$s %3$s</string>
+    <string name="search_load_more_progress">Load more (showing %1$s of %2$s)</string>
     <string name="note_todo_hint">PRs, issues and notifications that need your attention show up here</string>
     <string name="greet_evening">Good evening</string>
     <string name="state_no_todo">Nothing to do</string>
