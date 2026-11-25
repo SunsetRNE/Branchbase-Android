@@ -70,6 +70,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -1826,7 +1827,8 @@ private const val PROFILE_REPO_SKELETON_COUNT = 3
 
 /**
  * 仓库卡骨架：**结构与尺寸都与 [RepoCard] 一一对应**
- * （同 6dp 圆角 / 同 1dp 边框 / 同 12dp 内边距 / 同 10dp 底距；名称行 16dp + 描述行 12dp + 语言行 12dp）。
+ * （同 10dp 圆角 / 同 Gray100 底 / 同 无描边 / 同 h14·v8 内边距 / 同 6dp 底距；
+ * 名称行 14dp + 描述行 12dp + 语言行 12dp，行间 2dp / 6dp）。
  *
  * 热门仓库区与「仓库」页共用这一份：两处的真实卡片本来就是同一个 [RepoCard]，
  * 骨架各写一份的话，改卡片尺寸时只会改到其中一处，另一处就开始「数据到达时跳一下」。
@@ -1834,45 +1836,117 @@ private const val PROFILE_REPO_SKELETON_COUNT = 3
 @Composable
 private fun RepoCardSkeleton() {
     Column(
-        Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(6.dp))
-            .border(1.dp, Primer.BorderEmphasis, RoundedCornerShape(6.dp)).padding(12.dp),
+        Modifier.fillMaxWidth().padding(bottom = 6.dp).clip(RoundedCornerShape(10.dp))
+            .background(Primer.Gray100).padding(horizontal = 14.dp, vertical = 8.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            // 仓库名（左，可伸缩）与星数（右，固定宽度）—— 对齐 RepoCard 的 weight(1f) + 尾部计数
-            Box(Modifier.fillMaxWidth(0.45f).height(16.dp).skeletonBlock())
-            Spacer(Modifier.weight(1f))
-            Box(Modifier.width(34.dp).height(14.dp).skeletonBlock())
-        }
-        Spacer(Modifier.height(4.dp))
+        // 名称行整行留给仓库名 —— 星数已搬进元信息行（见 RepoCard）
+        Box(Modifier.fillMaxWidth(0.45f).height(14.dp).skeletonBlock())
+        Spacer(Modifier.height(2.dp))
         Box(Modifier.fillMaxWidth(0.85f).height(12.dp).skeletonBlock())
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
+        // 元信息行：语言点 + 语言名 + ★ + 数字，与 RepoCard 的三个占位一一对应
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(10.dp).skeletonBlock(cornerRadius = 5.dp))
             Spacer(Modifier.width(4.dp))
             Box(Modifier.width(48.dp).height(12.dp).skeletonBlock())
+            Spacer(Modifier.width(14.dp))
+            Box(Modifier.size(14.dp).skeletonBlock(cornerRadius = 7.dp))
+            Spacer(Modifier.width(2.dp))
+            Box(Modifier.width(24.dp).height(12.dp).skeletonBlock())
         }
     }
 }
 
+/**
+ * 仓库卡（热门仓库区 / 仓库页共用）。
+ *
+ * 尺寸与配色对齐首页「常用仓库」卡（见 c77e8fc 与 [com.branchbase.ui.home.HomeScreen] 的 RepoCard）：
+ * 底 Gray100 + 10dp 圆角、无描边，内边距 h14·v8，卡距 6dp，名字 14sp，
+ * 描述 12sp / 行高 15sp / 最多 2 行，名字↔描述 2dp，描述↔元信息 6dp。
+ *
+ * 描边（原 1dp [Primer.BorderEmphasis]）在这套压缩参数下已经多余：浅色板上它是**一圈黑线**，
+ * 卡距一收到 6dp，边框反而成了相邻两张卡之间最响的东西。
+ *
+ * 元信息行**无条件渲染**，且星数在这一行而不是名称行右侧：语言是可空的
+ * （`/user/repos` 里大量仓库的 `language` 是 null），元信息行若只装语言，
+ * 没有语言的仓库就整行消失、卡片比邻居矮约 22dp，读起来像被截断；
+ * 留一条等高空行又会被误读成「还在加载」（与空描述的处理相反 —— 那里用的是占位文字，
+ * 但语言不能编造「未知语言」）。星数必然有值，把它放进这一行，
+ * 行就永远不会空 —— 首页 / 常用仓库页 / 星标页都是这套写法。
+ */
 @Composable
 private fun RepoCard(repo: RepoItem, onClick: () -> Unit) {
     Column(
-        Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(6.dp)).border(1.dp, Primer.BorderEmphasis, RoundedCornerShape(6.dp)).clickable { onClick() }.padding(12.dp),
+        Modifier.fillMaxWidth().padding(bottom = 6.dp).clip(RoundedCornerShape(10.dp))
+            // Gray100 而不是默认无底色：浅色板里页面底就是纯白，卡片没有边界就只剩间距 ——
+            // 内边距一收，卡内留白与卡间间距并成一片白，"紧凑"变成"糊"。
+            .background(Primer.Gray100)
+            .clickable { onClick() }
+            // 竖向比横向收得更狠：留白是这张卡最高的成本项，横向再收会让文字贴边
+            .padding(horizontal = 14.dp, vertical = 8.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(repo.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500, modifier = Modifier.weight(1f))
-            Text("★ ${repo.stars}", fontSize = 12.sp, color = Primer.TextPrimary)
-        }
+        Text(
+            repo.name,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Primer.Blue500,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth(),
+        )
         if (repo.description != null) {
-            Spacer(Modifier.height(4.dp))
-            Text(repo.description, fontSize = 12.sp, color = Primer.TextSecondary)
+            Spacer(Modifier.height(2.dp))
+            Text(
+                repo.description,
+                fontSize = 12.sp,
+                // 显式写行高：12sp 走默认（≈16.2sp）会让两行描述多出 2dp；15sp 是 1.25 倍
+                lineHeight = 15.sp,
+                color = Primer.TextSecondary,
+                // 描述只做提示，不值得为第 3 行撑高整张卡；点进去看全
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        } else {
+            // 没有描述也是信息：留一行居中的灰字占位，卡片节奏不断档。
+            // GitHub 的 description 大量为 null（parseRepos 已归一成 null），这不是理论情况。
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = stringResource(R.string.state_no_repo_description),
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                color = Primer.TextTertiary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
-        if (repo.language != null) {
-            Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            if (repo.language != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(10.dp).clip(CircleShape).background(LanguageColors.of(repo.language)))
+                    Spacer(Modifier.width(4.dp))
+                    Text(repo.language, fontSize = 12.sp, color = Primer.TextSecondary)
+                }
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(10.dp).clip(CircleShape).background(LanguageColors.of(repo.language)))
-                Spacer(Modifier.width(4.dp))
-                Text(repo.language, fontSize = 12.sp, color = Primer.TextTertiary)
+                Icon(
+                    Icons.Filled.Star,
+                    contentDescription = stringResource(R.string.label_stars),
+                    tint = Primer.IconSecondary,
+                    modifier = Modifier.size(14.dp),
+                )
+                Spacer(Modifier.width(2.dp))
+                Text("${repo.stars}", fontSize = 12.sp, color = Primer.TextSecondary)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.AutoMirrored.Filled.CallSplit,
+                    contentDescription = stringResource(R.string.action_fork),
+                    tint = Primer.IconSecondary,
+                    modifier = Modifier.size(14.dp),
+                )
+                Spacer(Modifier.width(2.dp))
+                Text("${repo.forks}", fontSize = 12.sp, color = Primer.TextSecondary)
             }
         }
     }
