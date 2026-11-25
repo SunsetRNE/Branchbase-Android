@@ -3,6 +3,7 @@ package com.branchbase.ui.profile
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,17 +12,21 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PriorityHigh
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.res.stringResource
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -40,8 +46,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.R
-import com.branchbase.ui.LocalizedText
-import com.branchbase.ui.resolve
 import com.branchbase.translate.EngineResult
 import com.branchbase.translate.FailKind
 import com.branchbase.translate.PageRules
@@ -51,11 +55,18 @@ import com.branchbase.translate.TranslateProvider
 import com.branchbase.translate.TranslateRuntime
 import com.branchbase.translate.TranslateSettings
 import com.branchbase.translate.TranslateStats
+import com.branchbase.ui.LocalizedText
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.resolve
 import com.branchbase.ui.settings.ActionRow
-import com.branchbase.ui.settings.SettingsSectionTitle
+import com.branchbase.ui.settings.LocalSettingsDensity
+import com.branchbase.ui.settings.SettingsDensity
+import com.branchbase.ui.settings.SettingsDivider
+import com.branchbase.ui.settings.SettingsNotesDialog
+import com.branchbase.ui.settings.SettingsSection
 import com.branchbase.ui.settings.SwitchRow
 import com.branchbase.ui.theme.Primer
+import com.branchbase.ui.theme.iconTap
 import kotlinx.coroutines.launch
 
 /**
@@ -70,6 +81,16 @@ import kotlinx.coroutines.launch
  * 重试 / 清空本页译文等操作）。面板里把「本页翻译」关掉，悬浮球立刻收起 —— 页面上
  * 不留控件，要再开就回到本页打开总开关。面板与本页读写同一份配置（一边改，另一边也是新的）。
  *
+ * ## 2026-11 第五轮：这一页的形态变了（决策见 `settings-compact-redesign.md` §九）
+ *
+ * - **总开关只在本页**：主页「翻译」组那枚开关删了（它是同一份 `translate.enabled`
+ *   的第二个入口，与 `modules-design.md` §1「开启入口只有一个」自相矛盾）；
+ * - **压密**：根部 provide [SettingsDensity.Compact]（44dp 行高），七组全部卡片化，
+ *   单选行的内边距与圆点直径也走密度表（`optionPadV` / `optionDotSize`）；
+ * - **说明收进弹窗**：原先摊在页尾的 570+ 字「说明」+ 各行 44–99 字的长说明，改成
+ *   行内一句必要副作用、其余收进 [SettingsNotesDialog]，由页头右上角的小红「!」打开；
+ * - 卡片化之后 `SettingsSectionTitle`（无卡片的过渡态）成为死代码，一并删除。
+ *
  * ## 面板上的这些项为什么是这些
  *
  * - **自动翻译**：默认关。开了就是「一进正文页就发请求」，费额度也拖首屏；
@@ -83,7 +104,7 @@ import kotlinx.coroutines.launch
  *   既进原生判定也随设置注入页面脚本；
  * - **翻译服务**：MyMemory（免费零配置，默认）或 DeepSeek（**用户自带 API Key**）。
  *   选后者时展开 Key / 模型 / 接入地址三个输入框与一个「测试连接」；
- * - **本地缓存 / 保护代码与链接 / 清空缓存**：见各自的说明文案。
+ * - **本地缓存 / 保护代码与链接 / 清空缓存**：见各自的说明文案（细节在「!」弹窗里）。
  *
  * ## 关于自带 API Key
  *
@@ -116,6 +137,8 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
     var keyVisible by remember { mutableStateOf(false) }
     var testing by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<TestOutcome?>(null) }
+    // 「!」徽标打开的说明弹窗。默认关：说明是「需要时再查」的东西，不该一进页面就糊一屏。
+    var notesOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { stats = translator.stats() }
 
@@ -137,257 +160,351 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
-        SubPageHeader(stringResource(R.string.translate_title), onBack)
+        // 页头右侧的「!」：本轮决策四。徽标本身 18dp，命中区 40dp（iconTap 不放大触控区，
+        // 所以外层盒要自己给够尺寸），点击打开说明弹窗。
+        SubPageHeader(stringResource(R.string.translate_title), onBack) {
+            NotesBadge { notesOpen = true }
+        }
 
-        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
+        // 压密只作用于本页（决策二）：`CompositionLocalProvider` 的作用域就是这棵子树，
+        // 主题页 / 通知页等拿到的仍是默认 Comfort。`SettingsSpecTest` 按文件钉住这一点。
+        CompositionLocalProvider(LocalSettingsDensity provides SettingsDensity.Compact) {
+            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
 
-            // ── 自动翻译开关（也是页面上唯一的开启入口：关掉后页面不留控件） ──
-            SwitchRow(
-                name = stringResource(R.string.translate_auto_toggle),
-                sub = stringResource(R.string.translate_auto_toggle_desc),
-                checked = config.enabled,
-                onCheckedChange = {
-                    config = config.copy(enabled = it)
-                    TranslateSettings.setEnabled(context, it)
-                },
-            )
-
-            SettingsSectionTitle(stringResource(R.string.translate_service_section))
-            TranslateProvider.entries.forEach { provider ->
-                ModeOptionRow(
-                    label = provider.label,
-                    desc = provider.description,
-                    selected = config.providerKind == provider,
-                ) {
-                    config = config.copy(provider = provider.code)
-                    TranslateSettings.setProvider(context, provider.code)
-                    // 换后端后清掉上一次的熔断（例如从「Key 无效」切回免费接口）
-                    translator.resetFailures()
-                    testResult = null
-                    scope.launch { stats = translator.stats() }
-                }
-            }
-
-            // ── DeepSeek 凭据：只在选中时展开 ──
-            if (config.providerKind.requiresKey) {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                    InputField(
-                        label = "API Key",
-                        value = keyDraft,
-                        placeholder = stringResource(R.string.translate_key_placeholder),
-                        mono = true,
-                        visualTransformation = if (keyVisible) {
-                            VisualTransformation.None
-                        } else {
-                            PasswordVisualTransformation()
+                // ── ① 总开关（也是页面上唯一的开启入口：关掉后页面不留控件） ──
+                // 单行卡片不带组名：页头已经写着「沉浸式翻译」，再标一个「翻译」只会重复（§3.2）。
+                SettingsSection {
+                    SwitchRow(
+                        name = stringResource(R.string.translate_auto_toggle),
+                        // 行内只留「关了会发生什么」（副作用，§6.2 允许）；为什么会这样、悬浮球怎么用，
+                        // 都在「!」弹窗里 —— 原先这行 77 字说明要占 4 行，是整页最高的一行。
+                        sub = stringResource(R.string.translate_auto_toggle_desc),
+                        checked = config.enabled,
+                        onCheckedChange = {
+                            config = config.copy(enabled = it)
+                            TranslateSettings.setEnabled(context, it)
                         },
-                        trailing = if (keyVisible) stringResource(R.string.action_hide) else stringResource(R.string.action_show),
-                        onTrailingClick = { keyVisible = !keyVisible },
-                        onValueChange = { keyDraft = it },
+                        divider = false,
                     )
-                    InputField(
-                        label = stringResource(R.string.translate_model_label),
-                        value = modelDraft,
-                        placeholder = TranslateProvider.DEEPSEEK_MODEL,
-                        mono = true,
-                        onValueChange = { modelDraft = it },
-                    )
-                    // 模型候选：官方模型名会变，点一下填入，也允许手打其它名字
-                    Row(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
-                        TranslateProvider.MODEL_SUGGESTIONS.forEach { model ->
-                            SuggestionChip(model) {
-                                modelDraft = model
-                            }
-                            Spacer(Modifier.width(8.dp))
-                        }
-                    }
-                    InputField(
-                        label = stringResource(R.string.translate_base_url_label),
-                        value = baseUrlDraft,
-                        placeholder = TranslateProvider.DEEPSEEK_BASE_URL,
-                        mono = true,
-                        onValueChange = { baseUrlDraft = it },
-                    )
-                    Row(
-                        Modifier.fillMaxWidth().padding(bottom = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        ActionPill(
-                            text = if (testing) stringResource(R.string.translate_testing) else stringResource(R.string.translate_save_and_test),
-                            enabled = !testing,
+                }
+
+                // ── ② 翻译服务 ──
+                SettingsSection(stringResource(R.string.translate_service_section)) {
+                    TranslateProvider.entries.forEachIndexed { index, provider ->
+                        ModeOptionRow(
+                            label = stringResource(provider.labelRes),
+                            desc = stringResource(provider.descRes),
+                            selected = config.providerKind == provider,
+                            divider = index != 0,
                         ) {
-                            saveCredentials()
-                            testing = true
+                            config = config.copy(provider = provider.code)
+                            TranslateSettings.setProvider(context, provider.code)
+                            // 换后端后清掉上一次的熔断（例如从「Key 无效」切回免费接口）
+                            translator.resetFailures()
                             testResult = null
-                            scope.launch {
-                                val result = translator.selfTest(to = config.target, from = config.source)
-                                testResult = describeTestResult(result)
-                                testing = false
-                                stats = translator.stats()
-                            }
+                            scope.launch { stats = translator.stats() }
                         }
-                        Spacer(Modifier.width(10.dp))
-                        TestResultText(testResult)
                     }
-                    Text(
-                        stringResource(R.string.translate_key_note),
-                        fontSize = 11.5.sp,
-                        color = Primer.TextTertiary,
-                        lineHeight = 17.sp,
-                        modifier = Modifier.padding(bottom = 10.dp),
+
+                    // DeepSeek 凭据：只在选中时展开。它是「卡片里不是行」的一块，
+                    // 用公开的 SettingsDivider 与上面的单选行断开（分隔线只能有一份真源）。
+                    if (config.providerKind.requiresKey) {
+                        SettingsDivider()
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
+                            InputField(
+                                label = "API Key",
+                                value = keyDraft,
+                                placeholder = stringResource(R.string.translate_key_placeholder),
+                                mono = true,
+                                visualTransformation = if (keyVisible) {
+                                    VisualTransformation.None
+                                } else {
+                                    PasswordVisualTransformation()
+                                },
+                                trailing = if (keyVisible) stringResource(R.string.action_hide) else stringResource(R.string.action_show),
+                                onTrailingClick = { keyVisible = !keyVisible },
+                                onValueChange = { keyDraft = it },
+                            )
+                            InputField(
+                                label = stringResource(R.string.translate_model_label),
+                                value = modelDraft,
+                                placeholder = TranslateProvider.DEEPSEEK_MODEL,
+                                mono = true,
+                                onValueChange = { modelDraft = it },
+                            )
+                            // 模型候选：官方模型名会变，点一下填入，也允许手打其它名字
+                            Row(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                                TranslateProvider.MODEL_SUGGESTIONS.forEach { model ->
+                                    SuggestionChip(model) {
+                                        modelDraft = model
+                                    }
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                            }
+                            InputField(
+                                label = stringResource(R.string.translate_base_url_label),
+                                value = baseUrlDraft,
+                                placeholder = TranslateProvider.DEEPSEEK_BASE_URL,
+                                mono = true,
+                                onValueChange = { baseUrlDraft = it },
+                            )
+                            Row(
+                                Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                ActionPill(
+                                    text = if (testing) stringResource(R.string.translate_testing) else stringResource(R.string.translate_save_and_test),
+                                    enabled = !testing,
+                                ) {
+                                    saveCredentials()
+                                    testing = true
+                                    testResult = null
+                                    scope.launch {
+                                        val result = translator.selfTest(to = config.target, from = config.source)
+                                        testResult = describeTestResult(result)
+                                        testing = false
+                                        stats = translator.stats()
+                                    }
+                                }
+                                Spacer(Modifier.width(10.dp))
+                                TestResultText(testResult)
+                            }
+                            // 隐私说明压成一行：Key 的归属与「不外泄」是必须留在表面的信息（§6.2），
+                            // OpenAI 兼容 / 可接中转这半句属于「怎么用」，进了「!」弹窗。
+                            Text(
+                                stringResource(R.string.translate_key_note),
+                                fontSize = 11.5.sp,
+                                color = Primer.TextTertiary,
+                                lineHeight = 17.sp,
+                                modifier = Modifier.padding(bottom = 6.dp),
+                            )
+                        }
+                    }
+                }
+
+                // ── ③ 目标语言 ──
+                SettingsSection(stringResource(R.string.translate_target_language)) {
+                    TranslateLang.entries.forEachIndexed { index, lang ->
+                        ModeOptionRow(
+                            label = stringResource(lang.labelRes),
+                            desc = stringResource(lang.descRes),
+                            selected = config.target == lang.code,
+                            divider = index != 0,
+                        ) {
+                            config = config.copy(target = lang.code)
+                            TranslateSettings.setTarget(context, lang.code)
+                        }
+                    }
+                }
+
+                // ── ④ 中英混排：中文段落里夹着外语片段时怎么办（判定引擎的使用规则） ──
+                // 默认「只翻片段」：段内没有需要翻的内容就整段跳过，有就只把片段送去翻译、
+                // 按「片段 → 译文」配对展示。选「整段一起翻」等于回到旧行为（中文会被再翻一遍）。
+                SettingsSection(stringResource(R.string.translate_mix_section)) {
+                    ModeOptionRow(
+                        label = stringResource(R.string.translate_mix_match),
+                        desc = stringResource(R.string.translate_mix_match_desc),
+                        selected = config.matchPolicy == PageRules.MATCH_POLICY_MATCH,
+                        divider = false,
+                    ) {
+                        config = config.copy(matchPolicy = PageRules.MATCH_POLICY_MATCH)
+                        TranslateSettings.setMatchPolicy(context, PageRules.MATCH_POLICY_MATCH)
+                    }
+                    ModeOptionRow(
+                        label = stringResource(R.string.translate_mix_whole),
+                        desc = stringResource(R.string.translate_mix_whole_desc),
+                        selected = config.matchPolicy == PageRules.MATCH_POLICY_WHOLE,
+                        divider = true,
+                    ) {
+                        config = config.copy(matchPolicy = PageRules.MATCH_POLICY_WHOLE)
+                        TranslateSettings.setMatchPolicy(context, PageRules.MATCH_POLICY_WHOLE)
+                    }
+                    ModeOptionRow(
+                        label = stringResource(R.string.translate_mix_skip),
+                        desc = stringResource(R.string.translate_mix_skip_desc),
+                        selected = config.matchPolicy == PageRules.MATCH_POLICY_SKIP,
+                        divider = true,
+                    ) {
+                        config = config.copy(matchPolicy = PageRules.MATCH_POLICY_SKIP)
+                        TranslateSettings.setMatchPolicy(context, PageRules.MATCH_POLICY_SKIP)
+                    }
+                }
+
+                // ── ⑤ 显示方式 ──
+                SettingsSection(stringResource(R.string.translate_display_mode)) {
+                    ModeOptionRow(
+                        label = stringResource(R.string.translate_mode_dual),
+                        desc = stringResource(R.string.translate_mode_dual_desc),
+                        selected = config.dual,
+                        divider = false,
+                    ) {
+                        config = config.copy(dual = true)
+                        TranslateSettings.setDual(context, true)
+                    }
+                    ModeOptionRow(
+                        label = stringResource(R.string.translate_mode_only),
+                        desc = stringResource(R.string.translate_mode_only_desc),
+                        selected = !config.dual,
+                        divider = true,
+                    ) {
+                        config = config.copy(dual = false)
+                        TranslateSettings.setDual(context, false)
+                    }
+                }
+
+                // ── ⑥ 译文样式 ──
+                SettingsSection(stringResource(R.string.translate_style_section)) {
+                    ModeOptionRow(
+                        label = stringResource(R.string.translate_style_card),
+                        desc = stringResource(R.string.translate_style_card_desc),
+                        selected = config.style == TranslateConfig.STYLE_CARD,
+                        divider = false,
+                    ) {
+                        config = config.copy(style = TranslateConfig.STYLE_CARD)
+                        TranslateSettings.setStyle(context, TranslateConfig.STYLE_CARD)
+                    }
+                    ModeOptionRow(
+                        label = stringResource(R.string.translate_style_underline),
+                        desc = stringResource(R.string.translate_style_underline_desc),
+                        selected = config.style == TranslateConfig.STYLE_UNDERLINE,
+                        divider = true,
+                    ) {
+                        config = config.copy(style = TranslateConfig.STYLE_UNDERLINE)
+                        TranslateSettings.setStyle(context, TranslateConfig.STYLE_UNDERLINE)
+                    }
+                    ModeOptionRow(
+                        label = stringResource(R.string.translate_style_plain),
+                        desc = stringResource(R.string.translate_style_plain_desc),
+                        selected = config.style == TranslateConfig.STYLE_PLAIN,
+                        divider = true,
+                    ) {
+                        config = config.copy(style = TranslateConfig.STYLE_PLAIN)
+                        TranslateSettings.setStyle(context, TranslateConfig.STYLE_PLAIN)
+                    }
+                }
+
+                // ── ⑦ 翻译质量 ──
+                SettingsSection(stringResource(R.string.translate_quality_section)) {
+                    SwitchRow(
+                        name = stringResource(R.string.translate_guard_toggle),
+                        // 这句是「关掉会怎样」的副作用（占位保护失效），保留在行内（§6.2）。
+                        sub = stringResource(R.string.translate_guard_toggle_desc),
+                        checked = config.protect,
+                        onCheckedChange = {
+                            config = config.copy(protect = it)
+                            TranslateSettings.setProtect(context, it)
+                        },
+                        divider = false,
                     )
                 }
-            }
 
-            SettingsSectionTitle(stringResource(R.string.translate_target_language))
-            TranslateLang.entries.forEach { lang ->
-                ModeOptionRow(
-                    label = lang.label,
-                    desc = lang.description,
-                    selected = config.target == lang.code,
-                ) {
-                    config = config.copy(target = lang.code)
-                    TranslateSettings.setTarget(context, lang.code)
+                // ── ⑧ 译文缓存 ──
+                SettingsSection(stringResource(R.string.translate_cache_section)) {
+                    SwitchRow(
+                        name = stringResource(R.string.translate_cache_disk_toggle),
+                        // 关闭的副作用（不读盘、但也不清已存内容）是必须留在表面的那半句；
+                        // 完整解释进「!」弹窗。
+                        sub = stringResource(R.string.translate_cache_disk_toggle_desc),
+                        checked = config.persist,
+                        onCheckedChange = {
+                            config = config.copy(persist = it)
+                            TranslateSettings.setPersist(context, it)
+                        },
+                        divider = false,
+                    )
+                    // 原先这里是自制的 Row + clickable —— 规范 §4.1 要求行必须来自 6 种行型之一。
+                    // 归位成 ActionRow：行为不变（仍然立即清空）；是否该按 §7 补二次确认见规范 §11 待办。
+                    val cacheLine = stringResource(R.string.translate_cache_stats, stats.memoryCount, stats.diskCount)
+                    val cacheNote = statusNote(stats)
+                    ActionRow(
+                        icon = Icons.Filled.Delete,
+                        name = stringResource(R.string.translate_cache_clear),
+                        sub = if (cacheNote == null) {
+                            cacheLine
+                        } else {
+                            stringResource(R.string.translate_cache_with_status, cacheLine, cacheNote.resolve())
+                        },
+                        hint = stringResource(R.string.action_clear),
+                        onClick = {
+                            scope.launch {
+                                translator.clearCache()
+                                stats = translator.stats()
+                                // scope.launch 的 lambda 不是组合上下文，这里只能走 context.getString；
+                                // Toast 属于「非 Compose 表面」，本来就该由 Context 决定语言
+                                Toast.makeText(context, context.getString(R.string.translate_cache_cleared), Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    )
+                    // 判定引擎的可见性：跳过多少段（「这段为什么没翻」）、匹配翻译了多少段 / 多少对片段。
+                    // 数字是**本进程累计**的（与缓存行同一个口径），重进设置页不会归零。
+                    Text(
+                        stringResource(R.string.translate_decision_stats, stats.skipped, stats.matched, stats.parts),
+                        fontSize = 11.sp,
+                        color = Primer.TextTertiary,
+                        lineHeight = 15.sp,
+                        modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 2.dp, bottom = 6.dp),
+                    )
                 }
-            }
 
-            // ── 中英混排：中文段落里夹着外语片段时怎么办（判定引擎的使用规则） ──
-            // 默认「只翻片段」：段内没有需要翻的内容就整段跳过，有就只把片段送去翻译、
-            // 按「片段 → 译文」配对展示。选「整段一起翻」等于回到旧行为（中文会被再翻一遍）。
-            SettingsSectionTitle(stringResource(R.string.translate_mix_section))
-            ModeOptionRow(
-                label = stringResource(R.string.translate_mix_match),
-                desc = stringResource(R.string.translate_mix_match_desc),
-                selected = config.matchPolicy == PageRules.MATCH_POLICY_MATCH,
-            ) {
-                config = config.copy(matchPolicy = PageRules.MATCH_POLICY_MATCH)
-                TranslateSettings.setMatchPolicy(context, PageRules.MATCH_POLICY_MATCH)
+                Spacer(Modifier.height(20.dp))
             }
-            ModeOptionRow(
-                label = stringResource(R.string.translate_mix_whole),
-                desc = stringResource(R.string.translate_mix_whole_desc),
-                selected = config.matchPolicy == PageRules.MATCH_POLICY_WHOLE,
-            ) {
-                config = config.copy(matchPolicy = PageRules.MATCH_POLICY_WHOLE)
-                TranslateSettings.setMatchPolicy(context, PageRules.MATCH_POLICY_WHOLE)
-            }
-            ModeOptionRow(
-                label = stringResource(R.string.translate_mix_skip),
-                desc = stringResource(R.string.translate_mix_skip_desc),
-                selected = config.matchPolicy == PageRules.MATCH_POLICY_SKIP,
-            ) {
-                config = config.copy(matchPolicy = PageRules.MATCH_POLICY_SKIP)
-                TranslateSettings.setMatchPolicy(context, PageRules.MATCH_POLICY_SKIP)
-            }
+        }
+    }
 
-            SettingsSectionTitle(stringResource(R.string.translate_display_mode))
-            ModeOptionRow(
-                label = stringResource(R.string.translate_mode_dual),
-                desc = stringResource(R.string.translate_mode_dual_desc),
-                selected = config.dual,
-            ) {
-                config = config.copy(dual = true)
-                TranslateSettings.setDual(context, true)
-            }
-            ModeOptionRow(
-                label = stringResource(R.string.translate_mode_only),
-                desc = stringResource(R.string.translate_mode_only_desc),
-                selected = !config.dual,
-            ) {
-                config = config.copy(dual = false)
-                TranslateSettings.setDual(context, false)
-            }
+    // 说明弹窗（决策三）：正文全部来自资源、逐条一句话；UI 负责画「•」。
+    if (notesOpen) {
+        SettingsNotesDialog(
+            title = stringResource(R.string.translate_notes_title),
+            bullets = listOf(
+                stringResource(R.string.translate_notes_scope),
+                stringResource(R.string.translate_notes_entry),
+                stringResource(R.string.translate_notes_panel),
+                stringResource(R.string.translate_notes_batch),
+                stringResource(R.string.translate_notes_service),
+                stringResource(R.string.translate_notes_mix),
+                stringResource(R.string.translate_notes_render),
+                stringResource(R.string.translate_notes_cache),
+                stringResource(R.string.translate_notes_privacy),
+                stringResource(R.string.translate_notes_guard),
+                stringResource(R.string.translate_notes_credentials),
+            ),
+            onDismiss = { notesOpen = false },
+        )
+    }
+}
 
-            SettingsSectionTitle(stringResource(R.string.translate_style_section))
-            ModeOptionRow(
-                label = stringResource(R.string.translate_style_card),
-                desc = stringResource(R.string.translate_style_card_desc),
-                selected = config.style == TranslateConfig.STYLE_CARD,
-            ) {
-                config = config.copy(style = TranslateConfig.STYLE_CARD)
-                TranslateSettings.setStyle(context, TranslateConfig.STYLE_CARD)
-            }
-            ModeOptionRow(
-                label = stringResource(R.string.translate_style_underline),
-                desc = stringResource(R.string.translate_style_underline_desc),
-                selected = config.style == TranslateConfig.STYLE_UNDERLINE,
-            ) {
-                config = config.copy(style = TranslateConfig.STYLE_UNDERLINE)
-                TranslateSettings.setStyle(context, TranslateConfig.STYLE_UNDERLINE)
-            }
-            ModeOptionRow(
-                label = stringResource(R.string.translate_style_plain),
-                desc = stringResource(R.string.translate_style_plain_desc),
-                selected = config.style == TranslateConfig.STYLE_PLAIN,
-            ) {
-                config = config.copy(style = TranslateConfig.STYLE_PLAIN)
-                TranslateSettings.setStyle(context, TranslateConfig.STYLE_PLAIN)
-            }
-
-            SettingsSectionTitle(stringResource(R.string.translate_quality_section))
-            SwitchRow(
-                name = stringResource(R.string.translate_guard_toggle),
-                sub = stringResource(R.string.translate_guard_toggle_desc),
-                checked = config.protect,
-                onCheckedChange = {
-                    config = config.copy(protect = it)
-                    TranslateSettings.setProtect(context, it)
-                },
+/**
+ * 页头右上角的「!」徽标（决策四）：**小**、**红底**、**不抢眼**。
+ *
+ * 尺寸：圆 18dp，比页头的 24dp 返回箭头小一圈；命中区是外层 40dp 盒
+ * （`iconTap` 只把水波纹裁圆、不放大触控区，所以尺寸必须由盒自己给）。
+ *
+ * 配色：底 `DangerText`、叹号 `DangerSurface` —— 不是随手取的红。两个主题下都过
+ * WCAG 文本对比：浅色 `#9E1C24` 底 + 白系字 ≈ 7.9:1；深色 `#F85149` 底 + 深红字 ≈ 5.2:1。
+ * 若用 `Red500` 做底，深色下白字只有 3.3:1（低于 4.5），而这是承载「说明」语义的字形。
+ *
+ * 语义：只有图标一个 `contentDescription`（「翻译说明」），外层 `clickable` 会合并它 ——
+ * 读屏读作「翻译说明，按钮」，不会把「!」念成一个无用符号。
+ */
+@Composable
+private fun NotesBadge(onClick: () -> Unit) {
+    val description = stringResource(R.string.translate_notes_badge)
+    Box(
+        modifier = Modifier.size(40.dp).iconTap { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(18.dp)
+                .background(Primer.DangerText, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Filled.PriorityHigh,
+                contentDescription = description,
+                tint = Primer.DangerSurface,
+                modifier = Modifier.size(12.dp),
             )
-
-            SettingsSectionTitle(stringResource(R.string.translate_cache_section))
-            SwitchRow(
-                name = stringResource(R.string.translate_cache_disk_toggle),
-                sub = stringResource(R.string.translate_cache_disk_toggle_desc),
-                checked = config.persist,
-                onCheckedChange = {
-                    config = config.copy(persist = it)
-                    TranslateSettings.setPersist(context, it)
-                },
-            )
-            // 原先这里是自制的 Row + clickable —— 规范 §4.1 要求行必须来自 6 种行型之一。
-            // 归位成 ActionRow：行为不变（仍然立即清空）；是否该按 §7 补二次确认见规范 §11 待办。
-            val cacheLine = stringResource(R.string.translate_cache_stats, stats.memoryCount, stats.diskCount)
-            val cacheNote = statusNote(stats)
-            ActionRow(
-                icon = Icons.Filled.Delete,
-                name = stringResource(R.string.translate_cache_clear),
-                sub = if (cacheNote == null) {
-                    cacheLine
-                } else {
-                    stringResource(R.string.translate_cache_with_status, cacheLine, cacheNote.resolve())
-                },
-                hint = stringResource(R.string.action_clear),
-                onClick = {
-                    scope.launch {
-                        translator.clearCache()
-                        stats = translator.stats()
-                        // scope.launch 的 lambda 不是组合上下文，这里只能走 context.getString；
-                        // Toast 属于「非 Compose 表面」，本来就该由 Context 决定语言
-                        Toast.makeText(context, context.getString(R.string.translate_cache_cleared), Toast.LENGTH_SHORT).show()
-                    }
-                },
-            )
-            // 判定引擎的可见性：跳过多少段（「这段为什么没翻」）、匹配翻译了多少段 / 多少对片段。
-            // 数字是**本进程累计**的（与缓存行同一个口径），重进设置页不会归零。
-            Text(
-                stringResource(R.string.translate_decision_stats, stats.skipped, stats.matched, stats.parts),
-                fontSize = 11.5.sp,
-                color = Primer.TextTertiary,
-                lineHeight = 17.sp,
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 4.dp),
-            )
-
-            SettingsSectionTitle(stringResource(R.string.translate_notes_section))
-            Text(
-                stringResource(R.string.translate_notes_body),
-                fontSize = 12.sp,
-                color = Primer.TextTertiary,
-                lineHeight = 19.sp,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-
-            Spacer(Modifier.height(24.dp))
         }
     }
 }
@@ -432,6 +549,32 @@ private fun describeTestResult(result: EngineResult): TestOutcome = when (result
         )
     }
 }
+
+/** 翻译后端的界面文案在 app 层（模块只留与语言无关的 `code`，UI 文案必须走资源）。 */
+private val TranslateProvider.labelRes: Int
+    get() = when (this) {
+        TranslateProvider.MYMEMORY -> R.string.translate_provider_mymemory_label
+        TranslateProvider.DEEPSEEK -> R.string.translate_provider_deepseek_label
+    }
+
+private val TranslateProvider.descRes: Int
+    get() = when (this) {
+        TranslateProvider.MYMEMORY -> R.string.translate_provider_mymemory_desc
+        TranslateProvider.DEEPSEEK -> R.string.translate_provider_deepseek_desc
+    }
+
+/** 目标语言的界面文案同上（母语自称由资源决定，别在模块里写死中文）。 */
+private val TranslateLang.labelRes: Int
+    get() = when (this) {
+        TranslateLang.ZH -> R.string.translate_lang_zh_label
+        TranslateLang.EN -> R.string.translate_lang_en_label
+    }
+
+private val TranslateLang.descRes: Int
+    get() = when (this) {
+        TranslateLang.ZH -> R.string.translate_lang_zh_desc
+        TranslateLang.EN -> R.string.translate_lang_en_desc
+    }
 
 /**
  * 单行输入（标签 + 输入框 + 可选右侧动作）。
@@ -525,4 +668,3 @@ private fun TestResultText(result: TestOutcome?) {
         lineHeight = 16.sp,
     )
 }
-

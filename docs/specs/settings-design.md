@@ -353,6 +353,8 @@ L1 设置（唯一入口）
   - 涉及权限/隐私（「Key 只保存在 App 私有目录，不会注入网页、不写日志」）；
   - 有条件依赖（「仅在提交模式为『本地仓库』时可用」）。
   **禁止**用说明复述名称（名称「主题」+ 说明「设置应用主题」= 浪费 17dp）。
+- **长说明**：一行放不下（约 22 个汉字）的解释不摊在行里 —— 行内只留副作用那一句，
+  其余收进该页页头的「!」说明弹窗（§十八）。
 
 ### 6.3 禁用行：必须说明原因 + 给出去开启的路
 
@@ -503,7 +505,10 @@ L1 设置（唯一入口）
 | 5 | **枚举存 name 不存 ordinal** | 新增设置项落盘语句里不得出现 `.ordinal` |
 | 6 | **返回目标唯一** | 设置树内所有页面的 `onBack` 只能来自 `profileBackTarget` / `SubPage.Settings`，不得直接 `null` |
 | 7 | **key 集中** | 设置 key 常量必须在唯一文件里声明 |
-| 8 | **行尾控件贴右** | 设置树（`SettingsRow.kt` + 设置页区段）里不得出现 `weight(…, fill = false)`；名称列的权重盒必须吃份额、值列在自己的权重盒里右对齐；6 种行型 + `DisabledNavRow` + `AccountRow` 必须都走 `SettingsRowShell`（§4.2） |
+| 8 | **行尾控件贴右** | 设置树（`SettingsRow.kt` + 设置页区段）里不得出现 `weight(…, fill = false)`；名称列的权重盒必须吃份额、值列在自己的权重盒里右对齐；6 种行型 + `DisabledNavRow` 必须都走 `SettingsRowShell`（§4.2） |
+| 9 | **密度按页** | `LocalSettingsDensity provides` 只许在「主页」与「翻译页」各出现一次，其余设置文件 0 次（§16.2 / §十八） |
+| 10 | **总开关只有一个入口** | 主页不许出现 `translate_auto_toggle`；翻译页必须有它（`modules-design.md` §1） |
+| 11 | **长说明在弹窗里** | 翻译页必须 `SettingsSection(` + `SettingsNotesDialog(`；不许 `SettingsSectionTitle` / `SettingsProse` / `translate_notes_body`；行内 16 条文案 ≤22 字（§十八） |
 
 > 第 1、5、6 条可以在**本轮就加**（现状已基本满足或改动很小）；
 > 第 2、3、4、7 条依赖 §11 的重构，落地时一并加。
@@ -580,6 +585,8 @@ L1 设置（唯一入口）
 | 二级页 `onBack = { subPage = null }` | 走 `profileBackTarget` | §3.1 |
 | 「其他」分组 | 说得出它是什么的名词 | §3.2 |
 | 说明里复述名称 | 只在有副作用/权限/依赖时写说明 | §6.2 |
+| 把使用说明摊成页面正文（>3 行 / 一屏） | 行内一句副作用，其余收进页头「!」弹窗 | §十八 |
+| 同一个开关在主页与二级页各放一份 | 开关只放在它所属的那一页（总开关＝翻译页） | §十八 / `modules-design.md` §1 |
 | 设置里放「做一件事」的入口 | 除危险动作外，设置只放偏好 | §2 |
 
 ---
@@ -594,6 +601,7 @@ L1 设置（唯一入口）
 | v3 | 2026-09 | 账户卡修复：`AccountRow` 原来是写死的灰底首字母，改成统一 `theme/Avatar`（本地缓存 → `avatar_url` → 首字母兜底，圆形裁切），新增 `avatar` 参数；账号侧补 `Account.avatarUrl`（快照缺失回落会话 `user.avatar_url`），`MainActivity` 预热同源；`SettingsSpecTest` 新增两条钉子；偏离表补第 4 条。见 §十四 |
 | v5 | 2026-09 | 设置树描边改为纯黑（**仅浅色**）：卡片描边与行分隔线由 `Primer.Gray200`（`#E3E4E8`）改走**新增角色** `Primer.BorderEmphasis`（浅 `#000000` / 深 `#30363D`）；`Primer.BorderControl` 浅色由 `#8B8E99` 改为 `#000000`（深色仍 `#6E7681`）。受影响断言：无 —— `SettingsSpecTest` 本轮**未新增钉子**，因为「无写死色值」那条已覆盖（改的是角色引用，不是字面量）。见 §十四末 |
 | v6 | 2026-09-24 | **行尾控件贴右**（真机截图圈选处）：`SettingsRow.kt` 里 4 处主轴权重盒由 `weight(1f, fill = false)` 改为 `weight(1f)` —— `SettingsText` 名称列、`NavRow` / `DisabledNavRow` 内层 `Row` 与其原因列、`AccountRow` 名称列。`fill = false` 时盒子缩到文字宽度、空白留在行尾，于是值列与 `›` / `Switch` / 分段控件 / 胶囊停在文字后面，每行一个位置。**观感变化**：只有行尾那一截留白归位（值列与尾控件右移到 16dp 内边距），名称/值上限、折行宽度、省略阈值都不变。§4.2 补「行尾控件」一行 + 机制说明与反模式，§10.2 补两条验收，§10.1 补第 8 条钉子（`SettingsSpecTest` 新增 ⑬ 三条：设置树无 `fill = false` 的主轴盒子 / 名称列吃份额 + 值列右对齐 / 8 种行的尾控件都走 `SettingsRowShell`）。受影响断言：`值负责省略而不是挤名称` 原来钉的是 `weight(1f, fill = false)`（正是本次要改的写法），改为钉「名称吃份额 + 值右对齐 + 值可省略」 |
+| v14 | 2026-11-26 | **翻译页压密 + 说明收进弹窗 + 页头「!」徽标**（§十八）：主页删掉「自动翻译正文」开关（总开关只在翻译页，与 `modules-design.md` §1 对齐），主页行数 13 → 12；翻译页根部 provide `Compact`、七组卡片化、`ModeOptionRow` 的内边距/圆点走密度表（`optionPadV` / `optionDotSize`）；页尾 570 字说明与各行 44–99 字长说明收进 `SettingsNotesDialog`，行内 16 条文案 ≤22 字；新增页头徽标（18dp 红圆 / 40dp 命中区 / AA 对比度）；删除过渡态 `SettingsSectionTitle`，新增 `SettingsDivider`；UI 文案从 `:translate` 模块移出（`TranslateProvider` / `TranslateLang` 只留 `code`）。钉子改 1 新增 3 |
 | v13 | 2026-11-26 | **玻璃导航栏说明改为「按状态说话」**：静态一句 → 两句随开关切换（关：`当前主题导航栏，玻璃悬浮默认关闭`；开：`悬浮玻璃已应用，原生导航已替换`），16 / 15 字，回到默认 12sp，仍独占整行宽 + `maxLines = 1`。钉子：两句文案都必须 ≤22 字，主题页必须按 `glassNavigation` 取文案 |
 | v12 | 2026-11-26 | **玻璃导航栏说明再压缩**：24 字在 272dp 文本区里 11sp 仍贴边省略（真机截图），收到 **21 字**「默认主题导航栏；开启后任意主题均为悬浮玻璃」（11sp × 21 ≈ 231dp，余量约 40dp）；同时写明语义：底栏形态与主题模式**正交**（全局一份状态，任意主题生效）。钉子：文案 ≤22 字 |
 | v11 | 2026-11-26 | **玻璃导航栏说明压成一行**：文案改为「默认原生主题导航，开启后导航栏变更为悬浮玻璃样式」（24 字）。实测设备 **360dp 宽**（1440×3168 @640dpi、fontScale 1.0）下，跟着名称走的文本列只有约 **210dp** —— 24 个字要 8.3sp 才塞得下，已低于可读线；所以说明改为**独占一行、占满行宽**（约 272dp，左边缘与名称对齐）+ **11sp**、`maxLines = 1`、行高 15sp。`SwitchRow` 新增 `subFullWidth`（默认 false，其余开关行不变）与说明覆盖参数（`subFontSize` / `subLineHeight` / `subMaxLines`）。钉子：主题页必须 `subFullWidth = true` + `subMaxLines = 1` + `subFontSize = 11.sp`，且文案 ≤24 字 |
@@ -631,14 +639,14 @@ L1 设置（唯一入口）
 | # | 原型怎么画 | App 实际是什么 | 实现怎么改 |
 |---|---|---|---|
 | 1 | 「允许发送通知」是 **`SwitchRow`**（带 `checked`） | 「允许通知」是**系统权限**，不是 App 的布尔值；App 只能 `request()` 或 `openSettings()` | 改成 **`NavRow` + 状态胶囊**，点击进「通知」子页。**一个骗人的开关比没有开关更坏** —— 用户开了它但系统没授权，会以为已经生效 |
-| 2 | 沉浸式翻译页**不在重画范围** | 该页 500+ 行，且原型里它的入口只是 toast 占位 | 只做**组件统一**（删私有 `SwitchRow`/`SectionTitle`、自制行归位），**未卡片化** —— 见下方待办 |
+| 2 | 沉浸式翻译页**不在重画范围** | 该页 500+ 行，且原型里它的入口只是 toast 占位 | 第一轮只做**组件统一**（删私有 `SwitchRow`/`SectionTitle`、自制行归位）；**2026-11 第五轮已卡片化并压密**（§十八） |
 | 3 | 主页有「退出登录」`DangerRow` | 个人页 `⋮` 气泡**已经**有一个登出入口 | 照原型实现（含 §7.2 确认框），于是现在有**两个**登出入口。这是刻意的：设置页放登出是通行做法，且原入口埋在气泡里可发现性差。若要收敛成一个，属于产品决策 |
 | 4 | 账户卡头像画成**写死的首字母**（`accountCard()` 里的 `<span class="av">` + `initial`） | App 有真实头像：`AvatarCache` 本地缓存（登录即预热）优先、缺失回落 `avatar_url`；首页 / 个人页 / 账号管理页都走同一个 `theme/Avatar`（圆形裁切 + 首字母兜底） | `AccountRow` 改用 `Avatar` 并新增 `avatar: String?` 参数；地址取 `Account.avatarUrl`（快照缺失时回落会话 `user.avatar_url`）。`SettingsSpecTest` 钉住「不许再写死首字母」与「设置页必须传 `account.avatarUrl`」 |
 
 ### 尚未完成（按优先级）
 
-1. **沉浸式翻译页卡片化** —— 目前它用无卡片的 `SettingsSectionTitle`，是规范 §4.4「必须统一」的**唯一例外**；
-   该函数已标注为过渡态，迁移完成后应删除。
+1. ~~**沉浸式翻译页卡片化**~~ —— **已完成**（1.4.44，§十八）：八组卡片化，`SettingsSectionTitle`
+   随最后调用点一起删除，规范 §4.4「同一棵树要统一」不再有例外。
 2. **「清空译文缓存」的二次确认** —— 规范 §7.1 把「清空某类数据」列为危险动作。
    本轮只把这行从自制 `Row` 归位成 `ActionRow`，**行为未变（仍然立即清空）**。
 3. **`ThemeMode.next()`** 保留着 —— 设置页不再用它（已由 `SettingsSpecTest` 钉住），
@@ -726,7 +734,9 @@ CompositionLocalProvider(LocalSettingsDensity provides SettingsDensity.Compact) 
 - **默认 `Comfort`** —— 二级页一行都不用改；
 - 一个新页面要压密 = 在自己的根上 provide 一次，不需要拷行组件；
 - 两档的数值表见 [`settings-compact-redesign.md`](settings-compact-redesign.md) §三；
-- `SettingsSpecTest` 钉住「只有主页 provide 一次」：多 provide 一处就等于把整棵树压了。
+- 2026-11 第五轮放宽：**每个要压密的设置页在自己根上 provide 一次**（当前：主页、翻译页），
+  其余文件 0 次；**行组件里永远不许 provide** —— 那会把「某一页的密度」变成「所有调用点的密度」。
+  `SettingsSpecTest` 按文件钉住这三个数（§十八）。
 
 ### 16.3 主页的「值」与「说明」怎么分
 
@@ -788,6 +798,63 @@ CompositionLocalProvider(LocalSettingsDensity provides SettingsDensity.Compact) 
   （传统 / 玻璃各自长什么样）。放在主题页里能配说明；
 - 视觉类开关与主题档位本来就该一起看：改深色时不希望底栏还是旧形态；
 - 以后加皮肤时，主页不必再长高 —— 这一条是 1.4.38 压密的直接延续。
+
+---
+
+## 十八、翻译页压密：说明收进弹窗 + 页头「!」徽标（2026-11 · 第五轮）
+
+页面：`ui/profile/TranslateSettingsScreen.kt`（设置 → 翻译 → 沉浸式翻译）。
+这一轮只改这一页 + 主页的那一行开关，四条决策（用户 2026-11-26）：
+
+### 18.1 四条决策与落点
+
+| # | 决策 | 落点 |
+|---|---|---|
+| 一 | 砍掉**主页**的「自动翻译正文」开关 | 主页「翻译」组只剩入口行；总开关只在翻译页顶部（`modules-design.md` §1「开启入口只有一个」） |
+| 二 | 压缩整页行高与控件比例 | 根上 provide `Compact`；七组卡片化；`ModeOptionRow` 内边距/圆点走密度表；开关本体缩到 0.85 |
+| 三 | 长说明收进弹窗 | 删页尾 570 字说明；行内只留一句副作用；`SettingsNotesDialog` 逐条呈现 |
+| 四 | 页头右上角「!」徽标 | `SubPageHeader` 的 `trailing` 槽；18dp 红圆 + 12dp 叹号，40dp 命中区 |
+
+### 18.2 说明的三种去处（这一轮立下的规则）
+
+| 去处 | 判据 | 例子 |
+|---|---|---|
+| 行内 `sub` | 关掉 / 开启会**立刻**发生什么，必须看见才知道后果 | 「关闭后正文页停止翻译，悬浮球收起」 |
+| 弹窗 | 「为什么 / 怎么用 / 取舍」类解释，一次读不完 | 悬浮球怎么用、MyMemory 额度、混排规则怎么选 |
+| 删除 | 复述名称或选项名 | 旧「目标语言」档位说明里的「中文（简体）」 |
+
+- 行内一句：≤22 个汉字（11sp 在约 246dp 文本区一行放得下），**不靠缩字号换空间**；
+- 弹窗由页头徽标打开，**只读、没有破坏性动作**，按钮只有一个「知道了」；
+- 弹窗正文用「逐条短句」而不是一整段：译文语序不同，一整段在另一种语言里没法靠标点分段。
+
+### 18.3 页头徽标的约束
+
+1. **只承载说明**，不承载操作（操作属于行；页头只有返回 + 说明）；
+2. 尺寸 18dp 圆 / 12dp 字形，命中区 40dp —— `iconTap` 只把水波纹裁圆、**不放大**触控区，
+   所以尺寸必须由外层盒给；
+3. 配色过 AA：浅色 `DangerText` 底 + `DangerSurface` 字 ≈ 7.9:1，深色 ≈ 5.2:1；
+   用 `Red500` 做底时深色下白字只有 3.3:1（< 4.5），所以不用它；
+4. `contentDescription` 必须有（「翻译说明」），外层 `clickable` 会把它合并成按钮标签；
+5. 与返回箭头同行、右对齐，不随滚动漂浮。
+
+### 18.4 规范层面的变化
+
+1. **密度按页 provide**：§16.2 的「全仓只许主页 provide 一次」作废 —— 改为「每个要压密的
+   设置页在根上 provide 一次；行组件不许 provide」（当前主页 / 翻译页各一次）；
+2. `SettingsSectionTitle`（无卡片过渡态）**删除** —— 翻译页是最后一个调用点；
+3. 行组件新增 `SettingsDivider`（公开，卡片里非行块的断线）与 `SettingsNotesDialog`；
+   `SettingsDensity` 增加 `optionPadV` / `optionDotSize`；
+4. UI 文案从 `:translate` 模块移出：`TranslateProvider` / `TranslateLang` 只留 `code`，
+   名称与说明走 `R.string` —— 切英文后不再出现「MyMemory（免费）」这类中文字面量。
+
+### 18.5 钉子变化（`SettingsSpecTest`）
+
+| 钉子 | 变化 |
+|---|---|
+| `设置主页用紧凑密度且只影响主页` | 改名 `设置页的密度只在各自根上 provide 一次`：主页 1 / 翻译页 1 / 其它文件 0 |
+| `主页翻译组只剩入口_总开关只在翻译页` | 新增：主页不许 `translate_auto_toggle`，必须有 `onOpenTranslate` |
+| `翻译页已卡片化_长说明收进弹窗` | 新增：必须有 `SettingsSection(` + `SettingsNotesDialog(`；不许 `SettingsSectionTitle` / `SettingsProse` / `translate_notes_body` |
+| `翻译页行内说明控制在一行` | 新增：16 条行内文案 ≤22 个汉字 |
 
 ---
 

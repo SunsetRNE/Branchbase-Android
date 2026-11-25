@@ -18,19 +18,14 @@ const val LANG_EN: String = "en"
  *
  * 源语言由目标语言反推（[sourceOf]）：中英互译的两个方向刚好覆盖本 App 的场景
  * ——「读英文仓库」与「给英文读者看中文文档」。不再引入语言选择器的复杂度。
+ *
+ * **这里只放与语言无关的 `code`**：语言名与说明是界面文案，走 app 层的字符串资源
+ * （「English」在英文界面里不该写成「英语」这类问题就是由此收口的）。
  */
-enum class TranslateLang(val code: String, val label: String, val description: String) {
+enum class TranslateLang(val code: String) {
 
-    ZH(
-        LANG_ZH,
-        "中文（简体）",
-        "把英文原文翻成中文对照显示（默认，读英文仓库用）",
-    ),
-    EN(
-        LANG_EN,
-        "English",
-        "把中文原文翻成英文对照显示（给英文读者看中文文档）",
-    ),
+    ZH(LANG_ZH),
+    EN(LANG_EN),
     ;
 
     /** 该语言下「已经是目标语言」的段落会长这样（供设置页与文档说明，判定在 [TranslateTextPolicy]）。 */

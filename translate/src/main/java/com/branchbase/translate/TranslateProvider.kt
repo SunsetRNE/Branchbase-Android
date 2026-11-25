@@ -14,23 +14,14 @@ package com.branchbase.translate
  * 注意：[DEEPSEEK] 的模型名与接入地址都是**可配置**的，因为官方模型名会随版本调整
  * （`deepseek-chat` → `deepseek-flash` → …），而接口是 OpenAI 兼容的，
  * 用户也可能想接到中转 / 自建网关上。
+ *
+ * **这里只放与语言无关的 `code`**：名称与说明是界面文案（设置页的服务单选行），
+ * 必须走 app 层的字符串资源，否则切到英文后这一行仍是中文（2026-11 文案重写时收口）。
  */
-enum class TranslateProvider(
-    val code: String,
-    val label: String,
-    val description: String,
-) {
+enum class TranslateProvider(val code: String) {
 
-    MYMEMORY(
-        "mymemory",
-        "MyMemory（免费）",
-        "公开匿名接口，无需任何配置；额度约 5000 词/天，长句与术语质量一般。",
-    ),
-    DEEPSEEK(
-        "deepseek",
-        "DeepSeek（自带 API Key）",
-        "OpenAI 兼容接口，按 token 计费；长句、技术术语与中英混排的译文质量明显更好。",
-    ),
+    MYMEMORY("mymemory"),
+    DEEPSEEK("deepseek"),
     ;
 
     /** 是否需要用户填 Key（决定设置页要不要展开输入框）。 */

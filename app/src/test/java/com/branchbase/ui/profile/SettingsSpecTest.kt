@@ -86,6 +86,7 @@ class SettingsSpecTest {
     private val rowComponentsPath = "src/main/java/com/branchbase/ui/settings/SettingsRow.kt"
     private val themePagePath = "src/main/java/com/branchbase/ui/settings/ThemeScreen.kt"
     private val settingsPagePath = "src/main/java/com/branchbase/ui/profile/SubPageScreens.kt"
+    private val translatePagePath = "src/main/java/com/branchbase/ui/profile/TranslateSettingsScreen.kt"
 
     /**
      * 设置主页 + 通知页那一段（不含同一文件里的关于页 / 本地仓库页）。
@@ -196,20 +197,97 @@ class SettingsSpecTest {
         )
     }
 
+    /**
+     * 密度是**每页一次**的外参（2026-11 第五轮放宽）。
+     *
+     * 第三轮（设置主页压密）时这条钉的是「全仓只许主页 provide 一次」—— 当时的背景是
+     * 二级页一行都不动。第五轮明确让**沉浸式翻译页也压密**，所以规则升级为：
+     *
+     * - 每个**要压密**的设置页在自己根上 provide 一次（当前：主页、翻译页）；
+     * - 其余设置文件 0 次（Comfort 是默认值）；
+     * - **不许在行组件里 provide** —— 那会把「某一页的密度」变成「所有调用点的密度」，
+     *   行组件文件本身就不该出现 `LocalSettingsDensity provides`。
+     */
     @Test
-    fun `设置主页用紧凑密度且只影响主页`() {
-        val region = settingsHomeRegion()
+    fun `设置页的密度只在各自根上 provide 一次`() {
         assertTrue(
             "设置主页必须在根部 provide SettingsDensity.Compact（否则行高/图标/卡片底回到舒适档）",
-            region.contains("LocalSettingsDensity provides SettingsDensity.Compact"),
+            settingsHomeRegion().contains("LocalSettingsDensity provides SettingsDensity.Compact"),
         )
-        // 二级页不许跟着改：Comfort 是 CompositionLocal 的默认值，
-        // 任何页面自己再 provide 一次，就会把「只压主页」变成「整棵设置树一起压」
+        val dens = Regex("LocalSettingsDensity provides")
         assertEquals(
-            "LocalSettingsDensity 只允许设置主页 provide 一次（二级页走默认 Comfort）",
+            "设置主页只许 provide 一次",
             1,
-            Regex("LocalSettingsDensity provides").findAll(source(settingsPagePath)).count(),
+            dens.findAll(source(settingsPagePath)).count(),
         )
+        assertEquals(
+            "沉浸式翻译页也要压密（决策二：整页行高）",
+            1,
+            dens.findAll(source(translatePagePath)).count(),
+        )
+        // 行组件 / 其它二级页不许跟着改：Comfort 是 CompositionLocal 的默认值
+        settingsTree
+            .filter { it != settingsPagePath && it != translatePagePath }
+            .forEach { path ->
+                assertEquals(
+                    "$path 不许 provide 密度：压密只发生在具体设置页的根上（行组件里 provide 会污染所有调用点）",
+                    0,
+                    dens.findAll(source(path)).count(),
+                )
+            }
+    }
+
+    // ── ⑨″ 翻译页（2026-11 第五轮：压密 + 说明进弹窗 + 页头徽标） ─────────
+
+    @Test
+    fun `主页翻译组只剩入口_总开关只在翻译页`() {
+        val region = settingsHomeRegion()
+        assertFalse(
+            "主页又出现了「自动翻译正文」开关：它是同一份 translate.enabled 的第二个入口，" +
+                "总开关只在翻译页（modules-design §1「开启入口只有一个」）",
+            region.contains("translate_auto_toggle"),
+        )
+        assertTrue("主页要保留「沉浸式翻译」入口行", region.contains("onOpenTranslate"))
+        assertTrue("总开关必须留在翻译页顶部", source(translatePagePath).contains("translate_auto_toggle"))
+    }
+
+    @Test
+    fun `翻译页已卡片化_长说明收进弹窗`() {
+        val page = source(translatePagePath)
+        assertTrue("翻译页必须用卡片式 SettingsSection（§4.4 同一棵树要统一）", page.contains("SettingsSection("))
+        assertTrue("说明由页头徽标打开 SettingsNotesDialog", page.contains("SettingsNotesDialog("))
+        assertTrue("页头徽标要进 trailing 槽（文案走资源）", page.contains("translate_notes_badge"))
+        assertFalse("翻译页还有无卡片的过渡态 SettingsSectionTitle", page.contains("SettingsSectionTitle("))
+        assertFalse("翻译页又出现了页尾散文 SettingsProse", page.contains("SettingsProse("))
+        assertFalse("翻译页不许再摊着 570 字的 translate_notes_body", page.contains("translate_notes_body"))
+        assertFalse(
+            "SettingsSectionTitle 已无调用点：过渡态函数要从行组件文件里删掉",
+            source(rowComponentsPath).contains("fun SettingsSectionTitle("),
+        )
+    }
+
+    @Test
+    fun `翻译页行内说明控制在一行`() {
+        // 决策二：整页行高压下来，靠的是「每行一句、11sp 一行放得下」。
+        // 文本区约 246dp（360 − 行内边距 − 圆点 − 间距 − 开关），11sp 下约 22 个汉字。
+        // 这里钉住翻译页**行内**用到的说明/描述资源，防止以后又把长句塞回行里。
+        val strings = source("src/main/res/values/strings.xml")
+        listOf(
+            "translate_auto_toggle_desc", "translate_mode_dual_desc", "translate_mode_only_desc",
+            "translate_mix_match_desc", "translate_mix_whole_desc", "translate_mix_skip_desc",
+            "translate_style_card_desc", "translate_style_underline_desc", "translate_style_plain_desc",
+            "translate_guard_toggle_desc", "translate_cache_disk_toggle_desc", "translate_key_note",
+            "translate_provider_mymemory_desc", "translate_provider_deepseek_desc",
+            "translate_lang_zh_desc", "translate_lang_en_desc",
+        ).forEach { key ->
+            val value = Regex("""<string name="$key">([^<]*)</string>""").find(strings)
+            assertTrue("找不到 $key", value != null)
+            assertTrue(
+                "$key 超过 22 个字（${value!!.groupValues[1].length}）：行内说明要一行放得下，" +
+                    "长解释进「!」弹窗（settings-design §十八）",
+                value.groupValues[1].length <= 22,
+            )
+        }
     }
 
     @Test

@@ -13,17 +13,22 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.res.stringResource
@@ -113,6 +118,16 @@ enum class SettingsDensity(
     val subLineHeight: TextUnit,
     val valueFontSize: TextUnit,
     val chevronSize: Dp,
+    /**
+     * 单选行（[com.branchbase.ui.profile.ModeOptionRow]）的上下内边距。
+     *
+     * 单选行不带图标、也不走 [SettingsRowShell]，所以它的行高不在上面那张表里 ——
+     * 但翻译页的行高有一半来自这 12dp。数值放在密度表里，而不是在行里按 `if (Compact)` 分叉：
+     * 页面只 provide 一次密度，行组件不需要知道自己被哪个页面调用。
+     */
+    val optionPadV: Dp,
+    /** 单选圆点的直径（Comfort 18dp / Compact 16dp）。 */
+    val optionDotSize: Dp,
 ) {
     Comfort(
         rowMinHeight = RowMinHeight,
@@ -130,6 +145,8 @@ enum class SettingsDensity(
         subLineHeight = 17.sp,
         valueFontSize = 12.sp,
         chevronSize = 20.dp,
+        optionPadV = 12.dp,
+        optionDotSize = 18.dp,
     ),
 
     Compact(
@@ -148,10 +165,19 @@ enum class SettingsDensity(
         subLineHeight = 15.sp,
         valueFontSize = 11.sp,
         chevronSize = 18.dp,
+        optionPadV = 8.dp,
+        optionDotSize = 16.dp,
     ),
 }
 
-/** 当前设置树的密度；默认 [SettingsDensity.Comfort]，只有设置主页 provide 成 Compact。 */
+/**
+ * 当前设置树的密度；默认 [SettingsDensity.Comfort]。
+ *
+ * 2026-11 起**每个要压密的设置页在自己根上 provide 一次**（主页 [Compact]、
+ * 沉浸式翻译页 [Compact]），不再有「全仓只许主页 provide」的限制 —— 那是第三轮
+ * 「只压主页」的临时约束，本轮明确让二级页也能压。仍不允许在**行组件**里偷偷 provide：
+ * 那会把「某一页的密度」变成「所有调用点的密度」。`SettingsSpecTest` 按文件钉住这一点。
+ */
 val LocalSettingsDensity = staticCompositionLocalOf { SettingsDensity.Comfort }
 
 /**
@@ -203,9 +229,12 @@ fun SettingsSection(
  * 用 `BorderEmphasis` 的 40% 而不是实色：卡片本身已经没有描边了（浅色下纯黑 1dp 框
  * 把整页读成线框图 —— 真机反馈「取消掉黑边」），分隔线若仍是实色黑，会在灰底上
  * 重新变成一排黑线。40% 与首页 `TodoDivider` 同一档，只用来断行、不用来框内容。
+ *
+ * 公开是给「卡片里不是行」的块用的（翻译页的 Key / 模型输入块）：它也要在卡片里
+ * 与上一行断开，而分隔线的颜色/透明度只该有一份真源，不许页面自己画第二个 40% 灰线。
  */
 @Composable
-private fun SettingsRowDivider() {
+fun SettingsDivider() {
     Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.BorderEmphasis.copy(alpha = 0.4f)))
 }
 
@@ -224,7 +253,7 @@ private fun SettingsRowShell(
 ) {
     val d = LocalSettingsDensity.current
     Column(Modifier.fillMaxWidth()) {
-        if (divider) SettingsRowDivider()
+        if (divider) SettingsDivider()
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -695,7 +724,7 @@ fun DisabledNavRow(
 @Composable
 fun SettingsProse(text: String, divider: Boolean = true) {
     Column(Modifier.fillMaxWidth()) {
-        if (divider) SettingsRowDivider()
+        if (divider) SettingsDivider()
         Text(
             text,
             fontSize = LocalSettingsDensity.current.subFontSize,
@@ -707,21 +736,56 @@ fun SettingsProse(text: String, divider: Boolean = true) {
 }
 
 /**
- * 分节标题（**无卡片**的旧版布局，用于尚未迁移到 [SettingsSection] 的页面）。
+ * 说明弹窗：把**长篇说明**从页面上收进一个可滚动弹窗（2026-11 决策）。
  *
- * 规范 §4.4 允许保留分节标题，但要求**同一棵设置树里必须统一** ——
- * 所以这个函数是**过渡态**，不是第二种标准：
- * 设置主页与通知页已用卡片式 [SettingsSection]；沉浸式翻译页仍在用它
- * （该页不在本轮原型范围内）。等那一页迁移完，这个函数应当删除。
+ * ## 为什么有这个组件
+ *
+ * 沉浸式翻译页原先在页尾摊着一段 570+ 字的「说明」，外加三个开关行各自的 44–99 字说明 ——
+ * 一页三分之一的滚动高度是「读文档」。决策是：行内只留一句**必要**的副作用说明（§6.2），
+ * 其余收进弹窗，由页头右上角的「!」徽标打开。
+ *
+ * 它和 `AlertDialog` 用在二次确认的场合**不同**：这里只有一个「知道了」，没有破坏性动作，
+ * 也不写对象名 —— 它回答的是「这一页怎么用」，不是「删不删」。
+ *
+ * ## 为什么正文是 [bullets] 而不是一整段
+ *
+ * 传进来的一整段在多语言下没法换行/分段（译文行宽与中文差很多），也没法让译者在条目之间
+ * 独立调整语序。每条一句话、由 UI 画 `•`，弹窗里天然是清单，扫读成本比一大段低。
+ *
+ * @param bullets 每条一句（**不要**自己带 `•`），文案必须来自资源
  */
 @Composable
-fun SettingsSectionTitle(title: String) {
-    Text(
-        title,
-        fontSize = 12.sp,
-        fontWeight = FontWeight.SemiBold,
-        color = Primer.TextTertiary,
-        modifier = Modifier.padding(start = RowPaddingH, end = RowPaddingH, top = 16.dp, bottom = 6.dp),
+fun SettingsNotesDialog(
+    title: String,
+    bullets: List<String>,
+    onDismiss: () -> Unit,
+    confirmLabel: String? = null,
+) {
+    val confirm = confirmLabel ?: stringResource(R.string.action_got_it)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+        },
+        text = {
+            // 说明可能长（翻译页约 9 条）：给上限 + 自己滚，别把弹窗撑出屏幕 ——
+            // 撑出屏幕时 AlertDialog 会把按钮顶掉，用户只剩返回键一条路。
+            Column(
+                Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                bullets.forEach { bullet ->
+                    Row(verticalAlignment = Alignment.Top) {
+                        Text("•", fontSize = 13.sp, lineHeight = 19.sp, color = Primer.TextTertiary)
+                        Spacer(Modifier.width(6.dp))
+                        Text(bullet, fontSize = 13.sp, lineHeight = 19.sp, color = Primer.TextSecondary)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(confirm, color = Primer.AccentText) }
+        },
     )
 }
 

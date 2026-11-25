@@ -51,8 +51,6 @@ data class TranslateConfig(
 
     val targetLang: TranslateLang get() = TranslateLang.byCode(target)
 
-    val targetLabel: String get() = targetLang.label
-
     /** 源语言：由目标语言反推（目前只支持中英互译）。 */
     val source: String get() = TranslateLang.sourceOf(target)
 

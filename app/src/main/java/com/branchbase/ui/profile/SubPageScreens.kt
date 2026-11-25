@@ -109,7 +109,6 @@ import com.branchbase.ui.settings.languagePickerAvailable
 import com.branchbase.ui.settings.languageRowValue
 import com.branchbase.ui.settings.setFrameWatchEnabled
 import com.branchbase.ui.settings.supportedAppLanguages
-import com.branchbase.translate.TranslateSettings
 import com.branchbase.core.AccountStore
 import com.branchbase.ui.log.FrameWatch
 import com.branchbase.ui.log.LogLevel
@@ -571,7 +570,6 @@ fun SettingsScreen(
     // 条数是读 prefs，进 remember：设置页组合期读盘一律不裸调（每次重组都会再读一遍）
     val repoCredentialCount = remember { if (patMode) RepoCredentialStore.all(context).size else 0 }
 
-    var translateEnabled by remember { mutableStateOf(TranslateSettings.read(context).enabled) }
     var confirmLogout by remember { mutableStateOf(false) }
     // 慢帧日志开关：只在这里读一次盘（默认值来自编译通道），之后由用户点击驱动
     var frameWatch by remember { mutableStateOf(frameWatchEnabled(context)) }
@@ -686,23 +684,19 @@ fun SettingsScreen(
                 }
             }
 
-            // ── ④ 翻译 ──
+            // ── ④ 翻译：只剩一个入口行 ──
+            // 「自动翻译正文」总开关 2026-11 从主页删掉（决策一）：它是**功能开关**而不是
+            // 主页入口，且与「沉浸式翻译」页顶部那个开关读写同一份配置（`translate.enabled`）——
+            // 两处各放一个开关，用户改一边后另一边得回主页才看得到，而 `modules-design.md` §1
+            // 本来就写着「开启入口只有一个」。总开关留在翻译页里，与它解释的悬浮球同屏。
+            // 主页行数 13 → 12；「翻译」组从「开关 + 入口」变成单行卡片（组名与行名不重复，§3.2）。
             item {
                 SettingsSection(stringResource(R.string.label_translation_group)) {
-                    SwitchRow(
-                        icon = Icons.Filled.Translate,
-                        name = stringResource(R.string.translate_auto_toggle),
-                        checked = translateEnabled,
-                        onCheckedChange = {
-                            translateEnabled = it
-                            TranslateSettings.setEnabled(context, it)
-                        },
-                        divider = false,
-                    )
                     NavRow(
                         icon = Icons.Filled.AutoAwesome,
                         name = stringResource(R.string.translate_title),
                         onClick = onOpenTranslate,
+                        divider = false,
                     )
                 }
             }
@@ -955,6 +949,7 @@ internal fun ModeOptionRow(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
+    val d = LocalSettingsDensity.current
     // ⚠️ `modifier` 必须挂在这个**最外层 Column** 上，不能挂到里面的 Row：
     //    滑动高亮用 `positionInParent()` 量每行的纵坐标，挂在 Row 上量到的是内层 Column 的
     //    「相对父容器」坐标 —— 每行都是 0，高亮会永远停在第一行。
@@ -978,7 +973,9 @@ internal fun ModeOptionRow(
                 .background(if (drawSelectionBackground) selectionColor(selected, on = Primer.SuccessSurface) else Color.Transparent)
                 .background(pressTint)
                 .clickable(interactionSource = interaction, indication = null) { onClick() }
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                // 尺寸取密度表（Comfort 16/12dp、Compact 14/8dp）：单选行不带图标，
+                // 不走 SettingsRowShell，行高完全由这里决定 —— 翻译页能压下来就靠这两个数。
+                .padding(horizontal = d.rowPaddingH, vertical = d.optionPadV),
             verticalAlignment = Alignment.Top,
         ) {
             // 单选圆点：外圈与填充一起渐变（设置页里每个开关都会走这条路径）；
@@ -995,7 +992,7 @@ internal fun ModeOptionRow(
             )
             Box(
                 modifier = Modifier
-                    .size(18.dp)
+                    .size(d.optionDotSize)
                     .scale(dotScale)
                     .clip(CircleShape)
                     .border(
@@ -1007,12 +1004,12 @@ internal fun ModeOptionRow(
             )
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+                Text(label, fontSize = d.nameFontSize, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
                 // 没有增量信息时连 2dp 间距一起省掉：留一个空 Text 会让这一行比同级行矮不下去、
                 // 也高不起来，视觉上像是「说明没加载出来」
                 if (desc != null) {
                     Spacer(Modifier.height(2.dp))
-                    Text(desc, fontSize = 12.sp, color = Primer.TextTertiary)
+                    Text(desc, fontSize = d.subFontSize, lineHeight = d.subLineHeight, color = Primer.TextTertiary)
                 }
             }
         }
