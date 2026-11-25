@@ -74,7 +74,23 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.29 → 1.0.22）
+## 二、`versionName` 流水（1.4.30 → 1.0.22）
+
+### 1.4.30
+
+**修 Android 7.0/7.1 的桌面图标是 Android Studio 模板占位图。**
+
+`app/src/main/res/mipmap-*/ic_launcher.webp` 与 `ic_launcher_round.webp`（5 个密度 × 2 形态）从建项目起
+一直是 Studio 模板的绿色安卓机器人，从未替换。API 26+ 走 `mipmap-anydpi-v26/` 的 adaptive icon，
+所以真机上完全看不出来；但 **`minSdk = 24`**，API 24/25 没有 adaptive icon 回退，**Android 7.0/7.1
+用户桌面看到的就是那个绿机器人** —— 而落地页与 README 都写着「Android 7.0+」。
+
+改为按 `ic_launcher_foreground.xml` / `ic_launcher_background.xml` 的矢量定义光栅化的 PNG（方形 + 圆形）。
+关键比例：字形按**画布 70%** 还原，不是照搬 108dp 前景层的 `50.4 / 108 = 46.7%`。adaptive icon 的可视区
+只有中心 72dp（外圈 18dp 是视差出血），`50.4 / 72 ≈ 70%` 才是 API 26+ 真机上看到的比例；照搬 46.7%
+会让 7.x 图标明显偏小，和 8+ 并列时一眼能看出不是同一枚。
+
+验证：`aapt2 compile` 逐个编译 10 个 PNG，退出码 0、10 个 `.flat` 条目、无空条目。
 
 ### 1.4.29
 
@@ -4663,7 +4679,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（289 → 129）
+## 三、`versionCode` 流水（290 → 129）
+
+- **290**：启动图标占位图修复 —— `mipmap-*/ic_launcher{,_round}.webp`（Studio 绿机器人）换成按 adaptive
+  icon 矢量光栅化的 PNG，字形按画布 70%（可视区 72/108 的比例）还原，覆盖 API 24/25 的回退路径；
+  `aapt2 compile` 10 个文件全部通过（一次提交，故 +1）。
 
 - **289**：落地页重构 —— 流体首屏（vendored，剥 demo 外壳 + pause/resume）+ 五渠道矩阵 + 中英切换
   （`data-lang` + CSS 显隐，两语言字号/行高/字距完全一致）+ 内嵌 Outfit latin 子集 32 KB（OFL 1.1，
