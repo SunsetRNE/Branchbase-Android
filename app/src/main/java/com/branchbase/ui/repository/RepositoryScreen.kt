@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.indication
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -47,6 +48,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ripple
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -61,6 +63,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -119,6 +122,7 @@ import com.branchbase.ui.adaptive.AdaptiveLayoutPolicy
 import com.branchbase.ui.adaptive.LocalLayoutPlan
 import com.branchbase.ui.theme.Primer
 import com.branchbase.ui.theme.TintRole
+import com.branchbase.ui.theme.rememberPressFeedback
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -2421,21 +2425,37 @@ private fun RowScope.BottomTab(
     iconSize: Dp,
     modifier: Modifier = Modifier,
 ) {
+    val press = rememberPressFeedback()
     Column(
         modifier = modifier
             // 整格高都可点：48dp 栏高里点偏一点也不会落空（图标只有 22dp）
             .fillMaxHeight()
-            .clickable { onSelect(page) },
+            .clickable(
+                interactionSource = press.interaction,
+                // 整格仍是点击目标，但**不画**整格的 ripple（见下方图标胶囊）
+                indication = null,
+                onClick = { onSelect(page) },
+            ),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // 选中态用 180ms 渐变而不是硬切：底部 Tab 是最高频的点击目标
-        Icon(
-            icon,
-            contentDescription = stringResource(page.labelRes),
-            tint = selectionColor(selected, on = Primer.Blue500, off = Primer.IconPrimary),
-            modifier = Modifier.size(iconSize),
-        )
+        // 按压反馈只画在 44×30 的透明胶囊里，与主界面 M3 指示器 / 个人页选中胶囊同构；
+        // 画在整格上会在 48dp 栏里变成一块灰色方块，看起来像「选中的阴影」。
+        Box(
+            modifier = Modifier
+                .size(width = 44.dp, height = 30.dp)
+                .clip(CircleShape)
+                .indication(press.interaction, ripple()),
+            contentAlignment = Alignment.Center,
+        ) {
+            // 选中态用 180ms 渐变而不是硬切：底部 Tab 是最高频的点击目标
+            Icon(
+                icon,
+                contentDescription = stringResource(page.labelRes),
+                tint = selectionColor(selected, on = Primer.Blue500, off = Primer.IconPrimary),
+                modifier = Modifier.size(iconSize),
+            )
+        }
     }
 }
 

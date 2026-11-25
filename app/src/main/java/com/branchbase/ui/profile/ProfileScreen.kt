@@ -2,6 +2,7 @@ package com.branchbase.ui.profile
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.indication
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.clickable
@@ -51,6 +52,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ripple
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.annotation.StringRes
@@ -1779,18 +1781,22 @@ private fun ProfileNavItem(
             }
             .clickable(
                 interactionSource = press.interaction,
-                indication = LocalIndication.current,
+                // 整格仍是点击目标，但**不画**整格的 ripple（见下方胶囊）
+                indication = null,
                 onClick = onClick,
             ),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // 选中胶囊：淡入淡出。比 Material 那条横贯整栏的指示器更轻，和 48dp 栏高更搭
+        // 选中胶囊：淡入淡出。比 Material 那条横贯整栏的指示器更轻，和 48dp 栏高更搭。
+        // 按压反馈（ripple）只画在这枚胶囊里，与主界面 M3 指示器同构 ——
+        // 画在整格上会在 48dp 栏里变成一块灰色方块，看起来像「选中的阴影」。
         Box(
             modifier = Modifier
                 .size(width = 44.dp, height = 30.dp)
                 .clip(CircleShape)
-                .background(selectionColor(selected, on = Primer.Blue500.copy(alpha = 0.10f))),
+                .background(selectionColor(selected, on = Primer.Blue500.copy(alpha = 0.10f)))
+                .indication(press.interaction, ripple()),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
