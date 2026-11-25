@@ -74,7 +74,38 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.28 → 1.0.22）
+## 二、`versionName` 流水（1.4.29 → 1.0.22）
+
+### 1.4.29
+
+**GitHub Pages 落地页重构：流体首屏 + 五渠道矩阵 + 中英切换；字体改为内嵌，绕开「按 `lang` 选字体」的设备行为。**
+
+① 旧页（`site/index.html`，7 KB 单文件）把五个渠道压成一张表、只有两个跳转入口，用户仍得自己认
+asset 名；主目标是下载，却和「源码」「文档」视觉权重相等。重构为首屏玻璃卡片（下载是唯一实心按钮）
++ 五渠道卡片矩阵（Stable 进 `releases/latest`，其余四个统一进 `releases`，不写死版本号）。
+
+② 首屏流体背景 vendored 自 [PavelDoGreat/WebGL-Fluid-Simulation](https://github.com/PavelDoGreat/WebGL-Fluid-Simulation)（MIT）：
+上游 `script.js` 是 demo 页脚本，硬依赖 `.promo` / `#apple_link` / `dat.GUI` / `ga()`，直接引用即白屏；
+剥离这些外壳并加 `pause/resume` 接口，滚出首屏即取消 rAF。恢复安全：`calcDeltaTime()` 有 1/60 s
+钳位，长暂停后不会出现物理跳变。色相锁在 0.58–0.74（蓝→紫）贴合品牌色；初始泼溅由 5–25 降到 4–9，
+并每 2.4–5.2 s 自动泼 1–2 次 —— 原版染料 1 s 就衰减完，静止页几秒后是一块死黑。
+
+③ 字体是本次最大坑：目标设备（国产 ROM）的浏览器**按 `<html lang>` 挑字体**，`lang="en"` 会命中
+被主题替换成宋体的「英文标准字体」，作者 CSS 里 `font-family` 写什么清单都压不住 —— 同一份清单实测
+`lang=zh-CN` 得黑体、`lang=en` 得宋体；`Arial` / `system-ui` 在这类映射下也会落到衬线。唯一能越过的是
+`@font-face`（同条件实测生效），故自托管 Outfit 可变字体 latin 子集（32 KB，100–900 全字重，SIL OFL 1.1），
+CJK 仍走系统中文字体，`lang` 属性保持正确。
+
+④ 双语用 `data-lang` + CSS 显隐，`<head>` 内联脚本在首绘前定语言（无 JS 时回落英文）。
+**两语言的字号、行高、字距必须完全一致**，只允许文案不同 —— 任何按语言改 `font-size` 的做法都会在
+切换瞬间「变大变小」，这一条在迭代中真实发生过并已回退。
+
+⑤ 样式收敛成体系：字号 11 档 → 5 档、间距 17 个随手值 → 4px 基数 12 档、圆角 8 种 → 3 档；
+行高只命名不改值（CJK 字形占满字面，行高宁松勿紧）。首屏载荷 108 KB / gzip 后约 51 KB，
+零第三方运行时依赖；`pages.yml` 未改（本来就是 `path: site` 整体上传）。
+
+⑥ 声明口径修正：原「免责声明」式的警示条改为正面合规块（`Not affiliated with GitHub, Inc.` + MIT 范围）；
+`THIRD-PARTY-NOTICES.md` 补流体（MIT）与 Outfit（OFL 1.1）两条 vendored 记录。
 
 ### 1.4.28
 
@@ -4632,7 +4663,12 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（288 → 129）
+## 三、`versionCode` 流水（289 → 129）
+
+- **289**：落地页重构 —— 流体首屏（vendored，剥 demo 外壳 + pause/resume）+ 五渠道矩阵 + 中英切换
+  （`data-lang` + CSS 显隐，两语言字号/行高/字距完全一致）+ 内嵌 Outfit latin 子集 32 KB（OFL 1.1，
+  越过设备「按 lang 挑字体」的行为）；字号 11→5 档、间距→4px 基数、圆角 8→3 档；首屏 108 KB /
+  gzip 51 KB；`pages.yml` 未改（一次提交，故 +1）。
 
 - **288**：底栏按压反馈对齐主界面 —— 个人页 / 仓库页的整格 ripple（48dp 下是一块灰色方块）
   改为只画在 44×30 图标胶囊里；点击目标不变（一次提交，故 +1）。

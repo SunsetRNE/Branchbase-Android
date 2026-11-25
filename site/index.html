@@ -1,115 +1,640 @@
 <!doctype html>
-<html lang="en">
+<!--
+  字体说明（重要）：
+  这台设备（以及不少国产 ROM）的浏览器会按 <html lang> 去挑字体 —— lang="en" 时它用被主题
+  替换成宋体的"英文标准字体"渲染，作者 CSS 里的 font-family 完全压不住（实测：同一份清单，
+  lang=zh-CN 得黑体、lang=en 得宋体）。唯一能越过这条规则的是 @font-face 内嵌字体。
+  所以正文改用内嵌的 Outfit（拉丁子集，32 KB 可变字体），CJK 回落到系统中文字体，
+  lang 属性保持正确，两不误。
+-->
+<html lang="en" data-lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark" />
 <title>Branchbase — a third-party GitHub client for Android</title>
-<meta name="description" content="Branchbase: an Android GitHub client built with Jetpack Compose and a Rust core. Beta, dev and test channels available side by side." />
+<meta name="description" content="Branchbase: an Android GitHub client built with Jetpack Compose over a Rust core. Five channel builds install side by side." />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Branchbase — a third-party GitHub client for Android" />
+<meta property="og:description" content="Jetpack Compose over a Rust core. Five channel builds install side by side." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 108 108'%3E%3Crect width='108' height='108' rx='24' fill='%230d1117'/%3E%3Cg transform='translate(28.8,28.8) scale(2.1)' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3v12'/%3E%3Ccircle cx='18' cy='6' r='3'/%3E%3Ccircle cx='6' cy='18' r='3'/%3E%3Cpath d='M18 9a9 9 0 0 1-9 9'/%3E%3C/g%3E%3C/svg%3E" />
+<script>
+  /* 在首次绘制之前决定语言，避免闪一下英文再切成中文 */
+  (function () {
+    try {
+      var saved = localStorage.getItem('bb-lang');
+      var nav = (navigator.languages && navigator.languages[0]) || navigator.language || '';
+      var lang = saved || (/^zh/i.test(nav) ? 'zh' : 'en');
+      var root = document.documentElement;
+      root.setAttribute('data-lang', lang);
+      root.setAttribute('lang', lang === 'zh' ? 'zh-Hans' : 'en');
+    } catch (e) { /* 私密模式禁 localStorage 时保持英文默认 */ }
+  })();
+</script>
 <style>
-  :root {
-    --bg: #0d1117; --panel: #161b22; --border: #30363d; --text: #e6edf3;
-    --muted: #8b949e; --accent: #4493f8; --green: #3fb950;
+  /* 内嵌字体：Outfit 可变字体，仅 latin 子集（32 KB），OFL 1.1。
+     它同时解决了"设备按 lang 换字体"和"不同设备字形不一致"两个问题。 */
+  @font-face {
+    font-family: 'Outfit';
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+    src: url('fonts/outfit-latin.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+                   U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+                   U+2212, U+2215, U+FEFF, U+FFFD;
   }
-  @media (prefers-color-scheme: light) {
-    :root { --bg: #ffffff; --panel: #f6f8fa; --border: #d0d7de; --text: #1f2328;
-            --muted: #656d76; --accent: #0969da; --green: #1a7f37; }
+
+  :root {
+    --bg: #0d1117;
+    --panel: rgba(255, 255, 255, .045);
+    --panel-hi: rgba(255, 255, 255, .085);
+    --border: rgba(255, 255, 255, .09);
+    --border-hi: rgba(255, 255, 255, .19);
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #4493f8;
+
+    /* 字号阶梯：5 档，中英共用同一档，禁止按语言覆盖（一覆盖切换就会跳） */
+    --fs-display: 27px;
+    --fs-title: 20px;
+    --fs-body: 14px;
+    --fs-sm: 13px;
+    --fs-xs: 11.5px;   /* 下限，不得更小 */
+    --fs-root: 16px;
+    --fs-display-compact: 23px;   /* 矮屏变体，不占阶梯档位 */
+
+    /* 行高：只命名，不改值 —— CJK 字形占满字面，行高宁松勿紧 */
+    --lh-body: 1.6;
+    --lh-ui: 1.55;
+    --lh-tight: 1.5;
+    --lh-loose: 1.7;
+
+    /* 间距阶梯：--sp-N = N × 4px */
+    --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+    --sp-5: 20px; --sp-6: 24px; --sp-8: 32px; --sp-10: 40px;
+    --sp-12: 48px; --sp-14: 56px; --sp-16: 64px; --sp-18: 72px; --sp-20: 80px;
+
+    /* 圆角阶梯：3 档；内层控件 = calc(--r-sm − --sp-1) */
+    --r-lg: 20px; --r-md: 14px; --r-sm: 10px;
+
+    /* 旧名保留为别名，现有 6 处 var() 引用不用改写 */
+    --radius: var(--r-lg);
+    --pill: var(--r-md);
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text);
-         font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif; }
-  .wrap { max-width: 880px; margin: 0 auto; padding: 48px 24px 64px; }
-  header { display: flex; align-items: center; gap: 16px; }
-  .mark { width: 56px; height: 56px; border-radius: 14px; background: #0d1117;
-          display: grid; place-items: center; }
-  @media (prefers-color-scheme: dark) { .mark { background: #161b22; border: 1px solid var(--border); } }
-  h1 { font-size: 30px; margin: 0; letter-spacing: -0.02em; }
-  .tagline { color: var(--muted); margin: 4px 0 0; font-size: 14px; }
-  h2 { font-size: 18px; margin: 40px 0 12px; }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  .badges img { height: 20px; margin: 0 6px 6px 0; vertical-align: middle; }
-  .badges { margin-top: 20px; }
-  .note { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
-          padding: 12px 16px; color: var(--muted); font-size: 13px; margin: 20px 0 0; }
-  table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 14px; }
-  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
-  th { color: var(--muted); font-weight: 600; }
-  code { background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
-         padding: 1px 6px; font-size: 13px; }
-  .cta { display: inline-block; margin-top: 8px; padding: 10px 18px; border-radius: 8px;
-         background: var(--accent); color: #fff; font-weight: 600; }
-  .cta:hover { text-decoration: none; opacity: .92; }
-  footer { margin-top: 48px; color: var(--muted); font-size: 13px; }
+  html {
+    -webkit-text-size-adjust: 100%;
+    overflow-x: clip;
+    scroll-behavior: smooth;
+    scroll-padding-top: var(--sp-4);
+  }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    /* Outfit 只覆盖拉丁，CJK 自动落到后面的中文字体族 */
+    font-family: 'Outfit', "Noto Sans CJK SC", "Noto Sans", "Droid Sans", "SysSans-Hans",
+                 -apple-system, "Segoe UI", sans-serif;
+    font-size: var(--fs-root);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: clip;
+  }
+  a { color: inherit; text-decoration: none; }
+  ul { margin: 0; padding: 0; list-style: none; }
+  h1, h2, h3 { letter-spacing: -.02em; }
+  svg { display: block; }
+  button { font-family: inherit; }
+
+  /* 深色底上浏览器默认的焦点框几乎看不见，键盘和辅助功能用户会迷路 */
+  :where(a, button):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+  ::selection { background: rgba(68, 147, 248, .38); color: #fff; }
+
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  footer a { text-underline-offset: 2px; }
+
+  /* ============ 语言切换（纯 CSS 显隐，无需 JS 也能读到英文） ============ */
+  html[data-lang="en"] .zh { display: none !important; }
+  html[data-lang="zh"] .en { display: none !important; }
+
+  /* ============ HERO ============ */
+  .hero {
+    position: relative;
+    overflow: hidden;
+    min-height: 100vh;
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--sp-14) var(--sp-5) var(--sp-20);
+    /* no-JS / no-WebGL 时的静态兜底 */
+    background:
+      radial-gradient(ellipse 70% 55% at 12% 8%, rgba(68, 147, 248, .20), transparent 62%),
+      radial-gradient(ellipse 65% 50% at 88% 22%, rgba(137, 87, 229, .18), transparent 62%),
+      radial-gradient(ellipse 80% 50% at 50% 100%, rgba(63, 185, 80, .08), transparent 60%),
+      linear-gradient(180deg, #0d1117 0%, #0f1420 55%, #0d1117 100%);
+  }
+  #fluid {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    opacity: 0;
+    transition: opacity .9s ease;
+  }
+  #fluid.on { opacity: 1; }
+  .wash {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    opacity: .5;
+    background:
+      radial-gradient(ellipse 60% 45% at 15% 10%, rgba(68, 147, 248, .22), transparent 60%),
+      radial-gradient(ellipse 55% 45% at 90% 25%, rgba(137, 87, 229, .20), transparent 60%);
+  }
+
+  /* ============ CARD ============ */
+  .card {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    max-width: 420px;
+    padding: var(--sp-10) var(--sp-6) var(--sp-6);
+    border-radius: var(--r-lg);
+    text-align: center;
+    background: linear-gradient(170deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .025) 62%);
+    border: 1px solid var(--border);
+    backdrop-filter: blur(14px) saturate(125%);
+    -webkit-backdrop-filter: blur(14px) saturate(125%);
+    box-shadow: 0 24px 60px -28px rgba(0, 0, 0, .85);
+  }
+  /* 上沿 1px 品牌渐变，呼应流体里的蓝紫光 */
+  .card::after {
+    content: ""; position: absolute; left: var(--sp-6); right: var(--sp-6); top: 0; height: 1px;
+    background: linear-gradient(90deg, transparent,
+                rgba(68, 147, 248, .55) 28%, rgba(137, 87, 229, .45) 72%, transparent);
+    pointer-events: none;
+  }
+  /* 真·应用图标：底色 = adaptive-icon 背景层 #0d1117，图形 = git-branch 前景层。
+     图形按 46.7% 居中（真图标里前景占 50.4/108），不依赖内联 SVG 的尺寸解析。 */
+  .mark {
+    width: 64px; height: 64px;
+    margin: 0 auto var(--sp-4);
+    border-radius: var(--r-md);
+    background-color: #0d1117;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3v12'/%3E%3Ccircle cx='18' cy='6' r='3'/%3E%3Ccircle cx='6' cy='18' r='3'/%3E%3Cpath d='M18 9a9 9 0 0 1-9 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 46.7%;
+    border: 1px solid rgba(255, 255, 255, .13);
+    box-shadow: 0 0 30px -6px rgba(68, 147, 248, .7), 0 8px 20px -12px rgba(0, 0, 0, .9);
+  }
+  .card h1 { font-size: var(--fs-display); margin: 0; font-weight: 600; text-shadow: 0 2px 16px rgba(13, 17, 23, .6); }
+  .tagline { margin: var(--sp-2) 0 0; font-size: var(--fs-sm); line-height: var(--lh-ui); color: var(--muted); text-shadow: 0 1px 12px rgba(13, 17, 23, .55); }
+
+  /* ============ 语言切换按钮（卡片右上角） ============ */
+  .lang {
+    position: absolute; top: var(--sp-3); right: var(--sp-3);
+    display: flex; gap: var(--sp-1); padding: var(--sp-1);
+    border-radius: var(--r-sm);
+    background: rgba(255, 255, 255, .05);
+    border: 1px solid var(--border);
+  }
+  .lang button {
+    appearance: none; border: 0; cursor: pointer;
+    position: relative;
+    padding: var(--sp-1) var(--sp-2); border-radius: calc(var(--r-sm) - var(--sp-1));
+    font-size: var(--fs-xs); font-weight: 600; letter-spacing: .02em;
+    color: var(--muted); background: transparent;
+    transition: color .18s ease, background .18s ease;
+  }
+  .lang button:hover { color: var(--text); }
+  /* 视觉尺寸不变，只把竖直命中区扩到 44px；横向保持原宽（≥24px，满足 WCAG 2.5.8 AA），
+     因为再往外扩会和卡片中央的图标在 320px 屏上重叠 */
+  .lang button::before {
+    content: ""; position: absolute; left: 0; right: 0; top: 50%;
+    height: 44px; transform: translateY(-50%);
+  }
+
+  html[data-lang="en"] .lang button[data-set="en"],
+  html[data-lang="zh"] .lang button[data-set="zh"] {
+    color: #0d1117; background: var(--text);
+  }
+
+  /* ============ LINKS ============ */
+  .links { margin-top: var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-2); }
+  .links .pair { display: flex; gap: var(--sp-2); }
+  .links .pair > a { flex: 1; min-width: 0; }
+  .links a {
+    display: flex; align-items: center; justify-content: center; gap: var(--sp-2);
+    min-height: 52px; padding: 0 var(--sp-4);
+    border-radius: var(--r-md);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    font-size: var(--fs-body); font-weight: 500;
+    transition: background .22s ease, border-color .22s ease, transform .22s ease;
+  }
+  .links a:hover { background: var(--panel-hi); border-color: var(--border-hi); transform: translateY(-2px); }
+  .links a:active { transform: scale(.985); }
+  .links a svg { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; opacity: .9; }
+  .links a .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* 主按钮做成"按得下去"的实体：顶向内高光 + 底部压深，避免成为一个纯色矩形 */
+  .links a.primary {
+    color: #fff; font-weight: 600;
+    border-color: rgba(255, 255, 255, .16);
+    background-color: var(--accent);
+    background-image: linear-gradient(180deg, #5da6ff 0%, #2f7fe0 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .30),
+                0 10px 26px -12px rgba(68, 147, 248, .95);
+  }
+  .links a.primary:hover {
+    background-image: linear-gradient(180deg, #74b4ff 0%, #3a8bea 100%);
+    transform: translateY(-2px);
+  }
+  .links a.primary svg { opacity: 1; }
+
+  /* ============ LEGAL CHIP ============ */
+  .legal {
+    display: flex; align-items: center; justify-content: center; gap: var(--sp-2);
+    margin: var(--sp-4) 0 0;
+    font-size: var(--fs-xs); line-height: var(--lh-tight); color: var(--muted);
+    opacity: .8;
+  }
+  .legal svg { width: 13px; height: 13px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.6; }
+
+  /* ============ SCROLL CUE ============ */
+  .cue {
+    position: absolute; left: 50%; bottom: var(--sp-6); transform: translateX(-50%);
+    z-index: 2;
+    width: 44px; height: 44px; border-radius: 50%;
+    display: grid; place-items: center;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, .04);
+    animation: bob 2.6s ease-in-out infinite;
+  }
+  .cue:hover { border-color: var(--border-hi); background: rgba(255, 255, 255, .09); }
+  .cue svg { width: 18px; height: 18px; stroke: var(--text); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; opacity: .85; }
+  @keyframes bob { 0%, 100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, 7px); } }
+
+  /* ============ SECTIONS ============ */
+  .section { max-width: 900px; margin: 0 auto; padding: var(--sp-18) var(--sp-5) 0; }
+  .section h2 { font-size: var(--fs-title); margin: 0 0 var(--sp-2); font-weight: 600; text-wrap: balance; }
+  .lead { margin: 0 0 var(--sp-6); color: var(--muted); font-size: var(--fs-body);
+          text-wrap: balance; }
+  .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+
+  /* ============ CHANNELS ============ */
+  .grid { display: grid; gap: var(--sp-3); }
+  .grid > * { min-width: 0; }
+  @media (min-width: 620px) { .grid { grid-template-columns: 1fr 1fr; } }
+
+  .chan {
+    display: flex; align-items: center; gap: var(--sp-3);
+    padding: var(--sp-4);
+    border-radius: var(--r-md);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    transition: background .22s ease, border-color .22s ease, transform .22s ease;
+  }
+  .chan:hover { background: var(--panel-hi); border-color: var(--border-hi); transform: translateY(-2px); }
+  .chan-badge {
+    flex: none; width: 40px; height: 40px; border-radius: var(--r-sm);
+    display: grid; place-items: center;
+    font-size: var(--fs-body); font-weight: 700; color: #0d1117;
+    background: var(--c, var(--accent));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .20),
+                0 8px 18px -8px var(--c, var(--accent));
+  }
+  .chan-body { flex: 1; min-width: 0; text-align: left; }
+  .chan-name { display: block; font-size: var(--fs-body); font-weight: 600; }
+  /* 等宽字体只用于包名——把中文也塞进等宽会显得生硬，而且更容易撑破卡片。
+     不再 nowrap：放不下就换行，好过把右箭头挤出卡片。 */
+  .chan-meta { display: block; font-size: var(--fs-xs); line-height: var(--lh-ui); color: var(--muted);
+               margin-top: var(--sp-1); overflow-wrap: break-word; }
+  .chan-meta .id {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: .95em;
+    margin-right: .18em;
+  }
+  .chan-arrow { flex: none; width: 18px; height: 18px; stroke: var(--muted); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .chan:hover .chan-arrow { stroke: var(--text); }
+
+  /* ============ FEATURES ============ */
+  .feats { display: grid; gap: var(--sp-3); }
+  .feats > * { min-width: 0; }
+  @media (min-width: 620px) { .feats { grid-template-columns: 1fr 1fr; } }
+  .feat { padding: var(--sp-4); border-radius: var(--r-md); border: 1px solid var(--border);
+          background: rgba(255, 255, 255, .025); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035); }
+  .feat h3 { margin: 0 0 var(--sp-1); font-size: var(--fs-body); font-weight: 600; }
+  .feat p { margin: 0; font-size: var(--fs-sm); color: var(--muted); line-height: var(--lh-ui); text-wrap: pretty; }
+
+  /* ============ LINKS LIST ============ */
+  .flat { display: flex; flex-wrap: wrap; gap: var(--sp-3) var(--sp-4); font-size: var(--fs-body); }
+  .flat a { color: var(--accent); }
+  .flat a:hover { text-decoration: underline; }
+  .flat a::after { content: " ↗"; font-size: var(--fs-xs); color: var(--muted); }
+
+  /* ============ FOOTER ============ */
+  footer {
+    max-width: 900px; margin: 0 auto;
+    padding: var(--sp-14) var(--sp-5) var(--sp-12);
+    font-size: var(--fs-sm); line-height: var(--lh-loose); color: var(--muted);
+    border-top: 1px solid var(--border);
+  }
+  footer p { margin: 0 0 var(--sp-3); text-wrap: pretty; }
+  footer a { color: var(--muted); text-decoration: underline; text-decoration-color: rgba(139, 148, 158, .45); }
+  footer a:hover { color: var(--text); }
+
+  /* ============ 中文排版：不再做任何语言相关调整 ============
+     字号、行高、字距全部与英文一致。1px 的差异在快速切换时也会被察觉，
+     所以这里连 h1/h2 的字距覆盖都去掉了。 */
+
+  @media (prefers-reduced-motion: reduce) {
+    .cue { animation: none; }
+    #fluid { transition: none; }
+    * { transition-duration: .001ms !important; }
+  }
+  /* 矮屏（横屏手机 / 小屏）收紧，保证首屏不滚动就能看到主按钮 */
+  @media (max-height: 720px) {
+    .hero { padding: var(--sp-8) var(--sp-4) var(--sp-16); }
+    .card { padding: var(--sp-6) var(--sp-5) var(--sp-4); }
+    .mark { width: 54px; height: 54px; margin-bottom: var(--sp-3); border-radius: var(--r-md); }
+    .card h1 { font-size: var(--fs-display-compact); }
+    .tagline { font-size: var(--fs-xs); }
+    .links { margin-top: var(--sp-4); gap: var(--sp-2); }
+    .links a { min-height: 46px; font-size: var(--fs-sm); }
+    .legal { margin-top: var(--sp-3); }
+    .cue { bottom: var(--sp-4); width: 44px; height: 44px; }
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <div class="mark" aria-hidden="true">
-      <svg width="34" height="34" viewBox="0 0 16 16" fill="#ffffff" xmlns="http://www.w3.org/2000/svg">
-        <path d="M11.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm-2.25.75a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.492 2.492 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25ZM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM3.5 3.25a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0Z"/>
-      </svg>
-    </div>
-    <div>
-      <h1>Branchbase</h1>
-      <p class="tagline">A third-party GitHub client for Android · Jetpack Compose over a Rust core</p>
-    </div>
-  </header>
 
-  <div class="badges">
-    <a href="https://github.com/SunsetRNE/Branchbase-Android/releases"><img alt="Release" src="https://img.shields.io/github/v/release/SunsetRNE/Branchbase-Android?include_prereleases&sort=semver&label=release"></a>
-    <a href="https://github.com/SunsetRNE/Branchbase-Android/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/SunsetRNE/Branchbase-Android/ci.yml?branch=main&label=ci"></a>
-    <a href="https://github.com/SunsetRNE/Branchbase-Android/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
-    <a href="https://github.com/SunsetRNE/Branchbase-Android"><img alt="Platform" src="https://img.shields.io/badge/platform-Android%207.0%2B-3ddc84?logo=android&logoColor=white"></a>
+<section class="hero" id="top">
+  <canvas id="fluid"></canvas>
+  <div class="wash" aria-hidden="true"></div>
+
+  <div class="card">
+    <div class="lang" role="group" aria-label="Language / 语言">
+      <button type="button" data-set="en" aria-pressed="true">EN</button>
+      <button type="button" data-set="zh" lang="zh-Hans" aria-pressed="false">中文</button>
+    </div>
+
+    <div class="mark" aria-hidden="true"></div>
+
+    <h1>Branchbase</h1>
+    <p class="tagline">
+      <span class="en">A third-party GitHub client for Android<br />Jetpack Compose over a Rust core</span>
+      <span class="zh">Android 上的第三方 GitHub 客户端<br />Jetpack Compose 之上，Rust 内核</span>
+    </p>
+
+    <ul class="links">
+      <li>
+        <a class="primary" href="https://github.com/SunsetRNE/Branchbase-Android/releases/latest">
+          <svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M4 20h16"/></svg>
+          <span class="label"><span class="en">Download latest release</span><span class="zh">下载最新正式版</span></span>
+        </a>
+      </li>
+      <li class="pair">
+        <a href="https://github.com/SunsetRNE/Branchbase-Android/releases">
+          <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+          <span class="label"><span class="en">All releases</span><span class="zh">全部版本</span></span>
+        </a>
+        <a href="https://github.com/SunsetRNE/Branchbase-Android">
+          <svg viewBox="0 0 24 24"><path d="m8 6-5 6 5 6M16 6l5 6-5 6"/></svg>
+          <span class="label"><span class="en">Source</span><span class="zh">源代码</span></span>
+        </a>
+      </li>
+      <li>
+        <a href="https://github.com/SunsetRNE/Branchbase-Android/blob/main/docs/specs/">
+          <svg viewBox="0 0 24 24"><path d="M5 4h9l5 5v11H5z"/><path d="M14 4v5h5"/></svg>
+          <span class="label"><span class="en">Docs</span><span class="zh">文档</span></span>
+        </a>
+      </li>
+      <li>
+        <a href="https://github.com/SunsetRNE/Branchbase-Android/issues">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+          <span class="label"><span class="en">Report an issue</span><span class="zh">反馈问题</span></span>
+        </a>
+      </li>
+    </ul>
+
+    <p class="legal">
+      <svg viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z"/></svg>
+      <span class="en">Not affiliated with GitHub, Inc. · MIT licensed</span>
+      <span class="zh">与 GitHub, Inc. 无关联 · MIT 协议</span>
+    </p>
   </div>
 
-  <p class="note">
-    <strong>English first, Chinese authoritative.</strong> The documentation under
-    <a href="https://github.com/SunsetRNE/Branchbase-Android/blob/main/docs/specs/">docs/specs/</a>
-    is written in Chinese, maintained first, and wins whenever the two differ. This page is a
-    reader-facing summary. / 文档以中文为准，本页只是对外摘要。
+  <a class="cue" href="#channels" aria-label="Jump to channels">
+    <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+  </a>
+</section>
+
+<section class="section" id="channels">
+  <h2><span class="en">Channels</span><span class="zh">渠道</span></h2>
+  <p class="lead">
+    <span class="en">Five independent application ids&nbsp;— every channel installs side by side.</span>
+    <span class="zh">五个独立的 applicationId —— 每个渠道都能共存安装。</span>
   </p>
+  <div class="grid">
+    <a class="chan" href="https://github.com/SunsetRNE/Branchbase-Android/releases/latest">
+      <span class="chan-badge" style="--c:#3fb950">S</span>
+      <span class="chan-body">
+        <span class="chan-name">Stable</span>
+        <span class="chan-meta en"><span class="id">com.branchbase</span> · release key</span>
+        <span class="chan-meta zh"><span class="id">com.branchbase</span> · 正式签名</span>
+      </span>
+      <svg class="chan-arrow" viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8"/></svg>
+    </a>
+    <a class="chan" href="https://github.com/SunsetRNE/Branchbase-Android/releases">
+      <span class="chan-badge" style="--c:#4493f8">B</span>
+      <span class="chan-body">
+        <span class="chan-name">Beta</span>
+        <span class="chan-meta en"><span class="id">com.branchbase.beta</span> · beta key</span>
+        <span class="chan-meta zh"><span class="id">com.branchbase.beta</span> · 共用签名</span>
+      </span>
+      <svg class="chan-arrow" viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8"/></svg>
+    </a>
+    <a class="chan" href="https://github.com/SunsetRNE/Branchbase-Android/releases">
+      <span class="chan-badge" style="--c:#d29922">P</span>
+      <span class="chan-body">
+        <span class="chan-name">Perf</span>
+        <span class="chan-meta en"><span class="id">com.branchbase.perf</span> · no debug</span>
+        <span class="chan-meta zh"><span class="id">com.branchbase.perf</span> · 不可调试</span>
+      </span>
+      <svg class="chan-arrow" viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8"/></svg>
+    </a>
+    <a class="chan" href="https://github.com/SunsetRNE/Branchbase-Android/releases">
+      <span class="chan-badge" style="--c:#8957e5">D</span>
+      <span class="chan-body">
+        <span class="chan-name">Dev</span>
+        <span class="chan-meta en"><span class="id">com.branchbase.dev</span> · side by side</span>
+        <span class="chan-meta zh"><span class="id">com.branchbase.dev</span> · 共存安装</span>
+      </span>
+      <svg class="chan-arrow" viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8"/></svg>
+    </a>
+    <a class="chan" href="https://github.com/SunsetRNE/Branchbase-Android/releases">
+      <span class="chan-badge" style="--c:#6e7681">T</span>
+      <span class="chan-body">
+        <span class="chan-name">Test</span>
+        <span class="chan-meta en"><span class="id">com.branchbase.test</span> · side by side</span>
+        <span class="chan-meta zh"><span class="id">com.branchbase.test</span> · 共存安装</span>
+      </span>
+      <svg class="chan-arrow" viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8"/></svg>
+    </a>
+  </div>
+</section>
 
-  <h2>Download</h2>
-  <p><a class="cta" href="https://github.com/SunsetRNE/Branchbase-Android/releases/latest">Get the latest stable release →</a></p>
-  <table>
-    <thead><tr><th>Channel</th><th>Package</th><th>Signing</th><th>Where</th></tr></thead>
-    <tbody>
-      <tr><td>Stable</td><td><code>com.branchbase</code></td><td>release key</td>
-          <td><a href="https://github.com/SunsetRNE/Branchbase-Android/releases/latest">latest release</a></td></tr>
-      <tr><td>Beta</td><td><code>com.branchbase.beta</code></td><td>shared beta key</td>
-          <td><a href="https://github.com/SunsetRNE/Branchbase-Android/releases">pre-releases</a></td></tr>
-      <tr><td>Perf</td><td><code>com.branchbase.perf</code></td><td>shared beta key</td>
-          <td>same pre-release · non-debuggable</td></tr>
-      <tr><td>Dev</td><td><code>com.branchbase.dev</code></td><td>shared beta key</td>
-          <td>same pre-release · installs side by side</td></tr>
-      <tr><td>Test</td><td><code>com.branchbase.test</code></td><td>shared beta key</td>
-          <td>same pre-release · installs side by side</td></tr>
-    </tbody>
-  </table>
-  <p>Five independent application ids — every channel installs side by side.</p>
+<section class="section" id="features">
+  <h2><span class="en">What it does</span><span class="zh">功能</span></h2>
+  <div class="feats">
+    <div class="feat">
+      <h3><span class="en">Sign-in</span><span class="zh">登录</span></h3>
+      <p>
+        <span class="en">OAuth (code + PKCE) or a personal access token; multiple accounts.</span>
+        <span class="zh">OAuth（code + PKCE）或个人访问令牌；支持多账号。</span>
+      </p>
+    </div>
+    <div class="feat">
+      <h3><span class="en">Browse</span><span class="zh">浏览</span></h3>
+      <p>
+        <span class="en">Repositories, README rendering, languages, contributors, search, notifications.</span>
+        <span class="zh">仓库、README 渲染、语言统计、贡献者、搜索、通知。</span>
+      </p>
+    </div>
+    <div class="feat">
+      <h3><span class="en">Write</span><span class="zh">写入</span></h3>
+      <p>
+        <span class="en">Three commit modes, libgit2 clone / pull / commit / push, PR · issue · release flows.</span>
+        <span class="zh">三种提交模式，libgit2 克隆 / 拉取 / 提交 / 推送，PR · Issue · Release 流程。</span>
+      </p>
+    </div>
+    <div class="feat">
+      <h3><span class="en">Extras</span><span class="zh">扩展</span></h3>
+      <p>
+        <span class="en">Resumable downloader, image viewer, code editor, immersive translation, job logs.</span>
+        <span class="zh">断点续传下载器、图片查看器、代码编辑器、沉浸式翻译、Job 日志。</span>
+      </p>
+    </div>
+  </div>
+</section>
 
-  <h2>What it does</h2>
-  <ul>
-    <li><strong>Sign-in</strong> — OAuth (code + PKCE) or a personal access token; multi-account.</li>
-    <li><strong>Browse</strong> — repositories, README rendering, languages, contributors, search, notifications.</li>
-    <li><strong>Write</strong> — three commit modes, libgit2 clone/pull/commit/push, PR / issue / release flows.</li>
-    <li><strong>Extras</strong> — built-in downloader (resumable), image viewer, code editor, immersive translation, job logs.</li>
-  </ul>
+<section class="section" id="more">
+  <h2><span class="en">Links</span><span class="zh">链接</span></h2>
+  <p class="lead">
+    <span class="en">English first, Chinese authoritative&nbsp;— <span class="mono">docs/specs/</span> is maintained first and wins where the two differ.</span>
+    <span class="zh">英文优先，中文权威 —— 文档先以中文维护，两者冲突时以中文为准。</span>
+  </p>
+  <div class="flat">
+    <a href="https://github.com/SunsetRNE/Branchbase-Android#readme"><span class="en">README</span><span class="zh">项目说明</span></a>
+    <a href="https://github.com/SunsetRNE/Branchbase-Android/blob/main/docs/specs/features-design.md"><span class="en">Feature spec</span><span class="zh">功能设计</span></a>
+    <a href="https://github.com/SunsetRNE/Branchbase-Android/blob/main/docs/specs/VERSION-NOTES.md"><span class="en">Release notes</span><span class="zh">版本说明</span></a>
+    <a href="https://github.com/SunsetRNE/Branchbase-Android/blob/main/THIRD-PARTY-NOTICES.md"><span class="en">Third-party notices</span><span class="zh">第三方声明</span></a>
+    <a href="https://github.com/SunsetRNE/Branchbase-Android/blob/main/LICENSE"><span class="en">License</span><span class="zh">许可证</span></a>
+  </div>
+</section>
 
-  <h2>Links</h2>
-  <ul>
-    <li><a href="https://github.com/SunsetRNE/Branchbase-Android">Source code</a> ·
-        <a href="https://github.com/SunsetRNE/Branchbase-Android#readme">README</a></li>
-    <li><a href="https://github.com/SunsetRNE/Branchbase-Android/blob/main/docs/specs/features-design.md">Feature spec (Chinese)</a> ·
-        <a href="https://github.com/SunsetRNE/Branchbase-Android/blob/main/docs/specs/VERSION-NOTES.md">Release notes</a></li>
-    <li><a href="https://github.com/SunsetRNE/Branchbase-Android/issues">Report an issue</a> ·
-        <a href="https://github.com/SunsetRNE/Branchbase-Android/blob/main/THIRD-PARTY-NOTICES.md">Third-party notices</a></li>
-  </ul>
+<footer>
+  <p>
+    <span class="en">© 2026 SunsetRNE · MIT licensed (the “Branchbase” name and icon are not covered by MIT).</span>
+    <span class="zh">© 2026 SunsetRNE · MIT 协议（“Branchbase” 名称与图标不在 MIT 范围内）。</span>
+  </p>
+  <p>
+    <span class="en">Branchbase is not affiliated with, endorsed by, or sponsored by GitHub, Inc. GitHub® is a registered trademark of GitHub, Inc.</span>
+    <span class="zh">Branchbase 与 GitHub, Inc. 无关联，未获其背书或赞助。GitHub® 是 GitHub, Inc. 的注册商标。</span>
+  </p>
+  <p>
+    <span class="en">Typeface: Outfit (SIL Open Font License 1.1), self-hosted latin subset.</span>
+    <span class="zh">字体：Outfit（SIL Open Font License 1.1），自托管拉丁子集。</span>
+  </p>
+  <p>
+    <span class="en">Hero background: WebGL Fluid Simulation © 2017 Pavel Dobryakov, MIT — <a href="https://github.com/PavelDoGreat/WebGL-Fluid-Simulation">source</a>. Rendering pauses whenever the hero leaves the viewport.</span>
+    <span class="zh">首屏背景：WebGL Fluid Simulation © 2017 Pavel Dobryakov，MIT —— <a href="https://github.com/PavelDoGreat/WebGL-Fluid-Simulation">源码</a>。首屏滚出视野后立即暂停渲染。</span>
+  </p>
+</footer>
 
-  <footer>
-    © 2026 SunsetRNE · MIT licensed (the “Branchbase” name and icon are not covered by MIT).
-  </footer>
-</div>
+<script>
+(function () {
+  var root = document.documentElement;
+
+  /* ---- 语言切换：只改 data-lang，文案显隐交给 CSS ---- */
+  var buttons = document.querySelectorAll('.lang button');
+  function apply(lang, persist) {
+    if (lang !== 'zh' && lang !== 'en') lang = 'en';
+    root.setAttribute('data-lang', lang);
+    root.setAttribute('lang', lang === 'zh' ? 'zh-Hans' : 'en');
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].setAttribute('aria-pressed', String(buttons[i].getAttribute('data-set') === lang));
+    }
+    if (persist) { try { localStorage.setItem('bb-lang', lang); } catch (e) {} }
+  }
+  for (var i = 0; i < buttons.length; i++) {
+    buttons[i].addEventListener('click', function () { apply(this.getAttribute('data-set'), true); });
+  }
+  apply(root.getAttribute('data-lang') || 'en', false);
+})();
+
+(function () {
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
+  if (reduce && reduce.matches) return;              // 系统开了"减弱动态效果"就完全不上流体
+
+  var probe = document.createElement('canvas');
+  if (!(probe.getContext('webgl2') || probe.getContext('webgl'))) return;  // 无 WebGL 只留 CSS 渐变
+
+  var hero = document.getElementById('top');
+  var canvas = document.getElementById('fluid');
+  var visible = true;
+
+  var s = document.createElement('script');
+  s.src = 'fluid.js';
+  s.defer = true;
+  s.onload = function () {
+    var F = window.BranchbaseFluid;
+    if (!F) return;
+
+    var sync = function () {
+      if (visible && !document.hidden) F.resume(); else F.pause();
+    };
+
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver(function (entries) {
+        visible = entries[0].isIntersecting;
+        sync();
+      }, { threshold: 0.02 }).observe(hero);
+    }
+    document.addEventListener('visibilitychange', sync);
+    window.addEventListener('pagehide', function () { F.pause(); });
+    window.addEventListener('pageshow', sync);
+
+    F.resume();
+
+    /* 首帧之后淡入，避免"先看到静态渐变、再突然出现流体" */
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () { canvas.classList.add('on'); });
+    });
+
+    /* 低频自动泼溅：静态页没人碰屏幕时也不会渐渐变成一块死黑 */
+    (function tick() {
+      setTimeout(function () {
+        if (visible && !document.hidden) F.splat(1 + Math.floor(Math.random() * 2));
+        tick();
+      }, 2400 + Math.random() * 2800);
+    })();
+  };
+  s.onerror = function () { /* 加载失败就保持 CSS 渐变，不打扰用户 */ };
+  document.head.appendChild(s);
+})();
+</script>
 </body>
 </html>

@@ -28,6 +28,8 @@
 | README 深色覆盖 CSS（`.markdown-body` / `.pl-*` 语法令牌等） | MIT | 同上 | `ui/repository/ReadmeWebView.kt` 的 `README_DARK_CSS` |
 | Primer 设计令牌（GitHub 的色板与语义角色取值） | MIT | [primer/primer](https://github.com/primer/primer) | `ui/theme/ThemePalette.kt`、`ui/theme/Color.kt` |
 | 通知小图标（下载箭头；形状对齐 Material 的 `file_download`） | Apache-2.0 | [google/material-design-icons](https://github.com/google/material-design-icons) | `app/src/main/res/drawable/ic_stat_download.xml` |
+| 首屏流体背景脚本（已剥离 demo 外壳：去掉 promo 弹层、`dat.GUI` 控制面板与 GA 埋点，新增 `pause/resume` 接口） | MIT | [PavelDoGreat/WebGL-Fluid-Simulation](https://github.com/PavelDoGreat/WebGL-Fluid-Simulation) | `site/fluid.js`（文件头保留原始版权段） |
+| `Outfit` 可变字体（仅 latin 子集，100–900 字重，32 KB） | SIL OFL 1.1 | [Outfitio/Outfit-Fonts](https://github.com/Outfitio/Outfit-Fonts) | `site/fonts/outfit-latin.woff2`、`site/fonts/OFL.txt`（随附完整许可证） |
 
 > 判断口径：**只放「能指出上游」的文件**。剩下的图标与图形都是本项目自绘
 > （例如 `ic_launcher_background.xml` 就是一个纯色 rect），自绘的不进这张表 ——
