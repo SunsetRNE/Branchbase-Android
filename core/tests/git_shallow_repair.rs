@@ -30,7 +30,31 @@ use std::io::{Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
+
+// ────────────────────────── 用例串行化 ──────────────────────────
+
+/// 本文件的用例**串行跑**（等价于只给这个测试二进制加 `--test-threads=1`）。
+///
+/// 为什么必须串行：每个用例都要起一个真 `git daemon`，端口由 [`free_port`]「先 bind 一个 0 号端口
+/// 拿号、再关掉」得到，随后才交给 daemon 去 bind —— 并行时两个用例可能拿到**同一号端口**：
+/// 先到的 daemon 占住它，后到的 daemon 撞 EADDRINUSE 直接退出；而 [`start_daemon`] 的就绪循环
+/// 超时后只是 `break`（不报错），后一个用例再 clone 就只看到一句
+/// `fatal: unable to connect to 127.0.0.1: … Connection refused`（2026-11-26 CI 实测）。
+///
+/// 为什么不直接传参：cargo 没有「只给某个测试文件加 `--test-threads=1`」的开关 ——
+/// `cargo test --test git_shallow_repair -- --test-threads=1` 要显式点名 target，而 CI 跑的是
+/// 裸 `cargo test`；把 `RUST_TEST_THREADS=1` 写进 `.cargo/config.toml` 又会把整个 workspace 串行化。
+/// 这把锁的粒度正好是「一个文件」，且不改变任何断言的语义。
+static SERIAL: Mutex<()> = Mutex::new(());
+
+/// 每个用例开头拿一次、持有到用例结束：变量叫 `_serial` 而不是裸 `_` ——
+/// 裸 `_` 会立刻 drop 掉守卫，等于没拿锁。
+fn serial() -> MutexGuard<'static, ()> {
+    // 另一个用例 panic 会 poison 这把锁；它保护的只是「端口别撞」，与断言结果无关，忽略毒化即可。
+    SERIAL.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 // ────────────────────────── 本机 git 能力 ──────────────────────────
 
@@ -376,6 +400,7 @@ fn raw_fetch(dir: &Path) -> Result<(), git2::Error> {
 /// 复刻用户报错：缺对象且没有浅边界时，裸 fetch 死在协商阶段（class=Odb / code=NotFound）。
 #[test]
 fn 缺对象且无浅边界时_fetch_死在协商阶段() {
+    let _serial = serial();
     if !git_available() {
         eprintln!("跳过：本机没有 git");
         return;
@@ -405,6 +430,7 @@ fn 缺对象且无浅边界时_fetch_死在协商阶段() {
 /// 自愈：`fetch_remote` 先失败、补上浅边界、重试一次后成功刷新。
 #[test]
 fn fetch_remote_缺对象时自愈并刷新成功() {
+    let _serial = serial();
     if !git_available() {
         eprintln!("跳过：本机没有 git");
         return;
@@ -439,6 +465,7 @@ fn fetch_remote_缺对象时自愈并刷新成功() {
 /// `repair_shallow_boundary` 只补必要的那一条，且可重复调用。
 #[test]
 fn repair_shallow_boundary_只补必要的边界() {
+    let _serial = serial();
     if !git_available() {
         eprintln!("跳过：本机没有 git");
         return;
@@ -465,6 +492,7 @@ fn repair_shallow_boundary_只补必要的边界() {
 /// 所以这里连着刷两次，第二次也必须好。
 #[test]
 fn 刷新远端之后浅边界仍在() {
+    let _serial = serial();
     if !git_available() {
         eprintln!("跳过：本机没有 git");
         return;
@@ -501,6 +529,7 @@ fn 刷新远端之后浅边界仍在() {
 /// （要过 git ≥2.4x 的 upload-pack，所以走洗 want 行的代理。）
 #[test]
 fn fetch_deepen_在真浅_clone_上全量加深() {
+    let _serial = serial();
     if !git_available() {
         eprintln!("跳过：本机没有 git");
         return;
@@ -523,6 +552,7 @@ fn fetch_deepen_在真浅_clone_上全量加深() {
 /// 真机恢复动作：既缺祖先又没有浅边界时，一次「加深历史」应当先自愈再全量加深。
 #[test]
 fn fetch_deepen_在缺对象且无浅边界时自愈并加深() {
+    let _serial = serial();
     if !git_available() {
         eprintln!("跳过：本机没有 git");
         return;

@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（**1.4.33** → 1.0.22）
-与 §三 `versionCode` 流水（129 → **293**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（**1.4.34** → 1.0.22）
+与 §三 `versionCode` 流水（129 → **294**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,29 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.33 → 1.0.22）
+## 二、`versionName` 流水（1.4.34 → 1.0.22）
+
+### 1.4.34
+
+**`core/tests/git_shallow_repair.rs` 的 6 个用例串行跑，修「两个用例抢同一号端口」造成的 CI 偶发红。**
+
+① 现象：1.4.33 首推时 CI 的 `rust` job 红在 `fetch_deepen_在缺对象且无浅边界时自愈并加深`，
+报错是一句 `git ["clone", …, "git://127.0.0.1:42287/…"] 失败: fatal: unable to connect …
+Connection refused`。同一次提交里其余 6 个 job 全绿、`core/**` 零改动 —— 与本版 UI 改动无关。
+
+② 根因：`free_port()` 先 `bind 127.0.0.1:0` 拿号、再关掉，随后才交给 `git daemon` 去 bind；
+并行跑时两个用例可能拿到**同一号端口** —— 先到的 daemon 占住它，后到的撞 `EADDRINUSE` 直接退出。
+而 `start_daemon` 的 5 秒就绪循环超时后只是 `break`（不报错），于是失败退化成一句
+connection refused，真正的原因（端口被占）留在没人看的 `daemon.log` 里。
+
+③ 修法（用户选定「串行化」而不是「改就绪逻辑」）：加 `static SERIAL: Mutex<()>` + `serial()`，
+6 个用例开头各持有一把直到用例结束。cargo 没有「只给某个测试文件传 `--test-threads=1`」的开关
+（`cargo test --test <name> -- --test-threads=1` 要显式点名 target，而 CI 跑的是裸 `cargo test`），
+把 `RUST_TEST_THREADS=1` 写进 `.cargo/config.toml` 又会把整个 workspace 串行化 ——
+这把锁的粒度正好是「一个测试文件」，不改变任何断言。
+
+验证：本机编不了 Rust（缺 `cmake`，`git2` 走 vendored-libgit2 + vendored-openssl），只做了语法校验
+（`rustc --emit=metadata` 仅报 4 个 `E0433 找不到 git2`）；通过与否则由 CI 的 `rust` job 判定。
 
 ### 1.4.33
 
@@ -4775,7 +4797,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（293 → 129）
+## 三、`versionCode` 流水（294 → 129）
+
+- **294**：`git_shallow_repair` 的 6 个用例串行化（`static SERIAL: Mutex<()>` + `serial()`）——
+  修「`free_port()` 先 bind 再关、`git daemon` 随后 bind」被并行用例抢同一号端口的 flake；
+  cargo 无 per-target 测试参数，故用文件级锁等价于 `--test-threads=1`（一次提交，故 +1）。
 
 - **293**：个人页「热门仓库」卡复用首页参数 —— 去 1dp `BorderEmphasis` 描边、`Gray100` 底 +
   10dp 圆角、内边距 h14·v8、卡距 6dp、名字 14sp、描述 12sp/15sp 限 2 行、空描述占位；
