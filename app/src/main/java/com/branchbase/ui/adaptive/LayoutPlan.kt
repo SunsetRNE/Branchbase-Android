@@ -2,7 +2,6 @@ package com.branchbase.ui.adaptive
 
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.TextUnit
 
 /**
  * 一次布局判定的完整结果。
@@ -41,8 +40,6 @@ data class NavPlan(
     val verticalSlot: Dp,
     /** 基准图标尺寸；最终尺寸会乘压缩比例并 clamp。 */
     val iconSize: Dp,
-    /** 文字标签字号；只有 [NavMetrics.showLabels] 为 true 时才绘制。 */
-    val labelTextSize: TextUnit,
     /** 栏与屏幕左右边缘的期望留白（悬浮形态下由壳子/栏自己处理）。 */
     val horizontalMargin: Dp,
 )
@@ -59,13 +56,12 @@ data class ContentPlan(
  * 一条具体导航栏（已知槽位数）的最终度量。
  *
  * [compression] 就是“压缩比例值”：窄屏 <1（压缩），宽屏 >1（但栏宽已被封顶）。
- * 它同时驱动图标尺寸与标签显隐，避免出现“平板上的超大手机底栏”。
+ * 它驱动图标尺寸，避免出现“平板上的超大手机底栏”。
  */
 @Immutable
 data class NavMetrics(
     val barWidth: Dp,
     val cellWidth: Dp,
     val compression: Float,
-    val showLabels: Boolean,
     val iconSize: Dp,
 )

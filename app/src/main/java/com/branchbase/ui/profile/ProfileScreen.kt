@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,6 +20,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import com.branchbase.ui.navigation.BranchbaseLazyColumn
+import com.branchbase.ui.navigation.MoreBubbleHandle
+import com.branchbase.ui.navigation.MoreBubbleItem
 import com.branchbase.ui.navigation.LocalFloatingBarReservedHeight
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -40,7 +43,6 @@ import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocalOffer
-import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Public
@@ -48,8 +50,6 @@ import androidx.compose.material.icons.filled.RateReview
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Timeline
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -72,7 +72,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.combinedClickable
@@ -87,6 +86,8 @@ import com.branchbase.ui.settings.RepoCredentialsScreen
 import com.branchbase.ui.repository.repoRelationOf
 import com.branchbase.ui.repository.RepoRelation
 import com.branchbase.ui.repository.RepoDeepLink
+import com.branchbase.ui.adaptive.AdaptiveLayoutPolicy
+import com.branchbase.ui.adaptive.LocalLayoutPlan
 import com.branchbase.ui.theme.color
 import com.branchbase.ui.theme.TintRole
 import com.branchbase.ui.theme.selectionColor
@@ -111,31 +112,14 @@ import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.LanguageColors
 import com.branchbase.ui.theme.Avatar
 import com.branchbase.ui.theme.Primer
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.LocalIndication
-import androidx.compose.material3.Surface
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntRect
-import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupPositionProvider
-import androidx.compose.ui.window.PopupProperties
 import com.branchbase.ui.theme.ElementMotion
 import com.branchbase.ui.theme.PlaceholderSwap
 import com.branchbase.ui.theme.ProvideShimmer
-import com.branchbase.ui.theme.bubbleEnter
-import com.branchbase.ui.theme.bubbleExit
 import com.branchbase.ui.theme.rememberPressFeedback
 import com.branchbase.ui.theme.skeletonBlock
 import com.branchbase.ui.theme.ProfileColors
@@ -287,7 +271,7 @@ fun ProfileScreen(
         bar = {
             // 同一个组合函数两种容器：`glass = true` 时走悬浮玻璃胶囊（3 主项 + ⋮ 手柄 = 4 个槽位，
             // 与主界面、仓库页共用 GlassBar），否则还是原来的整宽气泡栏。
-            // 手柄与 More 气泡在两种容器里是**同一份**（见 ProfileMoreHandle）。
+            // 手柄与 More 气泡在两种容器里是**同一份**（见 MoreBubbleHandle）。
             ProfileBubbleNavigationBar(
                 selected = tab,
                 onSelect = { tab = it; Logger.ui("切换到「${it.logLabel}」", "Compose") },
@@ -1631,53 +1615,51 @@ private fun EventRow(e: ActivityEvent, onClick: () -> Unit) {
     }
 }
 
-// ───────────────────────── 气泡导航栏（基础形态 ④） ─────────────────────────
+// ───────────────────────── 底栏（3 主项 + ⋮ 更多） ─────────────────────────
 
 /**
- * More 气泡里的一个条目。
+ * More 气泡里的条目（顺序即菜单顺序）。
  *
- * ## 色彩（原来这里的图标清一色中性灰，是「不在设计色池里」的主要来源）
- *
- * 每一项按**用途**取 `Primer` 池内的语义色，并各配一枚同色 12% 的图标底：
+ * 色彩按用途取 `Primer` 池的语义角色，并各配一枚同色 12% 的图标底：
  * 星标 = `Orange500`、项目 = `Purple500`、任务 = `Blue500`、设置 = `IconPrimary`、
- * 登出 = `Red500`（危险色，文字也同步用红）。这样一眼能区分「去哪」而不是「一排灰图标」。
+ * 登出 = `Red500`（危险色，文字也同步用红）。视觉与按钮渲染来自共用的 [MoreBubbleHandle]，
+ * 这里只声明「有哪些项、点了去哪」。
  */
-private data class MoreBubbleItem(
-    @StringRes val labelRes: Int,
-    val icon: ImageVector,
-    val tint: TintRole,
-    val page: SubPage? = null,
-    val danger: Boolean = false,
-)
-
-private val moreBubbleItems = listOf(
-    MoreBubbleItem(R.string.profile_bubble_stars, Icons.Filled.Star, TintRole.WARNING, SubPage.Stars),
-    MoreBubbleItem(R.string.nav_projects, Icons.Filled.Dashboard, TintRole.DONE, SubPage.Projects),
-    MoreBubbleItem(R.string.nav_tasks, Icons.Filled.Timeline, TintRole.ACCENT, SubPage.Tasks),
-    MoreBubbleItem(R.string.nav_settings, Icons.Filled.Settings, TintRole.NEUTRAL, SubPage.Settings),
+private fun profileMoreItems(
+    onNavigate: (SubPage) -> Unit,
+    onLogout: () -> Unit,
+): List<MoreBubbleItem> = listOf(
+    MoreBubbleItem(R.string.profile_bubble_stars, Icons.Filled.Star, TintRole.WARNING) {
+        onNavigate(SubPage.Stars)
+    },
+    MoreBubbleItem(R.string.nav_projects, Icons.Filled.Dashboard, TintRole.DONE) {
+        onNavigate(SubPage.Projects)
+    },
+    MoreBubbleItem(R.string.nav_tasks, Icons.Filled.Timeline, TintRole.ACCENT) {
+        onNavigate(SubPage.Tasks)
+    },
+    MoreBubbleItem(R.string.nav_settings, Icons.Filled.Settings, TintRole.NEUTRAL) {
+        onNavigate(SubPage.Settings)
+    },
+    MoreBubbleItem(
+        R.string.action_sign_out_alt,
+        Icons.AutoMirrored.Filled.Logout,
+        TintRole.DANGER,
+        danger = true,
+    ) {
+        Logger.ui("登出", "Compose")
+        onLogout()
+    },
 )
 
 /**
- * Profile 页切换导航：3 个主项 + 右侧圆形手柄，点手柄从**手柄上方**弹出 More 气泡。
+ * Profile 页底部导航：3 个主项 + 右侧 ⋮ 手柄，点手柄从**手柄上方**弹出 More 气泡。
  *
- * ## 与「当前设计」对齐的三处修正（原本不一致）
- *
- * 1. **手柄填充色**：原来用 `Primer.Border`（描边色，0xFFBFC1C9）当**填充**用，
- *    与设计里「中性面用 Gray150」的规则冲突；现在收起态是 `Gray150` + `BorderEmphasis` 描边，
- *    展开态是 `Blue500` 实心 + 白图标；
- * 2. **弹层不再是 Material 默认色**：原来用 `DropdownMenu`，容器色 / 文字色 / 图标色
- *    全走 Material 主题（既不是 Primer 池，也与 App 其它弹层不一致）。现在是
- *    `Popup` + `Primer.BackgroundPrimary` 白底 + `Primer.BorderEmphasis` 描边 + 16dp 圆角 + 阴影，
- *    与 `EdgeNavigationBar` 的气泡规格同源（文件头的「同源」注释这才成立）；
- * 3. **缩放原点**：Material 菜单是「从上边缘往下长」，而气泡是从手柄**向上**弹出，
- *    现在用 [bubbleEnter] 从右下角锚点缩放，观感上像是从手柄里冒出来。
- *
- * ## 动效
- *
- * - 手柄：按下缩到 0.94（120ms，跟手）+ 展开时三点图标旋转 90°（横三点 → 竖三点，暗示状态切换）；
- * - 主项：按下缩放 + 选中胶囊淡入 + 选中图标轻微放大 6%；
- * - 气泡：容器的锚点缩放淡入（180ms）+ 条目**逐条错峰**入场（每条 +28ms），
- *   收起时不延迟（一次性淡出，避免"关得比开得慢"的拖沓感）。
+ * 2026-11-25 的整体比例调整（与主界面 / 仓库页同一套口径）：
+ * - 栏高统一 48dp（原 60dp）；内容宽度交给 [AdaptiveLayoutPolicy.metrics] —— 4 个槽位
+ *   收成 392dp 后居中，图标不再贴满整行；
+ * - 主项**不再画文字**（读屏名仍是 `tab.labelRes`）；
+ * - ⋮ 手柄与 More 气泡换成共用 [MoreBubbleHandle]（与仓库页同一份样式与按钮渲染）。
  */
 @Composable
 private fun ProfileBubbleNavigationBar(
@@ -1687,28 +1669,25 @@ private fun ProfileBubbleNavigationBar(
     onNavigate: (SubPage) -> Unit,
     glass: Boolean = false,
 ) {
-    // 用户意图（手柄图标、日志用它）；实际渲染的 Popup 由 popupState 托管到退场动画结束
-    val popupState = remember { MutableTransitionState(false) }
-    val expanded = popupState.targetState
+    // 用户意图（手柄图标、日志用它）；气泡的进出场由 MoreBubbleHandle 自己托管到动画结束
+    var moreExpanded by remember { mutableStateOf(false) }
 
     // ⋮ 手柄 + More 气泡：**两种栏共用同一份** —— 菜单项、登出项、逐条错峰入场与定位
-    // 都只在这一个地方，不然「整宽栏里菜单是这几项、玻璃栏里少一项」是迟早的事。
+    // 都只在 MoreBubbleHandle 里，不然「整宽栏里菜单是这几项、玻璃栏里少一项」是迟早的事。
     val handle: @Composable () -> Unit = {
-        ProfileMoreHandle(
-            expanded = expanded,
-            onToggle = {
-                popupState.targetState = !expanded
-                Logger.ui(if (popupState.targetState) "展开 More 菜单" else "关闭 More 菜单", "Compose")
+        MoreBubbleHandle(
+            expanded = moreExpanded,
+            items = profileMoreItems(onNavigate, onLogout),
+            onExpandedChange = {
+                moreExpanded = it
+                Logger.ui(if (it) "展开 More 菜单" else "关闭 More 菜单", "Compose")
             },
-            popupState = popupState,
-            onLogout = onLogout,
-            onNavigate = onNavigate,
         )
     }
 
     if (glass) {
         // 悬浮玻璃胶囊（设置 → 外观那个开关）：3 主项 + 手柄 = 4 个槽位，
-        // 与主界面、仓库页共用 `GlassBar` —— 形状、两档模糊、折射、透镜拉长、API 降级都在那一份里。
+        // 与主界面、仓库页共用 `GlassBar` —— 形状、折射、透镜拉长、API 降级都在那一份里。
         GlassBar(
             items = ProfileTab.entries.map { t ->
                 GlassBarItem(
@@ -1718,243 +1697,57 @@ private fun ProfileBubbleNavigationBar(
                     onClick = { onSelect(t) },
                 )
             },
-            showLabels = true,
             trailing = handle,
         )
         return
     }
 
-    // 整宽栏（默认形态）：
-    // 外层 Box 固定 60dp 高：气泡作为悬浮层向上溢出，不参与导航栏高度计算，避免点击后抬高导航栏。
-    // `.navigationBarsPadding()` 放在 `.height()` 之前：系统手势条那块留白算在 60dp 之外、
-    // 沿用壳子底色（原来由外层 Column 的 navigationBarsPadding 提供）—— 栏自己负责这条内边距。
-    Box(Modifier.fillMaxWidth().navigationBarsPadding().height(60.dp)) {
+    // 整宽栏（默认形态）：栏高 / 内容宽度都由布局判定引擎给。
+    // 底色与手势条内边距放在外层：手势条那块也沿用栏底色，不露一条壳子白边。
+    val nav = LocalLayoutPlan.current.nav
+    val metrics = AdaptiveLayoutPolicy.metrics(nav, ProfileTab.entries.size + 1)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Primer.BackgroundSecondary)
+            .navigationBarsPadding(),
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(60.dp)
-                .background(Primer.BackgroundSecondary),
+                .height(nav.height),
+            horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ProfileTab.entries.forEach { t ->
-                ProfileNavItem(
-                    tab = t,
-                    selected = t == selected,
-                    onClick = { onSelect(t) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            // 手柄与右边缘的间距：整宽栏自己留；玻璃形态下由槽位负责，不重复留
-            Box(Modifier.padding(end = 10.dp)) { handle() }
-        }
-    }
-}
-
-/**
- * 个人页的 ⋮ 手柄 + More 气泡 —— **两种栏共用**（整宽栏与玻璃胶囊各挂一次）。
- *
- * 里面两件事都不该有第二份：
- * 1. 菜单项（`moreBubbleItems`）与登出项的顺序、配色、逐条错峰入场；
- * 2. 气泡定位（[moreBubblePosition]：右对齐锚点、底边贴在手柄上方）。
- *
- * 气泡挂在手柄自己的节点下，所以定位锚点就是手柄 —— 玻璃形态下它会出现在胶囊右端上方。
- */
-@Composable
-private fun ProfileMoreHandle(
-    expanded: Boolean,
-    onToggle: () -> Unit,
-    popupState: MutableTransitionState<Boolean>,
-    onLogout: () -> Unit,
-    onNavigate: (SubPage) -> Unit,
-) {
-    val press = rememberPressFeedback()
-    val rotation = animateFloatAsState(
-        targetValue = if (expanded) 90f else 0f,
-        animationSpec = tween(ElementMotion.ICON_MS),
-        label = "more-rotation",
-    )
-    Box(
-        modifier = Modifier
-            .size(40.dp)
-            .graphicsLayer {
-                scaleX = press.scale.value
-                scaleY = press.scale.value
-            }
-            .clip(CircleShape)
-            .border(
-                1.dp,
-                selectionColor(expanded, on = Primer.Blue500, off = Primer.BorderEmphasis),
-                CircleShape,
-            )
-            .background(selectionColor(expanded, on = Primer.Blue500, off = Primer.Gray150))
-            .clickable(
-                interactionSource = press.interaction,
-                indication = LocalIndication.current,
-            ) { onToggle() },
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            Icons.Filled.MoreHoriz,
-            contentDescription = if (expanded) stringResource(R.string.action_collapse_more_menu) else stringResource(R.string.action_more),
-            tint = selectionColor(expanded, on = Color.White, off = Primer.IconPrimary),
-            modifier = Modifier
-                .size(22.dp)
-                .graphicsLayer { rotationZ = rotation.value },
-        )
-
-        // 气泡：Popup 独立窗口（可点空白 / 返回键关闭），但**位置锚定在手柄上**、动画完全自控。
-        // 只有「已展开或正在收起」时才挂载 —— 收起动画播完（isIdle）即卸载，不留透明窗口吃点击。
-        if (popupState.currentState || popupState.targetState) {
-            // 气泡与手柄的间距：先取成局部值，再同时用于 remember 的 key 与定位器
-            val gapPx = with(LocalDensity.current) { 10.dp.roundToPx() }
-            Popup(
-                popupPositionProvider = remember(gapPx) { moreBubblePosition(gapPx) },
-                onDismissRequest = { popupState.targetState = false },
-                properties = PopupProperties(focusable = true),
+            Row(
+                modifier = Modifier
+                    .width(metrics.barWidth)
+                    .fillMaxHeight(),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                AnimatedVisibility(
-                    visibleState = popupState,
-                    enter = bubbleEnter(),
-                    exit = bubbleExit(),
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = Primer.BackgroundPrimary,
-                        border = BorderStroke(1.dp, Primer.BorderEmphasis.copy(alpha = 0.6f)),
-                        shadowElevation = 12.dp,
-                        modifier = Modifier.width(196.dp),
-                    ) {
-                        Column(Modifier.padding(vertical = 6.dp)) {
-                            moreBubbleItems.forEachIndexed { index, item ->
-                                // 逐条错峰入场：容器展开后，条目按顺序"冒"出来
-                                AnimatedVisibility(
-                                    visible = popupState.currentState,
-                                    enter = fadeIn(
-                                        tween(ElementMotion.BUBBLE_MS, delayMillis = index * ElementMotion.STAGGER_MS),
-                                    ) + slideInVertically(
-                                        tween(ElementMotion.BUBBLE_MS, delayMillis = index * ElementMotion.STAGGER_MS),
-                                    ) { it / 3 },
-                                    exit = fadeOut(tween(90)),
-                                ) {
-                                    MoreBubbleRow(
-                                        label = stringResource(item.labelRes),
-                                        icon = item.icon,
-                                        tint = item.tint.color(),
-                                        onClick = {
-                                            popupState.targetState = false
-                                            onNavigate(item.page!!)
-                                        },
-                                    )
-                                }
-                            }
-
-                            // 分隔线 + 危险项：与上面「去哪」的条目分开，避免误触
-                            Box(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 4.dp)
-                                    .height(1.dp)
-                                    .background(Primer.Gray150),
-                            )
-                            AnimatedVisibility(
-                                visible = popupState.currentState,
-                                enter = fadeIn(
-                                    tween(ElementMotion.BUBBLE_MS, delayMillis = moreBubbleItems.size * ElementMotion.STAGGER_MS),
-                                ),
-                                exit = fadeOut(tween(90)),
-                            ) {
-                                MoreBubbleRow(
-                                    label = stringResource(R.string.action_sign_out_alt),
-                                    icon = Icons.AutoMirrored.Filled.Logout,
-                                    tint = Primer.Red500,
-                                    danger = true,
-                                    onClick = {
-                                        popupState.targetState = false
-                                        Logger.ui("登出", "Compose")
-                                        onLogout()
-                                    },
-                                )
-                            }
-                        }
-                    }
+                ProfileTab.entries.forEach { t ->
+                    ProfileNavItem(
+                        tab = t,
+                        selected = t == selected,
+                        onClick = { onSelect(t) },
+                        iconSize = nav.iconSize,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
+                // 手柄占满一格（与玻璃栏的尾部槽位同构），点按目标不小于一整格
+                Box(
+                    modifier = Modifier
+                        .width(metrics.cellWidth)
+                        .fillMaxHeight(),
+                    contentAlignment = Alignment.Center,
+                ) { handle() }
             }
         }
     }
 }
 
 /**
- * 气泡定位：**右对齐手柄、底边贴在手柄上方**。
- *
- * 直接写明而不是用 `DropdownMenu` 的默认锚点：菜单默认从锚点下边缘往下展开，
- * 而这个气泡必须向上弹出，否则会盖住手柄本身。
- */
-private fun moreBubblePosition(gapPx: Int): PopupPositionProvider = object : PopupPositionProvider {
-    override fun calculatePosition(
-        anchorBounds: IntRect,
-        windowSize: IntSize,
-        layoutDirection: LayoutDirection,
-        popupContentSize: IntSize,
-    ): IntOffset {
-        val x = anchorBounds.right - popupContentSize.width
-        val y = anchorBounds.top - popupContentSize.height - gapPx
-        return IntOffset(x, y)
-    }
-}
-
-/**
- * 气泡里的一行：同色图标底 + 标签（危险项整行用红）。
- *
- * 按下时整行缩到 0.97（比手柄的 0.94 更轻）—— 行级元素幅度小一点才不会显得在抖。
- */
-@Composable
-private fun MoreBubbleRow(
-    label: String,
-    icon: ImageVector,
-    tint: Color,
-    onClick: () -> Unit,
-    danger: Boolean = false,
-) {
-    val press = rememberPressFeedback(pressedScale = 0.97f)
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 6.dp, vertical = 2.dp)
-            .graphicsLayer {
-                scaleX = press.scale.value
-                scaleY = press.scale.value
-            }
-            .clip(RoundedCornerShape(10.dp))
-            .clickable(
-                interactionSource = press.interaction,
-                indication = LocalIndication.current,
-                onClick = onClick,
-            )
-            .padding(horizontal = 8.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(28.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(tint.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
-        }
-        Spacer(Modifier.width(10.dp))
-        Text(
-            label,
-            fontSize = 13.5.sp,
-            fontWeight = FontWeight.Medium,
-            color = if (danger) Primer.Red500 else Primer.TextPrimary,
-        )
-    }
-}
-
-/** 气泡导航主项（图标 + 文字，选中主蓝） */
-/**
- * 气泡导航主项（图标 + 文字，选中主蓝）。
+ * 底栏主项：**只有图标**（+ 选中胶囊）。
  *
  * 交互反馈三件套：按下缩放（0.94 / 120ms）、选中胶囊淡入、选中图标放大 6%。
  * 缩放值都在 `graphicsLayer` 里读，避免为了一枚图标每帧重组整行。
@@ -1964,11 +1757,12 @@ private fun ProfileNavItem(
     tab: ProfileTab,
     selected: Boolean,
     onClick: () -> Unit,
+    iconSize: Dp,
     modifier: Modifier = Modifier,
 ) {
     val press = rememberPressFeedback()
     val label = stringResource(tab.labelRes)
-    // 选中态渐变（图标/文字同色系），避免每次切 Tab 都「跳」一下
+    // 选中态渐变（图标），避免每次切 Tab 都「跳」一下
     val tint = selectionColor(selected, on = Primer.Blue500, off = Primer.IconPrimary)
     val iconScale = animateFloatAsState(
         targetValue = if (selected) 1.06f else 1f,
@@ -1977,6 +1771,8 @@ private fun ProfileNavItem(
     )
     Column(
         modifier = modifier
+            // 整格高都可点：48dp 栏高里点偏一点也不会落空（图标只有 22dp）
+            .fillMaxHeight()
             .graphicsLayer {
                 scaleX = press.scale.value
                 scaleY = press.scale.value
@@ -1985,14 +1781,14 @@ private fun ProfileNavItem(
                 interactionSource = press.interaction,
                 indication = LocalIndication.current,
                 onClick = onClick,
-            )
-            .padding(vertical = 6.dp),
+            ),
+        verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // 选中胶囊：淡入淡出。比 Material 那条横贯整栏的指示器更轻，和 60dp 栏高更搭
+        // 选中胶囊：淡入淡出。比 Material 那条横贯整栏的指示器更轻，和 48dp 栏高更搭
         Box(
             modifier = Modifier
-                .size(width = 48.dp, height = 28.dp)
+                .size(width = 44.dp, height = 30.dp)
                 .clip(CircleShape)
                 .background(selectionColor(selected, on = Primer.Blue500.copy(alpha = 0.10f))),
             contentAlignment = Alignment.Center,
@@ -2002,20 +1798,13 @@ private fun ProfileNavItem(
                 contentDescription = label,
                 tint = tint,
                 modifier = Modifier
-                    .size(20.dp)
+                    .size(iconSize)
                     .graphicsLayer {
                         scaleX = iconScale.value
                         scaleY = iconScale.value
                     },
             )
         }
-        Spacer(Modifier.height(2.dp))
-        Text(
-            label,
-            fontSize = 11.sp,
-            color = tint,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-        )
     }
 }
 

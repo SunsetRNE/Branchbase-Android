@@ -1,19 +1,18 @@
 package com.branchbase.ui.adaptive
 
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 
 /**
  * Branchbase 的布局判定规则。
  *
- * 规则只依赖 [WindowSpec] 与“这条栏有几个槽位/要不要文字”，是纯函数：
+ * 规则只依赖 [WindowSpec] 与「这条栏有几个槽位」，是纯函数：
  * 同一输入永远同一输出，没有 Android 上下文、没有副作用，可直接 JVM 单测。
  *
  * 底栏的“比例怪”根因是整宽等分：旧实现用 `可用宽 / 槽位数` 直接算格宽，
  * 1280dp 平板上两个 Tab 每格能得到 600dp+，图标仍只有 22dp。这里做三件事：
  * 1. 给整条栏一个 [NavPlan.maxWidth] 上限，多出来的宽度留在屏幕两侧；
  * 2. 给单格一个 [NavPlan.maxCellWidth] 上限，槽位少时栏自然收窄；
- * 3. 用 [NavMetrics.compression] 驱动图标/标签，而不是让格子无限拉宽。
+ * 3. 用 [NavMetrics.compression] 驱动图标尺寸，而不是让格子无限拉宽。
  */
 object AdaptiveLayoutPolicy {
 
@@ -22,6 +21,28 @@ object AdaptiveLayoutPolicy {
 
     /** 手机上栏与屏幕边缘的留白。 */
     private val PhoneBarMargin = 12.dp
+
+    /**
+     * 底栏统一高度（系统手势条内边距之外）。
+     *
+     * 2026-11-25 的「整体比例」决策把两族底栏收到同一档：
+     * - **原生栏**：Material3 `NavigationBar` 的 80dp → 48dp（砍掉 2/5）；
+     * - **悬浮玻璃栏**：`GlassBackdrop.ContainerHeight` 的 64dp → 48dp（砍掉 1/4）。
+     *
+     * 个人页 / 仓库页的整宽气泡栏原来各写 60dp / 56dp，也一并落到这一档 ——
+     * 三处底栏在页面之间来回切时高度不再跳，是这次「整体比例」的另一半。
+     *
+     * 高度不含 `navigationBarsPadding()`：手势条那块由各栏自己留，见 `NavigationShell` 的文件头。
+     */
+    val BottomBarHeight = 48.dp
+
+    /**
+     * 玻璃栏滑块与容器上下的内边距；滑块高度 = 栏高 - 2 × 它。
+     *
+     * 与 [BottomBarHeight] 一起构成玻璃材质的**尺寸真源**：`GlassBackdrop` 直接引用这两个值，
+     * 栏、录制层、滑块与「栏占掉多高」就不会各算各的。
+     */
+    val BottomBarPadding = 3.dp
 
     fun plan(window: WindowSpec): LayoutPlan {
         val margin = when (window.widthClass) {
@@ -35,8 +56,8 @@ object AdaptiveLayoutPolicy {
             WidthClass.Medium, WidthClass.Expanded -> TabletBarMaxWidth
         }
         // 手机横屏（height <480dp）竖向空间紧：栏与上下留白一起收窄，正文多留一点高度。
+        // 栏高本身已经是 48dp 档（见 [BottomBarHeight]），横屏只再收紧上下留白。
         val compactHeight = window.heightClass == HeightClass.Compact
-        val barHeight = if (compactHeight) 56.dp else 64.dp
         val nav = NavPlan(
             maxWidth = maxWidth,
             maxCellWidth = when (window.widthClass) {
@@ -44,20 +65,14 @@ object AdaptiveLayoutPolicy {
                 WidthClass.Medium, WidthClass.Expanded -> 120.dp
             },
             idealCellWidth = 88.dp,
-            containerPadding = 4.dp,
-            height = barHeight,
-            pillHeight = barHeight - 8.dp,
+            containerPadding = BottomBarPadding,
+            height = BottomBarHeight,
+            pillHeight = BottomBarHeight - BottomBarPadding * 2,
             verticalSlot = if (compactHeight) 4.dp else 8.dp,
             iconSize = when {
                 compactHeight -> 20.dp
                 window.widthClass == WidthClass.Compact -> 22.dp
                 else -> 24.dp
-            },
-            labelTextSize = when {
-                compactHeight -> 10.sp
-                window.widthClass == WidthClass.Compact -> 10.sp
-                window.widthClass == WidthClass.Medium -> 11.sp
-                else -> 12.sp
             },
             horizontalMargin = margin,
         )
@@ -80,10 +95,12 @@ object AdaptiveLayoutPolicy {
     /**
      * 把 [NavPlan] 落到一条具体栏上。
      *
+     * 底栏统一为「只留图标」（2026-11-25 决策）之后，这里不再有标签显隐这一维：
+     * 槽位只需要一个能放下图标、又能被拇指点到的宽度。
+     *
      * @param itemCount 槽位数（导航项 + 可选尾部手柄；手柄也占一格）
-     * @param wantsLabels 调用点是否希望显示文字（主界面图标指向性足够，传 false）
      */
-    fun metrics(nav: NavPlan, itemCount: Int, wantsLabels: Boolean): NavMetrics {
+    fun metrics(nav: NavPlan, itemCount: Int): NavMetrics {
         val count = itemCount.coerceAtLeast(1)
         val availableDp = (nav.maxWidth.value - nav.containerPadding.value * 2).coerceAtLeast(0f)
         val cellDp = (availableDp / count).coerceAtMost(nav.maxCellWidth.value)
@@ -94,8 +111,6 @@ object AdaptiveLayoutPolicy {
             barWidth = barWidthDp.dp,
             cellWidth = cellDp.dp,
             compression = compression,
-            // 标签需要可用宽度；48dp 的窄格只画图标，避免文字挤压/截断。
-            showLabels = wantsLabels && cellDp >= 72f,
             iconSize = (nav.iconSize.value * compression).dp.coerceIn(18.dp, 26.dp),
         )
     }

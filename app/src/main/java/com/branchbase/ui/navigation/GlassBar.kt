@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
@@ -49,12 +48,9 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.fastRoundToInt
 import androidx.compose.ui.util.lerp
@@ -108,6 +104,9 @@ private val LocalGlassTabScale = staticCompositionLocalOf<() -> Float> { { 1f } 
 /**
  * 悬浮液态玻璃胶囊 —— 三处底部导航共用的**同一份实现**（主界面 / 仓库页 / 个人页）。
  *
+ * 栏内**只画图标**，不画文字：底栏高度收到 48dp（GlassBackdrop）之后，图标 + 文字
+ * 会把格子的竖向预算吃光；文字信息交给读屏名（`GlassBarItem.labelRes`）。
+ *
  * ## 这一版的来历：从「两档模糊」换成上游 catalog 的实现
  *
  * 1.2.3 的玻璃栏是自研形状 + 两种模糊半径（未选中 `blur(24dp)`、选中 `blur(2dp) + lens`）。
@@ -144,7 +143,6 @@ private val LocalGlassTabScale = staticCompositionLocalOf<() -> Float> { { 1f } 
 fun GlassBar(
     items: List<GlassBarItem>,
     modifier: Modifier = Modifier,
-    showLabels: Boolean = false,
     trailing: (@Composable () -> Unit)? = null,
 ) {
     val dark = LocalIsDarkTheme.current
@@ -166,7 +164,7 @@ fun GlassBar(
     // 栏宽/格宽/压缩比由布局判定引擎给出：平板上栏封顶后居中，槽位少时栏自然收窄，
     // 不再用“可用宽 / 槽位数”把每个图标摊到 600dp 的格子里。
     val navPlan = LocalLayoutPlan.current.nav
-    val metrics = AdaptiveLayoutPolicy.metrics(navPlan, cellCount, showLabels)
+    val metrics = AdaptiveLayoutPolicy.metrics(navPlan, cellCount)
 
     val selectedSlot = items.indexOfFirst { it.selected }.coerceAtLeast(0)
     val tabsBackdrop = rememberLayerBackdrop()
@@ -322,11 +320,9 @@ fun GlassBar(
         ) {
             GlassBarCells(
                 items = items,
-                showLabels = metrics.showLabels,
                 sampled = sampled,
                 trailing = trailing,
                 iconSize = metrics.iconSize,
-                labelSize = navPlan.labelTextSize,
             )
         }
 
@@ -374,11 +370,9 @@ fun GlassBar(
                     // 正确做法是只录**图标本身**（正常色），让外层的 tint 去上色。
                     GlassBarCells(
                         items = items,
-                        showLabels = metrics.showLabels,
                         sampled = true,
                         trailing = trailing,
                         iconSize = metrics.iconSize,
-                        labelSize = navPlan.labelTextSize,
                     )
                 }
             }
@@ -459,19 +453,15 @@ fun GlassBar(
 @Composable
 private fun RowScope.GlassBarCells(
     items: List<GlassBarItem>,
-    showLabels: Boolean,
     sampled: Boolean,
     trailing: (@Composable () -> Unit)?,
     iconSize: Dp,
-    labelSize: TextUnit,
 ) {
     items.forEach { item ->
         GlassBarCell(
             item = item,
-            showLabels = showLabels,
             sampled = sampled,
             iconSize = iconSize,
-            labelSize = labelSize,
         )
     }
     if (trailing != null) {
@@ -482,14 +472,12 @@ private fun RowScope.GlassBarCells(
     }
 }
 
-/** 一个导航项：图标（+ 可选文字）+ 点击；选中态在没有采样时才用实心圆表达。 */
+/** 一个导航项：只有图标 + 点击；选中态在没有采样时才用实心圆表达。 */
 @Composable
 private fun RowScope.GlassBarCell(
     item: GlassBarItem,
-    showLabels: Boolean,
     sampled: Boolean,
     iconSize: Dp,
-    labelSize: TextUnit,
 ) {
     val scale = LocalGlassTabScale.current
     val label = stringResource(item.labelRes)
@@ -523,14 +511,5 @@ private fun RowScope.GlassBarCell(
             tint = if (solidSelection) Color.White else Primer.IconPrimary,
             modifier = Modifier.size(iconSize),
         )
-        if (showLabels) {
-            Text(
-                label,
-                fontSize = labelSize,
-                color = if (solidSelection) Color.White else Primer.TextTertiary,
-                fontWeight = if (item.selected) FontWeight.SemiBold else FontWeight.Normal,
-                maxLines = 1,
-            )
-        }
     }
 }

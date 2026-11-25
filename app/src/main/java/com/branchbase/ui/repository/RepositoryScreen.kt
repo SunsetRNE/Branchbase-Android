@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -36,7 +38,6 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.CompareArrows
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Refresh
@@ -45,8 +46,6 @@ import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -69,6 +68,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.json.JSONObject
 import androidx.compose.ui.unit.sp
@@ -97,6 +97,8 @@ import com.branchbase.ui.decision.UpstreamSetupScreen
 import com.branchbase.ui.decision.parseGitStatus
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.navigation.GlassBar
+import com.branchbase.ui.navigation.MoreBubbleHandle
+import com.branchbase.ui.navigation.MoreBubbleItem
 import com.branchbase.ui.navigation.GlassBarItem
 import com.branchbase.ui.navigation.NavigationShell
 import com.branchbase.ui.navigation.PageBackHandler
@@ -113,7 +115,10 @@ import com.branchbase.ui.profile.commitMode
 import com.branchbase.ui.profile.saveCommitMode
 import com.branchbase.ui.settings.GlassNavigationRuntime
 import com.branchbase.ui.theme.iconTap
+import com.branchbase.ui.adaptive.AdaptiveLayoutPolicy
+import com.branchbase.ui.adaptive.LocalLayoutPlan
 import com.branchbase.ui.theme.Primer
+import com.branchbase.ui.theme.TintRole
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -2280,6 +2285,32 @@ private fun bubbleEntries(canPush: Boolean): List<BubbleEntry> = listOfNotNull(
     BubbleEntry.Action(R.string.bubble_branch_sync, Icons.Filled.Sync, BUBBLE_ACTION_BRANCH_SYNC).takeIf { canPush },
 )
 
+/**
+ * More 气泡里的条目：颜色按「去哪」分，而不是一排中性灰 ——
+ * PR = 紫（`DONE`）、提交 = 蓝（`ACCENT`）、设置 = 中性、分支同步 = 绿（动作类）。
+ * 视觉与按钮渲染来自共用的 [MoreBubbleHandle]（与个人页同一份），这里只做路由映射。
+ */
+private fun repoMoreItems(
+    entries: List<BubbleEntry>,
+    onItem: (RepoPage) -> Unit,
+    onAction: (String) -> Unit,
+): List<MoreBubbleItem> = entries.map { entry ->
+    val tint = when (entry) {
+        is BubbleEntry.Page -> when (entry.page) {
+            RepoPage.PullRequests -> TintRole.DONE
+            RepoPage.Commits -> TintRole.ACCENT
+            else -> TintRole.NEUTRAL
+        }
+        is BubbleEntry.Action -> TintRole.SUCCESS
+    }
+    MoreBubbleItem(entry.labelRes, entry.icon, tint) {
+        when (entry) {
+            is BubbleEntry.Page -> onItem(entry.page)
+            is BubbleEntry.Action -> onAction(entry.key)
+        }
+    }
+}
+
 @Composable
 private fun RepoBottomBar(
     selected: RepoPage,
@@ -2291,38 +2322,58 @@ private fun RepoBottomBar(
     onBubbleAction: (String) -> Unit,
 ) {
     val entries = remember(canPush) { bubbleEntries(canPush) }
-    // `.navigationBarsPadding()` 放在 `.height()` **之前**：内边距算在 56dp 之外，
-    // 系统手势条那块留白沿用壳子的底色（原来由外层 Column 的 navigationBarsPadding 提供）。
-    // 栏自己负责这条内边距（NavigationShell 不会再加一层）。
-    Row(
+    // 栏高 / 内容宽度都由布局判定引擎给：5 个 Tab + ⋮ = 6 个槽位，手机上正好铺满、
+    // 平板上封顶 560dp 后居中（不再把图标摊到 1280dp 宽的两端）。
+    val nav = LocalLayoutPlan.current.nav
+    val metrics = AdaptiveLayoutPolicy.metrics(nav, bottomTabs.size + 1)
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .navigationBarsPadding()
-            .height(56.dp)
-            .background(Primer.BackgroundSecondary),
-        verticalAlignment = Alignment.CenterVertically,
+            .background(Primer.BackgroundSecondary)
+            .navigationBarsPadding(),
     ) {
-        bottomTabs.forEach { (p, icon) ->
-            BottomTab(p, icon, p == selected, onSelect)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(nav.height),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(
+                modifier = Modifier
+                    .width(metrics.barWidth)
+                    .fillMaxHeight(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                bottomTabs.forEach { (p, icon) ->
+                    BottomTab(p, icon, p == selected, onSelect, iconSize = nav.iconSize, modifier = Modifier.weight(1f))
+                }
+                // 手柄占满一格（与玻璃栏的尾部槽位同构）
+                Box(
+                    modifier = Modifier
+                        .width(metrics.cellWidth)
+                        .fillMaxHeight(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    MoreBubbleHandle(
+                        expanded = bubbleExpanded,
+                        items = repoMoreItems(entries, onBubbleItem, onBubbleAction),
+                        onExpandedChange = onBubbleToggle,
+                        highlighted = entries.any { it is BubbleEntry.Page && it.page == selected },
+                    )
+                }
+            }
         }
-        RepoMoreHandle(
-            entries = entries,
-            highlighted = entries.any { it is BubbleEntry.Page && it.page == selected },
-            expanded = bubbleExpanded,
-            onToggle = onBubbleToggle,
-            onItem = onBubbleItem,
-            onAction = onBubbleAction,
-        )
     }
 }
 
 /**
  * 仓库页的悬浮玻璃导航栏 —— 只在设置里开了「悬浮玻璃导航栏」时用它（关着时用 [RepoBottomBar]）。
  *
- * 5 个 Tab + 右侧 ⋮ 手柄 = **6 个槽位**（296dp），与主界面、个人页共用 [GlassBar] 那一份实现：
- * 形状、两档模糊、折射、透镜拉长、API 降级都在那边，这里只负责「有哪些项、哪个选中」。
+ * 5 个 Tab + 右侧 ⋮ 手柄 = **6 个槽位**，与主界面、个人页共用 [GlassBar] 那一份实现：
+ * 形状、折射、透镜拉长、API 降级都在那边，这里只负责「有哪些项、哪个选中」。
  *
- * 有一处是本页特有的：**页面落在 ⋮ 菜单里时透镜要落到手柄上**（议题/流程/发布之外的
+ * 有一处是本页特有的：**页面落在 ⋮ 菜单里时手柄要高亮**（议题/流程/发布之外的
  * PR / 提交 / 设置都从菜单进）。不这么办，那些页面上会出现「一个都不高亮」的空档。
  */
 @Composable
@@ -2347,81 +2398,43 @@ private fun GlassRepoBar(
                 onClick = { onSelect(p) },
             )
         },
-        showLabels = true,
         trailing = {
-            RepoMoreHandle(
-                entries = entries,
-                highlighted = inBubble,
+            MoreBubbleHandle(
                 expanded = bubbleExpanded,
-                onToggle = onBubbleToggle,
-                onItem = onBubbleItem,
-                onAction = onBubbleAction,
+                items = repoMoreItems(entries, onBubbleItem, onBubbleAction),
+                onExpandedChange = onBubbleToggle,
+                highlighted = inBubble,
             )
         },
     )
 }
 
 /**
- * ⋮ 手柄 + 它的下拉菜单 —— **两种栏共用**（传统整宽栏与玻璃胶囊各挂一次）。
- *
- * 抽出来的理由不是省几行：菜单里的项（`bubbleEntries`）与「哪些页面算落在菜单里」是
- * 路由知识，写两份迟早分家 —— 表现就是「传统栏里菜单是这几项、玻璃栏里少一项」。
+ * 底栏主项：**只有图标**（+ 选中主蓝）。文字是读屏名，不上屏。
  */
 @Composable
-private fun RepoMoreHandle(
-    entries: List<BubbleEntry>,
-    highlighted: Boolean,
-    expanded: Boolean,
-    onToggle: (Boolean) -> Unit,
-    onItem: (RepoPage) -> Unit,
-    onAction: (String) -> Unit,
+private fun RowScope.BottomTab(
+    page: RepoPage,
+    icon: ImageVector,
+    selected: Boolean,
+    onSelect: (RepoPage) -> Unit,
+    iconSize: Dp,
+    modifier: Modifier = Modifier,
 ) {
-    Box(contentAlignment = Alignment.Center) {
-        Icon(
-            Icons.Filled.MoreVert,
-            contentDescription = stringResource(R.string.action_more),
-            tint = selectionColor(highlighted, on = Primer.Blue500, off = Primer.IconPrimary),
-            modifier = Modifier
-                .size(46.dp)
-                .clickable { onToggle(!expanded) }
-                .padding(10.dp),
-        )
-        DropdownMenu(expanded = expanded, onDismissRequest = { onToggle(false) }) {
-            entries.forEach { entry ->
-                DropdownMenuItem(
-                    text = { Text(stringResource(entry.labelRes)) },
-                    leadingIcon = { Icon(entry.icon, null, tint = Primer.IconSecondary, modifier = Modifier.size(18.dp)) },
-                    onClick = {
-                        when (entry) {
-                            is BubbleEntry.Page -> onItem(entry.page)
-                            is BubbleEntry.Action -> onAction(entry.key)
-                        }
-                    },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun RowScope.BottomTab(page: RepoPage, icon: ImageVector, selected: Boolean, onSelect: (RepoPage) -> Unit) {
     Column(
-        modifier = Modifier
-            .weight(1f)
-            .clickable { onSelect(page) }
-            .padding(vertical = 4.dp),
+        modifier = modifier
+            // 整格高都可点：48dp 栏高里点偏一点也不会落空（图标只有 22dp）
+            .fillMaxHeight()
+            .clickable { onSelect(page) },
+        verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // 选中态用 180ms 渐变而不是硬切：底部 Tab 是最高频的点击目标
-        val tint = selectionColor(selected, on = Primer.Blue500, off = Primer.IconPrimary)
-        Icon(icon, null, tint = tint, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.height(2.dp))
-        Text(
-            stringResource(page.labelRes),
-            fontSize = 9.5.sp,
-            color = selectionColor(selected, on = Primer.Blue500, off = Primer.TextTertiary),
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            maxLines = 1,
+        Icon(
+            icon,
+            contentDescription = stringResource(page.labelRes),
+            tint = selectionColor(selected, on = Primer.Blue500, off = Primer.IconPrimary),
+            modifier = Modifier.size(iconSize),
         )
     }
 }

@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（1.0.22 → **1.2.5**）
-与 §三 `versionCode` 流水（129 → **261**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（**1.4.27** → 1.0.22）
+与 §三 `versionCode` 流水（129 → **287**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,38 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.26 → 1.0.22）
+## 二、`versionName` 流水（1.4.27 → 1.0.22）
+
+### 1.4.27
+
+**底栏整体比例：原生栏 −2/5、玻璃栏 −1/4，四类底栏同高 48dp；只留图标；「更多」气泡收成一份。**
+
+用户决策（2026-11-25）：原生底栏砍 2/5、压缩图标间距；悬浮玻璃栏砍 1/4；所有底栏选项只保留图标；
+优化「更多」气泡的统一样式与按钮渲染。落地如下：
+
+① **高度收到同一档**：主界面 M3 `NavigationBar` 80dp → 48dp（正好 −2/5）；玻璃栏容器 64dp → 48dp
+（正好 −1/4）、内边距 4dp → 3dp、滑块 56 → 42dp。个人页整宽栏 60dp、仓库页 56dp 也一并落到 48dp ——
+四档变一档，页面之间切栏不再跳。真源收到 `AdaptiveLayoutPolicy.BottomBarHeight/BottomBarPadding`，
+`GlassBackdrop` 直接引用（`FloatingBarReservedHeight` 名义值随之 80 → 64dp）。
+
+② **只留图标**：四类底栏都不再绘制 label；`labelRes` 保留为 `contentDescription`（读屏名与英文界面不丢）。
+`AdaptiveLayoutPolicy.metrics()` 删掉 `wantsLabels` / `showLabels` 维度 —— 48dp 里没有文字的位置，
+保留一个永远为 false 的开关只会让下一个人以为它还能开。
+
+③ **压缩原生栏图标间距**：原生栏也改走宽度引擎 —— 360dp 手机上 2 个 Tab 收成 198dp 居中
+（原来各占 1/4 屏、隔着一整块屏幕），6 个槽位时铺满可用宽，平板封顶 560dp。
+M3 的 80dp 下限不能硬压：底色 + `navigationBarsPadding()` 移到外层 `Box`，
+`NavigationBar` 设透明 + `tonalElevation = 0` + `windowInsets = 0`，只保留它的选中胶囊与点按态。
+
+④ **「更多」气泡只有一份**：个人页自研 `Popup` 与仓库页 Material `DropdownMenu` 合并为
+`ui/navigation/MoreBubble.kt` —— 32dp 圆手柄（展开旋转 90°、当前页落在菜单里时图标主蓝）、
+白底 + 1dp `Primer.Border` + 16dp 圆角 + 12dp 阴影的 196dp 弹层、约 46dp 的按钮行（26dp 同色 12% 图标底 +
+15dp 图标 + 13.5sp 文案）、危险项过分隔线、逐条 +28ms 错峰入场；弹层右对齐手柄并夹在屏幕 8dp 边距内。
+仓库页原来那份读 Material 基线色，这次一并回到 `Primer` 池。
+
+钉子：`AdaptiveLayoutPolicyTest` 更新宽度期望并新增「四档同高 48dp」；`GlassBackdropTest` 的结构钉子
+（三层结构 / 3 处 `drawBackdrop` / 滑块跟随）不回归。规格与边界见
+[`bottom-bar-design.md`](bottom-bar-design.md)。
 
 ### 1.4.26
 
@@ -4591,7 +4622,12 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（286 → 129）
+## 三、`versionCode` 流水（287 → 129）
+
+- **287**：底栏整体比例 —— 原生栏 80→48（−2/5）、玻璃栏 64→48（−1/4，滑块 42、内边距 3）、
+  个人页 60 / 仓库页 56 → 48；四类底栏去文字只留图标；宽度引擎压缩原生栏间距；
+  「更多」手柄 + 气泡合并为 `MoreBubble.kt`（个人页自研 Popup + 仓库页 DropdownMenu → 一份）
+  （一次提交，故 +1）。
 
 - **286**：稳定码体系按「实验性」定稿 —— `i18n-migration.md` §16（风险面 / 回退路径 / 未验收清单）、
   取消「删除双读」、`EngineError` KDoc 标注；零行为改动（一次提交，故 +1）。

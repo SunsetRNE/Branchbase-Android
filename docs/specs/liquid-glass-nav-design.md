@@ -51,7 +51,10 @@
 
 ## 四、参数只有一处真源
 
-全部在 `Backdrop.kt` 的 `GlassBackdrop`：容器 64dp / 滑块 56dp / 内边距 4dp、
+尺寸只在 `AdaptiveLayoutPolicy` 声明一次：栏高 48dp、内边距 3dp（滑块 = 48 − 2 × 3 = 42dp），
+`Backdrop.kt` 的 `GlassBackdrop.ContainerHeight` / `BarPadding` / `PillHeight` 直接引用它 ——
+2026-11-25 的整体比例调整把玻璃栏从 64dp 砍到 48dp（-1/4），见
+[`bottom-bar-design.md`](bottom-bar-design.md) §2。材质参数仍只在 `GlassBackdrop`：
 容器 `blur 8dp` + `lens(24dp, 24dp)`、滑块 `lens(10dp × press, 14dp × press, chromaticAberration)`、
 按压拉伸 `78/56` 与 `16dp`、图标放大 `1.2`、面板位移 `4dp`、内阴影 `8dp`、高光/薄层的四个 alpha。
 钉子单测同时钉「声明」与「读取」（`GlassBackdropTest` 第八条）—— 只钉一边挡不住「定义了没人用」。
@@ -86,9 +89,11 @@ source tools/env/env.rc
 
 ## 七、已知边界
 
-- 栏是**整宽**的（上游形态）：外壳 `NavigationShell` 的横向 12dp 留白仍在，栏内 4dp 内边距，
-  槽位等权。仓库页 6 个槽 + ⋮ 手柄时，每格约 `(宽 - 24 - 8) / 7`；手柄是**额外一格**，
-  不是滑块目标（滑块只在真正的导航项之间移动）。
+- 栏宽**不再整宽等分**：宽度走 `AdaptiveLayoutPolicy.metrics`（平板封顶 560dp、手机上 2 槽位约 198dp、
+  6 槽位时铺满可用宽），栏内 3dp 内边距、槽位等权；手柄是**额外一格**，但不是滑块目标
+  （滑块只在真正的导航项之间移动）。
+- 栏内**只画图标**（2026-11-25 起）：文字退到 `contentDescription`（读屏名仍来自 `labelRes`），
+  48dp 高度里不再给标签留位置。
 - `drawBackdrop` 的每一项都要显式传参（上游不给默认值）；容器 / 录制层 / 滑块共 3 处调用点，
   钉子单测按数量钉住（少一处就少一层，且不会编译报错）。
 - 低端设备上这是一条每帧多画两遍内容 + 两处 AGSL 的链；`NavigationShell` 的
@@ -142,13 +147,13 @@ source tools/env/env.rc
 
 | 段 | 谁做 | 落点 |
 |---|---|---|
-| ① 量出「栏占掉多高」 | 壳子 | 栏容器 `.onSizeChanged { barHeightPx = it.height }`；这个数含 `navigationBarsPadding()` + 上下 8dp 留白 + 栏高 64dp |
+| ① 量出「栏占掉多高」 | 壳子 | 栏容器 `.onSizeChanged { barHeightPx = it.height }`；这个数含 `navigationBarsPadding()` + 上下 8dp 留白 + 栏高 48dp |
 | ② 下发给页面 | 壳子 | `LocalFloatingBarReservedHeight`（CompositionLocal）；**占位形态恒为 0**，栏收起时也回落 0 |
 | ③ 页面让位 | 页面 | 消息页 `val barReserved = LocalFloatingBarReservedHeight.current`，再给**所有**贴底件加：悬浮球 `18.dp + barReserved`、筛选面板 `78.dp + barReserved`、多选条 `padding(bottom = barReserved)`、撤销条 `barReserved + (inSelection ? 66.dp : 12.dp)` |
 
 **为什么用「量」而不是推算**：栏自己带着 `navigationBarsPadding()`，手势条高度随机型 / 分屏 / 横屏变；
-`FloatingBarReservedHeight`（栏高 + 上下留白 = 80dp）只作**首帧名义值**，量到之后以实测为准。
-页面一律读 CompositionLocal，不许写死 80dp —— 写死的那份迟早与栏对不上。
+`FloatingBarReservedHeight`（栏高 + 上下留白 = 64dp）只作**首帧名义值**，量到之后以实测为准。
+页面一律读 CompositionLocal，不许写死任何一个 dp 数 —— 写死的那份迟早与栏对不上。
 
 钉子：`GlassBackdropTest` 第十三条（壳子声明 + 下发 / 页面读它 / 球·面板·多选条·撤销条一起让位）。
 同时把原「悬浮形态不许出现 WindowInsets」的钉子改写成「内容内边距必须仍是 0，但让位高度必须量出来」

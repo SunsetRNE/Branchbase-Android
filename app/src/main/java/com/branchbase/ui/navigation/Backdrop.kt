@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.branchbase.ui.adaptive.AdaptiveLayoutPolicy
 import com.kyant.backdrop.Backdrop
 
 /**
@@ -93,8 +94,13 @@ object LiveBackdropGate {
  * ## 取值出处：上游 catalog 的 `LiquidBottomTabs` + `LiquidBottomTab`
  *
  * 圆整到上游 `65ab177`（tag `2.0.1`）那一版的示例值，**不是我们拍的**：
- * 64dp 容器 / 56dp 滑块、4dp 内边距、`vibrancy() → blur(8dp) → lens(24dp, 24dp)` 的容器、
+ * `vibrancy() → blur(8dp) → lens(24dp, 24dp)` 的容器、
  * `lens(10dp, 14dp, chromaticAberration)` 的滑块、按压时 `78/56` 的横向拉伸与 `1.2` 的图标放大。
+ *
+ * **2026-11-25 的整体比例调整**：容器 64dp → 48dp、滑块 56dp → 42dp、内边距 4dp → 3dp
+ * （正好砍掉 1/4）。这三个值**不在本文件拍**：直接引用
+ * [com.branchbase.ui.adaptive.AdaptiveLayoutPolicy] 的 `BottomBarHeight` / `BottomBarPadding`，
+ * 于是栏、录制层、滑块与 `FloatingBarReservedHeight`（给页面贴底件让位）永远同源。
  *
  * 上游 `drawBackdrop` 的效果入参**没有默认值**（都要显式传），所以这些数字必须有个家；
  * 散在调用点就必然改漏一处 —— 这个对象就是那个家。
@@ -110,14 +116,19 @@ object GlassBackdrop {
 
     // ── 尺寸 ────────────────────────────────────────────────────────────────
 
-    /** 容器高度（含上下各 [BarPadding]）—— 上游 `LiquidBottomTabs` 的 64dp。 */
-    val ContainerHeight: Dp = 64.dp
+    /**
+     * 容器高度（含上下各 [BarPadding]）。
+     *
+     * 上游是 64dp；2026-11-25 按「砍掉 1/4」收到 48dp，与原生栏同高
+     * （见 [com.branchbase.ui.adaptive.AdaptiveLayoutPolicy.BottomBarHeight]）。
+     */
+    val ContainerHeight: Dp = AdaptiveLayoutPolicy.BottomBarHeight
 
-    /** 滑块高度 —— 上游的 56dp，正好等于容器减去上下内边距。 */
-    val PillHeight: Dp = 56.dp
+    /** 内容与容器边缘的留白 —— 上游 4dp，随栏高同比收到 3dp，三处共用。 */
+    val BarPadding: Dp = AdaptiveLayoutPolicy.BottomBarPadding
 
-    /** 内容与容器边缘的留白 —— 上游的 4dp，三处共用。 */
-    val BarPadding: Dp = 4.dp
+    /** 滑块高度 —— 48dp 容器减去上下各 3dp 内边距 = 42dp。 */
+    val PillHeight: Dp = ContainerHeight - BarPadding * 2
 
     // ── 容器（整条栏的玻璃） ────────────────────────────────────────────────
 
