@@ -208,6 +208,8 @@
     <string name="state_loading_ellipsis">加载中…</string>
     <string name="label_match">匹配</string>
     <string name="nav_repo_credentials">仓库凭据</string>
+    <!-- 设置主页「账户」组的唯一入口（2026-11 压密：主页不再渲染头像/登录名，身份进账号管理页） -->
+    <string name="nav_accounts_manage">账号管理</string>
     <string name="action_new_branch">新建分支</string>
     <string name="nav_git_proxy">Git 代理</string>
     <string name="action_sign_out">退出登录</string>
@@ -418,7 +420,6 @@
     <string name="action_new">新建</string>
     <string name="action_discard_and_switch">撤销并切换</string>
     <string name="nav_upstream">上游</string>
-    <string name="note_repo_credentials_scope">只在当前账号打不开的私有仓库上生效。</string>
     <string name="state_no_repos">暂无仓库</string>
     <string name="label_git_bundle">Git 配置包</string>
     <string name="label_git_workspace">工作区</string>
@@ -485,7 +486,6 @@
     <string name="note_commit_local_repo_scope">本地仓库（Git）模式：工作区的全部改动会一起提交（引擎先把整个工作区加入索引），所以这里不按文件勾选。</string>
     <string name="note_fork_entry_settings">这一步要建一个 fork —— 到「设置 → 本地仓库」里的 fork 流程走完再回来设上游。</string>
     <string name="note_git_view_unavailable">这一档视图还没落地 —— 按设计稿的阶段计划接入（见 docs/specs/git-mode-design.md §8）。</string>
-    <string name="note_proxy_scope">仅作用于本地仓库的 clone / pull / push。</string>
     <string name="note_delete_local_branch">只删除本地分支，不影响远端；未合并的提交会丢失。</string>
     <string name="note_dirty_blocks_switch">工作区有 %1$s 个改动；切换分支若会覆盖它们将被拒绝</string>
     <string name="label_credential_count">%1$s 条</string>
@@ -501,8 +501,6 @@
     <string name="error_nothing_to_commit">工作区没有改动可提交</string>
     <string name="label_theme">主题</string>
     <string name="label_glass_navigation">悬浮玻璃导航栏</string>
-    <string name="note_glass_navigation_enabled">主界面使用悬浮玻璃导航栏；关闭后恢复传统底部导航栏。</string>
-    <string name="note_glass_navigation_disabled">使用传统底部导航栏；开启后主界面切换为悬浮玻璃样式。</string>
     <string name="toast_deleted_branch">已删除分支 %1$s</string>
     <string name="action_create_and_switch">创建并切换</string>
     <string name="label_code_commit_group">代码与提交</string>
@@ -510,12 +508,10 @@
     <string name="toast_deleted">已删除 %1$s</string>
     <string name="toast_created_and_switched">已创建并切换到 %1$s</string>
     <string name="label_notification_display_mode">通知显示模式</string>
-    <string name="note_translate_disabled">关闭后不进正文页翻译，页面上的悬浮球也会收起。</string>
     <string name="nav_revert_gitify">回退 Git 化</string>
     <string name="state_no_projects">暂无项目</string>
     <string name="action_clone_repo">拉取仓库 %1$s</string>
     <string name="error_repo_status_engine_unavailable">无法读取仓库状态（引擎不可用）</string>
-    <string name="note_translate_enabled">进入自述文件等正文页会自动翻译，页面上出现可移动悬浮球。</string>
     <string name="error_update_failed">更新失败：%1$s</string>
     <string name="label_editor_module_info">%1$s %2$s（%3$s）</string>
     <string name="label_project_home">项目主页（仅 Android）</string>
@@ -534,7 +530,6 @@
     <string name="error_checksum_unavailable">无法获取校验文件</string>
     <string name="label_appearance_group">外观</string>
     <string name="error_already_exists">「%1$s」已存在</string>
-    <string name="note_theme_follow_system">选「跟随系统」时，App 会随系统的浅色 / 深色自动切换。</string>
     <string name="label_community_qq">开发交流（QQ 群）</string>
     <string name="confirm_delete_local_copy">确定删除「%1$s」吗？仅删除本地副本，不影响远端仓库。</string>
     <string name="note_local_repo_requires_git_mode">开启需先将「提交模式」设为「本地仓库（Git）」。</string>
@@ -1457,8 +1452,6 @@
     <string name="label_git_proxy_sub">libgit2 的 HTTP 代理</string>
     <string name="state_currently_active">当前生效</string>
     <string name="hint_proxy_example">http://127.0.0.1:7890 或 socks5://127.0.0.1:1080</string>
-    <string name="state_not_signed_in">未登录</string>
-    <string name="note_sign_in_to_sync">登录后才能同步仓库与通知</string>
     <string name="label_long_task">长任务</string>
     <string name="label_short_task">短任务</string>
     <string name="state_not_configured_will_ask">未配置（首次提交时会询问）</string>

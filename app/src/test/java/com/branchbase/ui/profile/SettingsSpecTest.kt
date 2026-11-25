@@ -146,9 +146,11 @@ class SettingsSpecTest {
         val region = settingsRegion()
         val used = listOf(
             "NavRow(", "SwitchRow(", "ChoiceRow(", "ActionRow(", "DangerRow(", "InfoRow(",
-            "DisabledNavRow(", "AccountRow(", "SettingsProse(", "ModeOptionRow(",
+            "DisabledNavRow(", "SettingsProse(", "ModeOptionRow(",
         ).filter { region.contains(it) }
-        assertTrue("设置页一个公共行组件都没用到，说明又退回了自制行", used.size >= 6)
+        // 2026-11 压密后主页只剩 5 种行型（账户卡 AccountRow 删除、说明段落不再上主页），
+        // 阈值跟着从 6 → 5；变的只是行型的**数量**，「必须来自公共组件」这条没变。
+        assertTrue("设置页一个公共行组件都没用到，说明又退回了自制行", used.size >= 5)
     }
 
     // ── ③ 开关不配「保存」（§5.3） ──────────────────────────────────────
@@ -158,6 +160,53 @@ class SettingsSpecTest {
         assertFalse(
             "设置页出现了「保存」：开关与选择行必须立即生效，不配保存（规范 §5.3）",
             settingsRegion().contains("\"保存\""),
+        )
+    }
+
+    // ── ③′ 主页是「入口索引」，不是设置项容器（2026-11 压密） ────────────
+
+    /**
+     * 设置主页那一段（到通知页为止）。
+     *
+     * [settingsRegion] 从 SettingsScreen 一直划到「本地仓库列表页」，中途还住着
+     * NotificationSettingsScreen —— 而二级页**允许**保留说明段落（本轮只压主页）。
+     * 用整段去断言「不许出现 sub / SettingsProse」会把通知页判红，那是假红。
+     */
+    private fun settingsHomeRegion(): String {
+        val s = source(settingsPagePath)
+        val start = s.indexOf("fun SettingsScreen(")
+        val end = s.indexOf("fun NotificationSettingsScreen(")
+        assertTrue("找不到设置主页区段（start=$start end=$end）", start in 0 until end)
+        return s.substring(start, end)
+    }
+
+    @Test
+    fun `设置主页不展开说明文字`() {
+        val region = settingsHomeRegion()
+        assertFalse(
+            "设置主页又出现了行内说明（`sub = stringResource…`）：主页一行一个入口，" +
+                "说明归各自二级页（见 docs/specs/settings-compact-redesign.md）",
+            Regex("""sub\s*=\s*stringResource""").containsMatchIn(region),
+        )
+        assertFalse(
+            "设置主页又出现了 SettingsProse 说明段落（主页不再放散文）",
+            region.contains("SettingsProse("),
+        )
+    }
+
+    @Test
+    fun `设置主页用紧凑密度且只影响主页`() {
+        val region = settingsHomeRegion()
+        assertTrue(
+            "设置主页必须在根部 provide SettingsDensity.Compact（否则行高/图标/卡片底回到舒适档）",
+            region.contains("LocalSettingsDensity provides SettingsDensity.Compact"),
+        )
+        // 二级页不许跟着改：Comfort 是 CompositionLocal 的默认值，
+        // 任何页面自己再 provide 一次，就会把「只压主页」变成「整棵设置树一起压」
+        assertEquals(
+            "LocalSettingsDensity 只允许设置主页 provide 一次（二级页走默认 Comfort）",
+            1,
+            Regex("LocalSettingsDensity provides").findAll(source(settingsPagePath)).count(),
         )
     }
 
@@ -289,6 +338,25 @@ class SettingsSpecTest {
         assertTrue("行最小高度应为 48dp（规范 §4.2）", row.contains("RowMinHeight = 48.dp"))
         assertTrue("图标应为 20dp（规范 §4.2）", row.contains("IconSize = 20.dp"))
         assertTrue("左右内边距应为 16dp（规范 §4.2）", row.contains("RowPaddingH = 16.dp"))
+        // 紧凑档（设置主页）：行 44dp / 图标 18dp —— 这两个值就是「压密」本身，
+        // 改回 48/20 等于悄悄撤销这一版的结构性改动
+        assertTrue("紧凑档行最小高度应为 44dp", row.contains("rowMinHeight = 44.dp"))
+        assertTrue("紧凑档图标应为 18dp", row.contains("iconSize = 18.dp"))
+        assertTrue(
+            "设置卡片必须用可见底色（Gray100）：BackgroundSecondary 在浅色板里等于画布白",
+            row.contains(".background(Primer.Gray100)"),
+        )
+        // 2026-11 真机反馈「取消掉黑边」：浅色下 BorderEmphasis 是纯黑 1dp，
+        // 七张卡一起框出来的是一张线框图。卡片不再描边，分隔线也降成 40% 软线。
+        val sectionBody = row.substring(row.indexOf("fun SettingsSection(")).substringBefore("\n}\n")
+        assertFalse(
+            "设置卡片又画了描边：浅色下 BorderEmphasis 是纯黑，七张卡会读成线框图",
+            sectionBody.contains(".border("),
+        )
+        assertTrue(
+            "组内分隔线要用半透明软线（BorderEmphasis 的 40%，与首页 TodoDivider 同档）",
+            row.contains("Primer.BorderEmphasis.copy(alpha = 0.4f)"),
+        )
     }
 
     @Test
@@ -312,7 +380,10 @@ class SettingsSpecTest {
     fun `值负责省略而不是挤名称`() {
         val row = source(rowComponentsPath)
         val text = row.substring(row.indexOf("private fun RowScope.SettingsText("))
-        assertTrue("名称要有自己的权重盒（份额一人一半）", text.contains("Modifier.weight(1f).padding(vertical = 11.dp)"))
+        assertTrue(
+            "名称要有自己的权重盒（份额一人一半）；内边距由密度给（d.textPadV）",
+            text.contains("Modifier.weight(1f).padding(vertical = d.textPadV)"),
+        )
         assertTrue("值要有独立的权重盒并右对齐", text.contains("contentAlignment = Alignment.CenterEnd"))
         assertTrue("值要能省略", text.contains("TextOverflow.Ellipsis"))
         // 份额必须**吃掉**（`fill` 默认 true）。写成 `fill = false` 时名称块缩到文字宽度，
@@ -359,37 +430,25 @@ class SettingsSpecTest {
         assertTrue("禁用行的原因要用 TextSecondary 保持可读", block.contains("color = Primer.TextSecondary"))
     }
 
-    // ── ⑪ 账户卡渲染真实头像，而不是写死的首字母 ────────────────────────
-
     /**
-     * 账户卡曾长期把**写死的灰底首字母**当头像：它压根不接 `avatar`，
-     * 于是本地缓存与 `avatar_url` 都在，设置页也只有一个字母，更谈不上圆形裁切。
-     * 首字母只是 `theme/Avatar` 内部「图还没到」的兜底层，不是账户卡的实现。
+     * 2026-11 决策反转：主页**不再**渲染账号身份（头像 / 登录名 / 服务器 / 状态胶囊）。
+     *
+     * 原先这条钉子要求「必须把 avatarUrl 传给 AccountRow」—— 锚的是账户卡这个形态。
+     * 主页压密后账户组只剩一行「账号管理」入口：身份与多账号切换都在二级页里回答，
+     * 主页那张卡只能回答「我是谁」，回答不了「怎么换」。钉子跟着钉新的形态。
      */
     @Test
-    fun `账户行用统一头像组件渲染真实头像`() {
-        val row = source(rowComponentsPath)
-        val block = row.substring(
-            row.indexOf("fun AccountRow("),
-            row.indexOf("// ───────────────────────── 表单：输入"),
-        )
-        assertTrue("AccountRow 必须接收头像地址参数", block.contains("avatar: String?"))
-        assertTrue(
-            "AccountRow 必须用统一 Avatar 组件（本地缓存优先 + 圆形裁切 + 首字母兜底）",
-            block.contains("Avatar("),
-        )
+    fun `设置主页不再渲染账号身份_只留账号管理入口`() {
+        val region = settingsRegion()
         assertFalse(
-            "AccountRow 里又写死了首字母占位：即使有头像也永远不显示",
-            block.contains("uppercase()"),
+            "设置主页又出现了 AccountRow / 头像：身份信息已收进账号管理页",
+            region.contains("AccountRow(") || region.contains("avatar = account"),
         )
-    }
-
-    @Test
-    fun `设置页把当前账号头像传给账户行`() {
         assertTrue(
-            "设置页必须把 account.avatarUrl 传给 AccountRow，否则账户卡只剩字母占位（圈选处曾如此）",
-            settingsRegion().contains("avatar = account?.avatarUrl"),
+            "设置主页的账户组必须保留「账号管理」入口（图标 + 名称，不带身份）",
+            region.contains("nav_accounts_manage"),
         )
+        assertTrue("入口图标要匹配语义", region.contains("Icons.Filled.Person"))
     }
 
     // ── ⑫ 首帧绘制量与组合期读盘（2026-09-22 设置页首帧绘制归因） ──────────
@@ -492,7 +551,7 @@ class SettingsSpecTest {
         assertTrue(
             "名称列的权重盒必须吃掉份额（`Modifier.weight(1f)`）：只缩到文字宽度时，" +
                 "值列的右边缘就落在文字后面，而不是文本块末尾（规范 §4.2）",
-            row.contains("Column(Modifier.weight(1f).padding(vertical = 11.dp))"),
+            row.contains("Column(Modifier.weight(1f).padding(vertical = d.textPadV))"),
         )
         assertTrue(
             "值列要在自己的权重盒里右对齐（右边缘 ＝ 文本块末尾 ＝ 行尾控件左侧）",
@@ -512,7 +571,7 @@ class SettingsSpecTest {
         val row = stripComments(source(rowComponentsPath))
         listOf(
             "NavRow(", "SwitchRow(", "ChoiceRow(", "ActionRow(",
-            "DangerRow(", "InfoRow(", "DisabledNavRow(", "AccountRow(",
+            "DangerRow(", "InfoRow(", "DisabledNavRow(",
         ).forEach { fn ->
             val at = row.indexOf(fn)
             assertTrue("找不到 $fn", at >= 0)

@@ -23,6 +23,7 @@
     ├── NAVIGATION-NOTES.md       ← 返回键与导航（反复踩坑后定下的两条硬规则）
     ├── BUILD-NOTES.md            ← 构建环境、AGP 9.0 API、版本号体系、JNI 契约、CI 流水线
     ├── settings-design.md        ← **设置页设计规范**（信息架构 / 6 种行型 / 控件选型 / 用语表 / 危险操作）
+    ├── settings-compact-redesign.md ← **设置主页压密**（入口索引化 / 密度表 / 逐行压前压后 / 其他页排单）
     ├── ui-design.md              ← **界面规格**（配色与弹层（单一真源）/ 深色主题 / 动效）
     ├── frame-perf-design.md      ← **帧率基线**（页面重建：口径 / 取数通道 / 归因四类 / 验收清单）
     ├── morph-design.md           ← **图标形变规格**（术语表 / 六步管线与失真点 / 六类成因 / 验收清单 / 极端组合台账）
@@ -136,7 +137,8 @@ README.zh.md                       ← 项目门面（中文原文；**中文内
 | [`specs/git-version-tree-design.md`](specs/git-version-tree-design.md) | **已并入上一条**的指针页（保留以免旧链接变死链）；内容全部在 `git-mode-design.md` | 新内容写进 `git-mode-design.md` |
 | [`specs/NAVIGATION-NOTES.md`](specs/NAVIGATION-NOTES.md) | 返回键只有一条链路：`PageBackHandler` + 两个切换器都下发 `LocalPageActive` | 根 `README.md`、`ui/navigation/` 各页、`BackConsumptionTest` |
 | [`specs/BUILD-NOTES.md`](specs/BUILD-NOTES.md) | AGP 9.0 的 `VariantOutputImpl` 坑 + 版本号体系 + JNI 签名与 locale + §六 编译流水线为什么这么定 | 根 `README.md` 构建一节、`tools/env/*`、`.github/workflows/*` |
-| [`specs/settings-design.md`](specs/settings-design.md) | **设置页设计规范**：两级 IA、6 种行型的封闭集合、控件选型决策树、用语表、危险操作规格 | `ui/settings/SettingsRow.kt:44`、`SettingsKeys.kt:8`、`GitProxyScreen.kt:34`、`ui/theme/ThemePalette.kt:81`、`SubPageScreens.kt` / `TranslateSettingsScreen.kt`（按「规范 §N」引用）、`SettingsSpecTest` |
+| [`specs/settings-design.md`](specs/settings-design.md) | **设置页设计规范**：两级 IA、6 种行型的封闭集合、控件选型决策树、用语表、危险操作规格、§十六 主页压密 | `ui/settings/SettingsRow.kt:44`、`SettingsKeys.kt:8`、`GitProxyScreen.kt:34`、`ui/theme/ThemePalette.kt:81`、`SubPageScreens.kt` / `TranslateSettingsScreen.kt`（按「规范 §N」引用）、`SettingsSpecTest` |
+| [`specs/settings-compact-redesign.md`](specs/settings-compact-redesign.md) | **设置主页压密（2026-11）**：L1 入口索引化 / 说明文字下线 / `SettingsDensity` / 逐行压前压后（约 −29%）/ 其他页排单与交接 | `ui/settings/SettingsRow.kt`（`SettingsDensity`）、`ui/profile/SubPageScreens.kt`（`SettingsScreen`）、`SettingsSpecTest` |
 | [`specs/ui-design.md`](specs/ui-design.md) | **界面规格**：§1 配色与弹层（单一真源）/ §2 深色主题（色板 + 角色、对比度、已知取舍）/ §3 动效（页面级 + 元素级） | `ui/theme/morph/MorphSpring.kt:25`、根 `README.md` |
 | [`specs/bottom-bar-design.md`](specs/bottom-bar-design.md) | **底栏规格**：四类底栏同高 48dp（原生 −2/5、玻璃 −1/4）/ 只留图标 / 宽度引擎压缩间距 / 「更多」气泡统一样式与按钮渲染 / 已知边界 | `ui/adaptive/AdaptiveLayoutPolicy.kt`、`ui/navigation/{NavigationBar,GlassBar,MoreBubble}.kt`、`AdaptiveLayoutPolicyTest`、`GlassBackdropTest` |
 | [`specs/coui-adoption-design.md`](specs/coui-adoption-design.md) | **COUI 风格 + 多 UI 体系（评估与决策记录）**：§2–§10 引库的成本与风险基线（Kotlin 2.4.10 / Compose 1.11 版本链、1747 处 Primer、液态玻璃与测试钉子）；**§11 决策 D1/D2**：多皮肤体系 + 设置入口行（非开关）+ 独立配置页；切换必须「动效 + 过渡 + 过渡壁纸动画，不生切/不硬切/不立刻替换」，演示仅在配置页 | 实施时：`ui/settings/SettingsRow.kt`、`ui/navigation/Backdrop.kt`、`ui/theme/ThemePalette.kt`、`settings-design.md` §4/§9、`ui-design.md` §2/§3 |
@@ -150,6 +152,7 @@ README.zh.md                       ← 项目门面（中文原文；**中文内
 | [`specs/prototypes/workflow-redesign.md`](specs/prototypes/workflow-redesign.md) | Run 详情卡片流 + 作业日志页合并 | `specs/screens-design.md:14,250` |
 | [`specs/prototypes/log-redesign.md`](specs/prototypes/log-redesign.md) | 日志页重设计原型：chrome 196→110dp、单行网格、9 个写死色值→主题角色 | `specs/settings-design.md:76,194,365` |
 | [`specs/prototypes/settings-redesign.md`](specs/prototypes/settings-redesign.md) | 设置页重设计原型：8 套行组件 → 6 种行型、主题去循环化、禁用行给出路、3 个对比度修正 | `specs/settings-design.md` §一 / §十四 |
+| [`specs/prototypes/settings-compact.html`](specs/prototypes/settings-compact.html) | **设置主页压密可交互原型（单文件，直接打开）**：压前/压后双机实时对比、5 个尺寸旋钮 + 4 预设、高度实测、Compose 片段、其他页排单板（A/B/C，可导出 Markdown） | `specs/settings-compact-redesign.md`、`ui/settings/SettingsRow.kt` |
 | [`specs/prototypes/theme-neutral-preview.md`](specs/prototypes/theme-neutral-preview.md) | 中性色「去灰」三个方案的取值与结论 | `specs/settings-design.md` §九（令牌取舍）、`ui/theme/ThemePalette.kt`（消费方） |
 | [`specs/prototypes/home-todo-empty.md`](specs/prototypes/home-todo-empty.md) | 首页「待处理」：无框分组 + 可折叠（已落地 1.4.31）：44dp 折叠头 / 摘要承担四态 / 空态即折叠态 / 0 行去箭头 | `ui/home/HomeScreen.kt`（`TodoGroup` / `TodoState`）、`design/home-todo-empty/`（草图本体） |
 | [`../design/README.md`](../design/README.md) | **原型草图目录（入库）**：放什么 / 命名 / 与 specs/prototypes 的分工 / 现有清单 | 各原型的说明文档按约定抽进 `specs/prototypes/` |

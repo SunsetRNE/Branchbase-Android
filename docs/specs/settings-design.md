@@ -9,7 +9,7 @@
 > **配套原型**：`design/settings-redesign/`（可点草图，2026-11-24 起入库），
 > 说明副本见 [`prototypes/settings-redesign.md`](prototypes/settings-redesign.md)。
 >
-> **状态**：v4（见 §十三）· 依据 2026-09 的现状测绘（§一）。规范里标 **必须 / 应该 / 禁止** 的是硬约束，
+> **状态**：v8（见 §十三）· 依据 2026-09 的现状测绘（§一），2026-11 补主页压密（§十六）。规范里标 **必须 / 应该 / 禁止** 的是硬约束，
 > 标 **可以** 的是建议。凡与现状冲突的，§十一 给了迁移路径。
 
 ---
@@ -108,7 +108,7 @@ L1 设置（唯一入口）
 
 | 序 | 分组名 | 放什么 | 为什么在这个位置 |
 |---|---|---|---|
-| 1 | **账户** | 当前账号卡 → 账号管理 → **仓库凭据**（仅在令牌登录模式出现，见 §3.2.1） | 身份是第一信息；多账号是高频动作 |
+| 1 | **账户** | **账号管理入口**（`Person` 图标，不渲染身份）→ **仓库凭据**（仅在令牌登录模式出现，见 §3.2.1） | 身份与多账号是高频动作；但「我是谁」由账号管理页回答（§十六，2026-11 起主页不再是账户卡） |
 | 2 | **外观** | 主题 | 第二高频（换环境就换），且改错无痛 |
 | 3 | **通知** | 系统通知开关、通知显示模式 | 用户来设置页最常见的两个目的之一（「为什么没提醒」） |
 | 4 | **翻译** | 自动翻译开关 → 沉浸式翻译 | 功能级开关，开了就长期用 |
@@ -590,6 +590,8 @@ L1 设置（唯一入口）
 | v3 | 2026-09 | 账户卡修复：`AccountRow` 原来是写死的灰底首字母，改成统一 `theme/Avatar`（本地缓存 → `avatar_url` → 首字母兜底，圆形裁切），新增 `avatar` 参数；账号侧补 `Account.avatarUrl`（快照缺失回落会话 `user.avatar_url`），`MainActivity` 预热同源；`SettingsSpecTest` 新增两条钉子；偏离表补第 4 条。见 §十四 |
 | v5 | 2026-09 | 设置树描边改为纯黑（**仅浅色**）：卡片描边与行分隔线由 `Primer.Gray200`（`#E3E4E8`）改走**新增角色** `Primer.BorderEmphasis`（浅 `#000000` / 深 `#30363D`）；`Primer.BorderControl` 浅色由 `#8B8E99` 改为 `#000000`（深色仍 `#6E7681`）。受影响断言：无 —— `SettingsSpecTest` 本轮**未新增钉子**，因为「无写死色值」那条已覆盖（改的是角色引用，不是字面量）。见 §十四末 |
 | v6 | 2026-09-24 | **行尾控件贴右**（真机截图圈选处）：`SettingsRow.kt` 里 4 处主轴权重盒由 `weight(1f, fill = false)` 改为 `weight(1f)` —— `SettingsText` 名称列、`NavRow` / `DisabledNavRow` 内层 `Row` 与其原因列、`AccountRow` 名称列。`fill = false` 时盒子缩到文字宽度、空白留在行尾，于是值列与 `›` / `Switch` / 分段控件 / 胶囊停在文字后面，每行一个位置。**观感变化**：只有行尾那一截留白归位（值列与尾控件右移到 16dp 内边距），名称/值上限、折行宽度、省略阈值都不变。§4.2 补「行尾控件」一行 + 机制说明与反模式，§10.2 补两条验收，§10.1 补第 8 条钉子（`SettingsSpecTest` 新增 ⑬ 三条：设置树无 `fill = false` 的主轴盒子 / 名称列吃份额 + 值列右对齐 / 8 种行的尾控件都走 `SettingsRowShell`）。受影响断言：`值负责省略而不是挤名称` 原来钉的是 `weight(1f, fill = false)`（正是本次要改的写法），改为钉「名称吃份额 + 值右对齐 + 值可省略」 |
+| v9 | 2026-11-26 | **去掉设置卡片的黑边**：`SettingsSection` 不再画 `BorderEmphasis` 描边（浅色 `#000000`、1dp，真机上七张卡 + 分隔线 + 分段控件读成一张线框图，用户反馈「取消掉黑边」）；卡片底统一 `Gray100`（两档一起，否则二级页去掉描边后卡片在浅色下没有边界）；行分隔线改为 `BorderEmphasis` 的 40%（与首页 `TodoDivider` 同档）；`SettingsDensity.filledCard` 随之删除。**交互控件边界不动**：分段控件 / 二级按钮仍走 `BorderControl`（WCAG 1.4.11 要 3:1，不是装饰）。钉子：`行高与图标尺寸符合规范` 里「卡片可见底色」改为断言 `Gray100`，并新增「卡片不许 `.border(`」「分隔线必须 40%」两条 |
+| v8 | 2026-11-26 | **设置主页压密（L1 入口索引化）**：说明文字全部下线（206 字 → 0）、账户卡换成「账号管理」入口（不再渲染头像/登录名/胶囊，`AccountRow` 删除）、行 48→44dp / 图标 20→18dp / 卡片底 `BackgroundSecondary`→`Gray100`、组名与行名重复的「通知」去掉组标签。新增 `SettingsDensity`（`Comfort`/`Compact`）+ `LocalSettingsDensity`：**行型不变、密度是外参**，二级页仍走 `Comfort`。整页约 956→680dp（−29%）。钉子：新增 2 条（主页不展开说明 / 紧凑密度只主页用）、反转 1 条（原「设置页必须传 avatarUrl」→「主页不再渲染身份」）、更新 3 条（行组件清单 / 名称列内边距 / 行型骨架去 `AccountRow`）。见 §十六 与 [`settings-compact-redesign.md`](settings-compact-redesign.md) |
 | v7 | 2026-09-24 | **设置树的文案跟语言走 + 通知行的状态设计**：①`ThemeMode` / `CommitMode` / `AccountStatus` / `AuthKind` / `ReleaseVariant` / `NavDestination` 等**枚举**的中文构造参数改成 `@StringRes`（枚举不是 `@Composable`，写死中文就永远切不过去；日志专用名另立 `logLabel`，见 i18n 规范 §5.1/§7）；②`DisabledNavRow(fixLabel)` 与 `DangerConfirmCard(title)` / `AppIcon(contentDescription)` 的**参数默认值**不再放中文字面量（调用点不传就必然上屏），改 `String? = null` + 函数体内 `stringResource`；③`NavRow` 增加可选 `statusChip`（§4.3 的胶囊形态，与 `SwitchRow`/`InfoRow` 对齐）；④设置「通知」行与通知设置页那一行改用**状态胶囊 + 状态驱动的出路按钮**（`SystemNotificationState.labelRes/hintRes/actionRes`：能弹授权框是「开启」，被系统关掉是「去设置」；未开启时用 `DisabledNavRow` 的「原因 + 出路」形态）；⑤新增 `I18nUiTextTest` 钉住「已资源化的界面文件不许再退回中文」与「values-en 条目值不许是中文」。受影响断言：`禁用行必须给出去开启的路` 仍绿（`onFix = onOpenCommitMode` 未动） |
 
 ---
@@ -603,7 +605,7 @@ L1 设置（唯一入口）
 
 | 层 | 改动 |
 |---|---|
-| 新增 | `ui/settings/SettingsRow.kt` —— 6 种行型 + `AccountRow`（账户卡）+ `SettingsProse` + `StatusChip` + `SettingsSegment` + `SettingsField`；`DisabledNavRow` 是 `NavRow` 的禁用态 |
+| 新增 | `ui/settings/SettingsRow.kt` —— 6 种行型 + `AccountRow`（账户卡，**2026-11 已删除**，见 §十六）+ `SettingsProse` + `StatusChip` + `SettingsSegment` + `SettingsField`；`DisabledNavRow` 是 `NavRow` 的禁用态 |
 | 新增 | `ui/settings/SettingsKeys.kt` —— 键的唯一声明处 + 统一的 `prefs(context)` + `gitProxy(context)` |
 | 新增 | `ui/settings/GitProxy.kt`（纯逻辑：脱敏 + 校验，可单测）、`ui/settings/GitProxyScreen.kt`（二级输入页） |
 | 新增 | `SettingsSpecTest` / `GitProxyTest` |
@@ -685,6 +687,60 @@ L1 设置（唯一入口）
 `AppLanguageTest` 6 例钉住上面的**关系**（名称用母语自称、说明用他称、两者相同时不给说明），
 刻意**不比对具体译文**：「中文」还是「简体中文」取决于 JDK 的 CLDR 版本，
 钉死它等于给自己埋一个跟 JDK 升级一起红的假红。
+
+---
+
+## 十六、设置主页压密（2026-11 · 第三轮）
+
+主页从「设置项容器」改成「**入口索引**」：一行一个入口、不带解释性说明、图标对语义、
+卡片有可见底色、比例压密。完整决策、逐行差异、排单与交接见
+[`settings-compact-redesign.md`](settings-compact-redesign.md)；这一节只记**规范层面**变了什么。
+
+### 16.1 规范层面的变化
+
+| 项 | 旧 | 新 | 依据 |
+|---|---|---|---|
+| 主页是否放说明文字 | 每行可有 `sub`（解释性文字），主页面里 7 行带说明 | **禁止**：主页的 `sub` 一律为 `null`，说明归各自二级页 | 主页是索引，说明是二级页的内容 |
+| 账户组 | 账户卡（头像 + 登录名 + host + 状态胶囊） | **`NavRow` 入口**（`Person` + 「账号管理」），不渲染身份 | 「我是谁 / 怎么换」都属于账号管理页 |
+| 行高 | 48dp | 主页 44dp（二级页仍 48dp） | 密度外参，见 16.2 |
+| 卡片底 | `BackgroundSecondary`（浅色 == 画布白） | `Gray100`（两档统一） | 先给边界，再谈压密（同 c77e8fc） |
+| 卡片描边 | `BorderEmphasis`（浅色纯黑 1dp） | **无**；行分隔线降为 40% | 真机反馈「取消掉黑边」：纯黑线框把整页读成线框图；交互控件边界（`BorderControl`）不动 |
+| 组名与行名重复 | 「通知」组 + 「通知」行 | 单行卡片**不带组标签** | §3.2 |
+
+### 16.2 `SettingsDensity`（唯一的新机制）
+
+`SettingsRow.kt` 里的 `SettingsDensity` 是**行型的尺寸外参**，不是新行型：
+
+```kotlin
+CompositionLocalProvider(LocalSettingsDensity provides SettingsDensity.Compact) { /* 主页 */ }
+```
+
+- **默认 `Comfort`** —— 二级页一行都不用改；
+- 一个新页面要压密 = 在自己的根上 provide 一次，不需要拷行组件；
+- 两档的数值表见 [`settings-compact-redesign.md`](settings-compact-redesign.md) §三；
+- `SettingsSpecTest` 钉住「只有主页 provide 一次」：多 provide 一处就等于把整棵树压了。
+
+### 16.3 主页的「值」与「说明」怎么分
+
+- **值**（保留）：`跟随系统` / `单次提交` / `未设置` / `3 条` / `已开启` / `N 个错误` ——
+  它们回答「现在是什么状态」，一屏能读完；
+- **说明**（删除）：回答「为什么 / 影响什么 / 怎么用」的整句，例如
+  「选『跟随系统』时，App 会随系统的浅色 / 深色自动切换。」—— 这是主题页的事；
+- **唯一的例外**：禁用态的原因（§6.3）与危险提示（§7）——「改错了会静默失效或有不可逆后果」
+  的信息必须留在能看见的地方。
+
+### 16.4 钉子变化（`SettingsSpecTest`）
+
+| 钉子 | 变化 |
+|---|---|
+| `设置主页不展开说明文字` | **新增**：主页区段不许出现 `sub = stringResource…` / `SettingsProse(` |
+| `设置主页用紧凑密度且只影响主页` | **新增**：主页 provide `Compact`；全文件 `LocalSettingsDensity provides` 只许 1 处 |
+| `设置主页不再渲染账号身份_只留账号管理入口` | **反转**（原 `设置页把当前账号头像传给账户行`）：主页不许出现 `AccountRow(` / `avatar = account`，且必须有 `nav_accounts_manage` + `Icons.Filled.Person` |
+| `设置页的行都来自公共行组件` | 阈值 6 → 5（`AccountRow` / `SettingsProse` 不再上主页） |
+| `行高与图标尺寸符合规范` | 追加：`rowMinHeight = 44.dp` / `iconSize = 18.dp` / `filledCard = true` |
+| `每种行型的行尾控件都走同一个骨架` | 名单去掉 `AccountRow(` |
+| `名称列吃掉份额_值列右对齐在文本末尾` | 内边距断言改为 `d.textPadV`（尺寸改由密度给） |
+| `账户行用统一头像组件渲染真实头像` | **删除**（`AccountRow` 已删；头像正确性由账号管理页的 `Avatar` 覆盖） |
 
 ---
 

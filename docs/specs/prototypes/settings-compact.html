@@ -1,0 +1,769 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Branchbase · 设置主页压密（可交互原型）</title>
+<style>
+  :root{
+    --canvas:#ffffff; --canvas-subtle:#f6f8fa; --gray100:#f7f7f9; --gray150:#eceef1;
+    --text:#050505; --text2:#59636e; --text3:#818b98;
+    --blue:#0969da; --green:#1a7f37; --red:#cf222e;
+    --border:#000000; --border-soft:#d0d7de;
+    --radius:10px;
+    --fs:14px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+    color:var(--text); background:var(--canvas-subtle);
+  }
+  header{
+    position:sticky; top:0; z-index:20; background:#fff; border-bottom:1px solid var(--border-soft);
+    display:flex; align-items:center; gap:16px; flex-wrap:wrap; padding:10px 18px;
+  }
+  .brand{font-weight:700; font-size:15px}
+  .brand small{font-weight:400; color:var(--text3); margin-left:8px; font-size:12px}
+  nav.tabs{display:flex; gap:4px; margin-left:auto}
+  nav.tabs button{
+    border:1px solid transparent; background:transparent; color:var(--text2); font:inherit; font-size:13px;
+    padding:6px 12px; border-radius:8px; cursor:pointer;
+  }
+  nav.tabs button:hover{background:var(--gray150)}
+  nav.tabs button[aria-selected="true"]{background:var(--text); color:#fff; border-color:var(--text)}
+  main{max-width:1240px; margin:0 auto; padding:18px}
+  section[hidden]{display:none}
+  h2{font-size:16px; margin:0 0 4px}
+  h3{font-size:14px; margin:18px 0 8px}
+  p.lead{color:var(--text2); margin:0 0 14px; font-size:13px}
+  code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  code{background:var(--gray150); border-radius:4px; padding:1px 5px; font-size:12px}
+
+  /* ── 对比页 ── */
+  .grid{display:grid; grid-template-columns:290px minmax(0,1fr); gap:18px; align-items:start}
+  @media (max-width:900px){ .grid{grid-template-columns:1fr} }
+  .panel{background:#fff; border:1px solid var(--border-soft); border-radius:12px; padding:14px}
+  .knob{margin:0 0 12px}
+  .knob label{display:flex; justify-content:space-between; font-size:12px; color:var(--text2); margin-bottom:4px}
+  .knob label b{color:var(--text); font-variant-numeric:tabular-nums}
+  input[type=range]{width:100%; accent-color:var(--text)}
+  .checks{display:grid; gap:6px; font-size:13px; margin:4px 0 12px}
+  .checks label{display:flex; gap:8px; align-items:center; cursor:pointer}
+  .presets{display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 12px}
+  .presets button, .btn{
+    font:inherit; font-size:12px; padding:6px 10px; border-radius:8px; cursor:pointer;
+    border:1px solid var(--border-soft); background:#fff; color:var(--text);
+  }
+  .presets button:hover, .btn:hover{background:var(--gray150)}
+  .btn.primary{background:var(--text); color:#fff; border-color:var(--text)}
+  .btn.primary:hover{opacity:.9}
+  .metric{border-top:1px solid var(--border-soft); padding-top:10px; font-size:12px; color:var(--text2)}
+  .metric b{color:var(--text); font-variant-numeric:tabular-nums}
+  .delta{color:var(--green); font-weight:700}
+
+  .phones{display:flex; gap:18px; flex-wrap:wrap; align-items:flex-start; overflow:auto; padding-bottom:6px}
+  .phone-wrap{flex:0 0 auto}
+  .phone-cap{display:flex; justify-content:space-between; gap:10px; font-size:12px; color:var(--text2); margin:0 2px 6px}
+  .phone-cap b{color:var(--text)}
+  .phone{
+    width:411px; border-radius:26px; border:1px solid var(--border-soft); background:#fff;
+    box-shadow:0 8px 24px rgba(5,5,5,.08); overflow:hidden; transform-origin:top left;
+  }
+  .phone-inner{padding:0}
+  .statusbar{display:flex; justify-content:space-between; padding:8px 18px 2px; font-size:11px; color:var(--text2)}
+  .appbar{display:flex; align-items:center; gap:10px; padding:10px 18px 12px; font-size:17px}
+  .appbar .back{font-size:19px; line-height:1}
+  .list{padding:0 12px 18px}
+
+  .grp{margin:4px 0}
+  .grp-label{font-size:11px; font-weight:600; color:var(--text3); padding:0 4px 4px}
+  .card{
+    background:var(--card-bg,#fff); border:1px solid var(--card-border,transparent);
+    border-radius:var(--radius); overflow:hidden;
+  }
+  .row{
+    display:flex; align-items:center; gap:var(--icon-gap,10px);
+    min-height:var(--row-h,44px); padding:0 var(--row-pad,14px); background:var(--card-bg,#fff);
+    position:relative;
+  }
+  .row + .row::before{content:""; position:absolute; left:0; right:0; top:0; border-top:1px solid var(--divider,rgba(0,0,0,.4))}
+  .row .ico{flex:0 0 auto; width:var(--icon,18px); height:var(--icon,18px); color:var(--text2)}
+  .row .txt{flex:1 1 auto; min-width:0; padding:var(--text-pad,9px) 0}
+  .row .name{font-size:var(--name-fs,14px); color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .row .sub{font-size:var(--sub-fs,11px); line-height:var(--sub-lh,15px); color:var(--text3); margin-top:2px}
+  .row .value{flex:0 0 auto; font-size:11px; color:var(--text3); white-space:nowrap; max-width:45%; overflow:hidden; text-overflow:ellipsis}
+  .row .chev{flex:0 0 auto; color:var(--text3); font-size:16px; line-height:1}
+  .chip{display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:600; color:var(--green);
+        background:#dafbe1; border-radius:999px; padding:2px 7px}
+  .chip.red{color:var(--red); background:#ffebe9}
+  .switch{flex:0 0 auto; width:42px; height:26px; border-radius:999px; background:var(--gray150); position:relative; border:1px solid var(--border-soft)}
+  .switch::after{content:""; position:absolute; top:2px; left:2px; width:20px; height:20px; border-radius:50%; background:#8c959f; transition:left .15s}
+  .switch.on{background:var(--blue); border-color:var(--blue)}
+  .switch.on::after{left:18px; background:#fff}
+  .seg{display:flex; flex:0 0 auto; gap:2px; border:1px solid #000; border-radius:8px; background:var(--gray150); padding:2px}
+  .seg span{font-size:11px; padding:3px 7px; border-radius:6px; color:var(--text2); white-space:nowrap}
+  .seg span.on{background:var(--blue); color:#fff; font-weight:600}
+  .avatar{width:40px; height:40px; border-radius:50%; background:#8ce99a; display:flex; align-items:center; justify-content:center;
+          font-size:16px; font-weight:700; color:#2b8a3e; flex:0 0 auto}
+  .row.danger .name, .row.danger .ico{color:var(--red)}
+  .row.disabled .name{color:var(--text3)}
+  .row.disabled .ico{color:var(--text3); opacity:.5}
+  .fixbtn{flex:0 0 auto; font-size:11px; font-weight:600; color:var(--blue); border:1px solid var(--border); border-radius:7px; padding:4px 9px}
+
+  /* ── 排单页 ── */
+  .qtable{width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--border-soft); border-radius:12px; overflow:hidden; font-size:13px}
+  .qtable th, .qtable td{padding:9px 10px; border-bottom:1px solid var(--gray150); vertical-align:top; text-align:left}
+  .qtable th{font-size:11px; color:var(--text3); font-weight:600; background:var(--gray100); white-space:nowrap}
+  .qtable tr:last-child td{border-bottom:none}
+  .qtable td.num{font-variant-numeric:tabular-nums; white-space:nowrap; color:var(--text2)}
+  .prio{display:inline-block; font-size:11px; font-weight:700; border-radius:6px; padding:1px 6px; border:1px solid var(--border-soft)}
+  .prio.p0{background:#ffebe9; color:var(--red); border-color:#ffc1bc}
+  .prio.p1{background:#fff8c5; color:#7d4e00; border-color:#eed888}
+  .prio.p2{background:var(--gray150); color:var(--text2)}
+  .prio.done{background:#dafbe1; color:var(--green); border-color:#aceebb}
+  .optgroup{display:flex; gap:4px}
+  .optgroup button{
+    font:inherit; font-size:11px; font-weight:600; width:26px; height:24px; border-radius:6px; cursor:pointer;
+    border:1px solid var(--border-soft); background:#fff; color:var(--text2);
+  }
+  .optgroup button[aria-pressed="true"]{background:var(--text); color:#fff; border-color:var(--text)}
+  .optgroup button.reco::after{content:"★"; font-size:8px; vertical-align:super; margin-left:1px}
+  .summary{display:flex; gap:18px; flex-wrap:wrap; margin:14px 0; font-size:13px; color:var(--text2)}
+  .summary b{color:var(--text); font-variant-numeric:tabular-nums}
+  textarea.export{width:100%; min-height:150px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px;
+    border:1px solid var(--border-soft); border-radius:10px; padding:10px; background:#fff; resize:vertical}
+  .toast{position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:var(--text); color:#fff;
+    font-size:12px; padding:7px 14px; border-radius:999px; opacity:0; pointer-events:none; transition:opacity .2s}
+  .toast.show{opacity:1}
+  .cols{display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px}
+  .note{background:#fff; border:1px solid var(--border-soft); border-radius:12px; padding:14px; font-size:13px; color:var(--text2)}
+  .note h3{margin:0 0 6px; color:var(--text); font-size:13px}
+  .note ul{margin:6px 0 0; padding-left:18px}
+  .note li{margin:3px 0}
+  .kbd{font-size:11px; color:var(--text3)}
+  .badtag{color:var(--red); font-weight:600}
+  .pre{background:#0d1117; color:#e6edf3; border-radius:10px; padding:12px 14px; overflow:auto; font-size:12px; line-height:1.6}
+  .pre .c{color:#8b949e}
+  .pre .k{color:#79c0ff}
+  .pre .n{color:#ffa657}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Branchbase · 设置主页压密 <small>可交互原型 · 单文件 · 直接打开</small></div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-tab="tab-compare">左压前 / 右压后</button>
+    <button role="tab" aria-selected="false" data-tab="tab-queue">其他页面排单</button>
+    <button role="tab" aria-selected="false" data-tab="tab-notes">决策与边界</button>
+  </nav>
+</header>
+
+<main>
+  <!-- ══════════ 对比 ══════════ -->
+  <section id="tab-compare">
+    <h2>设置主页（L1）：压前 / 压后</h2>
+    <p class="lead">左侧是 2026-09 版（说明文字撑高、卡片与页面同色）；右侧按当前旋钮实时渲染。
+      两台机器宽 411dp，高度用 <code>offsetHeight</code> 实时测量（不受缩放影响）。
+      旋钮只改「压后」那台；「原始」预设会把压后调成与压前同参。</p>
+
+    <div class="grid">
+      <div class="panel">
+        <h3 style="margin-top:0">旋钮</h3>
+        <div class="knob">
+          <label>行最小高度 <b><span id="v-rowH">44</span> dp</b></label>
+          <input id="k-rowH" type="range" min="38" max="52" step="1" value="44">
+        </div>
+        <div class="knob">
+          <label>左右内边距 <b><span id="v-pad">14</span> dp</b></label>
+          <input id="k-pad" type="range" min="10" max="20" step="1" value="14">
+        </div>
+        <div class="knob">
+          <label>行首图标 <b><span id="v-icon">18</span> dp</b></label>
+          <input id="k-icon" type="range" min="14" max="24" step="1" value="18">
+        </div>
+        <div class="knob">
+          <label>分组上下留白 <b><span id="v-sec">4</span> dp</b></label>
+          <input id="k-sec" type="range" min="0" max="10" step="1" value="4">
+        </div>
+        <div class="knob">
+          <label>名称字号 <b><span id="v-fs">14</span> sp</b></label>
+          <input id="k-fs" type="range" min="12" max="16" step="1" value="14">
+        </div>
+
+        <div class="checks">
+          <label><input type="checkbox" id="k-desc"> 显示行内说明（旧形态）</label>
+          <label><input type="checkbox" id="k-value" checked> 显示状态值（跟随系统 / 未设置…）</label>
+          <label><input type="checkbox" id="k-label" checked> 显示分组标签</label>
+          <label><input type="checkbox" id="k-fill" checked> 卡片可见底色（Gray100）</label>
+          <label><input type="checkbox" id="k-border"> 卡片描边（旧形态，浅色下是纯黑 1dp）</label>
+        </div>
+
+        <h3>预设</h3>
+        <div class="presets" id="presets">
+          <button data-preset="old">原始（压前）</button>
+          <button data-preset="desc">只删说明</button>
+          <button data-preset="now">本轮</button>
+          <button data-preset="tighter">更紧凑</button>
+        </div>
+
+        <div class="metric" id="metric">
+          压前 <b id="m-before">—</b> dp ·
+          压后 <b id="m-after">—</b> dp ·
+          省 <b class="delta" id="m-save">—</b>
+        </div>
+        <div class="kbd" style="margin-top:6px">屏幕可用高约 800dp（411×891 机身，去掉状态栏/手势条）。</div>
+      </div>
+
+      <div class="phones">
+        <div class="phone-wrap">
+          <div class="phone-cap"><span><b>压前</b> · 2026-09 版</span><span id="cap-before">— dp</span></div>
+          <div class="phone" id="phone-before"></div>
+        </div>
+        <div class="phone-wrap">
+          <div class="phone-cap"><span><b>压后</b> · 当前旋钮</span><span id="cap-after">— dp</span></div>
+          <div class="phone" id="phone-after"></div>
+        </div>
+      </div>
+    </div>
+
+    <h3>对应的 Compose（SettingsDensity.Compact）</h3>
+    <pre class="pre" id="snippet"></pre>
+    <p class="kbd">片段随旋钮更新；实际落地值见 <code>app/src/main/java/com/branchbase/ui/settings/SettingsRow.kt</code>。</p>
+  </section>
+
+  <!-- ══════════ 排单 ══════════ -->
+  <section id="tab-queue" hidden>
+    <h2>其他设置页的排单</h2>
+    <p class="lead">本轮只落「设置主页」。下表是其余页面的压前测绘、方案选择与是否已优化。
+      每行选 A / B / C（★ 是建议档），汇总实时更新，可导出 Markdown 交接。</p>
+
+    <div class="summary" id="q-summary"></div>
+
+    <table class="qtable">
+      <thead>
+        <tr>
+          <th>优先</th><th>页面</th><th>文件 · 行数</th><th>行数 / 说明</th><th>现状问题</th><th>方案</th><th>状态</th>
+        </tr>
+      </thead>
+      <tbody id="q-body"></tbody>
+    </table>
+
+    <h3>方案说明</h3>
+    <div class="cols">
+      <div class="note">
+        <h3>A · 只删说明</h3>
+        下线解释性 <code>sub</code> 与 <code>SettingsProse</code>，行高、卡片底、字号都不动。<br>
+        <b>风险最低</b>：只删文案，命中区与视觉语言完全不变。
+      </div>
+      <div class="note">
+        <h3>B · 删说明 + 压密度</h3>
+        A + <code>SettingsDensity.Compact</code>（行 44dp / 图标 18dp / 卡底 <code>Gray100</code>）。<br>
+        <b>视觉变化最大</b>：命中区从 48 → 44dp，需要真机复核误触。
+      </div>
+      <div class="note">
+        <h3>C · 重组 IA</h3>
+        B + 控件换型（10 档单选 → 分段/下拉）、重复信息合并、说明搬进页内折叠。<br>
+        <b>收益最大、风险最高</b>：要改交互与文案，必须过一轮原型。
+      </div>
+    </div>
+
+    <h3>导出</h3>
+    <div class="summary">
+      <button class="btn" id="q-export">生成 Markdown</button>
+      <button class="btn primary" id="q-copy">复制</button>
+      <button class="btn" id="q-reset">重置选择</button>
+    </div>
+    <textarea class="export" id="q-md" spellcheck="false" readonly placeholder="点「生成 Markdown」…"></textarea>
+  </section>
+
+  <!-- ══════════ 说明 ══════════ -->
+  <section id="tab-notes" hidden>
+    <h2>决策与边界</h2>
+    <div class="cols">
+      <div class="note">
+        <h3>这一轮改了什么</h3>
+        <ul>
+          <li>主页一行一个入口，<b>说明文字全部下线</b>（206 字 → 0）</li>
+          <li>账户卡 → 「账号管理」入口（不再渲染头像 / 登录名 / 胶囊）</li>
+          <li>行 48→44dp、图标 20→18dp、内边距 16→14dp、分组 6→4dp</li>
+          <li>卡片底 <code>BackgroundSecondary</code> → <code>Gray100</code>，并<b>去掉纯黑描边</b>（真机反馈「取消掉黑边」）</li>
+          <li>「通知」组去掉组标签：组名与行名重复（规范 §3.2）</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h3>没改什么</h3>
+        <ul>
+          <li>二级页的尺寸与排版：仍走 <code>SettingsDensity.Comfort</code></li>
+          <li>行型仍是封闭集合里的 5 种（NavRow / SwitchRow / ChoiceRow / DangerRow / DisabledNavRow）</li>
+          <li>值列保留：跟随系统 / 单次提交 / 未设置 / 已开启 —— 它们是<b>值</b>不是说明</li>
+          <li>禁用行的原因（规范 §6.3 强制）与危险行确认（§7.2）</li>
+          <li>主题三档分段（§5.2）、通知用导航行 + 胶囊（§4.3）</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h3>风险</h3>
+        <ul>
+          <li><span class="badtag">44dp &lt; Material 48dp</span>：仍 ≥ WCAG 2.5.5 / iOS 44pt。误触就把 <code>Compact.rowMinHeight</code> 调回 46–48（一处改）</li>
+          <li>账户异常（令牌失效）不再第一屏可见 → 将来若恢复，挂<b>状态胶囊</b>，不搬回身份卡</li>
+          <li>200% 字号未验：单行名称只会把行撑高，不会挤掉值列</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h3>落点</h3>
+        <ul>
+          <li><code>ui/settings/SettingsRow.kt</code> —— 密度表 + 行型</li>
+          <li><code>ui/profile/SubPageScreens.kt</code> —— <code>SettingsScreen</code> 重写</li>
+          <li><code>SettingsSpecTest</code> —— 新增 / 反转的钉子</li>
+          <li>决策长文：<code>docs/specs/settings-compact-redesign.md</code></li>
+          <li>规范：<code>docs/specs/settings-design.md</code> §十六</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ─────────── 图标（内联 SVG，stroke 跟随 currentColor） ─────────── */
+  const ICONS = {
+    person:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',
+    key:'<circle cx="8" cy="8" r="4"/><path d="M11 11l9 9M17 17l2-2M14 14l2-2"/>',
+    palette:'<path d="M12 3a9 9 0 100 18c1.7 0 2-1.2 1.2-2.2-.9-1.1-.3-2.8 1.3-2.8H17a4 4 0 004-4c0-5-4-9-9-9z"/><circle cx="8" cy="9" r="1"/><circle cx="12" cy="7" r="1"/>',
+    language:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.5 2.5 15 0 18M12 3c-2.5 2.5-2.5 15 0 18"/>',
+    tune:'<path d="M4 7h9M18 7h2M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
+    bell:'<path d="M6 9a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 004 0"/>',
+    translate:'<path d="M4 6h9M8.5 6c0 5-2 8-4.5 9"/><path d="M6 11c1.5 2.5 3.5 4 6 4.5"/><path d="M13 20l3.5-9 3.5 9M14.5 17h4"/>',
+    sparkle:'<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>',
+    commit:'<circle cx="12" cy="12" r="3.5"/><path d="M12 2v6.5M12 15.5V22"/>',
+    folder:'<path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>',
+    public:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',
+    speed:'<path d="M12 20a8 8 0 118-8"/><path d="M12 12l4-3"/>',
+    article:'<path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+    info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><circle cx="12" cy="8" r=".7" fill="currentColor" stroke="none"/>',
+    logout:'<path d="M14 4H6a2 2 0 00-2 2v12a2 2 0 002 2h8"/><path d="M16 8l4 4-4 4M20 12H10"/>'
+  };
+  const svg = (name) => '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    (ICONS[name] || '') + '</svg>';
+
+  /* ─────────── 两组数据（压前带说明，压后为入口索引） ─────────── */
+  const BEFORE = [
+    { group:'账户', rows:[
+      { type:'account', name:'SunsetRNE', host:'github.com', chip:'正常' }
+    ]},
+    { group:'外观', rows:[
+      { type:'choice', icon:'palette', name:'主题', sub:'选「跟随系统」时，App 会随系统的浅色 / 深色自动切换。',
+        options:['跟随系统','浅色','深色'], on:0 },
+      { type:'nav', icon:'language', name:'语言', value:'跟随系统' },
+      { type:'switch', icon:'tune', name:'悬浮玻璃导航栏',
+        sub:'使用传统底部导航栏；开启后主界面切换为悬浮玻璃样式。', on:false }
+    ]},
+    { group:'通知', rows:[
+      { type:'nav', icon:'bell', name:'通知', chip:'已开启',
+        sub:'系统通知已开启：下载进度、下载完成提醒会出现在通知栏。' }
+    ]},
+    { group:'翻译', rows:[
+      { type:'switch', icon:'translate', name:'自动翻译正文',
+        sub:'关闭后不进正文页翻译，页面上的悬浮球也会收起。', on:false },
+      { type:'nav', icon:'tune', name:'沉浸式翻译' }
+    ]},
+    { group:'代码与提交', rows:[
+      { type:'nav', icon:'commit', name:'提交模式', value:'单次提交' },
+      { type:'disabled', icon:'folder', name:'本地仓库', reason:'开启需先将「提交模式」设为「本地仓库（Git）」。', fix:'去设置' }
+    ]},
+    { group:'网络', rows:[
+      { type:'nav', icon:'language', name:'Git 代理', value:'未设置',
+        sub:'仅作用于本地仓库的 clone / pull / push。' }
+    ]},
+    { group:'关于与诊断', rows:[
+      { type:'switch', icon:'speed', name:'慢帧日志',
+        sub:'记录每次卡顿的耗时与分段（等待 / 动画 / 绘制 …）并带上页面名；日志每天 0 点换目录、旧的丢弃。', on:true },
+      { type:'nav', icon:'article', name:'日志' },
+      { type:'nav', icon:'info', name:'关于', value:'1.4.36-20261126-04…' }
+    ]},
+    { group:null, rows:[
+      { type:'danger', icon:'logout', name:'退出登录 SunsetRNE', hint:'不可撤销' }
+    ]}
+  ];
+
+  const AFTER = [
+    { group:'账户', rows:[
+      { type:'nav', icon:'person', name:'账号管理' }
+    ]},
+    { group:'外观', rows:[
+      { type:'choice', icon:'palette', name:'主题', options:['跟随系统','浅色','深色'], on:0, sub:'选「跟随系统」时，App 会随系统的浅色 / 深色自动切换。' },
+      { type:'nav', icon:'language', name:'语言', value:'跟随系统' },
+      { type:'switch', icon:'tune', name:'悬浮玻璃导航栏', on:false,
+        sub:'使用传统底部导航栏；开启后主界面切换为悬浮玻璃样式。' }
+    ]},
+    { group:null, rows:[
+      { type:'nav', icon:'bell', name:'通知', chip:'已开启',
+        sub:'系统通知已开启：下载进度、下载完成提醒会出现在通知栏。' }
+    ]},
+    { group:'翻译', rows:[
+      { type:'switch', icon:'translate', name:'自动翻译正文', on:false,
+        sub:'关闭后不进正文页翻译，页面上的悬浮球也会收起。' },
+      { type:'nav', icon:'sparkle', name:'沉浸式翻译' }
+    ]},
+    { group:'代码与提交', rows:[
+      { type:'nav', icon:'commit', name:'提交模式', value:'单次提交' },
+      { type:'disabled', icon:'folder', name:'本地仓库', reason:'开启需先将「提交模式」设为「本地仓库（Git）」。', fix:'去设置' }
+    ]},
+    { group:'网络', rows:[
+      { type:'nav', icon:'public', name:'Git 代理', value:'未设置' }
+    ]},
+    { group:'关于与诊断', rows:[
+      { type:'switch', icon:'speed', name:'慢帧日志', on:true,
+        sub:'记录每次卡顿的耗时与分段（等待 / 动画 / 绘制 …）并带上页面名；日志每天 0 点换目录、旧的丢弃。' },
+      { type:'nav', icon:'article', name:'日志' },
+      { type:'nav', icon:'info', name:'关于' }
+    ]},
+    { group:null, rows:[
+      { type:'danger', icon:'logout', name:'退出登录 SunsetRNE', hint:'不可撤销' }
+    ]}
+  ];
+
+  /* ─────────── 渲染一台机器 ─────────── */
+  function phone(sections, cfg, mount){
+    const root = document.createElement('div');
+    root.className = 'phone-inner';
+    root.innerHTML =
+      '<div class="statusbar"><span>05:06</span><span>44%</span></div>' +
+      '<div class="appbar"><span class="back">←</span><span>设置</span></div>' +
+      '<div class="list"></div>';
+    const list = root.querySelector('.list');
+
+    sections.forEach((sec, si) => {
+      if (si === 0 && cfg.topGap) list.appendChild(spacer(cfg.topGap));
+      const grp = document.createElement('div');
+      grp.className = 'grp';
+      if (sec.group && cfg.labels) {
+        const lab = document.createElement('div');
+        lab.className = 'grp-label';
+        lab.textContent = sec.group;
+        grp.appendChild(lab);
+      }
+      const card = document.createElement('div');
+      card.className = 'card';
+      sec.rows.forEach(r => card.appendChild(rowEl(r, cfg)));
+      grp.appendChild(card);
+      list.appendChild(grp);
+    });
+
+    function spacer(h){
+      const d = document.createElement('div');
+      d.style.height = h + 'px';
+      return d;
+    }
+
+    mount.innerHTML = '';
+    mount.appendChild(root);
+    return root;
+  }
+
+  function rowEl(r, cfg){
+    const el = document.createElement('div');
+    el.className = 'row' + (r.type === 'danger' ? ' danger' : '') + (r.type === 'disabled' ? ' disabled' : '');
+    if (r.type === 'account') {
+      el.innerHTML = '<div class="avatar">S</div><div class="txt">' +
+        '<div class="name">' + r.name + '</div>' +
+        '<div class="sub" style="margin-top:2px">' + r.host + '</div></div>' +
+        (r.chip ? '<span class="chip">' + r.chip + '</span>' : '') + '<span class="chev">›</span>';
+      return el;
+    }
+    el.innerHTML = svg(r.icon) + '<div class="txt"><div class="name">' + r.name + '</div>' +
+      ((cfg.desc && r.sub) ? '<div class="sub">' + r.sub + '</div>' : '') +
+      ((r.type === 'disabled' && r.reason) ? '<div class="sub" style="color:var(--text2)">' + r.reason + '</div>' : '') +
+      '</div>';
+    if (r.type === 'nav') {
+      if (r.chip) el.insertAdjacentHTML('beforeend', '<span class="chip">' + r.chip + '</span>');
+      else if (cfg.values && r.value) el.insertAdjacentHTML('beforeend', '<span class="value">' + r.value + '</span>');
+      el.insertAdjacentHTML('beforeend', '<span class="chev">›</span>');
+    } else if (r.type === 'switch') {
+      el.insertAdjacentHTML('beforeend', '<span class="switch' + (r.on ? ' on' : '') + '"></span>');
+    } else if (r.type === 'choice') {
+      el.insertAdjacentHTML('beforeend', '<span class="seg">' +
+        r.options.map((o,i)=>'<span class="' + (i===r.on?'on':'') + '">' + o + '</span>').join('') + '</span>');
+    } else if (r.type === 'disabled') {
+      el.insertAdjacentHTML('beforeend', '<span class="fixbtn">' + r.fix + '</span>');
+    } else if (r.type === 'danger') {
+      el.insertAdjacentHTML('beforeend', '<span class="value" style="color:var(--red)">' + r.hint + '</span>');
+    }
+    return el;
+  }
+
+  /* ─────────── 测量 ─────────── */
+  function measure(phoneEl, cfg){
+    let total = 0, rows = 0;
+    if (cfg.topGap) total += cfg.topGap;
+    phoneEl.querySelectorAll('.grp').forEach(g => {
+      total += cfg.sectionPadV * 2;
+      const lab = g.querySelector('.grp-label');
+      if (lab) total += lab.offsetHeight;
+      const card = g.querySelector('.card');
+      if (card) total += card.offsetHeight;
+    });
+    rows = phoneEl.querySelectorAll('.row').length;
+    return { total: Math.round(total), rows };
+  }
+
+  /* ─────────── 旋钮状态 ─────────── */
+  const state = { rowH:44, pad:14, icon:18, sec:4, fs:14, desc:false, value:true, label:true, fill:true, border:false };
+
+  const PRESETS = {
+    old:    { rowH:48, pad:16, icon:20, sec:6, fs:14, desc:true,  value:true, label:true, fill:false, border:true },
+    desc:   { rowH:48, pad:16, icon:20, sec:6, fs:14, desc:false, value:true, label:true, fill:false, border:true },
+    now:    { rowH:44, pad:14, icon:18, sec:4, fs:14, desc:false, value:true, label:true, fill:true,  border:false },
+    tighter:{ rowH:40, pad:12, icon:16, sec:2, fs:13, desc:false, value:true, label:false, fill:true }
+  };
+
+  const el = id => document.getElementById(id);
+  const beforePhone = el('phone-before'), afterPhone = el('phone-after');
+
+  function cfgOf(s){
+    return {
+      rowH:s.rowH, rowPad:s.pad, icon:s.icon, sectionPadV:s.sec, nameFs:s.fs,
+      desc:s.desc, values:s.value, labels:s.label, fill:s.fill, border:s.border, topGap:4
+    };
+  }
+
+  function applyCss(s){
+    const p = afterPhone;
+    p.style.setProperty('--row-h', s.rowH + 'px');
+    p.style.setProperty('--row-pad', s.pad + 'px');
+    p.style.setProperty('--icon', s.icon + 'px');
+    p.style.setProperty('--icon-gap', Math.max(6, s.icon - 8) + 'px');
+    p.style.setProperty('--name-fs', s.fs + 'px');
+    p.style.setProperty('--text-pad', Math.max(3, Math.round((s.rowH - s.fs * 1.4) / 2)) + 'px');
+    p.style.setProperty('--sub-fs', Math.max(10, s.fs - 3) + 'px');
+    p.style.setProperty('--sub-lh', Math.max(13, s.fs + 1) + 'px');
+    p.style.setProperty('--card-bg', s.fill ? 'var(--gray100)' : '#ffffff');
+    p.style.setProperty('--card-border', s.border ? '#000000' : 'transparent');
+    p.style.setProperty('--divider', s.border ? '#000000' : 'rgba(0,0,0,.4)');
+  }
+
+  function renderAfter(){
+    applyCss(state);
+    phone(AFTER, cfgOf(state), afterPhone);
+    const m = measure(afterPhone, cfgOf(state));
+    el('cap-after').textContent = m.total + ' dp · ' + m.rows + ' 行';
+    return m;
+  }
+
+  let beforeMetric = { total:0, rows:0 };
+  function renderBefore(){
+    // 压前固定用 Comfort 参数，不跟旋钮
+    const cfg = { rowH:48, rowPad:16, icon:20, sectionPadV:6, nameFs:14, desc:true, values:true, labels:true, fill:false, topGap:6 };
+    const wrap = beforePhone;
+    wrap.style.setProperty('--row-h', cfg.rowH + 'px');
+    wrap.style.setProperty('--row-pad', cfg.rowPad + 'px');
+    wrap.style.setProperty('--icon', cfg.icon + 'px');
+    wrap.style.setProperty('--icon-gap', '12px');
+    wrap.style.setProperty('--name-fs', cfg.nameFs + 'px');
+    wrap.style.setProperty('--text-pad', '11px');
+    wrap.style.setProperty('--sub-fs', '12px');
+    wrap.style.setProperty('--sub-lh', '17px');
+    wrap.style.setProperty('--card-bg', '#ffffff');
+    wrap.style.setProperty('--card-border', '#000000');
+    wrap.style.setProperty('--divider', '#000000');
+    phone(BEFORE, cfg, beforePhone);
+    beforeMetric = measure(beforePhone, cfg);
+    el('cap-before').textContent = beforeMetric.total + ' dp · ' + beforeMetric.rows + ' 行';
+  }
+
+  function updateMetric(afterM){
+    el('m-before').textContent = beforeMetric.total;
+    el('m-after').textContent = afterM.total;
+    const save = beforeMetric.total - afterM.total;
+    el('m-save').textContent = (save >= 0 ? '−' : '+') + Math.abs(save) + ' dp（' +
+      Math.round(Math.abs(save) / beforeMetric.total * 100) + '%）';
+    el('m-save').style.color = save >= 0 ? 'var(--green)' : 'var(--red)';
+  }
+
+  function snippet(){
+    const s = state;
+    return '<span class="c">// SettingsRow.kt · SettingsDensity.Compact（本轮落地值）</span>\n' +
+      'Compact(\n' +
+      '    rowMinHeight = <span class="n">' + s.rowH + '.dp</span>,\n' +
+      '    rowPaddingH  = <span class="n">' + s.pad + '.dp</span>,\n' +
+      '    iconSize     = <span class="n">' + s.icon + '.dp</span>,\n' +
+      '    iconGap      = <span class="n">' + Math.max(6, s.icon - 8) + '.dp</span>,\n' +
+      '    valueGap     = <span class="n">' + Math.max(6, s.pad - 6) + '.dp</span>,\n' +
+      '    sectionPadV  = <span class="n">' + s.sec + '.dp</span>,\n' +
+      '    nameFontSize = <span class="n">' + s.fs + '.sp</span>,\n' +
+      '    filledCard   = <span class="k">' + (s.fill ? 'true' : 'false') + '</span>, <span class="c">// Gray100 而不是 BackgroundSecondary</span>\n' +
+      ')\n\n' +
+      '<span class="c">// SettingsScreen 根部（只 provide 一次，二级页仍走默认 Comfort）：</span>\n' +
+      'CompositionLocalProvider(LocalSettingsDensity provides SettingsDensity.Compact) { … }';
+  }
+
+  function sync(){
+    el('v-rowH').textContent = state.rowH;
+    el('v-pad').textContent = state.pad;
+    el('v-icon').textContent = state.icon;
+    el('v-sec').textContent = state.sec;
+    el('v-fs').textContent = state.fs;
+    el('k-rowH').value = state.rowH;
+    el('k-pad').value = state.pad;
+    el('k-icon').value = state.icon;
+    el('k-sec').value = state.sec;
+    el('k-fs').value = state.fs;
+    el('k-desc').checked = state.desc;
+    el('k-value').checked = state.value;
+    el('k-label').checked = state.label;
+    el('k-fill').checked = state.fill;
+    el('k-border').checked = state.border;
+    el('snippet').innerHTML = snippet();
+    const m = renderAfter();
+    updateMetric(m);
+  }
+
+  [['k-rowH','rowH'],['k-pad','pad'],['k-icon','icon'],['k-sec','sec'],['k-fs','fs']].forEach(([id,key])=>{
+    el(id).addEventListener('input', e => { state[key] = +e.target.value; sync(); });
+  });
+  [['k-desc','desc'],['k-value','value'],['k-label','label'],['k-fill','fill'],['k-border','border']].forEach(([id,key])=>{
+    el(id).addEventListener('change', e => { state[key] = e.target.checked; sync(); });
+  });
+  document.querySelectorAll('#presets button').forEach(b=>{
+    b.addEventListener('click', ()=>{ Object.assign(state, PRESETS[b.dataset.preset]); sync(); });
+  });
+
+  /* ─────────── 排单 ─────────── */
+  const PAGES = [
+    { id:'home', name:'设置主页（L1）', file:'ui/profile/SubPageScreens.kt', lines:'—', rows:'15 → 14', prose:'7 → 0',
+      problem:'说明撑高、卡片与页底同色、账户卡占身份位', rec:'C', status:'done' },
+    { id:'translate', name:'沉浸式翻译', file:'ui/profile/TranslateSettingsScreen.kt', lines:528, rows:'14 行', prose:'1 段 600+ 字',
+      problem:'3 开关 + 10 档单选 + 2 输入框 + 巨型说明；无卡片（SettingsSectionTitle 过渡态）', rec:'C', status:'todo' },
+    { id:'notif', name:'通知', file:'ui/profile/SubPageScreens.kt · NotificationSettingsScreen', lines:'~90', rows:'1 + 4 档', prose:'2 段',
+      problem:'4 档单选可压成小分段；说明段落可并成行内一句', rec:'B', status:'todo' },
+    { id:'about', name:'关于', file:'ui/profile/SubPageScreens.kt · AboutScreen', lines:'~250', rows:'10 行', prose:'0',
+      problem:'身份卡 + 3 张卡 + 签名说明；版本串两处重复', rec:'B', status:'todo' },
+    { id:'proxy', name:'Git 代理', file:'ui/settings/GitProxyScreen.kt', lines:131, rows:'1 + 表单', prose:'2 段',
+      problem:'输入页天然是表单，压密空间小；说明与占位符重复', rec:'A', status:'todo' },
+    { id:'lang', name:'语言', file:'ui/settings/LanguageScreen.kt', lines:111, rows:'3 行', prose:'0',
+      problem:'三行单选、行高偏松；「跟随系统」副标题有价值', rec:'B', status:'todo' },
+    { id:'commit', name:'提交模式', file:'ui/profile/CommitModeScreen.kt', lines:362, rows:'3 行', prose:'0',
+      problem:'抽屉式说明，主页面只有 3 档', rec:'B', status:'todo' },
+    { id:'local', name:'本地仓库', file:'ui/profile/SubPageScreens.kt · LocalRepoScreen', lines:'—', rows:'列表', prose:'决策页多',
+      problem:'列表 + 决策页，属「操作页」不是「设置页」', rec:'A', status:'todo' },
+    { id:'accounts', name:'账号管理', file:'ui/profile/AccountsScreen.kt', lines:447, rows:'卡片', prose:'1 段',
+      problem:'卡片 + 气泡 + 删除确认；本轮身份入口指向它', rec:'B', status:'todo' },
+    { id:'cred', name:'仓库凭据', file:'ui/settings/RepoCredentialsScreen.kt', lines:235, rows:'1 行', prose:'1 段',
+      problem:'说明段落长；每条是 DangerRow', rec:'A', status:'todo' },
+    { id:'log', name:'日志', file:'ui/log/LogScreen.kt', lines:489, rows:'—', prose:'—',
+      problem:'已有专项重设计（prototypes/log-redesign.md）', rec:'A', status:'special' }
+  ];
+
+  const STORE_KEY = 'bb-settings-queue-v1';
+  const choices = {};
+  try { Object.assign(choices, JSON.parse(localStorage.getItem(STORE_KEY) || '{}')); } catch(e){}
+
+  function persist(){
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(choices)); } catch(e){}
+  }
+
+  function renderQueue(){
+    const body = el('q-body');
+    body.innerHTML = '';
+    PAGES.forEach(p=>{
+      const tr = document.createElement('tr');
+      const cur = choices[p.id] || p.rec;
+      const optBtn = ['A','B','C'].map(o =>
+        '<button data-page="' + p.id + '" data-opt="' + o + '" aria-pressed="' + (cur===o) + '"' +
+        (p.rec === o && p.status === 'todo' ? ' class="reco"' : '') + '>' + o + '</button>').join('');
+      const prio = p.status === 'done'
+        ? '<span class="prio done">已优化</span>'
+        : p.status === 'special'
+          ? '<span class="prio p2">专项</span>'
+          : '<span class="prio ' + (p.rec === 'C' ? 'p0' : p.rec === 'B' ? 'p1' : 'p2') + '">' +
+            (p.rec === 'C' ? 'P0' : p.rec === 'B' ? 'P1' : 'P2') + '</span>';
+      tr.innerHTML = '<td>' + prio + '</td>' +
+        '<td><b>' + p.name + '</b></td>' +
+        '<td><code>' + p.file + '</code>' + (p.lines !== '—' ? ' <span style="color:var(--text3)">· ' + p.lines + ' 行</span>' : '') + '</td>' +
+        '<td class="num">' + p.rows + '<br><span style="color:var(--text3)">说明 ' + p.prose + '</span></td>' +
+        '<td>' + p.problem + '</td>' +
+        '<td>' + (p.status === 'done' ? '—' : '<div class="optgroup">' + optBtn + '</div>') + '</td>' +
+        '<td>' + (p.status === 'done' ? '已优化（本轮）' : p.status === 'special' ? '按专项' : '未开始') + '</td>';
+      body.appendChild(tr);
+    });
+
+    body.querySelectorAll('button[data-opt]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        choices[b.dataset.page] = b.dataset.opt;
+        persist(); renderQueue();
+      });
+    });
+
+    const todo = PAGES.filter(p=>p.status === 'todo');
+    const by = {A:0,B:0,C:0};
+    todo.forEach(p=>{ by[choices[p.id] || p.rec]++; });
+    el('q-summary').innerHTML =
+      '<span>待排：<b>' + todo.length + '</b> 页</span>' +
+      '<span>A（只删说明）：<b>' + by.A + '</b></span>' +
+      '<span>B（压密度）：<b>' + by.B + '</b></span>' +
+      '<span>C（重组 IA）：<b>' + by.C + '</b></span>' +
+      '<span>已优化：<b>1</b>（设置主页）</span>';
+  }
+
+  function buildMarkdown(){
+    const lines = [];
+    lines.push('# 设置页压密 · 交接排单');
+    lines.push('');
+    lines.push('> 生成自 `docs/specs/prototypes/settings-compact.html`（' + new Date().toLocaleString('zh-CN') + '）');
+    lines.push('');
+    lines.push('| 页面 | 文件 | 行数 | 说明 | 方案 | 状态 |');
+    lines.push('|---|---|---|---|---|---|');
+    PAGES.forEach(p=>{
+      const cur = p.status === 'done' ? '—' : (choices[p.id] || p.rec);
+      lines.push('| ' + p.name + ' | `' + p.file + '` | ' + p.rows + ' | ' + p.prose + ' | ' + cur + ' | ' +
+        (p.status === 'done' ? '已优化（本轮）' : p.status === 'special' ? '按专项' : '未开始') + ' |');
+    });
+    lines.push('');
+    lines.push('方案：A = 只删说明；B = 删说明 + `SettingsDensity.Compact`；C = B + 重组 IA（控件换型 / 合并重复信息）。');
+    lines.push('');
+    lines.push('完成定义：说明只留「改错会静默失效」与规范强制的两类；行型仍在封闭集合；`SettingsSpecTest` 全绿；中英资源同批；真机复核 44dp 命中区与深色卡片层次。');
+    return lines.join('\n');
+  }
+
+  el('q-export').addEventListener('click', ()=>{ el('q-md').value = buildMarkdown(); });
+  el('q-copy').addEventListener('click', async ()=>{
+    if (!el('q-md').value) el('q-md').value = buildMarkdown();
+    try { await navigator.clipboard.writeText(el('q-md').value); toast('已复制'); }
+    catch(e){ el('q-md').select(); toast('请按 Ctrl/Cmd+C'); }
+  });
+  el('q-reset').addEventListener('click', ()=>{
+    Object.keys(choices).forEach(k=>delete choices[k]);
+    persist(); renderQueue(); el('q-md').value = '';
+  });
+
+  let toastTimer = null;
+  function toast(msg){
+    const t = el('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(()=>t.classList.remove('show'), 1400);
+  }
+
+  /* ─────────── 标签页 ─────────── */
+  document.querySelectorAll('nav.tabs button').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      document.querySelectorAll('nav.tabs button').forEach(x=>x.setAttribute('aria-selected', String(x === b)));
+      document.querySelectorAll('main > section').forEach(s=>{ s.hidden = s.id !== b.dataset.tab; });
+      if (b.dataset.tab === 'tab-compare') { renderBefore(); sync(); }
+    });
+  });
+
+  /* ─────────── 启动 ─────────── */
+  renderBefore();
+  sync();
+  renderQueue();
+})();
+</script>
+</body>
+</html>

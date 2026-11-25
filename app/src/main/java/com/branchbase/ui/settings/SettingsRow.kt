@@ -25,6 +25,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,10 +36,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.R
-import com.branchbase.ui.theme.Avatar
 import com.branchbase.ui.theme.Primer
 import com.branchbase.ui.theme.selectionColor
 
@@ -81,6 +83,78 @@ private val SectionPadH = 12.dp
 private val SectionPadV = 6.dp
 
 /**
+ * 设置树的**两档密度**（规范 §4.2 的「尺寸硬值」由此收敛成一张表）。
+ *
+ * - [Comfort]：二级页（通知 / 沉浸式翻译 / Git 代理 / 语言…）沿用原尺寸，**这一轮不动**；
+ * - [Compact]：只给设置主页（L1）用 —— 主页是「入口索引」，一屏要扫完 7 组，
+ *   说明文字与 48dp 行高是它最大的两笔垂直成本（见 `docs/specs/settings-compact-redesign.md`）。
+ *
+ * 为什么做成密度而不是另起一套 `CompactNavRow`：设置树已经吃过「同一件事 8 套组件」的亏
+ * （本文件头注释）。行型仍是那六个，密度只是它们的外参；`SettingsScreen` 在根部
+ * provide 一次，子页拿到的还是 [Comfort]。
+ *
+ * 卡片底色**不分档**：两档都用 [Primer.Gray100]、都不描边（2026-11 真机反馈「取消掉黑边」：
+ * 浅色下 `BorderEmphasis` 是纯黑 1dp，整页会被读成线框图；而 `BackgroundSecondary` == 画布纯白，
+ * 去掉描边后卡片就没有边界了）。与首页 `HomeGroupCard` / 常用仓库卡同一套容器语言。
+ */
+enum class SettingsDensity(
+    val rowMinHeight: Dp,
+    val rowPaddingH: Dp,
+    val iconSize: Dp,
+    val iconGap: Dp,
+    val valueGap: Dp,
+    val sectionPadV: Dp,
+    val labelFontSize: TextUnit,
+    val labelPadBottom: Dp,
+    val nameFontSize: TextUnit,
+    val textPadV: Dp,
+    val subGap: Dp,
+    val subFontSize: TextUnit,
+    val subLineHeight: TextUnit,
+    val valueFontSize: TextUnit,
+    val chevronSize: Dp,
+) {
+    Comfort(
+        rowMinHeight = RowMinHeight,
+        rowPaddingH = RowPaddingH,
+        iconSize = IconSize,
+        iconGap = IconGap,
+        valueGap = ValueGap,
+        sectionPadV = SectionPadV,
+        labelFontSize = 12.sp,
+        labelPadBottom = 6.dp,
+        nameFontSize = 14.sp,
+        textPadV = 11.dp,
+        subGap = 3.dp,
+        subFontSize = 12.sp,
+        subLineHeight = 17.sp,
+        valueFontSize = 12.sp,
+        chevronSize = 20.dp,
+    ),
+
+    Compact(
+        rowMinHeight = 44.dp,
+        rowPaddingH = 14.dp,
+        iconSize = 18.dp,
+        iconGap = 10.dp,
+        valueGap = 8.dp,
+        sectionPadV = 4.dp,
+        labelFontSize = 11.sp,
+        labelPadBottom = 4.dp,
+        nameFontSize = 14.sp,
+        textPadV = 9.dp,
+        subGap = 2.dp,
+        subFontSize = 11.sp,
+        subLineHeight = 15.sp,
+        valueFontSize = 11.sp,
+        chevronSize = 18.dp,
+    ),
+}
+
+/** 当前设置树的密度；默认 [SettingsDensity.Comfort]，只有设置主页 provide 成 Compact。 */
+val LocalSettingsDensity = staticCompositionLocalOf { SettingsDensity.Comfort }
+
+/**
  * 禁用行的半透明度（规范 §6.3「不可用的行要看得出来」）。
  *
  * 乘进**颜色**而不是挂 `Modifier.alpha`：后者是 `graphicsLayer`（`AlphaKt` → `graphicsLayer`），
@@ -100,32 +174,39 @@ fun SettingsSection(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Column(modifier.fillMaxWidth().padding(horizontal = SectionPadH, vertical = SectionPadV)) {
+    val d = LocalSettingsDensity.current
+    Column(modifier.fillMaxWidth().padding(horizontal = SectionPadH, vertical = d.sectionPadV)) {
         if (label != null) {
             Text(
                 label,
-                fontSize = 12.sp,
+                fontSize = d.labelFontSize,
                 fontWeight = FontWeight.SemiBold,
                 color = Primer.TextTertiary,
-                modifier = Modifier.padding(start = LabelPadStart, bottom = 6.dp),
+                modifier = Modifier.padding(start = LabelPadStart, bottom = d.labelPadBottom),
             )
         }
         Column(
             Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(CardRadius))
-                .background(Primer.BackgroundSecondary)
-                // 卡片描边是**装饰性**的，用 Gray200（neutralBorder）而不是 BorderControl
-                .border(1.dp, Primer.BorderEmphasis, RoundedCornerShape(CardRadius)),
+                // 底色统一 Gray100：BackgroundSecondary 在浅色板里 == 画布纯白，卡片没有边界可依；
+                // Gray100 是首页 HomeGroupCard / 常用仓库卡同一套容器语言。
+                .background(Primer.Gray100),
             content = content,
         )
     }
 }
 
-/** 组内分隔线（画在行的**顶部**；每组第一行不画）。 */
+/**
+ * 组内分隔线（画在行的**顶部**；每组第一行不画）。
+ *
+ * 用 `BorderEmphasis` 的 40% 而不是实色：卡片本身已经没有描边了（浅色下纯黑 1dp 框
+ * 把整页读成线框图 —— 真机反馈「取消掉黑边」），分隔线若仍是实色黑，会在灰底上
+ * 重新变成一排黑线。40% 与首页 `TodoDivider` 同一档，只用来断行、不用来框内容。
+ */
 @Composable
 private fun SettingsRowDivider() {
-    Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.BorderEmphasis))
+    Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.BorderEmphasis.copy(alpha = 0.4f)))
 }
 
 /**
@@ -141,25 +222,27 @@ private fun SettingsRowShell(
     enabled: Boolean = true,
     content: @Composable RowScope.() -> Unit,
 ) {
+    val d = LocalSettingsDensity.current
     Column(Modifier.fillMaxWidth()) {
         if (divider) SettingsRowDivider()
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(if (onClick != null && enabled) Modifier.clickable(onClick = onClick) else Modifier)
-                .defaultMinSize(minHeight = RowMinHeight)
-                .padding(horizontal = RowPaddingH),
+                .defaultMinSize(minHeight = d.rowMinHeight)
+                .padding(horizontal = d.rowPaddingH),
             verticalAlignment = Alignment.CenterVertically,
             content = content,
         )
     }
 }
 
-/** 行首图标（20dp，`IconSecondary`；危险行由调用方换成 `DangerText`）。 */
+/** 行首图标（默认 20dp，紧凑档 18dp；`IconSecondary`；危险行由调用方换成 `DangerText`）。 */
 @Composable
 private fun RowScope.RowIcon(icon: ImageVector, name: String, tint: Color = Primer.IconSecondary) {
-    Icon(icon, contentDescription = name, tint = tint, modifier = Modifier.size(IconSize))
-    Spacer(Modifier.width(IconGap))
+    val d = LocalSettingsDensity.current
+    Icon(icon, contentDescription = name, tint = tint, modifier = Modifier.size(d.iconSize))
+    Spacer(Modifier.width(d.iconGap))
 }
 
 /**
@@ -187,29 +270,30 @@ private fun RowScope.SettingsText(
     value: String? = null,
     valueSlot: (@Composable () -> Unit)? = null,
 ) {
-    Column(Modifier.weight(1f).padding(vertical = 11.dp)) {
+    val d = LocalSettingsDensity.current
+    Column(Modifier.weight(1f).padding(vertical = d.textPadV)) {
         Text(
             name,
-            fontSize = 14.sp,
+            fontSize = d.nameFontSize,
             color = Primer.TextPrimary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         if (sub != null) {
-            Spacer(Modifier.height(3.dp))
-            Text(sub, fontSize = 12.sp, lineHeight = 17.sp, color = Primer.TextTertiary)
+            Spacer(Modifier.height(d.subGap))
+            Text(sub, fontSize = d.subFontSize, lineHeight = d.subLineHeight, color = Primer.TextTertiary)
         }
     }
     if (valueSlot != null) {
-        Spacer(Modifier.width(ValueGap))
+        Spacer(Modifier.width(d.valueGap))
         // 权重盒：由它负责「不够就省略」，而不是回头去挤名称
         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) { valueSlot() }
     } else if (value != null) {
-        Spacer(Modifier.width(ValueGap))
+        Spacer(Modifier.width(d.valueGap))
         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
             Text(
                 value,
-                fontSize = 12.sp,
+                fontSize = d.valueFontSize,
                 color = Primer.TextTertiary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -266,7 +350,7 @@ fun NavRow(
                 Icons.Filled.ChevronRight,
                 contentDescription = null,
                 tint = Primer.TextTertiary,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(LocalSettingsDensity.current.chevronSize),
             )
         }
     }
@@ -296,10 +380,10 @@ fun SwitchRow(
         if (icon != null) RowIcon(icon, name)
         SettingsText(name = name, sub = sub)
         if (statusChip != null) {
-            Spacer(Modifier.width(ValueGap))
+            Spacer(Modifier.width(LocalSettingsDensity.current.valueGap))
             statusChip()
         }
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(LocalSettingsDensity.current.iconGap))
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
@@ -328,7 +412,7 @@ fun <T> ChoiceRow(
     SettingsRowShell(divider = divider, onClick = null) {
         RowIcon(icon, name)
         SettingsText(name = name, sub = sub)
-        Spacer(Modifier.width(ValueGap))
+        Spacer(Modifier.width(LocalSettingsDensity.current.valueGap))
         SettingsSegment(options = options, selected = selected, onSelect = onSelect)
     }
 }
@@ -416,8 +500,8 @@ fun DangerRow(
         RowIcon(icon, name, tint = Primer.DangerText)
         SettingsText(name = name, sub = sub)
         if (hint != null) {
-            Spacer(Modifier.width(ValueGap))
-            Text(hint, fontSize = 11.sp, color = Primer.DangerText, maxLines = 1)
+            Spacer(Modifier.width(LocalSettingsDensity.current.valueGap))
+            Text(hint, fontSize = LocalSettingsDensity.current.valueFontSize, color = Primer.DangerText, maxLines = 1)
         }
     }
 }
@@ -495,26 +579,31 @@ fun DisabledNavRow(
                 icon,
                 contentDescription = name,
                 tint = Primer.IconSecondary.copy(alpha = DisabledAlpha),
-                modifier = Modifier.size(IconSize),
+                modifier = Modifier.size(LocalSettingsDensity.current.iconSize),
             )
-            Spacer(Modifier.width(IconGap))
-            Column(Modifier.weight(1f).padding(vertical = 11.dp)) {
+            Spacer(Modifier.width(LocalSettingsDensity.current.iconGap))
+            Column(Modifier.weight(1f).padding(vertical = LocalSettingsDensity.current.textPadV)) {
                 Text(
                     name,
-                    fontSize = 14.sp,
+                    fontSize = LocalSettingsDensity.current.nameFontSize,
                     color = Primer.TextPrimary.copy(alpha = DisabledAlpha),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(3.dp))
+                Spacer(Modifier.height(LocalSettingsDensity.current.subGap))
                 // 原因**不降透明度**：它是这一行唯一能告诉用户「怎么办」的东西
-                Text(reason, fontSize = 12.sp, lineHeight = 17.sp, color = Primer.TextSecondary)
+                Text(
+                    reason,
+                    fontSize = LocalSettingsDensity.current.subFontSize,
+                    lineHeight = LocalSettingsDensity.current.subLineHeight,
+                    color = Primer.TextSecondary,
+                )
             }
         }
-        Spacer(Modifier.width(ValueGap))
+        Spacer(Modifier.width(LocalSettingsDensity.current.valueGap))
         Text(
             fixText,
-            fontSize = 12.sp,
+            fontSize = LocalSettingsDensity.current.valueFontSize,
             fontWeight = FontWeight.SemiBold,
             color = Primer.AccentText,
             maxLines = 1,
@@ -540,10 +629,10 @@ fun SettingsProse(text: String, divider: Boolean = true) {
         if (divider) SettingsRowDivider()
         Text(
             text,
-            fontSize = 12.sp,
-            lineHeight = 17.sp,
+            fontSize = LocalSettingsDensity.current.subFontSize,
+            lineHeight = LocalSettingsDensity.current.subLineHeight,
             color = Primer.TextTertiary,
-            modifier = Modifier.padding(horizontal = RowPaddingH, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = LocalSettingsDensity.current.rowPaddingH, vertical = 12.dp),
         )
     }
 }
@@ -565,70 +654,6 @@ fun SettingsSectionTitle(title: String) {
         color = Primer.TextTertiary,
         modifier = Modifier.padding(start = RowPaddingH, end = RowPaddingH, top = 16.dp, bottom = 6.dp),
     )
-}
-
-/**
- * 账户行（设置主页第 1 组）—— 头像 + 登录名 + 服务器 + 状态胶囊。
- *
- * 它不是 §4.1 的 6 种行型之一，而是**账户卡**：
- * 比普通行高（40dp 头像），并且状态胶囊要在一屏内可读 ——
- * 「令牌失效 / 触发限流」这类状态必须第一眼看到，而不是点进账号管理才发现。
- *
- * ## 头像走统一 [Avatar]，不许在这里再写一遍占位
- *
- * 这一格原来是一个写死的灰底首字母 `Box` —— 它**根本不接 [avatar]**，
- * 于是哪怕本地缓存和 `avatar_url` 都在，设置页也永远只显示字母，更谈不上圆形裁切。
- * 首字母只是 [Avatar] 内部「图还没到时」的兜底层，不该是账户卡的全部实现：
- * 账号管理页 / 首页 / 个人页早就用 [Avatar]，只有这里漏了。
- */
-@Composable
-fun AccountRow(
-    login: String?,
-    host: String?,
-    avatar: String?,
-    statusLabel: String?,
-    statusTone: StatusTone,
-    onClick: () -> Unit,
-) {
-    SettingsRowShell(divider = false, onClick = onClick) {
-        // 本地缓存优先、缺缓存回落 avatar_url 网络图、两者都没有才首字母 —— 逻辑全在 Avatar 里
-        Avatar(
-            url = avatar,
-            login = login ?: "?",
-            size = 40.dp,
-        )
-        Spacer(Modifier.width(IconGap))
-        // 同样吃掉份额：账户卡的状态胶囊与 `›` 要贴行尾，不跟着登录名的长短跑
-        Column(Modifier.weight(1f).padding(vertical = 14.dp)) {
-            Text(
-                login ?: stringResource(R.string.state_not_signed_in),
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Primer.TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                host ?: stringResource(R.string.note_sign_in_to_sync),
-                fontSize = 12.sp,
-                color = Primer.TextTertiary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (statusLabel != null) {
-            Spacer(Modifier.width(ValueGap))
-            StatusChip(statusLabel, statusTone)
-        }
-        Spacer(Modifier.width(6.dp))
-        Icon(
-            Icons.Filled.ChevronRight,
-            contentDescription = null,
-            tint = Primer.TextTertiary,
-            modifier = Modifier.size(20.dp),
-        )
-    }
 }
 
 // ───────────────────────── 表单：输入（不是行型） ─────────────────────────

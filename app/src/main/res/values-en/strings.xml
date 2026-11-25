@@ -199,6 +199,7 @@
     <string name="state_loading_ellipsis">Loading…</string>
     <string name="label_match">Match</string>
     <string name="nav_repo_credentials">Repository credentials</string>
+    <string name="nav_accounts_manage">Accounts</string>
     <string name="action_new_branch">New branch</string>
     <string name="nav_git_proxy">Git proxy</string>
     <string name="action_sign_out">Sign out</string>
@@ -411,7 +412,6 @@
     <string name="action_new">New</string>
     <string name="action_discard_and_switch">Discard and switch</string>
     <string name="nav_upstream">Upstream</string>
-    <string name="note_repo_credentials_scope">Only applies to private repositories the current account cannot open.</string>
     <string name="state_no_repos">No repositories yet</string>
     <string name="label_git_bundle">Git bundle</string>
     <string name="label_git_workspace">Working tree</string>
@@ -479,7 +479,6 @@
     <string name="note_commit_local_repo_scope">Local repository (Git) mode commits every change in the working tree (the engine stages all of it first), so files are not ticked individually here.</string>
     <string name="note_fork_entry_settings">This step needs a fork — finish the fork flow under Settings → Local repositories, then come back to set the upstream.</string>
     <string name="note_git_view_unavailable">This view is not available yet — it arrives in a later phase (see docs/specs/git-mode-design.md §8).</string>
-    <string name="note_proxy_scope">Only affects clone / pull / push for local repositories.</string>
     <string name="note_delete_local_branch">Deletes the local branch only; the remote is unaffected. Unmerged commits will be lost.</string>
     <string name="note_dirty_blocks_switch">The working tree has %1$s changes; switching branches is refused if it would overwrite them</string>
     <string name="label_credential_count">%1$s</string>
@@ -495,8 +494,6 @@
     <string name="error_nothing_to_commit">No changes in the working tree to commit</string>
     <string name="label_theme">Theme</string>
     <string name="label_glass_navigation">Floating glass navigation</string>
-    <string name="note_glass_navigation_enabled">Use floating glass navigation on the main screen; turn off to restore the classic bottom bar.</string>
-    <string name="note_glass_navigation_disabled">Use the classic bottom bar; turn on to switch the main screen to the floating glass style.</string>
     <string name="toast_deleted_branch">Deleted branch %1$s</string>
     <string name="action_create_and_switch">Create and switch</string>
     <string name="label_code_commit_group">Code and commits</string>
@@ -504,12 +501,10 @@
     <string name="toast_deleted">Deleted %1$s</string>
     <string name="toast_created_and_switched">Created and switched to %1$s</string>
     <string name="label_notification_display_mode">Notification display mode</string>
-    <string name="note_translate_disabled">When off, article pages are not translated and the floating button is hidden.</string>
     <string name="nav_revert_gitify">Revert gitify</string>
     <string name="state_no_projects">No projects yet</string>
     <string name="action_clone_repo">Clone repository %1$s</string>
     <string name="error_repo_status_engine_unavailable">Cannot read repository status (engine unavailable)</string>
-    <string name="note_translate_enabled">Article pages such as README files are translated automatically and a draggable floating button appears.</string>
     <string name="error_update_failed">Update failed: %1$s</string>
     <string name="label_editor_module_info">%1$s %2$s (%3$s)</string>
     <string name="label_project_home">Project home (Android only)</string>
@@ -528,7 +523,6 @@
     <string name="error_checksum_unavailable">Cannot fetch the checksum file</string>
     <string name="label_appearance_group">Appearance</string>
     <string name="error_already_exists">“%1$s” already exists</string>
-    <string name="note_theme_follow_system">With “Follow system”, the app switches between light and dark together with the system.</string>
     <string name="label_community_qq">Community (QQ group)</string>
     <string name="confirm_delete_local_copy">Delete “%1$s”? Only the local copy is removed; the remote repository is unaffected.</string>
     <string name="note_local_repo_requires_git_mode">Turn on by setting Commit mode to “Local repository (Git)” first.</string>
@@ -1456,8 +1450,6 @@
     <string name="label_git_proxy_sub">HTTP proxy for libgit2</string>
     <string name="state_currently_active">Currently active</string>
     <string name="hint_proxy_example">http://127.0.0.1:7890 or socks5://127.0.0.1:1080</string>
-    <string name="state_not_signed_in">Not signed in</string>
-    <string name="note_sign_in_to_sync">Sign in to sync repositories and notifications</string>
     <string name="label_long_task">Long task</string>
     <string name="label_short_task">Short task</string>
     <string name="state_not_configured_will_ask">Not configured (you will be asked on the first commit)</string>

@@ -55,6 +55,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -98,7 +99,6 @@ import com.branchbase.ui.repository.clonePhaseText
 import com.branchbase.ui.theme.selectionColor
 import com.branchbase.BuildConfig
 import com.branchbase.R
-import com.branchbase.core.AccountStatus
 import com.branchbase.core.CloneProgress
 import com.branchbase.core.AuthKind
 import com.branchbase.core.RepoCredentialStore
@@ -116,11 +116,12 @@ import com.branchbase.core.AccountStore
 import com.branchbase.ui.log.FrameWatch
 import com.branchbase.ui.log.LogLevel
 import com.branchbase.ui.log.LogManager
-import com.branchbase.ui.settings.AccountRow
 import com.branchbase.ui.settings.ChoiceRow
 import com.branchbase.ui.settings.DangerRow
 import com.branchbase.ui.settings.DisabledNavRow
 import com.branchbase.ui.settings.NavRow
+import com.branchbase.ui.settings.LocalSettingsDensity
+import com.branchbase.ui.settings.SettingsDensity
 import com.branchbase.ui.settings.SettingsProse
 import com.branchbase.ui.settings.SettingsSection
 import com.branchbase.ui.settings.StatusChip
@@ -131,8 +132,11 @@ import com.branchbase.ui.theme.ThemeMode
 import com.branchbase.ui.theme.ThemeRuntime
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.Article
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Commit
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Tune
 import com.branchbase.core.LocalRepos
@@ -590,240 +594,220 @@ fun SettingsScreen(
     val languageTag = remember(uiLocale) { currentAppLanguageTag(context) }
     val languageSupported = remember(uiLocale) { supportedAppLanguages(context) }
 
-    BranchbaseLazyColumn(
-        // 惰性化：设置页有 8 组卡片、二十多行，`Column + verticalScroll` 会在**首帧**
-        // 把整棵树组合出来（真机实测「进入设置页」首帧 43~89ms，其中重组≈绘制）；
-        // 换成 LazyColumn 后首帧只组合可见的那几组，剩下的滚到才建。
-        modifier = Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding(),
-    ) {
+    // 紧凑档只作用于这棵树（L1）；二级页拿到的仍是 SettingsDensity.Comfort 的默认值。
+    CompositionLocalProvider(LocalSettingsDensity provides SettingsDensity.Compact) {
+        BranchbaseLazyColumn(
+            // 惰性化：设置页有 8 组卡片、二十多行，`Column + verticalScroll` 会在**首帧**
+            // 把整棵树组合出来（真机实测「进入设置页」首帧 43~89ms，其中重组≈绘制）；
+            // 换成 LazyColumn 后首帧只组合可见的那几组，剩下的滚到才建。
+            modifier = Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding(),
+        ) {
 
-        item {
-            SubPageHeader(stringResource(R.string.nav_settings), onBack)
-        }
-
-        item {
-            Spacer(Modifier.height(6.dp))
-        }
-
-        // ── ① 账户：身份是第一信息（规范 §3.2） ──
-        item {
-            SettingsSection(stringResource(R.string.label_account_group)) {
-                AccountRow(
-                    login = account?.login,
-                    host = account?.host,
-                    // 账户卡的头像必须传下去：Avatar 内部按「本地缓存 → avatar_url → 首字母」
-                    // 依次回落并做圆形裁切；漏传这一项，圈选处就只剩写死的首字母。
-                    // 用 avatarUrl（快照缺失时回落会话 user.avatar_url）而不是裸 avatar。
-                    avatar = account?.avatarUrl,
-                    statusLabel = account?.status?.let { stringResource(it.labelRes) },
-                    statusTone = account?.status?.let { accountStatusTone(it) } ?: StatusTone.MUTE,
-                    onClick = onOpenAccounts,
-                )
-                // 仓库级凭据：账户组内、紧挨账号卡之后（不新建分组，规范 §3.2）。
-                // 显示条件见上面的 `patMode`：OAuth 账号下整行不出现。
-                if (patMode) {
-                    NavRow(
-                        icon = Icons.Filled.Key,
-                        name = stringResource(R.string.nav_repo_credentials),
-                        // 值列只报条数：令牌与本机 host 一律不进值列（规范 §4.3 / §6.5）。
-                        // 数量用「N 条」，未配置用「未设置」（规范 §6.1：禁止「无」「空」「——」）
-                        value = if (repoCredentialCount > 0) stringResource(R.string.label_credential_count, repoCredentialCount) else stringResource(R.string.state_not_set),
-                        sub = stringResource(R.string.note_repo_credentials_scope),
-                        onClick = onOpenRepoCredentials,
-                    )
-                }
+            item {
+                SubPageHeader(stringResource(R.string.nav_settings), onBack)
             }
-        }
 
-        // ── ② 外观：三档分段控件，取代「点一下循环」（规范 §5.2） ──
-        item {
-            SettingsSection(stringResource(R.string.label_appearance_group)) {
-                ChoiceRow(
-                    icon = Icons.Filled.Palette,
-                    name = stringResource(R.string.label_theme),
-                    sub = stringResource(R.string.note_theme_follow_system),
-                    // 三档名字走资源（`ThemeMode.labelRes`）：枚举不认识语言，解析只能在 composable 里做，
-                    // 否则界面切英文后按钮仍是「跟随系统 / 浅色 / 深色」（`map` 是 inline，可以调 stringResource）
-                    options = ThemeMode.entries.map { it to stringResource(it.labelRes) },
-                    selected = themeMode,
-                    onSelect = { ThemeRuntime.set(context, it) },
-                    divider = false,
-                )
-                // 语言是**条件行**（同 §3.2.1 的「仓库凭据」）：API 33 以下没有 LocaleManager，
-                // 清单里只有一种语言时也没有可选项 —— 两种情况下整行不出现，而不是置灰。
-                // 判定收在 languagePickerAvailable 里（它同时覆盖这两个条件）。
-                if (languageAvailable) {
-                    NavRow(
-                        icon = Icons.Filled.Language,
-                        name = stringResource(R.string.settings_language),
-                        // 值列与语言页里的名称同源（都是母语自称），别一处写 English、一处写「英语」
-                        value = languageRowValue(
-                            languageTag,
-                            languageSupported,
-                            stringResource(R.string.language_follow_system),
-                        ),
-                        onClick = onOpenLanguage,
-                    )
-                }
-                SwitchRow(
-                    icon = Icons.Filled.Tune,
-                    name = stringResource(R.string.label_glass_navigation),
-                    sub = stringResource(
-                        if (glassNavigation) R.string.note_glass_navigation_enabled
-                        else R.string.note_glass_navigation_disabled,
-                    ),
-                    checked = glassNavigation,
-                    onCheckedChange = {
-                        glassNavigation = it
-                        GlassNavigationRuntime.set(context, it)
-                    },
-                    divider = false,
-                )
+            item {
+                Spacer(Modifier.height(4.dp))
             }
-        }
 
-        // ── ③ 通知 ──
-        item {
-            SettingsSection(stringResource(R.string.nav_notifications)) {
-                // 这一行**不是**开关：系统通知权限不是 App 的布尔值，App 只能申请或跳系统设置。
-                // 用导航行 + 状态胶囊，才不会让「开了但系统没授权」变成一个骗人的开关（规范 §4.3）。
-                // 状态与说明都是**资源**（`labelRes` / `hintRes`）：它们是系统状态，不跟语言走就永远是中文。
-                NavRow(
-                    icon = Icons.Filled.Notifications,
-                    name = stringResource(R.string.nav_notifications),
-                    sub = stringResource(notificationPermission.hintRes),
-                    statusChip = {
-                        StatusChip(
-                            stringResource(notificationPermission.labelRes),
-                            notificationPermissionTone(notificationPermission),
+            // ── ① 账户：只留入口，主页不回答「我是谁」 ──
+            // 账号身份（头像 / 登录名 / 服务器 / 状态胶囊）在 2026-11 的主页压密里删掉了：
+            // 多账号的真实形态是列表，主页那张卡只展示「当前是谁」，展示不了「怎么换」——
+            // 想看身份就点进去（账号管理页本来就是列表 + 状态胶囊）。
+            item {
+                SettingsSection(stringResource(R.string.label_account_group)) {
+                    NavRow(
+                        icon = Icons.Filled.Person,
+                        name = stringResource(R.string.nav_accounts_manage),
+                        onClick = onOpenAccounts,
+                        divider = false,
+                    )
+                    // 仓库级凭据：账户组内、紧挨账户入口之后（不新建分组，规范 §3.2）。
+                    // 显示条件见上面的 `patMode`：OAuth 账号下整行不出现。
+                    if (patMode) {
+                        NavRow(
+                            icon = Icons.Filled.Key,
+                            name = stringResource(R.string.nav_repo_credentials),
+                            // 值列只报条数：令牌与本机 host 一律不进值列（规范 §4.3 / §6.5）。
+                            value = if (repoCredentialCount > 0) stringResource(R.string.label_credential_count, repoCredentialCount) else stringResource(R.string.state_not_set),
+                            onClick = onOpenRepoCredentials,
                         )
-                    },
-                    onClick = onOpenNotificationSettings,
-                    divider = false,
-                )
+                    }
+                }
             }
-        }
 
-        // ── ④ 翻译 ──
-        item {
-            SettingsSection(stringResource(R.string.label_translation_group)) {
-                SwitchRow(
-                    icon = Icons.Filled.Translate,
-                    name = stringResource(R.string.translate_auto_toggle),
-                    sub = if (translateEnabled) {
-                        stringResource(R.string.note_translate_enabled)
-                    } else {
-                        stringResource(R.string.note_translate_disabled)
-                    },
-                    checked = translateEnabled,
-                    onCheckedChange = {
-                        translateEnabled = it
-                        TranslateSettings.setEnabled(context, it)
-                    },
-                    divider = false,
-                )
-                NavRow(
-                    icon = Icons.Filled.Tune,
-                    name = stringResource(R.string.translate_title),
-                    onClick = onOpenTranslate,
-                )
-            }
-        }
-
-        // ── ⑤ 代码与提交 ──
-        item {
-            SettingsSection(stringResource(R.string.label_code_commit_group)) {
-                NavRow(
-                    icon = Icons.Filled.Commit,
-                    name = stringResource(R.string.nav_commit_mode),
-                    value = mode?.let { stringResource(it.labelRes) } ?: stringResource(R.string.state_not_set),
-                    onClick = onOpenCommitMode,
-                    divider = false,
-                )
-                if (mode == CommitMode.LOCAL_REPO) {
-                    NavRow(
-                        icon = Icons.Filled.Folder,
-                        name = stringResource(R.string.nav_local_repo),
-                        onClick = onOpenLocalRepo,
+            // ── ② 外观：三档分段控件 + 语言 + 玻璃导航栏 ──
+            item {
+                SettingsSection(stringResource(R.string.label_appearance_group)) {
+                    ChoiceRow(
+                        icon = Icons.Filled.Palette,
+                        name = stringResource(R.string.label_theme),
+                        // 三档名字走资源（`ThemeMode.labelRes`）：枚举不认识语言，解析只能在 composable 里做，
+                        // 否则界面切英文后按钮仍是「跟随系统 / 浅色 / 深色」（`map` 是 inline，可以调 stringResource）
+                        options = ThemeMode.entries.map { it to stringResource(it.labelRes) },
+                        selected = themeMode,
+                        onSelect = { ThemeRuntime.set(context, it) },
+                        divider = false,
                     )
-                } else {
-                    // 禁用态**不能只调 alpha**：说明原因 + 给出去开启的路（规范 §6.3）
-                    DisabledNavRow(
-                        icon = Icons.Filled.Folder,
-                        name = stringResource(R.string.nav_local_repo),
-                        reason = stringResource(R.string.note_local_repo_requires_git_mode),
-                        onFix = onOpenCommitMode,
+                    // 语言是**条件行**（同 §3.2.1 的「仓库凭据」）：API 33 以下没有 LocaleManager，
+                    // 清单里只有一种语言时也没有可选项 —— 两种情况下整行不出现，而不是置灰。
+                    // 判定收在 languagePickerAvailable 里（它同时覆盖这两个条件）。
+                    if (languageAvailable) {
+                        NavRow(
+                            icon = Icons.Filled.Language,
+                            name = stringResource(R.string.settings_language),
+                            // 值列与语言页里的名称同源（都是母语自称），别一处写 English、一处写「英语」
+                            value = languageRowValue(
+                                languageTag,
+                                languageSupported,
+                                stringResource(R.string.language_follow_system),
+                            ),
+                            onClick = onOpenLanguage,
+                        )
+                    }
+                    SwitchRow(
+                        icon = Icons.Filled.Tune,
+                        name = stringResource(R.string.label_glass_navigation),
+                        checked = glassNavigation,
+                        onCheckedChange = {
+                            glassNavigation = it
+                            GlassNavigationRuntime.set(context, it)
+                        },
+                        divider = false,
                     )
                 }
             }
-        }
 
-        // ── ⑥ 网络 ──
-        item {
-            SettingsSection(stringResource(R.string.label_network_group)) {
-                NavRow(
-                    icon = Icons.Filled.Language,
-                    name = stringResource(R.string.nav_git_proxy),
-                    // 值列只显示 host:port，凭据不进列表（规范 §6.5）
-                    value = proxyValue,
-                    sub = stringResource(R.string.note_proxy_scope),
-                    onClick = onOpenGitProxy,
-                    divider = false,
-                )
+            // ── ③ 通知：单行卡片，组名与行名不再重复（规范 §3.2） ──
+            // 这一行**不是**开关：系统通知权限不是 App 的布尔值，App 只能申请或跳系统设置。
+            // 用导航行 + 状态胶囊，才不会让「开了但系统没授权」变成一个骗人的开关（规范 §4.3）。
+            item {
+                SettingsSection {
+                    NavRow(
+                        icon = Icons.Filled.Notifications,
+                        name = stringResource(R.string.nav_notifications),
+                        statusChip = {
+                            StatusChip(
+                                stringResource(notificationPermission.labelRes),
+                                notificationPermissionTone(notificationPermission),
+                            )
+                        },
+                        onClick = onOpenNotificationSettings,
+                        divider = false,
+                    )
+                }
             }
-        }
 
-        // ── ⑦ 关于与诊断：兜底组，位置固定（规范 §3.3） ──
-        item {
-            SettingsSection(stringResource(R.string.label_about_group)) {
-                // 慢帧日志：诊断仪表。默认值随编译通道（Beta 开 / 正式版关，见 build.gradle.kts 的
-                // FRAME_WATCH_DEFAULT），这里可以随时覆盖 —— 正式版用户要抓一次卡顿就靠它。
-                SwitchRow(
-                    icon = Icons.Filled.Speed,
-                    name = stringResource(R.string.label_frame_watch),
-                    sub = if (frameWatch) {
-                        stringResource(R.string.note_frame_watch_desc)
+            // ── ④ 翻译 ──
+            item {
+                SettingsSection(stringResource(R.string.label_translation_group)) {
+                    SwitchRow(
+                        icon = Icons.Filled.Translate,
+                        name = stringResource(R.string.translate_auto_toggle),
+                        checked = translateEnabled,
+                        onCheckedChange = {
+                            translateEnabled = it
+                            TranslateSettings.setEnabled(context, it)
+                        },
+                        divider = false,
+                    )
+                    NavRow(
+                        icon = Icons.Filled.AutoAwesome,
+                        name = stringResource(R.string.translate_title),
+                        onClick = onOpenTranslate,
+                    )
+                }
+            }
+
+            // ── ⑤ 代码与提交 ──
+            item {
+                SettingsSection(stringResource(R.string.label_code_commit_group)) {
+                    NavRow(
+                        icon = Icons.Filled.Commit,
+                        name = stringResource(R.string.nav_commit_mode),
+                        value = mode?.let { stringResource(it.labelRes) } ?: stringResource(R.string.state_not_set),
+                        onClick = onOpenCommitMode,
+                        divider = false,
+                    )
+                    if (mode == CommitMode.LOCAL_REPO) {
+                        NavRow(
+                            icon = Icons.Filled.Folder,
+                            name = stringResource(R.string.nav_local_repo),
+                            onClick = onOpenLocalRepo,
+                        )
                     } else {
-                        stringResource(R.string.note_frame_watch_disabled)
-                    },
-                    checked = frameWatch,
-                    onCheckedChange = {
-                        frameWatch = it
-                        setFrameWatchEnabled(context, it)
-                        FrameWatch.setEnabled(it)
-                    },
-                    divider = false,
-                )
-                NavRow(
-                    icon = Icons.AutoMirrored.Filled.Article,
-                    name = stringResource(R.string.nav_logs),
-                    value = if (logErrors > 0) pluralStringResource(R.plurals.label_error_count, logErrors, logErrors) else null,
-                    onClick = onOpenLog,
-                )
-                NavRow(
-                    icon = Icons.Filled.Info,
-                    name = stringResource(R.string.nav_about),
-                    value = BuildConfig.STANDARD_VERSION,
-                    onClick = onOpenAbout,
-                )
+                        // 禁用态**不能只调 alpha**：说明原因 + 给出去开启的路（规范 §6.3）
+                        DisabledNavRow(
+                            icon = Icons.Filled.Folder,
+                            name = stringResource(R.string.nav_local_repo),
+                            reason = stringResource(R.string.note_local_repo_requires_git_mode),
+                            onFix = onOpenCommitMode,
+                        )
+                    }
+                }
             }
-        }
 
-        // ── 危险动作：单独一组、放最末（规范 §7.2） ──
-        item {
-            SettingsSection {
-                DangerRow(
-                    icon = Icons.AutoMirrored.Filled.Logout,
-                    name = if (account != null) stringResource(R.string.confirm_sign_out_title, account.login) else stringResource(R.string.action_sign_out),
-                    hint = stringResource(R.string.label_irreversible),
-                    onClick = { confirmLogout = true },
-                    divider = false,
-                )
+            // ── ⑥ 网络 ──
+            item {
+                SettingsSection(stringResource(R.string.label_network_group)) {
+                    NavRow(
+                        icon = Icons.Filled.Public,
+                        name = stringResource(R.string.nav_git_proxy),
+                        // 值列只显示 host:port，凭据不进列表（规范 §6.5）
+                        value = proxyValue,
+                        onClick = onOpenGitProxy,
+                        divider = false,
+                    )
+                }
             }
-        }
 
-        item {
-            Spacer(Modifier.height(12.dp))
+            // ── ⑦ 关于与诊断：兜底组，位置固定（规范 §3.3） ──
+            item {
+                SettingsSection(stringResource(R.string.label_about_group)) {
+                    // 慢帧日志：诊断仪表。默认值随编译通道（Beta 开 / 正式版关，见 build.gradle.kts 的
+                    // FRAME_WATCH_DEFAULT），这里可以随时覆盖 —— 正式版用户要抓一次卡顿就靠它。
+                    SwitchRow(
+                        icon = Icons.Filled.Speed,
+                        name = stringResource(R.string.label_frame_watch),
+                        checked = frameWatch,
+                        onCheckedChange = {
+                            frameWatch = it
+                            setFrameWatchEnabled(context, it)
+                            FrameWatch.setEnabled(it)
+                        },
+                        divider = false,
+                    )
+                    NavRow(
+                        icon = Icons.AutoMirrored.Filled.Article,
+                        name = stringResource(R.string.nav_logs),
+                        value = if (logErrors > 0) pluralStringResource(R.plurals.label_error_count, logErrors, logErrors) else null,
+                        onClick = onOpenLog,
+                    )
+                    NavRow(
+                        icon = Icons.Filled.Info,
+                        name = stringResource(R.string.nav_about),
+                        onClick = onOpenAbout,
+                    )
+                }
+            }
+
+            // ── 危险动作：单独一组、放最末（规范 §7.2） ──
+            item {
+                SettingsSection {
+                    DangerRow(
+                        icon = Icons.AutoMirrored.Filled.Logout,
+                        name = if (account != null) stringResource(R.string.confirm_sign_out_title, account.login) else stringResource(R.string.action_sign_out),
+                        hint = stringResource(R.string.label_irreversible),
+                        onClick = { confirmLogout = true },
+                        divider = false,
+                    )
+                }
+            }
+
+            item {
+                Spacer(Modifier.height(12.dp))
+            }
         }
     }
 
@@ -859,15 +843,6 @@ fun SettingsScreen(
     }
 }
 
-
-
-/** 账号状态 → 胶囊语气（规范 §4.3：状态要能一眼分辨「好 / 警告 / 坏」）。 */
-private fun accountStatusTone(status: AccountStatus): StatusTone = when (status) {
-    AccountStatus.OK -> StatusTone.OK
-    AccountStatus.UNKNOWN -> StatusTone.MUTE
-    AccountStatus.LIMITED, AccountStatus.UNREACHABLE -> StatusTone.WARN
-    AccountStatus.INVALID, AccountStatus.SUSPENDED -> StatusTone.BAD
-}
 
 /**
  * 系统通知状态 → 胶囊语气。
