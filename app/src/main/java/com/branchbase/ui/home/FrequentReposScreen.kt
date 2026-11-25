@@ -2,6 +2,7 @@ package com.branchbase.ui.home
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -25,11 +26,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CallSplit
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -73,10 +78,19 @@ import org.json.JSONObject
  * （`/user/repos?affiliation=...`，见 [MY_REPOS_PATH]）。用户要先看见候选全集才能决定置顶谁，
  * 所以这一页的列表 = 候选全集（与首页同源：同一份 [MY_REPOS_CACHE_KEY] 缓存），选中态叠在列表上。
  *
- * ## 边框颜色就是「选中态」本身（需求原话：改编列表边框颜色来代表是否选中）
- * 未选中：1dp [Primer.Border]（与首页卡片同款描边）；选中：1.5dp [Primer.Blue500] +
- * 6% 蓝底 + 右侧对勾。三者同时变，是因为**只靠边框颜色**区分的话，色弱用户和
- * 强光下的屏幕都读不出来（`NotificationScreen` 的多选行也是这么叠的）。
+ * ## 选中态 = 卡片底色（不是一圈静止的描边）
+ * 未选中：[Primer.Gray100] 底、**无描边**；选中：[Primer.InfoSurfaceStrong] 浅蓝实底 +
+ * 1.5dp [Primer.Blue500] 蓝环 + 右侧对勾。三者同时变：底色负责「一眼看出哪些已置顶」，
+ * 蓝环负责在这一屏 20 张卡里把边界说清楚，对勾负责色弱与强光下的可读性
+ * （`NotificationScreen` 的多选行也是这么叠的）。
+ *
+ * 上一版让**每一张**未选中的卡都带 1dp [Primer.Border] 黑框，等于用「框」表达「没选中」——
+ * 满屏都是框，选中只是换了个框色 + 6% 蓝底，扫视时读不出来。现在框只在选中时出现。
+ *
+ * ## 计数徽标 = 抽屉入口
+ * 右上角那粒蓝底徽标（`已选 N / 共 M`）点开是底部抽屉：解释「最多 5 个 + 点一下即置顶」、
+ * 集中列出已选的仓库（可单个移除 / 一次清空）。原先这两件事占着列表上方一整行，
+ * 说明文字又只在第一次有用 —— 现在它们按需出现，列表直接顶到标题下面。
  */
 @Composable
 fun FrequentReposScreen(sessionJson: String, onBack: () -> Unit) {
@@ -91,6 +105,8 @@ fun FrequentReposScreen(sessionJson: String, onBack: () -> Unit) {
     var selected by remember { mutableStateOf(FrequentRepoStore.selection(context, bucket).orEmpty()) }
     var loading by remember { mutableStateOf(true) }
     var refreshKey by remember { mutableIntStateOf(0) }
+    // 计数徽标点开的抽屉（详见文件头「计数徽标 = 抽屉入口」）
+    var drawerOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(refreshKey) {
         // 首页刚写过同一份缓存：先拿它渲染，用户看到的是「我已经置顶的那几个」，不是骨架
@@ -117,12 +133,8 @@ fun FrequentReposScreen(sessionJson: String, onBack: () -> Unit) {
     ) {
         SubPageHeader(stringResource(R.string.label_manage_frequent_repos), onBack) {
             if (repos.isNotEmpty()) {
-                Text(
-                    stringResource(R.string.label_selected_of_visible, selected.size, repos.size),
-                    fontSize = 13.sp,
-                    color = Primer.TextTertiary,
-                )
-                Spacer(Modifier.width(12.dp))
+                SelectionBadge(pinned = selected.size, limit = FrequentRepoRules.HOME_LIMIT) { drawerOpen = true }
+                Spacer(Modifier.width(10.dp))
             }
             Icon(
                 Icons.Filled.Refresh,
@@ -130,27 +142,6 @@ fun FrequentReposScreen(sessionJson: String, onBack: () -> Unit) {
                 tint = Primer.Blue500,
                 modifier = Modifier.size(20.dp).iconTap { refreshKey++ },
             )
-        }
-
-        // 一行说明 + 清除：这两件事都只跟「当前勾选」有关，所以贴在标题下面、列表上面
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                stringResource(R.string.note_frequent_repos_hint, FrequentRepoRules.HOME_LIMIT),
-                fontSize = 12.sp,
-                color = Primer.TextTertiary,
-                modifier = Modifier.weight(1f),
-            )
-            if (selected.isNotEmpty()) {
-                TextButton(onClick = {
-                    selected = emptyList()
-                    FrequentRepoStore.save(context, bucket, emptyList())
-                }) {
-                    Text(stringResource(R.string.action_clear_selection), fontSize = 13.sp, color = Primer.Blue500)
-                }
-            }
         }
 
         when {
@@ -185,9 +176,178 @@ fun FrequentReposScreen(sessionJson: String, onBack: () -> Unit) {
             }
         }
     }
+
+    if (drawerOpen) {
+        SelectedReposSheet(
+            selected = selected,
+            total = repos.size,
+            limit = FrequentRepoRules.HOME_LIMIT,
+            onRemove = { name ->
+                selected = selected - name
+                FrequentRepoStore.save(context, bucket, selected)
+            },
+            onClear = {
+                selected = emptyList()
+                FrequentRepoStore.save(context, bucket, emptyList())
+            },
+            onDismiss = { drawerOpen = false },
+        )
+    }
 }
 
-/** 可置顶的仓库行：边框 = 选中态（未选中 1dp Border / 选中 1.5dp Blue500 + 蓝底 + 对勾） */
+/**
+ * 右上角的计数徽标：`已置顶 N / 5`，点开抽屉。
+ *
+ * 做成**蓝底胶囊**而不是原先那行灰字：它现在是一个入口（可点），而可点的东西必须先长得像可点的
+ * 东西 —— 灰字放在标题栏右侧，和旁边的刷新图标不是一类，用户不会去点它。
+ * 用 [Primer.InfoSurface] 实底而不是 `Blue500.copy(alpha = …)`：深色板上 alpha 叠加会随
+ * 卡片底色漂移，实底色板两边各自定义过一次，深浅两套都是可读的。
+ */
+@Composable
+private fun SelectionBadge(pinned: Int, limit: Int, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(10.dp)
+    Text(
+        // 原来是「已选 N / 共 M（候选数）」：两个数字不是一回事，用户得先知道 M 是列表条数。
+        // 改成「已置顶 N / 5」—— 分母就是上限，和抽屉里那行一致，也直接回答「还能再放几个」。
+        text = stringResource(R.string.label_frequent_repos_pinned_count, pinned, limit),
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Medium,
+        color = Primer.Blue600,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(shape)
+            .background(Primer.InfoSurface, shape)
+            .border(1.dp, Primer.Blue500.copy(alpha = 0.35f), shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+    )
+}
+
+/** 抽屉里的信息徽标：`accent` 表示状态色（已置顶），否则是中性色（规模 / 数量）。 */
+@Composable
+private fun DrawerChip(text: String, accent: Boolean = false) {
+    val shape = RoundedCornerShape(10.dp)
+    Text(
+        text = text,
+        fontSize = 11.5.sp,
+        fontWeight = FontWeight.Medium,
+        color = if (accent) Primer.Blue600 else Primer.TextSecondary,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(shape)
+            .background(if (accent) Primer.InfoSurface else Primer.Gray150, shape)
+            .border(1.dp, if (accent) Primer.Blue500.copy(alpha = 0.35f) else Primer.Gray200, shape)
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    )
+}
+
+/**
+ * 「首页置顶仓库」抽屉：说明顺序规则 + 集中展示已置顶 + 单个移除 / 一次全部取消。
+ *
+ * 原先这三件事拆在两处：说明文字与「清除」占着列表上方一整行（每进一次页都要看一遍，而它只在
+ * 第一次有用），已置顶内容则散落在 20 张卡里靠蓝底一个个找。现在合并到「点徽标才出现」的一层里。
+ *
+ * 顺序就是首页的显示顺序（`selected` 本就是点选先后），所以这里不做二次排序 ——
+ * 抽屉里的第 1 行就是首页左上角那一格。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SelectedReposSheet(
+    selected: List<String>,
+    /** 候选全集条数 —— 第二个徽标要显示「共 N 个仓库」。 */
+    total: Int,
+    limit: Int,
+    onRemove: (String) -> Unit,
+    onClear: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState()
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    stringResource(R.string.label_frequent_repos_pinned),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Primer.TextPrimary,
+                )
+                Spacer(Modifier.weight(1f))
+                if (selected.isNotEmpty()) {
+                    TextButton(onClick = onClear) {
+                        // 「清除」太泛（清的是什么？），这颗按钮只做一件事：把首页那几个全撤了
+                        Text(stringResource(R.string.action_unpin_all), fontSize = 13.sp, color = Primer.Blue500)
+                    }
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            // 两个徽标同一排：蓝的答「还能放几个」，灰的答「候选一共多少」——
+            // 它们是两类信息（状态 vs 规模），用同一种底色会被读成一件事，所以分色。
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                DrawerChip(stringResource(R.string.label_frequent_repos_pinned_count, selected.size, limit), accent = true)
+                DrawerChip(stringResource(R.string.label_frequent_repos_total_repos, total))
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                // 说明的落点换了：抽屉里列的是「已经置顶的」，所以要说的是「顺序」，
+                // 而不是原来那句「点一下选中」（那是列表上的动作，写在抽屉里指代不明）。
+                stringResource(R.string.note_frequent_repos_pin_order, limit),
+                fontSize = 11.5.sp,
+                color = Primer.TextSecondary,
+                lineHeight = 17.sp,
+                // 提示也做成一条底色块：它和上面两枚徽标是一组「规则说明」，
+                // 单独一行灰字夹在两枚徽标与列表之间会显得像漏排的空行。
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                    .background(Primer.Gray150).padding(horizontal = 10.dp, vertical = 6.dp),
+            )
+            Spacer(Modifier.height(10.dp))
+            if (selected.isEmpty()) {
+                Text(
+                    stringResource(R.string.note_frequent_repos_selected_empty),
+                    fontSize = 13.sp,
+                    color = Primer.TextTertiary,
+                    lineHeight = 18.sp,
+                )
+            } else {
+                selected.forEachIndexed { index, fullName ->
+                    Row(
+                        // 每行一条浅灰底：抽屉里的行是「条目」，不是列表页的卡片 ——
+                        // 底色只用来把连续几行切成「一条一条」，圆角比卡片小一档（8dp）
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Primer.Gray100)
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // 序号 = 首页的格子顺序，省得用户回首页数
+                        Text(
+                            "${index + 1}",
+                            fontSize = 12.sp,
+                            color = Primer.TextTertiary,
+                            modifier = Modifier.width(18.dp),
+                        )
+                        Text(
+                            fullName,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Primer.Blue500,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = stringResource(R.string.action_remove),
+                            tint = Primer.IconSecondary,
+                            modifier = Modifier.size(18.dp).iconTap { onRemove(fullName) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 可置顶的仓库行：**底色 = 选中态**（未选中 Gray100 无框 / 选中 InfoSurfaceStrong + 1.5dp Blue500 环） */
 @Composable
 private fun PinnableRepoRow(repo: RepoSummary, selected: Boolean, onToggle: () -> Unit) {
     val shape = RoundedCornerShape(12.dp)
@@ -197,12 +357,11 @@ private fun PinnableRepoRow(repo: RepoSummary, selected: Boolean, onToggle: () -
             .padding(start = 16.dp, end = 16.dp, bottom = 10.dp)
             .fillMaxWidth()
             .clip(shape)
-            .background(if (selected) Primer.Blue500.copy(alpha = 0.06f) else Primer.BackgroundSecondary)
-            .border(
-                width = if (selected) 1.5.dp else 1.dp,
-                color = if (selected) Primer.Blue500 else Primer.Border,
-                shape = shape,
-            )
+            // 选中 = 底色（浅蓝实底）；未选中 = Gray100 的「有底、无框」——
+            // 旧版让每张卡都带 1dp 黑框，满屏都是框，选中的那张只是框变蓝，扫视读不出来。
+            .background(if (selected) Primer.InfoSurfaceStrong else Primer.Gray100)
+            // 蓝环只在选中时出现：它是「选中」的一部分，不是常驻装饰
+            .then(if (selected) Modifier.border(1.5.dp, Primer.Blue500, shape) else Modifier)
             // indication = null + selectable(role = Checkbox)：整行是一个复选框，
             // 读屏会念「已选中 / 未选中」，比「一个带边框的按钮」准确
             .selectable(

@@ -4,8 +4,8 @@
 # 版本变更记录（`versionName` / `versionCode` 逐版说明）
 
 `version.properties` 现在只有**两个值**（`versionName` / `versionCode`）+ 一句指路；
-**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（**1.4.34** → 1.0.22）
-与 §三 `versionCode` 流水（129 → **294**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
+**每一版改了什么、为什么这么改**都在这份文档里 —— §二 `versionName` 条目（**1.4.35** → 1.0.22）
+与 §三 `versionCode` 流水（129 → **295**）。写法样板也在下面（1.1.1 从那个文件搬进来的）。
 
 ---
 
@@ -74,7 +74,36 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.34 → 1.0.22）
+## 二、`versionName` 流水（1.4.35 → 1.0.22）
+
+### 1.4.35
+
+**「管理常用仓库」收口：选中态从「一圈黑框」改成卡片底色 + 蓝环，右上角计数改成可点的徽标，规则与已置顶清单收进底部抽屉。**
+
+① 选中态原来靠边框：**每一张**未选中的卡都带 1dp `Primer.Border`，选中的只是「1.5dp 蓝框 + 6% 蓝底」——
+满屏 20 张都是框，扫视时读不出哪几张已置顶。改为：未选中 `Gray100` 底、**无描边**；选中
+`InfoSurfaceStrong`（浅色 #E3F0FF / 深色 #12304F）浅蓝实底 + 1.5dp `Blue500` 蓝环 + 右侧对勾。
+底色用实底 token 而不是 `Blue500.copy(alpha = …)`：6% 叠在灰底上几乎看不出来，而实底在深浅两套色板里
+都各自定义过，深色板不会随底下那层漂移。
+
+② 列表上方那行（说明 + 清除）整行删掉：说明只在第一次有用、清除只在有选中时有用，却每进一次页都占一行。
+改成右上角一粒**可点的蓝底徽标**（`InfoSurface` + `Blue500` 35% 环 + `Blue600` 12sp），点开底部抽屉：
+标题 + 「全部取消置顶」、两枚徽标（蓝「已置顶 N / 5」= 状态，灰「共 M 个仓库」= 规模 —— 两类信息，
+同色同形会被读成一件事）、一条带底色的顺序说明（「最多 5 个，顺序就是首页的显示顺序」，顺带解释了行首序号）、
+已置顶清单（浅灰底条目、序号 = 首页格位、✕ 单个移除）、空态文案。徽标做小的那档（11.5sp / 8×3 内边距）
+是为了不压过抽屉里 15sp 的标题。
+
+③ 文案随语义走：页面叫「管理常用仓库」、动作是「置顶到首页」，旧文案一路说「选中 / 已选」。
+统一成「置顶」：徽标与抽屉计数都用「已置顶 N / 5」（分母是上限，直接回答「还能放几个」）——
+原来的「已选 N / 共 M」是通知页「已选 / 共可见条数」的句式（`NotificationPanel`），拿它扛「上限」是错的。
+死掉的 `note_frequent_repos_hint`（中英各一条）删除；新增 `label_frequent_repos_pinned_count`、
+`note_frequent_repos_pin_order`、`label_frequent_repos_total_repos`、`action_unpin_all`，
+重写 `label_frequent_repos_pinned` / `note_frequent_repos_selected_empty`；
+`tools/i18n/check-i18n.py --min-coverage 100` 通过。
+
+验证：`assembleDebug` 通过并装机（`com.branchbase.beta`），真机确认三层（选中底色 / 徽标 / 抽屉）；
+本版只改 Compose 与资源，单元测试由 CI 跑全套复核。已知待办：抽屉未做滚动，系统字号 ≥1.3× 时
+5 行会偏挤；深色板里提示块（`Gray150`）与行底（`Gray100`）都落在 `#161B22`，需要时改 token 分开。
 
 ### 1.4.34
 
@@ -4797,7 +4826,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（294 → 129）
+## 三、`versionCode` 流水（295 → 129）
+
+- **295**：常用仓库管理页 —— 选中态改卡片底色（`InfoSurfaceStrong` + `Blue500` 环，未选中去掉 1dp
+  `Border` 黑框）、右上角计数改可点徽标 → 已置顶抽屉（两枚分色徽标 + 顺序说明块 + 浅灰底条目 +
+  单个移除 / 全部取消）、文案统一为「置顶」并删掉列表上方那行说明（一次提交，故 +1）。
 
 - **294**：`git_shallow_repair` 的 6 个用例串行化（`static SERIAL: Mutex<()>` + `serial()`）——
   修「`free_port()` 先 bind 再关、`git daemon` 随后 bind」被并行用例抢同一号端口的 flake；

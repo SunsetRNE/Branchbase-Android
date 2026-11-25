@@ -980,9 +980,14 @@
     <string name="state_no_starred_repos">No starred repositories yet</string>
     <string name="label_repo_private">Private</string>
     <string name="label_manage_frequent_repos">Manage frequent repositories</string>
-    <string name="note_frequent_repos_hint">Tap to pin. Home shows up to %1$d.</string>
     <string name="toast_frequent_repos_limit">Home shows up to %1$d repositories</string>
     <string name="note_frequent_repos_empty_hint">Long-press the “Frequent repositories” title to choose again</string>
+    <string name="label_frequent_repos_pinned">Pinned to home</string>
+    <string name="label_frequent_repos_pinned_count">%1$s of %2$s pinned</string>
+    <string name="note_frequent_repos_pin_order">Up to %1$d. This is the order on home.</string>
+    <string name="label_frequent_repos_total_repos">%1$s repositories</string>
+    <string name="action_unpin_all">Unpin all</string>
+    <string name="note_frequent_repos_selected_empty">Nothing pinned yet. Tap a repository in the list to pin it.</string>
     <string name="label_unread_count">%1$s</string>
     <!-- Home "To do": collapse-head summary / four states / a11y action labels -->
     <string name="home_todo_empty">All caught up</string>

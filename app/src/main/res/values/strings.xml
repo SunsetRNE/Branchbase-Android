@@ -986,9 +986,14 @@
     <!-- 仓库卡：GitHub 的 description 大量为 null，卡片不空着，给一行灰字占位 -->
     <string name="state_no_repo_description">此项目暂无描述</string>
     <string name="label_manage_frequent_repos">管理常用仓库</string>
-    <string name="note_frequent_repos_hint">点一下选中，首页最多显示 %1$d 个</string>
     <string name="toast_frequent_repos_limit">首页最多显示 %1$d 个</string>
     <string name="note_frequent_repos_empty_hint">长按「常用仓库」标题可重新选择</string>
+    <string name="label_frequent_repos_pinned">首页置顶仓库</string>
+    <string name="label_frequent_repos_pinned_count">已置顶 %1$s / %2$s</string>
+    <string name="note_frequent_repos_pin_order">最多 %1$d 个，顺序就是首页的显示顺序</string>
+    <string name="label_frequent_repos_total_repos">共 %1$s 个仓库</string>
+    <string name="action_unpin_all">全部取消置顶</string>
+    <string name="note_frequent_repos_selected_empty">还没有置顶任何仓库。回到列表点一下就能置顶。</string>
     <string name="label_unread_count">%1$s 条</string>
     <!-- 首页「待处理」：折叠头摘要 / 四态文案 / 读屏动作（ui/home/HomeScreen.kt 的 TodoGroup） -->
     <string name="home_todo_empty">都处理完了</string>
