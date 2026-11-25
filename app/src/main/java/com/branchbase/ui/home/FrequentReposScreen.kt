@@ -1,6 +1,15 @@
 package com.branchbase.ui.home
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
@@ -20,6 +29,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -45,10 +56,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -57,6 +72,7 @@ import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
 import com.branchbase.ui.profile.SubPageHeader
 import com.branchbase.ui.settings.SettingsKeys
+import com.branchbase.ui.theme.ElementMotion
 import com.branchbase.ui.theme.Primer
 import com.branchbase.ui.theme.iconTap
 import kotlinx.coroutines.Dispatchers
@@ -107,6 +123,29 @@ fun FrequentReposScreen(sessionJson: String, onBack: () -> Unit) {
     var refreshKey by remember { mutableIntStateOf(0) }
     // 计数徽标点开的抽屉（详见文件头「计数徽标 = 抽屉入口」）
     var drawerOpen by remember { mutableStateOf(false) }
+    // 滚动反馈要用：顶部是否已离开首项、底部还有没有内容可滚
+    val listState = rememberLazyListState()
+    val scrolledFromTop by remember {
+        derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 }
+    }
+    val canScrollMore by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val last = info.visibleItemsInfo.lastOrNull()
+            last != null && (last.index < info.totalItemsCount - 1 || last.offset + last.size > info.viewportEndOffset)
+        }
+    }
+    // 两条边缘都只在`绘制期`读值（graphicsLayer / 颜色 alpha），不触发重组 —— 与 Motion.kt 的约定一致
+    val topEdgeAlpha by animateFloatAsState(
+        targetValue = if (scrolledFromTop) 1f else 0f,
+        animationSpec = tween(140),
+        label = "topEdge",
+    )
+    val bottomEdgeAlpha by animateFloatAsState(
+        targetValue = if (canScrollMore) 1f else 0f,
+        animationSpec = tween(140),
+        label = "bottomEdge",
+    )
 
     LaunchedEffect(refreshKey) {
         // 首页刚写过同一份缓存：先拿它渲染，用户看到的是「我已经置顶的那几个」，不是骨架
@@ -144,6 +183,15 @@ fun FrequentReposScreen(sessionJson: String, onBack: () -> Unit) {
             )
         }
 
+        // ① 顶部边缘：离开首项才出现的那条 1dp 分隔线。
+        // 用「淡入一条线」而不是「标题栏跟着压缩」：后者要把标题栏挪进滚动容器，
+        // 整页结构跟着变，而这一页的信息密度不值得为一次滚动改结构。
+        Box(
+            Modifier.fillMaxWidth().height(1.dp)
+                .graphicsLayer { alpha = topEdgeAlpha }
+                .background(Primer.Border),
+        )
+
         when {
             loading && repos.isEmpty() -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text(stringResource(R.string.state_loading), color = Primer.TextTertiary)
@@ -153,26 +201,34 @@ fun FrequentReposScreen(sessionJson: String, onBack: () -> Unit) {
                 Text(stringResource(R.string.state_no_my_repos), fontSize = 13.sp, color = Primer.TextTertiary)
             }
 
-            else -> BranchbaseLazyColumn(modifier = Modifier.weight(1f)) {
-                items(repos, key = { it.fullName }) { repo ->
-                    PinnableRepoRow(
-                        repo = repo,
-                        selected = repo.fullName in selected,
-                        onToggle = {
-                            if (!FrequentRepoRules.canPin(selected, repo.fullName)) {
-                                Toast.makeText(
-                                    context,
-                                    context.getString(R.string.toast_frequent_repos_limit, FrequentRepoRules.HOME_LIMIT),
-                                    Toast.LENGTH_SHORT,
-                                ).show()
-                            } else {
-                                selected = FrequentRepoRules.toggle(selected, repo.fullName)
-                                FrequentRepoStore.save(context, bucket, selected)
-                            }
-                        },
-                    )
+            else -> Box(Modifier.weight(1f).fillMaxWidth()) {
+                BranchbaseLazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                    items(repos, key = { it.fullName }) { repo ->
+                        PinnableRepoRow(
+                            repo = repo,
+                            selected = repo.fullName in selected,
+                            onToggle = {
+                                if (!FrequentRepoRules.canPin(selected, repo.fullName)) {
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.toast_frequent_repos_limit, FrequentRepoRules.HOME_LIMIT),
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                } else {
+                                    selected = FrequentRepoRules.toggle(selected, repo.fullName)
+                                    FrequentRepoStore.save(context, bucket, selected)
+                                }
+                            },
+                        )
+                    }
+                    item { Spacer(Modifier.height(12.dp)) }
                 }
-                item { Spacer(Modifier.height(12.dp)) }
+                // ① 底部边缘：还有内容可滚时，最后一行淡到页面底色（不是硬切一条线）
+                Box(
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(28.dp)
+                        .graphicsLayer { alpha = bottomEdgeAlpha }
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Primer.BackgroundPrimary))),
+                )
             }
         }
     }
@@ -206,6 +262,19 @@ fun FrequentReposScreen(sessionJson: String, onBack: () -> Unit) {
 @Composable
 private fun SelectionBadge(pinned: Int, limit: Int, onClick: () -> Unit) {
     val shape = RoundedCornerShape(10.dp)
+    // ② 数字变化时轻轻弹一下：0.9 → 1（220ms）。这一粒是整页唯一的「计数器」，
+    // 不弹的话，点卡片时用户的注意力在卡片上，右上角这个数变了也没人看见。
+    // 首次组合不弹（否则每次进页都先缩一下，读成「闪了一下」）。
+    val pulse = remember { Animatable(1f) }
+    var pulseArmed by remember { mutableStateOf(false) }
+    LaunchedEffect(pinned) {
+        if (!pulseArmed) {
+            pulseArmed = true
+            return@LaunchedEffect
+        }
+        pulse.snapTo(0.9f)
+        pulse.animateTo(1f, tween(ElementMotion.BADGE_MS))
+    }
     Text(
         // 原来是「已选 N / 共 M（候选数）」：两个数字不是一回事，用户得先知道 M 是列表条数。
         // 改成「已置顶 N / 5」—— 分母就是上限，和抽屉里那行一致，也直接回答「还能再放几个」。
@@ -215,12 +284,39 @@ private fun SelectionBadge(pinned: Int, limit: Int, onClick: () -> Unit) {
         color = Primer.Blue600,
         maxLines = 1,
         modifier = Modifier
+            // 缩放只走绘制层：动画期间不重组、不重排
+            .graphicsLayer {
+                scaleX = pulse.value
+                scaleY = pulse.value
+            }
             .clip(shape)
             .background(Primer.InfoSurface, shape)
             .border(1.dp, Primer.Blue500.copy(alpha = 0.35f), shape)
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 4.dp),
     )
+}
+
+/** 行尾的对勾：槽位由父级固定，这里只负责「有 / 没有」的缩放淡入。 */
+@Composable
+private fun PinCheckIcon(selected: Boolean) {
+    Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
+        AnimatedVisibility(
+            visible = selected,
+            enter = fadeIn(tween(ElementMotion.BADGE_MS)) +
+                scaleIn(tween(ElementMotion.BADGE_MS), initialScale = 0.6f),
+            exit = fadeOut(tween(120)) + scaleOut(tween(120), targetScale = 0.8f),
+        ) {
+            // 纯装饰：整行已是 `selectable(role = Checkbox)`，选中态由读屏自己念，
+            // 再挂一个 contentDescription 只会念两遍
+            Icon(
+                Icons.Filled.CheckCircle,
+                contentDescription = null,
+                tint = Primer.Blue500,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
 }
 
 /** 抽屉里的信息徽标：`accent` 表示状态色（已置顶），否则是中性色（规模 / 数量）。 */
@@ -347,19 +443,33 @@ private fun SelectedReposSheet(
     }
 }
 
-/** 可置顶的仓库行：**底色 = 选中态**（未选中 Gray100 无框 / 选中 InfoSurfaceStrong + 1.5dp Blue500 环） */
+/**
+ * 可置顶的仓库行：**底色 = 选中态**（未选中 Gray100 无框 / 选中 InfoSurfaceStrong + 1.5dp Blue500 环）。
+ *
+ * 尺寸与字号跟另外两处仓库卡（首页「常用仓库」、个人页「热门仓库」）同一套参数：
+ * 圆角 10dp / 卡距 6dp / 内边距 h14·v8 / 名字 14sp / 描述 12sp·行高 15sp·限 2 行 /
+ * 名字↔描述 2dp / 描述↔元信息 6dp。这一页原先还是上一代规格（12dp / 10dp / 14dp / 15sp / 13sp）——
+ * 三处卡片各自演化过一次之后，这里成了唯一还胖的那个 —— 一行约多 22dp，20 行滚下来约多半屏。
+ */
 @Composable
 private fun PinnableRepoRow(repo: RepoSummary, selected: Boolean, onToggle: () -> Unit) {
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(10.dp)
     val press = remember { MutableInteractionSource() }
+    // ② 选中底色 180ms 渐变（ElementMotion.COLOR_MS）：原来是硬切 ——
+    // 一次点按在列表里读成「闪了一下」，渐变才读得出「这一张被我钉到首页了」。
+    val rowBg by animateColorAsState(
+        targetValue = if (selected) Primer.InfoSurfaceStrong else Primer.Gray100,
+        animationSpec = tween(ElementMotion.COLOR_MS),
+        label = "pinRowBg",
+    )
     Row(
         modifier = Modifier
-            .padding(start = 16.dp, end = 16.dp, bottom = 10.dp)
+            .padding(start = 16.dp, end = 16.dp, bottom = 6.dp)
             .fillMaxWidth()
             .clip(shape)
             // 选中 = 底色（浅蓝实底）；未选中 = Gray100 的「有底、无框」——
             // 旧版让每张卡都带 1dp 黑框，满屏都是框，选中的那张只是框变蓝，扫视读不出来。
-            .background(if (selected) Primer.InfoSurfaceStrong else Primer.Gray100)
+            .background(rowBg)
             // 蓝环只在选中时出现：它是「选中」的一部分，不是常驻装饰
             .then(if (selected) Modifier.border(1.5.dp, Primer.Blue500, shape) else Modifier)
             // indication = null + selectable(role = Checkbox)：整行是一个复选框，
@@ -371,14 +481,15 @@ private fun PinnableRepoRow(repo: RepoSummary, selected: Boolean, onToggle: () -
                 indication = null,
                 onClick = onToggle,
             )
-            .padding(14.dp),
+            // 竖向比横向收得更狠：留白是这一行最高的成本项，横向再收会让文字贴边
+            .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     repo.fullName,
-                    fontSize = 15.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Primer.Blue500,
                     maxLines = 1,
@@ -389,10 +500,30 @@ private fun PinnableRepoRow(repo: RepoSummary, selected: Boolean, onToggle: () -
                 RepoBadges(repo)
             }
             if (repo.desc.isNotBlank()) {
-                Spacer(Modifier.height(4.dp))
-                Text(repo.desc, fontSize = 13.sp, color = Primer.TextSecondary, maxLines = 2)
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    repo.desc,
+                    fontSize = 12.sp,
+                    // 显式写行高：12sp 走默认（≈16.2sp）会让两行描述多出 2dp
+                    lineHeight = 15.sp,
+                    color = Primer.TextSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            } else {
+                // 没有描述也是信息：与另外两处仓库卡同一句占位，节奏不断档，
+                // 也不至于在这一页里出现「一行比邻居矮 15dp」的参差
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = stringResource(R.string.state_no_repo_description),
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    color = Primer.TextTertiary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(6.dp))
             // 元信息用「图标 + 数字」，不走 `stringResource(标签) + 数字` 拼接：
             // 拼接出来的句子没法翻译（i18n 规范：一条文案只表达一个完整句子）
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -417,16 +548,10 @@ private fun PinnableRepoRow(repo: RepoSummary, selected: Boolean, onToggle: () -
                 }
             }
         }
-        if (selected) {
-            Spacer(Modifier.width(10.dp))
-            // 纯装饰：整行已是 `selectable(role = Checkbox)`，选中态由读屏自己念，
-            // 再挂一个 contentDescription 只会念两遍
-            Icon(
-                Icons.Filled.CheckCircle,
-                contentDescription = null,
-                tint = Primer.Blue500,
-                modifier = Modifier.size(20.dp),
-            )
-        }
+        // 对勾的槽位**常驻**：原来用 `if (selected)` 时才加 10dp + 20dp，
+        // 于是每次勾选/取消，这一行的文字列宽都会变一次、整段文字重排 —— 渐变底色再顺，
+        // 文字还是会跳一下。现在槽位固定，只让图标自己缩放淡入。
+        Spacer(Modifier.width(10.dp))
+        PinCheckIcon(selected = selected)
     }
 }
