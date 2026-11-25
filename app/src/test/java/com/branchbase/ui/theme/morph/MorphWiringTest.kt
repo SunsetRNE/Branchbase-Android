@@ -21,6 +21,7 @@ class MorphWiringTest {
 
     private val appRoot = File("src/main/java/com/branchbase")
     private val searchScreen = File(appRoot, "ui/search/SearchScreen.kt")
+    private val moreBubble = File(appRoot, "ui/navigation/MoreBubble.kt")
     private val morphIcon = File(appRoot, "ui/theme/morph/MorphIcon.kt")
 
     private fun source(file: File): String {
@@ -79,6 +80,30 @@ class MorphWiringTest {
             "台账必须同时有「可形变」与「明确不形变」两类，否则降级路径没有被真实用例覆盖",
             MorphIcons.all.any { it.expectation is MorphExpectation.Morph } &&
                 MorphIcons.all.any { it.expectation is MorphExpectation.Fallback },
+        )
+    }
+
+    /**
+     * 底栏「更多」手柄：**已接台账**，且不再靠旋转假装状态。
+     *
+     * 这两条一起才有意义 —— 只换字形不删除旋转，中间帧会同时「转」和「换」，
+     * 比原来的硬切换更糊；只删旋转不接台账，等于把决定又写回调用方。
+     */
+    @Test
+    fun `更多手柄接了形变台账_且不再用旋转表达状态`() {
+        val text = source(moreBubble)
+        assertTrue(
+            "手柄应改走 AnimatedMorphIcon（台账决定形变或降级），而不是自己 Icon(if…)",
+            text.contains("AnimatedMorphIcon("),
+        )
+        assertTrue("手柄应引用台账里的 MoreOpen", text.contains("MorphIcons.MoreOpen"))
+        assertFalse(
+            "展开态不再把 MoreHoriz 转 90° —— 转完还是 MoreVert，语义没变，用户读不到「已展开」",
+            text.contains("rotationZ"),
+        )
+        assertTrue(
+            "面板进场应走 morePanelEnter（贴栏抽屉的弹簧原语），不要就地糊一套 spring",
+            text.contains("morePanelEnter("),
         )
     }
 }

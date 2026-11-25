@@ -3,8 +3,10 @@ package com.branchbase.ui.theme.morph
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Tune
 
@@ -22,6 +24,7 @@ import androidx.compose.material.icons.filled.Tune
  * | `KeyboardArrowDown ⇄ KeyboardArrowUp` | 24 → 24 | 1 → 1 | 6 → 6 | 闭合 → 闭合 | 形变（实测 travel 0.76） |
  * | `Add ⇄ Remove` | 24 → 24 | 1 → 1 | 12 → 4 | 闭合 → 闭合 | 形变（点数不齐由重采样兜底，实测 travel 0.67） |
  * | `Tune ⇄ Close` | 24 → 24 | **6 → 1** | 36 → 12 | — | **降级**：子路径数量不等，中间帧会凭空多线 |
+ * | `MoreHoriz ⇄ Close` | 24 → 24 | **3 → 1** | — | — | **降级**：三个圆点 vs 一个叉，子路径数量不等 |
  *
  * 「段数 6 → 6」这条不是巧合：两个箭头是同一套画法的镜像（起笔点、绕向、闭合状态都一致），
  * 这正是**跟设计师提需求时该说的话** —— 需要同网格、同绕向、同闭合状态、路径段数一致的两个 SVG。
@@ -57,6 +60,28 @@ object MorphIcons {
     )
 
     /**
+     * 更多 ⇄ 关闭：底栏「更多」手柄的展开/收起字形。
+     *
+     * **明确不做形变**：`MoreHoriz` 是三个圆点（3 条子路径），`Close` 是一个叉（1 条）。
+     * 子路径数量不等时顶点对应关系没有定义，中间帧只能「凭空多出两条线再消失」——
+     * 与 [FilterOpen] 同一类，改成交叉过渡（200ms + 0.8→1 缩放）干净得多。
+     *
+     * 摆在台账里的另一个用处是**把决定写死**：手柄以前用「`MoreHoriz` 转 90°」假装状态变化，
+     * 转完仍是 `MoreVert`（还是「更多」），语义没变；现在由这张表决定「降级」，代码里不再有旋转。
+     *
+     * 真要让这对能形变，只能换素材：两端都必须 3 条子路径、同网格、同绕向、段数一致 ——
+     * 那等于重画一套「三点 ⇄ 三条短杠」的图标，不是换个 import 能做到的。
+     */
+    val MoreOpen = MorphPair(
+        name = "more-horiz⇄close",
+        from = Icons.Filled.MoreHoriz,
+        to = Icons.Filled.Close,
+        expectation = MorphExpectation.Fallback(
+            "子路径数量不等：MoreHoriz 3 条（三个圆点）vs Close 1 条（一个叉），中间帧会凭空多线",
+        ),
+    )
+
+    /**
      * 过滤 ⇄ 关闭：**明确不做形变**的例子，留着是为了让降级路径有真实用例。
      *
      * `Tune` 是三条推子（每条推子 = 线 + 圆点两条子路径，共 **6** 条），`Close` 是一个叉（**1** 条）。
@@ -73,5 +98,5 @@ object MorphIcons {
     )
 
     /** 台账全量：单测按这份清单逐对校验「声明」与「实测」一致。 */
-    val all: List<MorphPair> = listOf(ChevronDownUp, PlusMinus, FilterOpen)
+    val all: List<MorphPair> = listOf(ChevronDownUp, PlusMinus, FilterOpen, MoreOpen)
 }

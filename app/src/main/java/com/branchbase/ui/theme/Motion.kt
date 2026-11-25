@@ -21,11 +21,14 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
@@ -117,6 +120,25 @@ object ElementMotion {
 
     /** 气泡内多个条目逐条入场的间隔。 */
     const val STAGGER_MS = 28
+
+    /**
+     * More 面板（贴底栏抽屉）进场的**弹簧阻尼比**。
+     *
+     * ζ=0.40 = 明显回弹。这是 `docs/specs/ui-design.md` §3「元素级动效都不做回弹」的
+     * **唯一显式例外**：更多菜单是**低频、用户主动打开、锚点明确**的一次性动作，
+     * 回弹在这里读作「面板被拉开」，而不是「列表项在抖」。
+     * 高频入口（Tab、筛选 chip）**不要**跟着用这个值。
+     */
+    const val PANEL_SPRING_ZETA = 0.40f
+
+    /** More 面板进场弹簧的刚度（与 [PANEL_SPRING_ZETA] 配对，约 240ms 收尾）。 */
+    const val PANEL_SPRING_STIFFNESS = 560f
+
+    /** More 面板进场的淡入时长。位移交给弹簧，透明度单独走短 tween —— 弹跳的 α 会糊。 */
+    const val PANEL_FADE_IN_MS = 120
+
+    /** More 面板退场时长（**不过冲**：收回不该再弹一下）。 */
+    const val PANEL_EXIT_MS = 160
 
     /** 按下反馈：缩到多少。 */
     const val PRESS_SCALE = 0.94f
@@ -403,6 +425,31 @@ fun bubbleEnter(origin: TransformOrigin = TransformOrigin(1f, 1f)): EnterTransit
 fun bubbleExit(origin: TransformOrigin = TransformOrigin(1f, 1f)): ExitTransition =
     scaleOut(tween(ElementMotion.BUBBLE_MS), targetScale = 0.92f, transformOrigin = origin) +
         fadeOut(tween(ElementMotion.BUBBLE_MS))
+
+/**
+ * More 面板（贴底栏抽屉）进场：**纵向弹起 + 短淡入**。
+ *
+ * 与 [bubbleEnter] 的分工：那个是「从锚点角落缩放」，给侧边小气泡用（调用方是
+ * `EdgeNavigationBar`）；这个是**整块面板从底栏往上抬**，读作「抽屉被拉开」。
+ * 同样一件「弹出来」，缩放只在小气泡上成立 —— 在通宽面板上，缩放读作「橡皮」，位移才读作「拉开」。
+ *
+ * [offsetPx] 是行程，**由调用方按「内容高 + 底缝」算**（面板因此整块从栏线以下抬进来）。
+ * ζ=0.40 的过冲约 25% 行程，所以调用方必须把弹窗窗口的上方留白留到行程的 30% 以上 ——
+ * 否则过冲会把面板顶部顶出窗口裁掉一截（看起来像「闪了一下」）。
+ */
+fun morePanelEnter(offsetPx: Int): EnterTransition =
+    slideInVertically(
+        animationSpec = spring(
+            dampingRatio = ElementMotion.PANEL_SPRING_ZETA,
+            stiffness = ElementMotion.PANEL_SPRING_STIFFNESS,
+        ),
+        initialOffsetY = { offsetPx },
+    ) + fadeIn(tween(ElementMotion.PANEL_FADE_IN_MS))
+
+/** 与 [morePanelEnter] 配对的退场：向下收回，**不做过冲**（收回再弹一下会显得没关上）。 */
+fun morePanelExit(offsetPx: Int): ExitTransition =
+    slideOutVertically(tween(ElementMotion.PANEL_EXIT_MS), targetOffsetY = { offsetPx }) +
+        fadeOut(tween(ElementMotion.PANEL_EXIT_MS))
 
 /**
  * 按下反馈（按钮 / 图标 / 导航项）。

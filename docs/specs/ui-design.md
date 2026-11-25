@@ -341,20 +341,26 @@ Canvas 绘制 lambda），它们改用 `TintRole` 角色表 / 在 composable 里
 判据（写进代码注释）：`PlaceholderSwap` 内部已经套了一层 `Column`，调用方不必再套；
 `skeleton` 与 `content` 仍应尽量同尺寸 —— 不同尺寸不会跳，但会看到一段高度动画，那是兜底不是许可证。
 
-气泡类弹层（个人页 More 菜单、侧边气泡导航）按同一套规格实现：
-`Popup` + 锚点定位（气泡底边贴着手柄顶边）+ `bubbleEnter/bubbleExit`（**从锚点角落缩放**，
-而不是 Material 菜单那种「从上边缘往下长」），容器用 `Primer.BackgroundPrimary` 白底 +
-`Primer.Border` 描边 + 16dp 圆角 + 阴影；条目按用途取 `Primer` 池内语义色
-（星标 `Orange500` / 项目 `Purple500` / 任务 `Blue500` / 设置 `IconPrimary` / 登出 `Red500`）
-并逐条错峰入场。
+More 菜单（个人页 / 仓库页底栏的「更多」）自 2026-11 起是**贴底栏的通宽面板**：
+`Popup` + 窗口内留白（左右 12dp、底 8dp、顶部留内容高 30% 吃过冲），进场 `morePanelEnter()`
+（整块从栏线以下抬起、行程 = 内容高 + 8dp，ζ=0.40 弹簧 + 120ms 淡入），
+退场 `morePanelExit()`（160ms 下拉，不过冲）；
+容器仍是 `Primer.BackgroundPrimary` 白底 + `Primer.Border` 描边 + 16dp 圆角 + 阴影；
+条目按用途取 `Primer` 池内语义色（星标 `Orange500` / 项目 `Purple500` / 任务 `Blue500` /
+设置 `IconPrimary` / 登出 `Red500`）。侧边气泡导航（`EdgeNavigationBar`）仍用
+`bubbleEnter/bubbleExit` 的**锚点角落缩放**，不是 Material 菜单那种「从上边缘往下长」。
 
-取舍：元素级**都不用 spring（回弹）** —— 这类元素在列表里反复出现，
+取舍：元素级**基本不用 spring（回弹）** —— 这类元素在列表里反复出现，
 回弹第一次看是「活泼」、第十次就是「拖沓」；tween 的稳定节奏更适合高频交互。
 动画值尽量在 `graphicsLayer {}` 里读（只在绘制阶段消费），避免每帧重组。
 
-唯一用到弹簧的是**图标形态切换的形变**（`ui/theme/morph/`），而且默认取 `Smooth`（ζ=1.00，**不过冲**）：
-这里用弹簧不是为了回弹，是为了**可打断** —— 快速来回触发时从当前值和当前速度续着走，
-不会「跳回起点重播」。`Snappy`(ζ=0.73) / `Bouncy`(ζ=0.40) 留着给明确需要强调的地方显式声明。
+弹簧只出现在两个地方，边界都写在代码里：
+
+- **图标形态切换的形变**（`ui/theme/morph/`）默认 `Smooth`（ζ=1.00，**不过冲**）：这里用弹簧不是为了回弹，
+  是为了**可打断** —— 快速来回触发时从当前值和当前速度续着走，不会「跳回起点重播」；
+  `Snappy`(ζ=0.73) / `Bouncy`(ζ=0.40) 留给需要强调的地方显式声明。
+- **「更多」面板的进场**（`ElementMotion.PANEL_SPRING_*`，ζ=0.40）：它低频、用户主动打开、锚点明确，
+  回弹在这里读作「面板被拉开」；退场不过冲。**高频入口（Tab / 筛选 chip / 行内按钮）不要跟着用这个值。**
 该层还有一条独立的硬约定：**结构差异大的配对不做形变**，改回上一行的交叉过渡；
 清单与判据见 [`morph-design.md`](morph-design.md) §3.1。
 
