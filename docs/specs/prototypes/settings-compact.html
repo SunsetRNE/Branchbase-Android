@@ -101,6 +101,13 @@
   .switch::after{content:""; position:absolute; top:2px; left:2px; width:20px; height:20px; border-radius:50%; background:#8c959f; transition:left .15s}
   .switch.on{background:var(--blue); border-color:var(--blue)}
   .switch.on::after{left:18px; background:#fff}
+  .row.stack{display:block; padding-top:6px; padding-bottom:8px}
+  .stack-top{display:flex; align-items:center; gap:var(--icon-gap,10px)}
+  .stack-top .name{flex:1 1 auto; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:var(--name-fs,14px)}
+  .stack-sub{font-size:11px; line-height:15px; color:var(--text3); padding-left:calc(var(--icon,18px) + var(--icon-gap,10px)); margin-top:2px}
+  .radio{flex:0 0 auto; width:18px; height:18px; border-radius:50%; border:2px solid #d0d7de}
+  .radio.on{border-color:#1a7f37; background:#1a7f37; box-shadow:inset 0 0 0 3px #e9f7ef}
+  .row.sel{background:#e9f7ef}
   .seg{display:flex; flex:0 0 auto; gap:2px; border:1px solid #000; border-radius:8px; background:var(--gray150); padding:2px}
   .seg span{font-size:11px; padding:3px 7px; border-radius:6px; color:var(--text2); white-space:nowrap}
   .seg span.on{background:var(--blue); color:#fff; font-weight:600}
@@ -224,6 +231,10 @@
           <div class="phone-cap"><span><b>压后</b> · 当前旋钮</span><span id="cap-after">— dp</span></div>
           <div class="phone" id="phone-after"></div>
         </div>
+        <div class="phone-wrap">
+          <div class="phone-cap"><span><b>主题页</b> · 1.4.40 新建</span><span id="cap-theme">— dp</span></div>
+          <div class="phone" id="phone-theme"></div>
+        </div>
       </div>
     </div>
 
@@ -289,6 +300,8 @@
           <li>行 48→44dp、图标 20→18dp、内边距 16→14dp、分组 6→4dp</li>
           <li>卡片底 <code>BackgroundSecondary</code> → <code>Gray100</code>，并<b>去掉纯黑描边</b>（真机反馈「取消掉黑边」）</li>
           <li>「通知」组去掉组标签：组名与行名重复（规范 §3.2）</li>
+          <li><b>主题</b>从三档分段改成入口行，三档与悬浮玻璃导航栏收进<b>主题页</b>（1.4.40，规范 §十七）</li>
+          <li>玻璃导航说明按状态说话：关 / 开两句（16 / 15 字），独占整行宽 + 12sp（1.4.43）</li>
         </ul>
       </div>
       <div class="note">
@@ -396,10 +409,8 @@
       { type:'nav', icon:'person', name:'账号管理' }
     ]},
     { group:'外观', rows:[
-      { type:'choice', icon:'palette', name:'主题', options:['跟随系统','浅色','深色'], on:0, sub:'选「跟随系统」时，App 会随系统的浅色 / 深色自动切换。' },
-      { type:'nav', icon:'language', name:'语言', value:'跟随系统' },
-      { type:'switch', icon:'tune', name:'悬浮玻璃导航栏', on:false,
-        sub:'使用传统底部导航栏；开启后主界面切换为悬浮玻璃样式。' }
+      { type:'nav', icon:'palette', name:'主题', value:'跟随系统' },
+      { type:'nav', icon:'language', name:'语言', value:'跟随系统' }
     ]},
     { group:null, rows:[
       { type:'nav', icon:'bell', name:'通知', chip:'已开启',
@@ -425,6 +436,18 @@
     ]},
     { group:null, rows:[
       { type:'danger', icon:'logout', name:'退出登录 SunsetRNE', hint:'不可撤销' }
+    ]}
+  ];
+
+  const THEME = [
+    { group:'主题模式', rows:[
+      { type:'radio', name:'跟随系统', desc:'当前系统：浅色', on:true },
+      { type:'radio', name:'浅色' },
+      { type:'radio', name:'深色' }
+    ]},
+    { group:'导航栏', rows:[
+      { type:'switch', icon:'tune', name:'悬浮玻璃导航栏', on:false, stacked:true,
+        sub:'当前主题导航栏，玻璃悬浮默认关闭' }
     ]}
   ];
 
@@ -476,8 +499,25 @@
         (r.chip ? '<span class="chip">' + r.chip + '</span>' : '') + '<span class="chev">›</span>';
       return el;
     }
+    if (r.type === 'switch' && r.stacked) {
+      el.classList.add('stack');
+      el.innerHTML = '<div class="stack-top">' + svg(r.icon) +
+        '<span class="name">' + r.name + '</span>' +
+        '<span class="switch' + (r.on ? ' on' : '') + '"></span></div>' +
+        '<div class="stack-sub">' + r.sub + '</div>';
+      return el;
+    }
+    if (r.type === 'radio') {
+      if (r.on) el.classList.add('sel');
+      el.innerHTML = '<span class="radio' + (r.on ? ' on' : '') + '"></span>' +
+        '<div class="txt"><div class="name">' + r.name + '</div>' +
+        (r.desc ? '<div class="sub">' + r.desc + '</div>' : '') + '</div>';
+      return el;
+    }
     el.innerHTML = svg(r.icon) + '<div class="txt"><div class="name">' + r.name + '</div>' +
-      ((cfg.desc && r.sub) ? '<div class="sub">' + r.sub + '</div>' : '') +
+      ((cfg.desc && r.sub) ? '<div class="sub"' +
+        (r.subSmall ? ' style="font-size:10px;line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"' : '') +
+        '>' + r.sub + '</div>' : '') +
       ((r.type === 'disabled' && r.reason) ? '<div class="sub" style="color:var(--text2)">' + r.reason + '</div>' : '') +
       '</div>';
     if (r.type === 'nav') {
@@ -633,10 +673,41 @@
     b.addEventListener('click', ()=>{ Object.assign(state, PRESETS[b.dataset.preset]); sync(); });
   });
 
+  // 主题页：固定 Comfort 尺寸，不跟旋钮（它不在本轮压密范围）。
+  // 开关可点：关 / 开各显示一句（与 App 的状态驱动说明一致）。
+  let themeGlassOn = false;
+  function renderTheme(){
+    const mount = el('phone-theme');
+    const cfg = { rowH:48, rowPad:16, icon:20, sectionPadV:6, nameFs:14, desc:true, values:true, labels:true, fill:true, border:false, topGap:4 };
+    mount.style.setProperty('--row-h', '48px');
+    mount.style.setProperty('--row-pad', '16px');
+    mount.style.setProperty('--icon', '20px');
+    mount.style.setProperty('--icon-gap', '12px');
+    mount.style.setProperty('--name-fs', '14px');
+    mount.style.setProperty('--text-pad', '11px');
+    mount.style.setProperty('--sub-fs', '12px');
+    mount.style.setProperty('--sub-lh', '17px');
+    mount.style.setProperty('--card-bg', 'var(--gray100)');
+    mount.style.setProperty('--card-border', 'transparent');
+    mount.style.setProperty('--divider', 'rgba(0,0,0,.4)');
+    const row = THEME[1].rows[0];
+    row.on = themeGlassOn;
+    row.sub = themeGlassOn ? '悬浮玻璃已应用，原生导航已替换' : '当前主题导航栏，玻璃悬浮默认关闭';
+    phone(THEME, cfg, mount);
+    const sw = mount.querySelector('.switch');
+    if (sw) {
+      sw.style.cursor = 'pointer';
+      sw.addEventListener('click', (ev) => { ev.stopPropagation(); themeGlassOn = !themeGlassOn; renderTheme(); });
+    }
+    el('cap-theme').textContent = measure(mount, cfg).total + ' dp · 4 行';
+  }
+
   /* ─────────── 排单 ─────────── */
   const PAGES = [
     { id:'home', name:'设置主页（L1）', file:'ui/profile/SubPageScreens.kt', lines:'—', rows:'15 → 14', prose:'7 → 0',
       problem:'说明撑高、卡片与页底同色、账户卡占身份位', rec:'C', status:'done' },
+    { id:'theme', name:'主题页（新）', file:'ui/settings/ThemeScreen.kt', lines:'~130', rows:'4 行', prose:'0',
+      problem:'本轮新建：主题模式三档 + 导航栏开关；外观类的唯一落点，后续皮肤也进这里', rec:'C', status:'done' },
     { id:'translate', name:'沉浸式翻译', file:'ui/profile/TranslateSettingsScreen.kt', lines:528, rows:'14 行', prose:'1 段 600+ 字',
       problem:'3 开关 + 10 档单选 + 2 输入框 + 巨型说明；无卡片（SettingsSectionTitle 过渡态）', rec:'C', status:'todo' },
     { id:'notif', name:'通知', file:'ui/profile/SubPageScreens.kt · NotificationSettingsScreen', lines:'~90', rows:'1 + 4 档', prose:'2 段',
@@ -762,6 +833,7 @@
   /* ─────────── 启动 ─────────── */
   renderBefore();
   sync();
+  renderTheme();
   renderQueue();
 })();
 </script>

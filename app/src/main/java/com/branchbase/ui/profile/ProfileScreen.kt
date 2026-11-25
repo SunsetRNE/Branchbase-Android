@@ -304,7 +304,7 @@ fun ProfileScreen(
                     is ProfileRoute.Sub -> when (r.page) {
                         SubPage.Stars -> StarsScreen(sessionJson, onBack = { subPage = null }, onOpenRepo = onOpenRepo)
                         SubPage.Projects -> ProjectsScreen(sessionJson, onBack = { subPage = null })
-                        SubPage.Settings -> SettingsScreen(onBack = { subPage = null }, onOpenLocalRepo = { subPage = SubPage.LocalRepo }, onOpenAbout = { subPage = SubPage.About }, onOpenLog = { subPage = SubPage.Log }, onOpenNotificationSettings = { subPage = SubPage.NotificationSettings }, onOpenTranslate = { subPage = SubPage.Translate }, onOpenAccounts = { subPage = SubPage.Accounts }, onOpenCommitMode = { subPage = SubPage.CommitMode }, onOpenGitProxy = { subPage = SubPage.GitProxy }, onOpenRepoCredentials = { subPage = SubPage.RepoCredentials }, onOpenLanguage = { subPage = SubPage.Language }, onLogout = onLogout)
+                        SubPage.Settings -> SettingsScreen(onBack = { subPage = null }, onOpenLocalRepo = { subPage = SubPage.LocalRepo }, onOpenAbout = { subPage = SubPage.About }, onOpenLog = { subPage = SubPage.Log }, onOpenNotificationSettings = { subPage = SubPage.NotificationSettings }, onOpenTranslate = { subPage = SubPage.Translate }, onOpenAccounts = { subPage = SubPage.Accounts }, onOpenCommitMode = { subPage = SubPage.CommitMode }, onOpenGitProxy = { subPage = SubPage.GitProxy }, onOpenRepoCredentials = { subPage = SubPage.RepoCredentials }, onOpenLanguage = { subPage = SubPage.Language }, onOpenTheme = { subPage = SubPage.Theme }, onLogout = onLogout)
                         // 返回目标必须与其它二级页一致（`SettingsSpecTest` 逐行钉着这一条）——
                         // 所以这句调用保持单行：拆行会让那条源码级钉子假红
                         SubPage.LocalRepo -> LocalRepoScreen(sessionJson, onBack = { subPage = SubPage.Settings }, onOpenInApp = onOpenRepoDeepLink)
@@ -322,6 +322,7 @@ fun ProfileScreen(
                         SubPage.CommitMode -> CommitModeScreen(onBack = { subPage = SubPage.Settings })
                         SubPage.GitProxy -> GitProxyScreen(onBack = { subPage = SubPage.Settings })
                         SubPage.Language -> LanguageScreen(onBack = { subPage = SubPage.Settings })
+                        SubPage.Theme -> com.branchbase.ui.settings.ThemeScreen(onBack = { subPage = SubPage.Settings })
                         // 返回目标不写死：走 [profileBackTarget]（本页 depth = 2 → SubPage.Settings），
                         // 与系统返回键同一条规则（规范 §3.1）
                         SubPage.RepoCredentials -> RepoCredentialsScreen(onBack = { subPage = profileBackTarget(subPage) })
@@ -410,7 +411,7 @@ private sealed interface ProfileRoute : PageLevel {
 internal fun subPageDepth(page: SubPage): Int = when (page) {
     SubPage.LocalRepo, SubPage.About, SubPage.Log, SubPage.NotificationSettings,
     SubPage.Translate, SubPage.Accounts, SubPage.CommitMode, SubPage.GitProxy,
-    SubPage.RepoCredentials, SubPage.Language,
+    SubPage.RepoCredentials, SubPage.Language, SubPage.Theme,
     -> 2
 
     else -> 1

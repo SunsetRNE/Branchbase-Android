@@ -269,6 +269,13 @@ private fun RowScope.SettingsText(
     sub: String? = null,
     value: String? = null,
     valueSlot: (@Composable () -> Unit)? = null,
+    /**
+     * 说明覆盖项：默认取密度表；个别行要「压成一行」时把字号收小、[subMaxLines] 设 1。
+     * 见主题页的悬浮玻璃导航栏说明（规范 §十七）。
+     */
+    subFontSize: TextUnit? = null,
+    subLineHeight: TextUnit? = null,
+    subMaxLines: Int = Int.MAX_VALUE,
 ) {
     val d = LocalSettingsDensity.current
     Column(Modifier.weight(1f).padding(vertical = d.textPadV)) {
@@ -281,7 +288,15 @@ private fun RowScope.SettingsText(
         )
         if (sub != null) {
             Spacer(Modifier.height(d.subGap))
-            Text(sub, fontSize = d.subFontSize, lineHeight = d.subLineHeight, color = Primer.TextTertiary)
+            Text(
+                sub,
+                fontSize = subFontSize ?: d.subFontSize,
+                lineHeight = subLineHeight ?: d.subLineHeight,
+                color = Primer.TextTertiary,
+                // 只给「必须一行」的说明设上限；其余说明保持自由折行
+                maxLines = subMaxLines,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
     if (valueSlot != null) {
@@ -374,22 +389,76 @@ fun SwitchRow(
     sub: String? = null,
     divider: Boolean = true,
     statusChip: (@Composable () -> Unit)? = null,
+    /** 说明字号覆盖（默认取密度表）；「必须一行」的说明用它收小字号，见 [SettingsText]。 */
+    subFontSize: TextUnit? = null,
+    subLineHeight: TextUnit? = null,
+    subMaxLines: Int = Int.MAX_VALUE,
+    /**
+     * 说明**独占一行、占满行宽**（画在名称与开关下方，左边缘与名称对齐）。
+     *
+     * 给「说明需要占满一行」的开关行用（主题页的悬浮玻璃导航栏）：跟着名称走的文本列在 360dp 屏上
+     * 只有约 210dp，22 个字就要 9.5sp —— 低于可读线；换成整行宽（约 272dp）后 12sp 也放得下。
+     * 默认 `false`，其余开关行不受影响。
+     */
+    subFullWidth: Boolean = false,
 ) {
     // 整行可点：点开关与点整行效果一致。Switch 自己会消费点击，不会双触发。
     SettingsRowShell(divider = divider, onClick = { onCheckedChange(!checked) }) {
-        if (icon != null) RowIcon(icon, name)
-        SettingsText(name = name, sub = sub)
-        if (statusChip != null) {
-            Spacer(Modifier.width(LocalSettingsDensity.current.valueGap))
-            statusChip()
+        val d = LocalSettingsDensity.current
+        if (sub != null && subFullWidth) {
+            Column(Modifier.weight(1f).padding(vertical = d.textPadV)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    if (icon != null) RowIcon(icon, name)
+                    Text(
+                        name,
+                        fontSize = d.nameFontSize,
+                        color = Primer.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(d.valueGap))
+                    SwitchControl(checked, onCheckedChange)
+                }
+                Spacer(Modifier.height(d.subGap))
+                Text(
+                    sub,
+                    fontSize = subFontSize ?: d.subFontSize,
+                    lineHeight = subLineHeight ?: d.subLineHeight,
+                    color = Primer.TextTertiary,
+                    maxLines = subMaxLines,
+                    overflow = TextOverflow.Ellipsis,
+                    // 与名称左对齐：越过图标与图标间距
+                    modifier = Modifier.padding(start = d.iconSize + d.iconGap),
+                )
+            }
+        } else {
+            if (icon != null) RowIcon(icon, name)
+            SettingsText(
+                name = name,
+                sub = sub,
+                subFontSize = subFontSize,
+                subLineHeight = subLineHeight,
+                subMaxLines = subMaxLines,
+            )
+            if (statusChip != null) {
+                Spacer(Modifier.width(d.valueGap))
+                statusChip()
+            }
+            Spacer(Modifier.width(d.iconGap))
+            SwitchControl(checked, onCheckedChange)
         }
-        Spacer(Modifier.width(LocalSettingsDensity.current.iconGap))
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(checkedTrackColor = Primer.Blue500),
-        )
     }
+}
+
+/** 开关本体（颜色统一：选中轨道 `Blue500`）。普通开关行与「说明整行宽」形态共用。 */
+@Composable
+private fun SwitchControl(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Switch(
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        colors = SwitchDefaults.colors(checkedTrackColor = Primer.Blue500),
+    )
 }
 
 // ───────────────────────── ③ 选择行（2–3 档枚举） ─────────────────────────

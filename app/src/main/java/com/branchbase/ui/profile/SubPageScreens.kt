@@ -104,19 +104,16 @@ import com.branchbase.core.AuthKind
 import com.branchbase.core.RepoCredentialStore
 import com.branchbase.ui.settings.currentAppLanguageTag
 import com.branchbase.ui.settings.frameWatchEnabled
-import com.branchbase.ui.settings.glassNavigationEnabled
 import com.branchbase.ui.settings.gitProxy
 import com.branchbase.ui.settings.languagePickerAvailable
 import com.branchbase.ui.settings.languageRowValue
 import com.branchbase.ui.settings.setFrameWatchEnabled
-import com.branchbase.ui.settings.GlassNavigationRuntime
 import com.branchbase.ui.settings.supportedAppLanguages
 import com.branchbase.translate.TranslateSettings
 import com.branchbase.core.AccountStore
 import com.branchbase.ui.log.FrameWatch
 import com.branchbase.ui.log.LogLevel
 import com.branchbase.ui.log.LogManager
-import com.branchbase.ui.settings.ChoiceRow
 import com.branchbase.ui.settings.DangerRow
 import com.branchbase.ui.settings.DisabledNavRow
 import com.branchbase.ui.settings.NavRow
@@ -138,7 +135,6 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Tune
 import com.branchbase.core.LocalRepos
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.log.Logger
@@ -194,6 +190,7 @@ enum class SubPage(val label: String) {
     GitProxy("Git 代理"),
     RepoCredentials("仓库凭据"),
     Language("语言"),
+    Theme("主题"),
 }
 
 // ───────────────────────── 缓存机制（内存缓存 + TTL 过期） ─────────────────────────
@@ -551,6 +548,7 @@ fun SettingsScreen(
     onOpenGitProxy: () -> Unit,
     onOpenRepoCredentials: () -> Unit,
     onOpenLanguage: () -> Unit,
+    onOpenTheme: () -> Unit,
     onLogout: () -> Unit,
 ) {
     LaunchedEffect(Unit) { Logger.ui("进入设置页", "Compose") }
@@ -577,8 +575,6 @@ fun SettingsScreen(
     var confirmLogout by remember { mutableStateOf(false) }
     // 慢帧日志开关：只在这里读一次盘（默认值来自编译通道），之后由用户点击驱动
     var frameWatch by remember { mutableStateOf(frameWatchEnabled(context)) }
-    // 玻璃导航栏开关：缺失时关闭，保持升级前的传统底栏行为。
-    var glassNavigation by remember { mutableStateOf(glassNavigationEnabled(context)) }
 
     // 错误数只取一次快照：设置页不做高频重组，没必要给「日志」行挂订阅
     val logErrors = remember { LogManager.all().count { it.level == LogLevel.ERROR } }
@@ -637,17 +633,18 @@ fun SettingsScreen(
                 }
             }
 
-            // ── ② 外观：三档分段控件 + 语言 + 玻璃导航栏 ──
+            // ── ② 外观：主题入口（三档 + 底栏形态都在主题页里） ──
             item {
                 SettingsSection(stringResource(R.string.label_appearance_group)) {
-                    ChoiceRow(
+                    // 主题与悬浮玻璃导航栏都是「外观」，2026-11 起收进**同一页**（规范 §十七）：
+                    // 主页只留一行入口 + 当前值，不再就地展开三档、也不再放底栏开关 ——
+                    // 否则以后每加一套 UI 风格，主页就要多一行，重新长回「设置项容器」。
+                    NavRow(
                         icon = Icons.Filled.Palette,
                         name = stringResource(R.string.label_theme),
-                        // 三档名字走资源（`ThemeMode.labelRes`）：枚举不认识语言，解析只能在 composable 里做，
-                        // 否则界面切英文后按钮仍是「跟随系统 / 浅色 / 深色」（`map` 是 inline，可以调 stringResource）
-                        options = ThemeMode.entries.map { it to stringResource(it.labelRes) },
-                        selected = themeMode,
-                        onSelect = { ThemeRuntime.set(context, it) },
+                        // 值列与主题页的单选同源（`ThemeMode.labelRes`），切完语言这里跟着变
+                        value = stringResource(themeMode.labelRes),
+                        onClick = onOpenTheme,
                         divider = false,
                     )
                     // 语言是**条件行**（同 §3.2.1 的「仓库凭据」）：API 33 以下没有 LocaleManager，
@@ -666,16 +663,6 @@ fun SettingsScreen(
                             onClick = onOpenLanguage,
                         )
                     }
-                    SwitchRow(
-                        icon = Icons.Filled.Tune,
-                        name = stringResource(R.string.label_glass_navigation),
-                        checked = glassNavigation,
-                        onCheckedChange = {
-                            glassNavigation = it
-                            GlassNavigationRuntime.set(context, it)
-                        },
-                        divider = false,
-                    )
                 }
             }
 

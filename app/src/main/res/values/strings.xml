@@ -500,6 +500,13 @@
     <string name="note_clone_hint">点击「拉取仓库」将仓库克隆到本地</string>
     <string name="error_nothing_to_commit">工作区没有改动可提交</string>
     <string name="label_theme">主题</string>
+    <!-- 主题页（设置 → 外观 → 主题）：外观类的唯一落点，见 docs/specs/settings-design.md §十七 -->
+    <string name="label_theme_mode_group">主题模式</string>
+    <string name="label_navigation_group">导航栏</string>
+    <string name="theme_follow_system_desc">当前系统：%1$s</string>
+    <string name="note_glass_navigation_off">当前主题导航栏，玻璃悬浮默认关闭</string>
+    <!-- 「已应用 / 已替换」是状态陈述：这一项是全局底栏形态，切换后主界面立刻生效 -->
+    <string name="note_glass_navigation_on">悬浮玻璃已应用，原生导航已替换</string>
     <string name="label_glass_navigation">悬浮玻璃导航栏</string>
     <string name="toast_deleted_branch">已删除分支 %1$s</string>
     <string name="action_create_and_switch">创建并切换</string>

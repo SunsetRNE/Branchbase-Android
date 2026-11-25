@@ -493,6 +493,11 @@
     <string name="note_clone_hint">Tap “Clone repository” to clone one locally</string>
     <string name="error_nothing_to_commit">No changes in the working tree to commit</string>
     <string name="label_theme">Theme</string>
+    <string name="label_theme_mode_group">Theme mode</string>
+    <string name="label_navigation_group">Navigation bar</string>
+    <string name="theme_follow_system_desc">System now: %1$s</string>
+    <string name="note_glass_navigation_off">Themed bar in use; floating glass is off</string>
+    <string name="note_glass_navigation_on">Floating glass applied; native bar replaced</string>
     <string name="label_glass_navigation">Floating glass navigation</string>
     <string name="toast_deleted_branch">Deleted branch %1$s</string>
     <string name="action_create_and_switch">Create and switch</string>

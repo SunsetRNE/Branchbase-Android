@@ -76,6 +76,7 @@ class SettingsSpecTest {
         "src/main/java/com/branchbase/ui/settings/GitProxyScreen.kt",
         "src/main/java/com/branchbase/ui/settings/AppLanguage.kt",
         "src/main/java/com/branchbase/ui/settings/LanguageScreen.kt",
+        "src/main/java/com/branchbase/ui/settings/ThemeScreen.kt",
         "src/main/java/com/branchbase/ui/profile/SubPageScreens.kt",
         "src/main/java/com/branchbase/ui/profile/CommitModeScreen.kt",
         "src/main/java/com/branchbase/ui/profile/CommitModeStore.kt",
@@ -83,6 +84,7 @@ class SettingsSpecTest {
     )
 
     private val rowComponentsPath = "src/main/java/com/branchbase/ui/settings/SettingsRow.kt"
+    private val themePagePath = "src/main/java/com/branchbase/ui/settings/ThemeScreen.kt"
     private val settingsPagePath = "src/main/java/com/branchbase/ui/profile/SubPageScreens.kt"
 
     /**
@@ -148,9 +150,9 @@ class SettingsSpecTest {
             "NavRow(", "SwitchRow(", "ChoiceRow(", "ActionRow(", "DangerRow(", "InfoRow(",
             "DisabledNavRow(", "SettingsProse(", "ModeOptionRow(",
         ).filter { region.contains(it) }
-        // 2026-11 压密后主页只剩 5 种行型（账户卡 AccountRow 删除、说明段落不再上主页），
-        // 阈值跟着从 6 → 5；变的只是行型的**数量**，「必须来自公共组件」这条没变。
-        assertTrue("设置页一个公共行组件都没用到，说明又退回了自制行", used.size >= 5)
+        // 2026-11：主页只剩 4 种行型 —— 压密删掉账户卡，主题三档搬进主题页后连 ChoiceRow 也不在主页了
+        // （+ 说明段落不再上主页）。变的只是行型的**数量**，「必须来自公共组件」这条没变。
+        assertTrue("设置页一个公共行组件都没用到，说明又退回了自制行", used.size >= 4)
     }
 
     // ── ③ 开关不配「保存」（§5.3） ──────────────────────────────────────
@@ -277,7 +279,7 @@ class SettingsSpecTest {
         val profile = source("src/main/java/com/branchbase/ui/profile/ProfileScreen.kt")
         val subPages = listOf(
             "LocalRepo", "About", "Log", "NotificationSettings",
-            "Translate", "Accounts", "CommitMode", "GitProxy", "Language",
+            "Translate", "Accounts", "CommitMode", "GitProxy", "Language", "Theme",
         )
         subPages.forEach { page ->
             val marker = "SubPage.$page -> "
@@ -301,7 +303,7 @@ class SettingsSpecTest {
         // 二级页都必须是 depth 2，否则返回键会跳过设置主页
         listOf(
             "LocalRepo", "About", "Log", "NotificationSettings", "Translate",
-            "Accounts", "CommitMode", "GitProxy", "Language",
+            "Accounts", "CommitMode", "GitProxy", "Language", "Theme",
         )
             .forEach { assertTrue("subPageDepth 漏了 SubPage.$it", depthBlock.contains("SubPage.$it")) }
     }
@@ -396,15 +398,56 @@ class SettingsSpecTest {
 
     // ── ⑨ 控件选型（§5.2） ─────────────────────────────────────────────
 
+    // ── ⑨′ 主题页（2026-11：外观类收拢进单独一页） ──────────────────────
+
     @Test
-    fun `主题用三档选择行而不是循环手势`() {
-        val region = settingsRegion()
-        assertTrue("主题必须用 ChoiceRow（三档就地可见，规范 §5.2）", region.contains("ChoiceRow("))
-        assertTrue("主题三档要取自 ThemeMode.entries", region.contains("ThemeMode.entries"))
+    fun `主题三档在主题页_主页只留入口`() {
+        val theme = source(themePagePath)
+        assertTrue("主题页的三档要取自 ThemeMode.entries", theme.contains("ThemeMode.entries"))
+        assertTrue("三档必须并排可见（ModeOptionRow / 单选），不许循环手势", theme.contains("ModeOptionRow("))
         assertFalse(
-            "设置页又出现了 ThemeRuntime.cycle：循环手势看不到全部档位、误点无法撤销（规范 §5.2）",
-            region.contains("ThemeRuntime.cycle"),
+            "主题页又出现了 ThemeRuntime.cycle：循环手势看不到全部档位、误点无法撤销（规范 §5.2）",
+            theme.contains("ThemeRuntime.cycle"),
         )
+
+        val region = settingsHomeRegion()
+        assertFalse("主页又出现了三档分段：主题已收进主题页（规范 §十七）", region.contains("ThemeMode.entries"))
+        assertFalse("主页又出现了 ChoiceRow：外观类不在主页就地展开", region.contains("ChoiceRow("))
+        assertTrue("主页的「主题」必须是入口行（点击进主题页）", region.contains("onOpenTheme"))
+        assertTrue("入口行要带当前档位（值列与主题页同源）", region.contains("value = stringResource(themeMode.labelRes)"))
+    }
+
+    @Test
+    fun `悬浮玻璃导航栏开关只在主题页`() {
+        val theme = source(themePagePath)
+        assertTrue(
+            "主题页必须把悬浮玻璃导航栏作为选项（外观类设置只有这一个落点）",
+            theme.contains("label_glass_navigation") && theme.contains("SwitchRow("),
+        )
+        assertTrue("开关要写进 SettingsKeys 的运行时（否则主界面不跟着切）", theme.contains("GlassNavigationRuntime.set"))
+
+        // 说明压成一行（2026-11 决策）：独占整行宽 + 单行上限，且**随开关状态换文案**
+        // （关：现在是什么；开：已经发生什么）。360dp 屏上跟着名称走的文本列只有约 210dp，
+        // 超过 22 个字就放不下 —— 换成整行宽（约 272dp）后 12sp 也够。
+        assertTrue("说明必须限制成一行（subMaxLines = 1）", theme.contains("subMaxLines = 1"))
+        assertTrue("说明要独占一行占满行宽（subFullWidth = true）", theme.contains("subFullWidth = true"))
+        assertTrue("说明要随开关状态切换（if (glassNavigation)）", theme.contains("if (glassNavigation)"))
+        val strings = source("src/main/res/values/strings.xml")
+        listOf("note_glass_navigation_off", "note_glass_navigation_on").forEach { key ->
+            val note = Regex("""<string name="$key">([^<]*)</string>""").find(strings)
+            assertTrue("找不到 $key 文案", note != null)
+            assertTrue(
+                "$key 不能超过 22 个字（272dp 文本区在 12sp 下的上限）",
+                note!!.groupValues[1].length <= 22,
+            )
+        }
+
+        val region = settingsHomeRegion()
+        assertFalse(
+            "设置主页又出现了玻璃导航栏开关：外观类开关只在主题页（规范 §十七），主页只留入口",
+            region.contains("label_glass_navigation"),
+        )
+        assertFalse("设置主页不再直接读玻璃导航偏好", region.contains("glassNavigationEnabled"))
     }
 
     // ── ⑩ 禁用行给出路（§6.3） ─────────────────────────────────────────
