@@ -19,4 +19,5 @@
 
 | 原型 | 说明文档 | 状态 |
 |---|---|---|
+| [`home-todo-empty/index.html`](home-todo-empty/index.html) | [`docs/specs/prototypes/home-todo-empty.md`](../docs/specs/prototypes/home-todo-empty.md) | 首页「待处理」：无框分组 + 可折叠（含空态/三态）：**已落地（1.4.31）** |
 | （待补） | | 历史原型尚未迁入 |

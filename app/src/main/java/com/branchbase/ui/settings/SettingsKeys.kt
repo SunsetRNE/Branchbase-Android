@@ -85,6 +85,15 @@ object SettingsKeys {
     const val HOME_FREQUENT_REPOS = "home_frequent_repos"
 
     /**
+     * 首页「待处理」的折叠记忆（JSON 对象，见 `TodoFoldStore`）：`{"<login>": true/false}`。
+     *
+     * 按账号分桶，理由与 [HOME_FREQUENT_REPOS] 相同（一台设备可登多个账号）。
+     * **缺该账号的键 = 没手动切过**，走状态默认（空 → 折叠，其余展开）；
+     * 有值 = 用户切过，之后以记忆为准（失败态强制展开，见 `todoCollapsed`）。
+     */
+    const val HOME_TODO_COLLAPSED = "home_todo_collapsed"
+
+    /**
      * 统一的 SharedPreferences 句柄。
      *
      * 优先用 `applicationContext`：设置页可能在 Activity 重建的瞬间读写，

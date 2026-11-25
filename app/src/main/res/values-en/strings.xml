@@ -969,9 +969,7 @@
     <string name="result_count_all">%1$s %2$s</string>
     <string name="result_count_partial">Showing the first %1$s of %2$s %3$s</string>
     <string name="search_load_more_progress">Load more (showing %1$s of %2$s)</string>
-    <string name="note_todo_hint">PRs, issues and notifications that need your attention show up here</string>
     <string name="greet_evening">Good evening</string>
-    <string name="state_no_todo">Nothing to do</string>
     <string name="label_assigned_issue_count">%1$s issues</string>
     <string name="label_review_pr_count">%1$s PRs</string>
     <string name="label_running">Running</string>
@@ -986,6 +984,19 @@
     <string name="toast_frequent_repos_limit">Home shows up to %1$d repositories</string>
     <string name="note_frequent_repos_empty_hint">Long-press the “Frequent repositories” title to choose again</string>
     <string name="label_unread_count">%1$s</string>
+    <!-- Home "To do": collapse-head summary / four states / a11y action labels -->
+    <string name="home_todo_empty">All caught up</string>
+    <string name="home_todo_loading">Loading…</string>
+    <string name="home_todo_failed">Can\'t load</string>
+    <string name="home_todo_failed_hint">The numbers may be out of date</string>
+    <string name="home_todo_expand">Expand</string>
+    <string name="home_todo_collapse">Collapse</string>
+    <string name="home_todo_state_collapsed">Collapsed</string>
+    <string name="home_todo_state_expanded">Expanded</string>
+    <plurals name="home_todo_pending">
+        <item quantity="one">%1$d item to do</item>
+        <item quantity="other">%1$d items to do</item>
+    </plurals>
     <string name="greet_late_night">Working late</string>
     <string name="state_no_recent_activity">No recent activity yet</string>
     <string name="state_synced_from_to">Synced: %1$s → %2$s</string>

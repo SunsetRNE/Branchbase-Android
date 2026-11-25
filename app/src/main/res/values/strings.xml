@@ -973,9 +973,7 @@
     <string name="result_count_all">%1$s 个%2$s</string>
     <string name="result_count_partial">已显示前 %1$s 条 · 共 %2$s 条%3$s</string>
     <string name="search_load_more_progress">加载更多（已显示 %1$s / 共 %2$s）</string>
-    <string name="note_todo_hint">需要你处理的 PR / 讨论 / 通知会出现在这里</string>
     <string name="greet_evening">晚上好</string>
-    <string name="state_no_todo">没有待办</string>
     <string name="label_assigned_issue_count">%1$s 个讨论</string>
     <string name="label_review_pr_count">%1$s 个 PR</string>
     <string name="label_running">运行中</string>
@@ -990,6 +988,18 @@
     <string name="toast_frequent_repos_limit">首页最多显示 %1$d 个</string>
     <string name="note_frequent_repos_empty_hint">长按「常用仓库」标题可重新选择</string>
     <string name="label_unread_count">%1$s 条</string>
+    <!-- 首页「待处理」：折叠头摘要 / 四态文案 / 读屏动作（ui/home/HomeScreen.kt 的 TodoGroup） -->
+    <string name="home_todo_empty">都处理完了</string>
+    <string name="home_todo_loading">读取中…</string>
+    <string name="home_todo_failed">暂时取不到</string>
+    <string name="home_todo_failed_hint">网络似乎不通，数字可能不是最新的</string>
+    <string name="home_todo_expand">展开</string>
+    <string name="home_todo_collapse">收起</string>
+    <string name="home_todo_state_collapsed">已折叠</string>
+    <string name="home_todo_state_expanded">已展开</string>
+    <plurals name="home_todo_pending">
+        <item quantity="other">%1$d 项待办</item>
+    </plurals>
     <string name="greet_late_night">夜深了</string>
     <string name="state_no_recent_activity">暂无最近活动</string>
     <string name="state_synced_from_to">已同步：%1$s → %2$s</string>

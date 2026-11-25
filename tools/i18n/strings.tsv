@@ -857,8 +857,6 @@ ${snapshot.chars} 字符 · ${(fraction * 100).roundToInt()}%	%1$s characters ·
 下午好	Good afternoon	greet_afternoon
 晚上好	Good evening	greet_evening
 $greet，$login	%1$s, %2$s	greet_with_login
-没有待办	Nothing to do	state_no_todo
-需要你处理的 PR / issue / 通知会出现在这里	PRs, issues and notifications that need your attention show up here	note_todo_hint
 未读通知	Unread notifications	label_unread_notifications
 $unread 条	%1$s	label_unread_count
 待我审查	Awaiting my review	label_awaiting_review
@@ -1373,3 +1371,11 @@ $count 个只在远端	%1$s remote-only	label_refs_remote_only_count
 上游已删除（复刻关系已断开）：原来那个上游地址不再可用，本仓库现在自己就是这个网络的源。	Upstream deleted (the fork relationship is gone): the old upstream URL no longer works, and this repository is now the source of its own network.	note_upstream_deleted
 上游已私有化或当前令牌读不到：复刻关系还在，但没有访问权 —— 拉取、比对、开 PR 都会失败。	Upstream is private, or unreadable with the current token: the fork relationship remains but you have no access — pull, compare, and PR all fail.	note_upstream_private
 读不到本仓库的复刻关系（未登录或接口失败），判断不了有没有上游 —— 所有入口照旧保留。	The fork relationship could not be read (not signed in, or the API failed), so upstream is unknown — every entry stays visible.	note_upstream_unknown
+都处理完了	All caught up	home_todo_empty
+读取中…	Loading…	home_todo_loading
+暂时取不到	Can't load	home_todo_failed
+网络似乎不通，数字可能不是最新的	The numbers may be out of date	home_todo_failed_hint
+展开	Expand	home_todo_expand
+收起	Collapse	home_todo_collapse
+已折叠	Collapsed	home_todo_state_collapsed
+已展开	Expanded	home_todo_state_expanded

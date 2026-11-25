@@ -241,6 +241,19 @@
 
 四段：待处理 / 进行中 / 常用仓库 / 最近活动（`ui/home/HomeScreen.kt`）。
 
+- **「待处理」是四态 + 可折叠**（判定收在 `ui/home/TodoState.kt`，钉子 `TodoStateTest`）：
+  三个计数是 `Int?`（`null` = 这一路没取到，**不是 0**），三路各自失败互不影响；**三项都明确为 0
+  才判空**，任一项未知且没有已知非零值 → 失败态（展开给「重试」，只重跑计数、不连带重拉星标与活动）。
+  **空态 = 折叠态**：默认收起成 44dp 一句「都处理完了」，展开仍是三行（0 行灰、无 `›`）；有内容 /
+  加载中默认展开，失败态**强制展开**（重试是唯一的恢复入口）。折叠记忆按账号
+  （`home_todo_collapsed` / `TodoFoldStore`，缺省 = 没切过 → 走状态默认），失败态临时覆盖记忆。
+  形态：无描边 + `neutralFill` 浅底，行 44dp 单行（标题 + 计数靠右），与 44dp 折叠头同高；
+  头与展开体之间、行与行之间是同一条 1dp 40% 分隔线。展开/收起用 `expandVertically(spring)`
+  （有过冲），收起 260ms tween。**「进行中」共用同一容器**（`HomeGroupCard`：头 44dp 不可点、
+  无箭头，最多 3 条；行高由进度条与详情决定），两块之间 10dp。读屏：`stateDescription`
+  （已折叠 / 已展开）+ `expand` / `collapse` 动作（Compose 1.10.3 没有 `expanded` 语义）。
+  设计稿与可切原型见 [`prototypes/home-todo-empty.md`](prototypes/home-todo-empty.md)。
+
 - **这一栏有两个数据源，选谁只看「有没有置顶」**（纯函数 `FrequentRepoSource`，`ui/home/FrequentRepoStore.kt`）：
   - **没置顶过**（键不存在，或把置顶全部取消）→ 默认态：收藏（星标）仓库，服务端按最近星标倒序取前 5 ——
     `/user/starred?per_page=100&sort=created&direction=desc`（常量 `STARRED_RECENT_PATH`），

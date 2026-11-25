@@ -1,6 +1,14 @@
 package com.branchbase.ui.home
 
 import android.content.Context
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -9,11 +17,13 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -27,6 +37,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CallSplit
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Notifications
@@ -35,10 +46,15 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.semantics.collapse
+import androidx.compose.ui.semantics.expand
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,6 +65,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -76,6 +93,13 @@ import com.branchbase.ui.notification.NotificationPrefetcher
 import com.branchbase.ui.navigation.rememberPageResumeTick
 import com.branchbase.ui.log.Logger
 import org.json.JSONObject
+
+/**
+ * 计数未知时的占位（部分失败）：不猜数字，也不让整块变成空态。
+ *
+ * 只在一路成功、另一路失败时出现；三路全失败是 [TodoState.Failed]，走重试行。
+ */
+private const val COUNT_UNKNOWN = "\u2014"
 
 /**
  * 首页 Dashboard。
@@ -159,9 +183,16 @@ fun HomeScreen(
     }
 
     // 首页仪表盘数据（未读通知 / 待审 PR / 进行中的运行）
-    var unreadNotifs by remember { mutableStateOf(0) }
-    var reviewRequests by remember { mutableStateOf(0) }
-    var assignedIssues by remember { mutableStateOf(0) }
+    //
+    // 三个计数是 `Int?`：`null` = 这一路**没取到**，不是 0。改动前失败被静默成 0，
+    // 于是「断网」与「确实没有」在界面上完全同帧，首页会断言一句假话（见 TodoState.kt）。
+    var unreadNotifs by remember { mutableStateOf<Int?>(null) }
+    var reviewRequests by remember { mutableStateOf<Int?>(null) }
+    var assignedIssues by remember { mutableStateOf<Int?>(null) }
+
+    // 只在**首轮**取数期间为 true。之后每次回前台重算都不再置 true ——
+    // 否则切一次 Tab 就闪一屏骨架，比「数字晚 100ms 更新」难受得多。
+    var todoLoading by remember { mutableStateOf(true) }
     var runningTasks by remember { mutableStateOf<List<com.branchbase.ui.task.TaskRecord>>(emptyList()) }
 
     // 仪表盘计数缓存（TTL 5 分钟）。星标/活动仍走各自的 prefs 缓存，不受影响。
@@ -172,25 +203,59 @@ fun HomeScreen(
     /**
      * 计数类请求的「缓存直出 + 回源写回」。
      *
-     * 语义与改动前一致：失败静默为 0、不打扰首页；区别只在**回源前先读缓存**，
-     * 未过期（5 分钟）时 [PageCache.refresh] 直接返回缓存、不再发请求。
-     * 每次回到前台仍会走一遍这里（本函数无 force 入口），命中未过期缓存即免流量。
+     * **失败返回 `null`，不再静默成 0**：0 是合法值（真的没有），拿它当哨兵会让
+     * 「断网」与「确实没有」在界面上完全同帧，首页因此会断言一句假话。
+     * 其余语义不变：回源前先读缓存，未过期（5 分钟）时 [PageCache.refresh] 直接返回缓存、
+     * 不再发请求；每次回到前台仍会走一遍（本函数无 force 入口），命中未过期缓存即免流量。
      *
      * 解析与改动前逐一对应：
      * - 通知计数 = `/notifications` 返回数组的长度；
      * - 评审/指派计数 = 搜索接口返回对象的 `total_count`。
      */
-    suspend fun loadCachedCount(name: String, fetch: suspend () -> String?): Int {
+    suspend fun loadCachedCount(name: String, fetch: suspend () -> String?): Int? {
         val json = PageCache.refresh(cacheManager, PageCache.homeKey(name), PageCache.TYPE_HOME) {
             withContext(Dispatchers.IO) { fetch() }
-        } ?: return 0
+        } ?: return null
         return runCatching {
             if (json.trimStart().startsWith("[")) {
                 org.json.JSONArray(json).length()
             } else {
                 JSONObject(json).optInt("total_count", 0)
             }
-        }.getOrDefault(0)
+        }.getOrNull()
+    }
+
+    /**
+     * 待处理三件套：三路并行取数（失败各自为 `null`，互不影响）。
+     *
+     * 消息首屏预取（需求 ③）：原来这里请求 `/notifications?per_page=100` **只为了数长度**，
+     * 而消息页进去还要再请求一次首屏 —— 同一份数据两条腿各拉一遍。
+     * 现在这一步把首屏做完整：写 PageCache（落盘）+ 填 NotifSnapshot（已解析），
+     * 未读数也从同一份数据算出，于是「进消息页」= 0 次网络 + 0 帧骨架。
+     * 被策略跳过（计费网络 / 关闭了预加载开关）时返回 null，回退到计数路径。
+     *
+     * 单独抽成函数，是为了让「失败态的重试」能只重跑这一段，不必连带重拉星标与活动。
+     */
+    suspend fun loadTodoCounts() {
+        coroutineScope {
+            launch {
+                unreadNotifs = NotificationPrefetcher.warmUp(context, host, token)
+                    ?: loadCachedCount("unread") {
+                        RustBridge.getJson(host, token, "/notifications?per_page=100")
+                    }
+            }
+            launch {
+                reviewRequests = loadCachedCount("review") {
+                    RustBridge.searchIssues(host, token, "review-requested:@me state:open type:pr")
+                }
+            }
+            launch {
+                assignedIssues = loadCachedCount("assigned") {
+                    RustBridge.searchIssues(host, token, "assignee:@me state:open")
+                }
+            }
+        }
+        todoLoading = false
     }
 
     // Tab 保活（`TabSwitcher` 不再销毁切走的页）⇒ `LaunchedEffect(Unit)` 一辈子只跑一次，
@@ -217,29 +282,8 @@ fun HomeScreen(
         coroutineScope {
             launch { loaded = loadRepos() }
             launch { loadEvents(false) }
-            // 待处理三件套（都是轻量请求，失败静默为 0，不打扰首页）
-            // 每个计数各自 key（home:unread / home:review / home:assigned），类型 TYPE_HOME（TTL 5 分钟）
-            // 消息首屏预取（需求 ③）：原来这里请求 `/notifications?per_page=100` **只为了数长度**，
-            // 而消息页进去还要再请求一次首屏 —— 同一份数据两条腿各拉一遍。
-            // 现在这一步把首屏做完整：写 PageCache（落盘）+ 填 NotifSnapshot（已解析），
-            // 未读数也从同一份数据算出，于是「进消息页」= 0 次网络 + 0 帧骨架。
-            // 被策略跳过（计费网络 / 关闭了预加载开关）时返回 null，回退到原来的计数路径。
-            launch {
-                unreadNotifs = NotificationPrefetcher.warmUp(context, host, token)
-                    ?: loadCachedCount("unread") {
-                        RustBridge.getJson(host, token, "/notifications?per_page=100")
-                    }
-            }
-            launch {
-                reviewRequests = loadCachedCount("review") {
-                    RustBridge.searchIssues(host, token, "review-requested:@me state:open type:pr")
-                }
-            }
-            launch {
-                assignedIssues = loadCachedCount("assigned") {
-                    RustBridge.searchIssues(host, token, "assignee:@me state:open")
-                }
-            }
+            // 待处理三件套：并行取数（细节见 loadTodoCounts；失败各自为 null）
+            launch { loadTodoCounts() }
         }
         // 进行中任务：本地 Room，零网络请求
         runningTasks = com.branchbase.ui.task.TaskStore.list(context)
@@ -262,6 +306,12 @@ fun HomeScreen(
     // 首页实际要渲染的「常用仓库」（顺序 = 用户点选先后；没自定义过时 = 接口顺序前 5）
     val shownRepos = FrequentRepoRules.visibleOnHome(repos, pinned, key = { it.fullName })
 
+    // 待处理：四态 + 折叠（判定都在 TodoState.kt 的纯函数里，这里只接状态）
+    val todoState = todoStateOf(todoLoading, unreadNotifs, reviewRequests, assignedIssues)
+    // 折叠记忆按账号（键 home_todo_collapsed，见 TodoFoldStore）；`null` = 没手动切过 → 走状态默认
+    var todoRemembered by remember(bucket) { mutableStateOf(TodoFoldStore.collapsed(context, bucket)) }
+    val todoFolded = todoCollapsed(todoState, todoRemembered)
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -274,22 +324,37 @@ fun HomeScreen(
         BranchbaseLazyColumn(modifier = Modifier.fillMaxSize()) {
             item { GreetingRow(login) }
 
-            // ① 待处理：需要你动手的
-            item { SectionHeader(stringResource(R.string.label_todo), Icons.Filled.Notifications) }
+            // ① 待处理：需要你动手的（折叠头 + 展开体在同一个容器里，头就是原来的区块标题）
             item {
-                TodoCard(
+                TodoGroup(
+                    state = todoState,
+                    collapsed = todoFolded,
                     unread = unreadNotifs,
                     reviews = reviewRequests,
                     assigned = assignedIssues,
+                    onToggle = {
+                        val next = !todoFolded
+                        todoRemembered = next
+                        TodoFoldStore.save(context, bucket, next)
+                    },
+                    onRetry = {
+                        // 只重跑计数（不连带重拉星标与活动）；先置 loading 让展开体给骨架。
+                        // 同时把本轮记忆钉成「展开」：加载中默认是折叠的，不这么做会把用户
+                        // 刚点开的「重试」顺手收起来。只影响本轮会话，不改盘上的记忆。
+                        todoRemembered = false
+                        todoLoading = true
+                        scope.launch { loadTodoCounts() }
+                    },
                     onOpenNotifications = onOpenNotifications,
                     onOpenSearch = onSearchClick,
                 )
             }
 
-            // ② 进行中：本地任务（零网络）
+            // ② 进行中：本地任务（零网络）。与「待处理」共用无框分组容器，头不再单独占一行；
+            // 两块之间留 10dp，避免两个浅底块贴在一起。
             if (runningTasks.isNotEmpty()) {
-                item { SectionHeader(stringResource(R.string.label_in_progress), Icons.Filled.Timeline) }
-                item { RunningTasksCard(runningTasks) }
+                item { Spacer(Modifier.height(10.dp)) }
+                item { RunningGroup(runningTasks) }
             }
 
             // ③ 常用仓库（置顶过 = 只放用户选的常用仓库；没置顶过 = 收藏仓库最近 5 个）
@@ -484,42 +549,190 @@ private fun GreetingRow(login: String) {
 }
 
 /**
- * 待处理卡片：未读通知 / 待我审查 / 分配给我。
+ * 首页分区容器：**无描边、浅底、圆角 10dp**。
  *
- * 三行都是「需要你动手的」，全为 0 时显示空态而不是隐藏整块 —— 保持首屏结构稳定。
+ * 「待处理」与「进行中」共用同一套容器语言 —— 两块并排时不能一个是无框分组、
+ * 一个是 1dp 纯黑描边卡片（浅色板里 `BorderEmphasis` 就是纯黑，是页面上最重的线）。
+ * 头部与展开体之间、行与行之间都用同一条 `TodoDivider()`。
  */
 @Composable
-private fun TodoCard(
-    unread: Int,
-    reviews: Int,
-    assigned: Int,
+private fun HomeGroupCard(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(
+        modifier.fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Primer.Gray100),
+        content = content,
+    )
+}
+
+/**
+ * 待处理分组：**折叠头 + 展开体在同一个容器里**，头就是原来的区块标题。
+ *
+ * 三行都是「需要你动手的」，但整块的信息量只有「一句话 + 一个数」：
+ * 所以行压到 44dp（与折叠头同高），全 0 时默认折叠成一句「都处理完了」，
+ * 不再为「没事了」画一张 100dp 的卡片。
+ *
+ * 无描边（原先是 `BorderEmphasis`，浅色板里是纯黑）：这一块可以没有内容，
+ * 用最重的线去框它，层级正好反了。改浅底 + 圆角，靠 44dp 高度与留白识别。
+ *
+ * 展开/收起走 [AnimatedVisibility] + `expandVertically(spring)`：弹簧带过冲才有「弹出来」的手感；
+ * tween 的等高展开就是「生硬」那一版。`clip = true`（默认）保证过冲期内容不外溢。
+ */
+@Composable
+private fun TodoGroup(
+    state: TodoState,
+    collapsed: Boolean,
+    unread: Int?,
+    reviews: Int?,
+    assigned: Int?,
+    onToggle: () -> Unit,
+    onRetry: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenSearch: () -> Unit,
 ) {
-    Column(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .border(1.dp, Primer.BorderEmphasis, RoundedCornerShape(10.dp)),
-    ) {
-        if (unread + reviews + assigned == 0) {
-            Box(Modifier.fillMaxWidth().padding(vertical = 22.dp), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(stringResource(R.string.state_no_todo), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
-                    Spacer(Modifier.height(4.dp))
-                    Text(stringResource(R.string.note_todo_hint), fontSize = 11.5.sp, color = Primer.TextTertiary)
+    HomeGroupCard {
+        TodoHead(
+            state = state,
+            collapsed = collapsed,
+            unread = unread,
+            reviews = reviews,
+            assigned = assigned,
+            onToggle = onToggle,
+        )
+        AnimatedVisibility(
+            visible = !collapsed,
+            enter = expandVertically(
+                animationSpec = spring(dampingRatio = 0.55f, stiffness = 420f),
+                expandFrom = Alignment.Top,
+            ) + fadeIn(animationSpec = tween(120)),
+            exit = shrinkVertically(animationSpec = tween(260)) + fadeOut(animationSpec = tween(150)),
+        ) {
+            Column(Modifier.fillMaxWidth()) {
+                // 头与展开体之间也要一条：否则「标题 + 三行」读起来像一段连续文本，
+                // 而不是「一个可折叠的块」。原型里这条是 .fold-inner 的 border-top。
+                TodoDivider()
+                when (state) {
+                    TodoState.Loading -> TodoSkeleton()
+                    TodoState.Failed -> TodoFailRow(onRetry)
+                    TodoState.Empty, TodoState.Ready -> {
+                        TodoRow(
+                            title = stringResource(R.string.label_unread_notifications),
+                            value = unread?.let { stringResource(R.string.label_unread_count, it.toString()) } ?: COUNT_UNKNOWN,
+                            iconBg = Primer.InfoSurfaceSoft,
+                            iconFg = Primer.Blue500,
+                            enabled = (unread ?: 0) > 0,
+                            onClick = onOpenNotifications,
+                        )
+                        TodoDivider()
+                        TodoRow(
+                            title = stringResource(R.string.label_awaiting_review),
+                            value = reviews?.let { stringResource(R.string.label_review_pr_count, it.toString()) } ?: COUNT_UNKNOWN,
+                            iconBg = Primer.SuccessSurface,
+                            iconFg = Primer.Green500,
+                            enabled = (reviews ?: 0) > 0,
+                            onClick = onOpenSearch,
+                        )
+                        TodoDivider()
+                        TodoRow(
+                            title = stringResource(R.string.label_assigned_to_me),
+                            value = assigned?.let { stringResource(R.string.label_assigned_issue_count, it.toString()) } ?: COUNT_UNKNOWN,
+                            iconBg = Primer.WarningSurface,
+                            iconFg = Primer.WarningTextStrong,
+                            enabled = (assigned ?: 0) > 0,
+                            onClick = onOpenSearch,
+                        )
+                    }
                 }
             }
-            return@Column
         }
-        TodoRow(stringResource(R.string.label_unread_notifications), stringResource(R.string.label_unread_count, unread), Primer.InfoSurfaceSoft, Primer.Blue500, unread > 0, onOpenNotifications)
-        TodoRow(stringResource(R.string.label_awaiting_review), stringResource(R.string.label_review_pr_count, reviews), Primer.SuccessSurface, Primer.Green500, reviews > 0, onOpenSearch)
-        TodoRow(
-            stringResource(R.string.label_assigned_to_me), stringResource(R.string.label_assigned_issue_count, assigned), Primer.WarningSurface, Primer.WarningTextStrong,
-            assigned > 0, onOpenSearch, last = true,
+    }
+}
+
+/**
+ * 折叠头：铃铛 + 「待处理」+ 摘要 + 箭头。
+ *
+ * 摘要承担状态（N 项待办 / 都处理完了 / 读取中… / 暂时取不到），折叠时它是唯一信息，
+ * 所以数字用 `TextPrimary` 加粗、短语用 `TextTertiary`——两者都能读出来，但轻重不同。
+ *
+ * 读屏：整行是一个 `Role.Button` 节点，带 `expanded` 语义与「展开/收起」动作标签，
+ * TalkBack 会念「待处理，1 项待办，已折叠，双击展开」。
+ */
+@Composable
+private fun TodoHead(
+    state: TodoState,
+    collapsed: Boolean,
+    unread: Int?,
+    reviews: Int?,
+    assigned: Int?,
+    onToggle: () -> Unit,
+) {
+    val actionLabel = stringResource(if (collapsed) R.string.home_todo_expand else R.string.home_todo_collapse)
+    // Compose 1.10.3 的 SemanticsProperties 里**没有** `expanded`，可用的等价物是
+    // `stateDescription`（读屏念「已折叠/已展开」）+ `expand`/`collapse` 动作（读屏菜单里可触发）。
+    val stateText = stringResource(
+        if (collapsed) R.string.home_todo_state_collapsed else R.string.home_todo_state_expanded,
+    )
+    val chevron by animateFloatAsState(
+        targetValue = if (collapsed) -90f else 0f,
+        animationSpec = spring(dampingRatio = 0.5f, stiffness = 500f),
+        label = "todo-chevron",
+    )
+    val summary = when (state) {
+        TodoState.Loading -> stringResource(R.string.home_todo_loading)
+        TodoState.Empty -> stringResource(R.string.home_todo_empty)
+        TodoState.Failed -> stringResource(R.string.home_todo_failed)
+        TodoState.Ready -> {
+            val n = todoSummaryCount(unread, reviews, assigned)
+            pluralStringResource(R.plurals.home_todo_pending, n, n)
+        }
+    }
+    Row(
+        Modifier.fillMaxWidth()
+            .heightIn(min = 44.dp)
+            .clickable(onClickLabel = actionLabel) { onToggle() }
+            .semantics {
+                stateDescription = stateText
+                if (collapsed) {
+                    expand(actionLabel) { onToggle(); true }
+                } else {
+                    collapse(actionLabel) { onToggle(); true }
+                }
+            }
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Filled.Notifications, contentDescription = null, tint = Primer.IconPrimary, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(stringResource(R.string.label_todo), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
+        Spacer(Modifier.weight(1f))
+        Text(
+            summary,
+            fontSize = 13.sp,
+            color = Primer.TextTertiary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.width(2.dp))
+        Icon(
+            Icons.Filled.ExpandMore,
+            contentDescription = null,
+            tint = Primer.IconSecondary,
+            modifier = Modifier.size(16.dp).rotate(chevron),
         )
     }
 }
 
+/**
+ * 单行型：标题 + 计数同行，44dp。
+ *
+ * 计数靠右而不是另起一行：这一块的信息就是「一句话 + 一个数」，
+ * 两行排版等于用两倍高度讲一件事（见 `docs/specs/prototypes/home-todo-empty.md` §5.2）。
+ * `null` 计数（部分失败）显示「—」并不可点 —— 不猜数字。
+ */
 @Composable
 private fun TodoRow(
     title: String,
@@ -528,49 +741,133 @@ private fun TodoRow(
     iconFg: Color,
     enabled: Boolean,
     onClick: () -> Unit,
-    last: Boolean = false,
 ) {
     Row(
-        Modifier.fillMaxWidth().clickable(enabled = enabled) { onClick() }
-            .padding(horizontal = 12.dp, vertical = 11.dp),
+        Modifier.fillMaxWidth()
+            .heightIn(min = 44.dp)
+            .clickable(enabled = enabled) { onClick() }
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            Modifier.size(26.dp).clip(RoundedCornerShape(8.dp)).background(iconBg),
+            Modifier.size(22.dp).clip(RoundedCornerShape(7.dp)).background(iconBg),
             contentAlignment = Alignment.Center,
         ) {
-            Box(Modifier.size(8.dp).clip(CircleShape).background(iconFg))
+            Box(Modifier.size(7.dp).clip(CircleShape).background(iconFg))
         }
+        Spacer(Modifier.width(10.dp))
+        Text(
+            title,
+            fontSize = 13.sp,
+            lineHeight = 17.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = if (enabled) Primer.TextPrimary else Primer.TextTertiary,
+            modifier = Modifier.weight(1f),
+        )
+        Text(value, fontSize = 12.sp, color = Primer.TextTertiary)
+        if (enabled) {
+            Spacer(Modifier.width(6.dp))
+            Text("›", fontSize = 15.sp, color = Primer.TextTertiary)
+        }
+    }
+}
+
+@Composable
+private fun TodoDivider() {
+    Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.BorderEmphasis.copy(alpha = 0.4f)))
+}
+
+/** 取数中：3 行骨架，行高照实（44dp），取数完成前后不跳。 */
+@Composable
+private fun TodoSkeleton() {
+    repeat(3) { index ->
+        Row(
+            Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(22.dp).clip(RoundedCornerShape(7.dp)).background(Primer.Gray150))
+            Spacer(Modifier.width(10.dp))
+            Box(Modifier.width(92.dp).height(11.dp).clip(RoundedCornerShape(3.dp)).background(Primer.Gray150))
+        }
+        if (index < 2) TodoDivider()
+    }
+}
+
+/**
+ * 取数失败：**不冒充空态**。
+ *
+ * 摘要已经说了「暂时取不到」，这里给原因与出口（重试只重跑计数，不连带重拉星标与活动）。
+ * 这一态会被 [todoCollapsed] 强制展开 —— 把唯一的恢复入口藏在折叠里，等于让用户没有出路。
+ */
+@Composable
+private fun TodoFailRow(onRetry: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Filled.Warning, contentDescription = null, tint = Primer.Red500, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                title,
+                stringResource(R.string.home_todo_failed),
                 fontSize = 13.sp,
+                lineHeight = 17.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = if (enabled) Primer.TextPrimary else Primer.TextTertiary,
+                color = Primer.TextSecondary,
             )
-            Text(value, fontSize = 11.sp, color = Primer.TextTertiary, modifier = Modifier.padding(top = 1.dp))
+            Text(
+                stringResource(R.string.home_todo_failed_hint),
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                color = Primer.TextTertiary,
+            )
         }
-        Text("›", fontSize = 15.sp, color = Primer.TextTertiary)
+        Spacer(Modifier.width(8.dp))
+        Text(
+            stringResource(R.string.action_retry),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Primer.Link,
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .border(1.dp, Primer.Border, RoundedCornerShape(6.dp))
+                .clickable { onRetry() }
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+        )
     }
-    if (!last) Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.BorderEmphasis.copy(alpha = 0.4f)))
 }
 
-/** 进行中任务卡片（数据来自本地 TaskStore，零网络）。 */
+/**
+ * 进行中分组（数据来自本地 TaskStore，零网络）。
+ *
+ * 与「待处理」同一套容器：浅底、无描边、44dp 头 + 分隔线。区别只有两点 ——
+ * 头不可点（最多 3 条，收起没有收益，所以不给箭头），行高由内容决定（有进度条与详情）。
+ */
 @Composable
-private fun RunningTasksCard(tasks: List<com.branchbase.ui.task.TaskRecord>) {
+private fun RunningGroup(tasks: List<com.branchbase.ui.task.TaskRecord>) {
     val shown = tasks.take(3)
-    Column(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .border(1.dp, Primer.BorderEmphasis, RoundedCornerShape(10.dp)),
-    ) {
+    HomeGroupCard {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Filled.Timeline, contentDescription = null, tint = Primer.IconPrimary, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                stringResource(R.string.label_in_progress),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = Primer.TextPrimary,
+            )
+        }
+        TodoDivider()
         shown.forEachIndexed { index, t ->
-            Column(Modifier.padding(horizontal = 12.dp, vertical = 11.dp)) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         t.title,
-                        fontSize = 12.5.sp,
+                        fontSize = 13.sp,
+                        lineHeight = 17.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = Primer.TextPrimary,
                         maxLines = 1,
@@ -578,12 +875,12 @@ private fun RunningTasksCard(tasks: List<com.branchbase.ui.task.TaskRecord>) {
                     )
                     Text(
                         if (t.progress in 0..100) "${t.progress}%" else stringResource(R.string.label_running),
-                        fontSize = 11.sp,
+                        fontSize = 12.sp,
                         color = Primer.Blue500,
                     )
                 }
                 if (t.progress in 0..100) {
-                    Spacer(Modifier.height(7.dp))
+                    Spacer(Modifier.height(6.dp))
                     Box(
                         Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)).background(Primer.Gray150),
                     ) {
@@ -599,13 +896,11 @@ private fun RunningTasksCard(tasks: List<com.branchbase.ui.task.TaskRecord>) {
                         fontSize = 11.sp,
                         color = Primer.TextTertiary,
                         maxLines = 1,
-                        modifier = Modifier.padding(top = 5.dp),
+                        modifier = Modifier.padding(top = 4.dp),
                     )
                 }
             }
-            if (index < shown.lastIndex) {
-                Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.BorderEmphasis.copy(alpha = 0.4f)))
-            }
+            if (index < shown.lastIndex) TodoDivider()
         }
     }
 }
