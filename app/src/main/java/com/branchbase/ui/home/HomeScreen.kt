@@ -69,6 +69,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -421,8 +422,11 @@ internal fun parseRepoList(json: String): List<RepoSummary> {
             val obj = arr.getJSONObject(i)
             RepoSummary(
                 fullName = obj.optString("full_name"),
-                desc = obj.optString("description").orEmpty(),
-                language = obj.optString("language").takeIf { it.isNotBlank() },
+                // optString 对 JSON null 会返回字符串 "null"（GitHub 的 description / language
+                // 恰好大量为 null），不判 isNull 就会在卡片上原样印出「null」——
+                // 与 login 的处理同一套判据（见 HomeScreen 顶部 login 的兜底）。
+                desc = obj.stringOrEmpty("description"),
+                language = obj.stringOrNull("language")?.takeIf { it.isNotBlank() },
                 stars = obj.optLong("stargazers_count").let { formatCount(it) },
                 forks = obj.optLong("forks_count").let { formatCount(it) },
                 // 这两个字段两份响应（/user/repos 与 /user/starred）都有；缺字段时是 false，
@@ -433,6 +437,13 @@ internal fun parseRepoList(json: String): List<RepoSummary> {
         }
     }.getOrDefault(emptyList())
 }
+
+/** 取字符串字段：JSON `null` / 缺字段 / 空白都归一到 `""`，不会退化成字面量 "null"。 */
+private fun JSONObject.stringOrEmpty(key: String): String = stringOrNull(key).orEmpty()
+
+/** 取可空字符串字段：JSON `null` / 缺字段 / 空白 → `null`。 */
+private fun JSONObject.stringOrNull(key: String): String? =
+    if (isNull(key)) null else optString(key).takeIf { it.isNotBlank() }
 
 private fun formatCount(n: Long): String = when {
     n >= 1000 -> "%.1fk".format(n / 1000.0)
@@ -928,7 +939,7 @@ private fun SectionHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp)
+            .padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 6.dp)
             .combinedClickable(
                 interactionSource = press,
                 indication = null,
@@ -957,17 +968,22 @@ private fun SectionHeader(
 private fun RepoCard(repo: RepoSummary, onClick: () -> Unit = {}) {
     Column(
         modifier = Modifier
-            .padding(start = 16.dp, end = 16.dp, bottom = 10.dp)
+            .padding(start = 16.dp, end = 16.dp, bottom = 6.dp)
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(Primer.BackgroundSecondary)
+            .clip(RoundedCornerShape(10.dp))
+            // Gray100 而不是 BackgroundSecondary：浅色板里后者 == canvas（纯白），
+            // 卡片会和页面底完全同色 —— 没压缩之前靠 10dp 间距还能看出分组，
+            // 内边距一收，卡内留白与卡间间距就并成一片白，"紧凑"变成"糊"。
+            // 圆角也跟着 HomeGroupCard 走 10dp，首页只保留一套容器语言。
+            .background(Primer.Gray100)
             .clickable { onClick() }
-            .padding(14.dp),
+            // 竖向比横向收得更狠：留白是这张卡最高的成本项，横向再收会让文字贴边
+            .padding(horizontal = 14.dp, vertical = 8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 repo.fullName,
-                fontSize = 15.sp,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Primer.Blue500,
                 maxLines = 1,
@@ -978,10 +994,32 @@ private fun RepoCard(repo: RepoSummary, onClick: () -> Unit = {}) {
             RepoBadges(repo)
         }
         if (repo.desc.isNotBlank()) {
-            Spacer(Modifier.height(4.dp))
-            Text(repo.desc, fontSize = 13.sp, color = Primer.TextSecondary)
+            Spacer(Modifier.height(2.dp))
+            Text(
+                repo.desc,
+                fontSize = 12.sp,
+                // 显式写行高：12sp 走默认（≈16.2sp）会让两行描述多出 2dp；15sp 是 1.25 倍
+                lineHeight = 15.sp,
+                color = Primer.TextSecondary,
+                // 描述只做提示，不值得为第 3 行撑高整张卡；点进去看全
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        } else {
+            // 没有描述也是信息：留一行居中的灰字占位，卡片节奏不断档。
+            // 真实数据里 GitHub 的 description 大量是 null（见 parseRepoList 的 isNull 判据），
+            // 这一分支不是理论情况 —— 首页第一屏就会碰到。
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = stringResource(R.string.state_no_repo_description),
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                color = Primer.TextTertiary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             if (repo.language != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

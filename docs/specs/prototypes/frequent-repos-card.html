@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>常用仓库 · 行高压缩预览</title>
+<style>
+  html{
+    /* 关键：关掉 Android Chrome 的字体放大，否则 13sp 会被撑到接近 2 倍 */
+    -webkit-text-size-adjust:100%;
+    text-size-adjust:100%;
+  }
+  :root{
+    --page-bg:#f1f2f5;
+    --panel:#ffffff;
+    --line:#dcdfe4;
+    --text:#1c1e21;
+    --sub:#5b616b;
+    --knob:#0969da;
+    --ok:#1a7f37;
+
+    /* Branchbase 浅色板 LightPrimerPalette */
+    --canvas:#ffffff;
+    --canvas-subtle:#ffffff;
+    --card-fill:#f7f7f9;
+    --t-primary:#050505;
+    --t-secondary:#41434e;
+    --t-tertiary:#6a6d7c;
+    --icon-2:#9194a1;
+    --border:#bfc1c9;
+    --accent:#0969da;
+  }
+  html[data-theme="dark"]{
+    --page-bg:#0a0c10;
+    --panel:#161b22;
+    --line:#30363d;
+    --text:#e6edf3;
+    --sub:#9aa4b2;
+    --knob:#2f81f7;
+    --ok:#3fb950;
+
+    --canvas:#0d1117;
+    --canvas-subtle:#161b22;
+    --card-fill:#161b22;
+    --t-primary:#e6edf3;
+    --t-secondary:#c9d1d9;
+    --t-tertiary:#8b949e;
+    --icon-2:#8b949e;
+    --border:#30363d;
+    --accent:#2f81f7;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;padding:0 0 28px;
+    background:var(--page-bg);color:var(--text);
+    font:14px/1.5 -apple-system,"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif;
+    overflow-x:hidden;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .wrap{padding:0 12px;max-width:1120px;margin:0 auto}
+
+  /* ── 头部 ── */
+  header{padding:14px 0 10px}
+  h1{font-size:16px;line-height:1.3;margin:0}
+  .lead{font-size:12px;color:var(--sub);margin:3px 0 0}
+  .lead code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px}
+
+  /* ── 预设 / 开关 ── */
+  .bar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:0 0 10px}
+  .chip{
+    font:12.5px/1 inherit;padding:8px 10px;border-radius:999px;cursor:pointer;
+    border:1px solid var(--line);background:var(--panel);color:var(--text);
+  }
+  .chip[aria-pressed="true"]{background:var(--knob);border-color:var(--knob);color:#fff}
+  .chip.slim{padding:7px 9px;font-size:12px}
+  .chip:active{opacity:.75}
+
+  /* ── 预览台：411dp 机身按可用宽度缩放 ── */
+  .stage{position:relative;margin:0 0 12px;display:flex;flex-direction:column;align-items:center}
+  .avail{align-self:stretch;width:100%;height:0}
+  .scale{width:411px;transform-origin:top left}
+  .phone{
+    width:411px;height:600px;overflow:auto;
+    background:var(--canvas);
+    border:1px solid var(--border);border-radius:22px;
+    box-shadow:0 8px 24px rgba(16,24,40,.10);
+    -webkit-overflow-scrolling:touch;
+  }
+  .phone::-webkit-scrollbar{width:0}
+  .cap{align-self:stretch;font:11px ui-monospace,Menlo,monospace;color:var(--sub);margin:6px 0 0;text-align:center}
+
+  /* ── App 内结构（1px = 1dp）── */
+  .sec-h{display:flex;align-items:center;padding:2px 16px 6px}
+  .sec-h .ico{width:18px;height:18px;flex:0 0 18px;color:var(--t-primary)}
+  .sec-h .title{font-size:13px;font-weight:700;line-height:1.3;color:var(--t-primary);margin-left:6px}
+  .sec-h .spacer{flex:1}
+  .sec-h .act{width:18px;height:18px;color:var(--icon-2)}
+
+  .phone.no-fill{--card-fill:#ffffff}
+  html[data-theme="dark"] .phone.no-fill{--card-fill:#0d1117}
+
+  .card{
+    margin:0 16px var(--gap,10px);
+    border-radius:10px;background:var(--card-fill);
+    padding:var(--pad-v,14px) 14px;
+  }
+  .name{display:flex;align-items:center;font-size:var(--name-fs,15px);font-weight:600;line-height:1.28;color:var(--accent)}
+  .name .t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .badges{display:flex;align-items:center;gap:6px;margin-left:6px;flex:0 0 auto}
+  .badge{font-size:10px;line-height:1.4;color:var(--t-secondary);border:1px solid var(--border);border-radius:4px;padding:1px 5px;white-space:nowrap}
+  .desc{
+    margin-top:var(--gap1,4px);
+    font-size:var(--desc-fs,13px);
+    line-height:var(--desc-lh,17.55px);
+    color:var(--t-secondary);
+  }
+  .desc.clamp2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .desc.placeholder{font-size:11px;line-height:15px;color:var(--t-tertiary);text-align:center}
+  .meta{margin-top:var(--gap2,10px);display:flex;align-items:center;gap:14px}
+  .meta .item{display:flex;align-items:center;gap:4px}
+  .meta svg{width:14px;height:14px;flex:0 0 14px;color:var(--icon-2)}
+  .meta .txt{font-size:12px;line-height:1;color:var(--t-secondary)}
+  .dot{width:10px;height:10px;border-radius:50%;flex:0 0 10px}
+  .empty{padding:24px 0;text-align:center;font-size:13px;color:var(--t-tertiary)}
+  .phone.debug .card{outline:1px dashed rgba(9,105,218,.55);outline-offset:-1px}
+
+  /* ── 指标 ── */
+  .metrics{display:flex;gap:6px;flex-wrap:wrap;font:11.5px/1 ui-monospace,Menlo,monospace;color:var(--sub)}
+  .metrics .m{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+  .metrics .m b{color:var(--text);font-weight:600}
+  .metrics .save{border-color:rgba(26,127,55,.35);color:var(--ok);font-weight:700}
+
+  /* ── 控件 ── */
+  details{border:1px solid var(--line);border-radius:12px;background:var(--panel);margin:0 0 10px;overflow:hidden}
+  summary{cursor:pointer;padding:11px 12px;font-size:13px;font-weight:600;list-style:none;display:flex;justify-content:space-between;align-items:center}
+  summary::-webkit-details-marker{display:none}
+  summary::after{content:"展开";font-size:11.5px;font-weight:400;color:var(--sub)}
+  details[open] summary::after{content:"收起"}
+  .body{padding:0 12px 12px}
+  .grid{display:grid;grid-template-columns:1fr;gap:12px}
+  @media (min-width:640px){ .grid{grid-template-columns:1fr 1fr} }
+  .ctrl label{display:block;font-size:12.5px;line-height:1.35}
+  .ctrl .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .ctrl .val{font:11.5px/1 ui-monospace,Menlo,monospace;color:var(--knob);white-space:nowrap}
+  .ctrl input[type=range]{width:100%;margin:6px 0 0;accent-color:var(--knob);height:22px}
+  .ctrl .ref{font:10.5px/1.4 ui-monospace,Menlo,monospace;color:var(--sub);opacity:.85;margin-top:1px}
+  .checks{display:grid;gap:8px;margin-top:4px}
+  .check{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;line-height:1.4}
+  .check input{accent-color:var(--knob);width:16px;height:16px;margin:2px 0 0;flex:0 0 16px}
+  .check code{font-family:ui-monospace,Menlo,monospace;font-size:11px;opacity:.9}
+
+  pre{
+    margin:0;padding:10px;border-radius:8px;overflow:auto;
+    background:var(--page-bg);border:1px solid var(--line);
+    font:11.5px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text);
+    -webkit-text-size-adjust:100%;
+  }
+  pre .c{color:var(--sub)}
+  pre .n{color:var(--knob)}
+  .codebar{display:flex;justify-content:flex-end;margin:0 0 8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>常用仓库 · 行高压缩预览</h1>
+    <p class="lead">取值来自 <code>HomeScreen.kt</code> 的 <code>RepoCard</code>；机身 411dp 按屏宽缩放，1px = 1dp。</p>
+  </header>
+
+  <div class="bar">
+    <button class="chip" data-preset="cur" aria-pressed="false">原始</button>
+    <button class="chip" data-preset="v2" aria-pressed="false">上版</button>
+    <button class="chip" data-preset="v3" aria-pressed="true">本轮</button>
+    <button class="chip" data-preset="max" aria-pressed="false">更激进</button>
+    <button class="chip slim" id="fit">1:1</button>
+    <button class="chip slim" id="fill" aria-pressed="true">灰底</button>
+    <button class="chip slim" id="outline" aria-pressed="false">边界</button>
+    <button class="chip slim" id="theme">深色</button>
+  </div>
+
+  <section class="stage">
+    <div class="avail" id="avail"></div>
+    <div class="scale" id="scale">
+      <div class="phone" id="phone">
+        <div class="sec-h">
+          <svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+          <span class="title">常用仓库</span>
+          <span class="spacer"></span>
+          <svg class="act" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg>
+        </div>
+
+        <div class="card" id="c1">
+          <div class="name"><span class="t">SunsetRNE/Branchbase-Android</span></div>
+          <div class="desc">更好的第三方 GitHub Android 开源客户端</div>
+          <div class="meta">
+            <div class="item"><span class="dot" style="background:#A97BFF"></span><span class="txt">Kotlin</span></div>
+            <div class="item"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg><span class="txt">13</span></div>
+            <div class="item"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 4l2.29 2.29-2.88 2.88 1.42 1.42 2.88-2.88L20 10V4zm-4 0H4v6l2.29-2.29 4.71 4.7V20h2v-8.41l-5.29-5.3z"/></svg><span class="txt">1</span></div>
+          </div>
+        </div>
+
+        <div class="card" id="c2">
+          <div class="name"><span class="t">SunsetRNE/dsh-android-toolchain</span></div>
+          <div class="desc">Shared aarch64 Android/JVM toolchain bundle + single-slot build broker (MCP) for DeepSeek Harness</div>
+          <div class="meta">
+            <div class="item"><span class="dot" style="background:#F1E05A"></span><span class="txt">JavaScript</span></div>
+            <div class="item"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg><span class="txt">0</span></div>
+            <div class="item"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 4l2.29 2.29-2.88 2.88 1.42 1.42 2.88-2.88L20 10V4zm-4 0H4v6l2.29-2.29 4.71 4.7V20h2v-8.41l-5.29-5.3z"/></svg><span class="txt">0</span></div>
+          </div>
+        </div>
+
+        <div class="card" id="c3">
+          <div class="name">
+            <span class="t">SunsetRNE/DSHA-Sunset-mod</span>
+            <span class="badges"><span class="badge">复刻</span></span>
+          </div>
+          <div class="desc">SunsetRNE的mod分支：免 ROOT 免 Termux，在手机上跑 DeepSeek Harness。完整 Ubuntu 环境 + proroot 零 ptrace 开销 · AI 输出实时上屏 · ADB 直连 · 数据不丢</div>
+          <div class="meta">
+            <div class="item"><span class="dot" style="background:#B07219"></span><span class="txt">Java</span></div>
+            <div class="item"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg><span class="txt">5</span></div>
+            <div class="item"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 4l2.29 2.29-2.88 2.88 1.42 1.42 2.88-2.88L20 10V4zm-4 0H4v6l2.29-2.29 4.71 4.7V20h2v-8.41l-5.29-5.3z"/></svg><span class="txt">1</span></div>
+          </div>
+        </div>
+
+        <div class="card" id="c4">
+          <div class="name"><span class="t">sakurakingfifth-debug/PUIInstaller</span></div>
+          <div class="desc placeholder">此项目暂无描述</div>
+          <div class="meta">
+            <div class="item"><span class="dot" style="background:#A97BFF"></span><span class="txt">Kotlin</span></div>
+            <div class="item"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg><span class="txt">300</span></div>
+            <div class="item"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 4l2.29 2.29-2.88 2.88 1.42 1.42 2.88-2.88L20 10V4zm-4 0H4v6l2.29-2.29 4.71 4.7V20h2v-8.41l-5.29-5.3z"/></svg><span class="txt">7</span></div>
+          </div>
+        </div>
+
+        <div class="sec-h">
+          <svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
+          <span class="title">最近活动</span>
+          <span class="spacer"></span>
+          <svg class="act" viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+        </div>
+        <div class="empty">暂无最近活动</div>
+      </div>
+    </div>
+    <p class="cap" id="cap">411dp 机身 · 适配屏宽 · 上方「待处理 / 进行中」已折起</p>
+  </section>
+
+  <div class="metrics" id="metrics"></div>
+
+  <details open>
+    <summary>6 个数值</summary>
+    <div class="body">
+      <div class="grid">
+        <div class="ctrl">
+          <div class="top"><label>卡片竖向内边距</label><span class="val" id="v-pad">14dp</span></div>
+          <input id="pad" type="range" min="6" max="16" step="1" value="14">
+          <div class="ref">HomeScreen.kt:965 · .padding(14.dp)</div>
+        </div>
+        <div class="ctrl">
+          <div class="top"><label>卡与卡间距</label><span class="val" id="v-gap">10dp</span></div>
+          <input id="gap" type="range" min="0" max="14" step="1" value="10">
+          <div class="ref">HomeScreen.kt:960 · bottom = 10.dp</div>
+        </div>
+        <div class="ctrl">
+          <div class="top"><label>名字 ↔ 描述</label><span class="val" id="v-gap1">4dp</span></div>
+          <input id="gap1" type="range" min="0" max="8" step="1" value="4">
+          <div class="ref">HomeScreen.kt:981 · Spacer(4.dp)</div>
+        </div>
+        <div class="ctrl">
+          <div class="top"><label>描述 ↔ 语言/★/⑂</label><span class="val" id="v-gap2">10dp</span></div>
+          <input id="gap2" type="range" min="4" max="16" step="1" value="10">
+          <div class="ref">HomeScreen.kt:984 · Spacer(10.dp)</div>
+        </div>
+        <div class="ctrl">
+          <div class="top"><label>描述字号</label><span class="val" id="v-fs">13sp</span></div>
+          <input id="fs" type="range" min="10" max="14" step="0.5" value="13">
+          <div class="ref">HomeScreen.kt:982 · fontSize = 13.sp</div>
+        </div>
+        <div class="ctrl">
+          <div class="top"><label>描述行高倍数</label><span class="val" id="v-lh">1.35×</span></div>
+          <input id="lh" type="range" min="1.1" max="1.6" step="0.05" value="1.35">
+          <div class="ref">当前未设 lineHeight，走平台默认（≈1.35×）</div>
+        </div>
+        <div class="ctrl">
+          <div class="top"><label>仓库名字号</label><span class="val" id="v-name">15sp</span></div>
+          <input id="name" type="range" min="13" max="16" step="0.5" value="15">
+          <div class="ref">HomeScreen.kt:970 · fontSize = 15.sp</div>
+        </div>
+      </div>
+
+      <div class="checks">
+        <label class="check"><input id="clamp" type="checkbox"><span>描述最多 2 行（<code>maxLines = 2</code> + 省略号）</span></label>
+      </div>
+    </div>
+  </details>
+
+  <details>
+    <summary>生成的 Compose 片段</summary>
+    <div class="body">
+      <div class="codebar"><button class="chip slim" id="copy">复制</button></div>
+      <pre id="code"></pre>
+    </div>
+  </details>
+
+</div>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  const phone = $('phone');
+  const keys = ['pad','gap','gap1','gap2','fs','lh','name'];
+  const PRESETS = {
+    cur: {pad:14, gap:10, gap1:4, gap2:10, fs:13, lh:1.35, name:15, clamp:false},  // 1.4.31 原始
+    v2:  {pad:10, gap:8,  gap1:3, gap2:8,  fs:12, lh:1.33, name:14, clamp:true },  // 第一版（已装过）
+    v3:  {pad:8,  gap:6,  gap1:2, gap2:6,  fs:12, lh:1.25, name:14, clamp:true },  // 本轮（待装）
+    max: {pad:6,  gap:4,  gap1:1, gap2:5,  fs:11, lh:1.20, name:13, clamp:true }   // 再激进
+  };
+  let baseline = 0;   // 「当前值」下三卡区总高
+  let last = null;
+  let fitMode = true;
+
+  /* 适配屏宽：411dp 机身按可用宽度缩放，读数仍按未缩放的 CSS px（= dp） */
+  function fit(){
+    const avail = $('avail').getBoundingClientRect().width || document.documentElement.clientWidth - 24;
+    const z = fitMode ? Math.min(1, avail / 411) : 1;
+    const s = $('scale');
+    if (CSS.supports('zoom', '1')) {
+      s.style.zoom = z;
+      s.style.width = '411px';
+      s.style.transform = '';
+      s.style.height = '';
+    } else {
+      s.style.zoom = '';
+      s.style.transform = 'scale(' + z + ')';
+      s.style.width = '411px';
+      s.style.height = (phone.offsetHeight * z) + 'px';
+    }
+    $('fit').textContent = fitMode ? '1:1' : '适配';
+    $('cap').textContent = '411dp 机身 · ' + (fitMode ? '适配屏宽 ×' + z.toFixed(2) : '原始尺寸（可左右滑动）') +
+      ' · 上方「待处理 / 进行中」已折起';
+  }
+
+  function apply(p){
+    keys.forEach(k => { $(k).value = p[k]; });
+    $('clamp').checked = p.clamp;
+    render();
+  }
+
+  function render(){
+    const v = {
+      pad:+$('pad').value, gap:+$('gap').value, gap1:+$('gap1').value, gap2:+$('gap2').value,
+      fs:+$('fs').value, lh:+$('lh').value, name:+$('name').value, clamp:$('clamp').checked
+    };
+    last = v;
+
+    phone.style.setProperty('--pad-v', v.pad + 'px');
+    phone.style.setProperty('--gap', v.gap + 'px');
+    phone.style.setProperty('--gap1', v.gap1 + 'px');
+    phone.style.setProperty('--gap2', v.gap2 + 'px');
+    phone.style.setProperty('--desc-fs', v.fs + 'px');
+    phone.style.setProperty('--desc-lh', (v.fs * v.lh).toFixed(2) + 'px');
+    phone.style.setProperty('--name-fs', v.name + 'px');
+    document.querySelectorAll('.desc').forEach(el => el.classList.toggle('clamp2', v.clamp));
+
+    $('v-pad').textContent  = v.pad + 'dp';
+    $('v-gap').textContent  = v.gap + 'dp';
+    $('v-gap1').textContent = v.gap1 + 'dp';
+    $('v-gap2').textContent = v.gap2 + 'dp';
+    $('v-fs').textContent   = v.fs + 'sp';
+    $('v-lh').textContent   = v.lh.toFixed(2) + '× · ' + (v.fs * v.lh).toFixed(1) + 'dp';
+    $('v-name').textContent = v.name + 'sp';
+
+    // 手动改动即取消预设高亮
+    document.querySelectorAll('[data-preset]').forEach(b => b.setAttribute('aria-pressed', 'false'));
+
+    requestAnimationFrame(measure);
+  }
+
+  function measure(){
+    if (!last) return;
+    const hs = ['c1','c2','c3','c4'].map(id => $(id).offsetHeight);
+    const total = hs.reduce((a, b) => a + b, 0) + last.gap * 4;
+    const saved = baseline - total;
+
+    $('metrics').innerHTML =
+      '<span class="m">卡高 <b>' + hs.join(' / ') + '</b> dp</span>' +
+      '<span class="m">合计 <b>' + total + '</b> dp</span>' +
+      (baseline && saved !== 0
+        ? '<span class="m save">' + (saved > 0 ? '省 ' : '多 ') + Math.abs(saved) + ' dp</span>'
+        : (baseline ? '<span class="m">与当前值相同</span>' : ''));
+    renderCode(last);
+  }
+
+  function renderCode(v){
+    const lineH = (v.fs * v.lh).toFixed(1);
+    const extra = v.clamp ? '\n                maxLines = 2,\n                overflow = TextOverflow.Ellipsis,' : '';
+    $('code').innerHTML =
+'<span class="c">// HomeScreen.kt · RepoCard</span>\n' +
+'Column(\n' +
+'    modifier = Modifier\n' +
+'        .padding(start = 16.dp, end = 16.dp, bottom = <span class="n">' + v.gap + '.dp</span>)\n' +
+'        .fillMaxWidth()\n' +
+'        .clip(RoundedCornerShape(12.dp))\n' +
+'        .background(Primer.BackgroundSecondary)\n' +
+'        .clickable { onClick() }\n' +
+'        .padding(horizontal = 14.dp, vertical = <span class="n">' + v.pad + '.dp</span>),\n' +
+') {\n' +
+'    Row(verticalAlignment = Alignment.CenterVertically) {\n' +
+'        Text(repo.fullName, fontSize = <span class="n">' + v.name + '.sp</span>, fontWeight = FontWeight.SemiBold,\n' +
+'             color = Primer.Blue500, maxLines = 1, overflow = TextOverflow.Ellipsis, ...)\n' +
+'        RepoBadges(repo)\n' +
+'    }\n' +
+'    if (repo.desc.isNotBlank()) {\n' +
+'        Spacer(Modifier.height(<span class="n">' + v.gap1 + '.dp</span>))\n' +
+'        Text(repo.desc, fontSize = <span class="n">' + v.fs + '.sp</span>, lineHeight = <span class="n">' + lineH + '.sp</span>,' + extra + '\n' +
+'             color = Primer.TextSecondary)\n' +
+'    }\n' +
+'    Spacer(Modifier.height(<span class="n">' + v.gap2 + '.dp</span>))\n' +
+'    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) { <span class="c">/* 语言 · ★ · ⑂ */</span> }\n' +
+'}';
+  }
+
+  keys.forEach(k => $(k).addEventListener('input', render));
+  $('clamp').addEventListener('change', render);
+
+  document.querySelectorAll('[data-preset]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const name = btn.dataset.preset;
+      apply(PRESETS[name]);
+      btn.setAttribute('aria-pressed', 'true');
+      document.querySelectorAll('[data-preset]').forEach(b => { if (b !== btn) b.setAttribute('aria-pressed', 'false'); });
+      // 预设点击后再把基线刷新（基线永远是「当前值」）
+      if (name === 'cur') { requestAnimationFrame(() => { baseline = measureTotal(); measure(); }); }
+      requestAnimationFrame(fit);
+    });
+  });
+
+  function measureTotal(){
+    const hs = ['c1','c2','c3','c4'].map(id => $(id).offsetHeight);
+    return hs.reduce((a, b) => a + b, 0) + (+$('gap').value) * 4;
+  }
+
+  $('fill').addEventListener('click', () => {
+    const on = !phone.classList.contains('no-fill');
+    phone.classList.toggle('no-fill', on);
+    $('fill').setAttribute('aria-pressed', String(!on));
+    $('fill').textContent = on ? '白底' : '灰底';
+  });
+
+  $('outline').addEventListener('click', () => {
+    const on = !phone.classList.contains('debug');
+    phone.classList.toggle('debug', on);
+    $('outline').setAttribute('aria-pressed', String(on));
+  });
+
+  $('theme').addEventListener('click', () => {
+    const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    document.documentElement.setAttribute('data-theme', dark ? 'light' : 'dark');
+    $('theme').textContent = dark ? '深色' : '浅色';
+    $('theme').setAttribute('aria-pressed', String(!dark));
+  });
+
+  $('fit').addEventListener('click', () => { fitMode = !fitMode; fit(); });
+
+  $('copy').addEventListener('click', async () => {
+    const t = $('code').textContent;
+    try { await navigator.clipboard.writeText(t); $('copy').textContent = '已复制'; }
+    catch(e){ $('copy').textContent = '请手动选中'; }
+    setTimeout(() => { $('copy').textContent = '复制'; }, 1500);
+  });
+
+  window.addEventListener('resize', () => { fit(); });
+  window.addEventListener('orientationchange', () => setTimeout(fit, 250));
+
+  /* 首帧：基线 = 当前值，界面停在建议值 */
+  apply(PRESETS.cur);
+  baseline = measureTotal();          // 基线 = 1.4.31 原始，省多少都对它算
+  apply(PRESETS.v3);
+  document.querySelector('[data-preset="v3"]').setAttribute('aria-pressed', 'true');
+  fit();
+})();
+</script>
+</body>
+</html>

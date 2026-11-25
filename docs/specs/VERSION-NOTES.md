@@ -74,7 +74,36 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.31 → 1.0.22）
+## 二、`versionName` 流水（1.4.32 → 1.0.22）
+
+### 1.4.32
+
+**首页「常用仓库」卡片压密 + 让它有边界，修描述在 Android 上印出 `null`。**
+
+① 卡节距 122 → 94dp（一张两行描述的卡）：内边距 14 → `horizontal = 14.dp / vertical = 8.dp`，
+卡间距 10 → 6，名字↔描述 4 → 2，描述↔元信息 10 → 6；名字 15 → 14sp，描述 13 → 12sp 并显式
+`lineHeight = 15.sp`（12sp 的默认行高 ≈16.2sp，两行白多 2dp），描述限 2 行 + 省略号（描述只是
+提示，不值得为第 3 行撑高整张卡）；区块标题上下 4/8 → 2/6。五张卡合计少约 140dp。
+
+② 卡片原先**没有边界**：底色取 `Primer.BackgroundSecondary`，而浅色板里它 == `canvas` ==
+`#FFFFFF`（`LightPrimerPalette`），于是卡内留白与卡间间距并成同一片白 —— 压缩只在行距上生效，
+间距压到 6dp 也读不出「缝」，只会让相邻仓库贴在一起。改 `Primer.Gray100`（#F7F7F9）+ 圆角
+10dp，与首页 `HomeGroupCard`（「待处理」「进行中」）同一套容器语言，首页至此只有一种卡片形态。
+
+③ 真机上描述印出字符串 `null`（见 PUIInstaller 那条）：`org.json` 的 `optString` 对 JSON `null`
+的返回**两平台不一致** —— JVM 实现返回 `""`，Android 实现返回 `"null"`。所以
+`MyReposSourceTest` 里的 `assertEquals("", repos[0].desc)` 一直是过的，真机却在印 null：
+测试替这个 bug 做了无罪证明。改为显式 `isNull` 判据（`JSONObject.stringOrNull` /
+`stringOrEmpty` 两个小工具），`language` 同样处理 —— 否则会多出一个叫 "null" 的语言 + 灰圆点。
+
+④ 空描述不再让整行消失：给一行 11sp `TextTertiary` 居中占位「此项目暂无描述」（中英各一条
+字符串，`state_no_repo_description`），卡片节奏不断档，也不至于被误读成「还在加载」。
+
+设计稿与可切原型：`docs/specs/prototypes/frequent-repos-card.html` —— 411dp 机身按屏宽缩放、
+6 个数值可拖、四个预设（原始 / 上版 / 本轮 / 更激进），实时给出各卡高度与对应 Compose 片段。
+
+验证：`:app:testDebugUnitTest` 136 例 0 失败；`tools/i18n/check-i18n.py` app en 1807/1807 = 100%；
+`assembleDebug` 通过并装机（`com.branchbase.beta`）。
 
 ### 1.4.31
 
@@ -4718,7 +4747,12 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（291 → 129）
+## 三、`versionCode` 流水（292 → 129）
+
+- **292**：首页常用仓库卡片压密 + 可见底色 + 空描述占位，修 Android 上描述印出 `null` ——
+  节距 ≈122→94dp（内边距 v14→8、卡间距 10→6、描述 13→12sp/15sp 限 2 行、名字 15→14sp），
+  卡底 `BackgroundSecondary`（==canvas）→ `Gray100` + 圆角 10dp（与 HomeGroupCard 统一），
+  空描述改居中 11sp 灰字占位；`MyReposSourceTest` 既有用例保持通过（一次提交，故 +1）。
 
 - **291**：首页「待处理」无框折叠（四态 + 按账号折叠记忆 + spring 回弹）—— 计数 `Int?`
   （失败不再静默为 0）、行 56→44dp 单行、去描边、空态＝折叠态，整块展开 ≈213→179dp；

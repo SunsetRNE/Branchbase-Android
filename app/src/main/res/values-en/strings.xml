@@ -999,6 +999,7 @@
     </plurals>
     <string name="greet_late_night">Working late</string>
     <string name="state_no_recent_activity">No recent activity yet</string>
+    <string name="state_no_repo_description">No description yet</string>
     <string name="state_synced_from_to">Synced: %1$s → %2$s</string>
     <string name="label_target_branch">Target branch (synced to here)</string>
     <string name="error_choose_source_target">Choose a source and a target branch</string>
