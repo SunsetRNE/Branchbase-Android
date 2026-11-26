@@ -312,6 +312,18 @@ class SettingsSpecTest {
     }
 
     @Test
+    fun `翻译页保存成功有弹簧反馈`() {
+        val page = source(translatePagePath)
+        assertTrue("保存成功要有覆盖弹窗", page.contains("SaveSuccessDialog("))
+        assertTrue("弹窗进场要走 spring（曲线动画），不是直接出现", page.contains("spring("))
+        val strings = source("src/main/res/values/strings.xml")
+        assertTrue(
+            "提示文案要说明写到了本地",
+            strings.contains("name=\"translate_saved_body\">当前本地已成功保存相应的 Key 配置"),
+        )
+    }
+
+    @Test
     fun `翻译页行内说明控制在一行`() {
         // 决策二：整页行高压下来，靠的是「每行一句、11sp 一行放得下」。
         // 文本区约 246dp（360 − 行内边距 − 圆点 − 间距 − 开关），11sp 下约 22 个汉字。

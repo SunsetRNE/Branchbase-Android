@@ -8,7 +8,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,6 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.PriorityHigh
@@ -53,8 +57,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.branchbase.R
 import com.branchbase.translate.DeepSeekModels
 import com.branchbase.translate.PageRules
@@ -154,6 +161,8 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
     var probeOutcome by remember { mutableStateOf<TestOutcome?>(null) }
     // 非空 = 正在「逐字输入」这个模型名（点候选芯片 / 保存模型列表后触发）
     var typingTarget by remember { mutableStateOf<String?>(null) }
+    // 保存成功覆盖弹窗（弹簧曲线进场，约 1.8s 自动消失）
+    var saveSuccess by remember { mutableStateOf(false) }
     // 「!」徽标打开的说明弹窗。默认关：说明是「需要时再查」的东西，不该一进页面就糊一屏。
     var notesOpen by remember { mutableStateOf(false) }
 
@@ -203,6 +212,7 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
         config = TranslateSettings.read(context)
         translator.resetFailures()
         probeOutcome = null
+        saveSuccess = true
         scope.launch { stats = translator.stats() }
     }
 
@@ -634,6 +644,11 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
         }
     }
 
+    // 保存成功：盖一层轻弹窗，告诉用户「写进去了」（保存是静默写盘，没有这个反馈就像没反应）
+    if (saveSuccess) {
+        SaveSuccessDialog(onDismiss = { saveSuccess = false })
+    }
+
     // 说明弹窗（决策三）：正文全部来自资源、逐条一句话；UI 负责画「•」。
     if (notesOpen) {
         SettingsNotesDialog(
@@ -812,6 +827,88 @@ private fun ModelCurrentBadge() {
             .background(Primer.SuccessTextStrong, RoundedCornerShape(4.dp))
             .padding(horizontal = 5.dp, vertical = 2.dp),
     )
+}
+
+/**
+ * 保存成功的覆盖弹窗：弹簧曲线进场（缩放过冲 + 轻微下移），约 1.8s 自动消失，
+ * 点外面也能关。保存是**静默写盘**，没有这一层反馈时用户会以为按钮没生效。
+ *
+ * 配色：绿色勾放在 `SuccessSurface` 圆底上（`SuccessTextStrong` 勾 ≈5.2:1），
+ * 正文用 `TextSecondary`，标题 `TextPrimary` —— 不引入新的色值。
+ */
+@Composable
+private fun SaveSuccessDialog(onDismiss: () -> Unit) {
+    var shown by remember { mutableStateOf(false) }
+    var closing by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        shown = true
+        delay(1800)
+        closing = true
+        delay(180)
+        onDismiss()
+    }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        // usePlatformDefaultWidth = false 时窗口铺满屏幕、内容默认落在左上角 ——
+        // 必须自己用全屏 Box 居中，否则成功提示会贴在屏幕左上。
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            AnimatedVisibility(
+                visible = shown && !closing,
+                enter = scaleIn(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                    initialScale = 0.72f,
+                ) + fadeIn(tween(140)) + slideInVertically(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                    initialOffsetY = { it / 8 },
+                ),
+                exit = scaleOut(targetScale = 0.9f) + fadeOut(tween(120)),
+            ) {
+                Column(
+                    Modifier
+                        .padding(horizontal = 48.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Primer.BackgroundPrimary)
+                        .padding(horizontal = 22.dp, vertical = 20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Box(
+                        Modifier.size(44.dp).background(Primer.SuccessSurface, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Filled.Check,
+                            contentDescription = null,
+                            tint = Primer.SuccessTextStrong,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        stringResource(R.string.translate_saved_title),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Primer.TextPrimary,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        stringResource(R.string.translate_saved_body),
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                        color = Primer.TextSecondary,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+        }
+    }
 }
 
 /**

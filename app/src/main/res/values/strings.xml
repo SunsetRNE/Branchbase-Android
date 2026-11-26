@@ -83,6 +83,8 @@
     <string name="translate_probe_response">测试响应</string>
     <string name="translate_probe_ok">响应正常，可用模型 %1$s 个</string>
     <string name="translate_model_current">当前</string>
+    <string name="translate_saved_title">保存成功</string>
+    <string name="translate_saved_body">当前本地已成功保存相应的 Key 配置</string>
     <string name="translate_models_privacy_title">本地保存说明</string>
     <string name="translate_models_privacy_confirm">我已了解并保存</string>
     <string name="translate_models_privacy_body">“Branchbase”官方版本中，相应含有接口地址、密钥、模型列表的配置文件不会上传任何第三方服务端且无任何合作，涉及的数据只会停留在本地或相应的服务商处，卸载后无法恢复。\n\n“Branchbase”官方后续若提供如类似“个人 GitHub 私有仓库备份配置”的功能及服务，不会上传这类配置和密钥数据。\n\n若出现提供相应模型列表配置恢复服务的版本或相似应用，均为恶意修改版本，可能会盗取密钥或相关私有数据；请在相应的 API Key 配置列表中删除相应配置，立即卸载相应版本，并到官方仓库发布列表中下载正确版本。</string>

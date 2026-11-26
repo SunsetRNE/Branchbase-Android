@@ -76,6 +76,8 @@
     <string name="translate_probe_response">Test response</string>
     <string name="translate_probe_ok">Response OK, %1$s models available</string>
     <string name="translate_model_current">Current</string>
+    <string name="translate_saved_title">Saved</string>
+    <string name="translate_saved_body">Your key configuration has been saved on this device</string>
     <string name="translate_models_privacy_title">Saved on this device</string>
     <string name="translate_models_privacy_confirm">I understand, save</string>
     <string name="translate_models_privacy_body">In the official Branchbase build, the configuration containing the endpoint, key and model list is never uploaded to any third-party server, and there is no such partnership. The data stays on this device or with the provider you choose, and cannot be recovered after uninstalling.\n\nIf Branchbase later offers features such as “backup to a personal GitHub private repository”, they will not upload this configuration or the key.\n\nAny build or similar app that offers to restore your model-list configuration is a malicious modification that may steal your key or private data. Delete the configuration in the API key list, uninstall that build immediately, and download the correct build from the official repository release list.</string>
