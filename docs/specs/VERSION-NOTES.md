@@ -74,7 +74,28 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.52 → 1.0.22）
+## 二、`versionName` 流水（1.4.53 → 1.0.22）
+
+### 1.4.53
+
+**协议说明收口到 A 版；「自带 Key」改成「需填写密钥」。**
+
+① 剩下三档协议的说明按 A 版统一成「协议性质」口径（与 1.4.52 的两条 OpenAI 对齐）：
+
+   | 协议 | 说明 |
+   |---|---|
+   | DeepSeek 官方默认协议 | `默认协议，OpenAI 兼容方言` |
+   | Anthropic Messages | `Claude 官版消息协议` |
+   | Gemini API | `Google 官版生成协议` |
+
+   顺带消掉 Anthropic 那行在真机上的**折行**（原文案 24 字 + `x-api-key` 长串，必折成两行）。
+
+② 服务商行的 `DeepSeek（自带 Key）` → `DeepSeek（需填写密钥）`：原文案会被读成「App 自带 / 免费提供 Key」，
+   而实际是用户自己的 Key。同一口径在「!」说明弹窗里也改了（`DeepSeek 自带 API Key` → `DeepSeek 需填写密钥`）。
+   英文同步：`DeepSeek (own key)` → `DeepSeek (key required)`、`needs your own key` → `requires your key`。
+
+**验证**：`tools/i18n/check-i18n.py --min-coverage 100` 通过；`:app:assembleDebug` 通过；
+文案键值不变，逻辑零改动。
 
 ### 1.4.52
 
@@ -5293,7 +5314,10 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（312 → 129）
+## 三、`versionCode` 流水（313 → 129）
+
+- **313**：协议说明收口 A 版 + 「自带 Key」改「需填写密钥」（1.4.53）—— 三档协议说明改成协议性质口径、
+  服务商与说明弹窗同一口径；中英同步（一次提交，故 +1）。
 
 - **312**：协议弹窗两条说明改口径（1.4.52）—— OpenAI Chat 从「原生端点」改为「通用响应协议」、
   OpenAI Responses 从「新端点」改为「官版响应协议」；中英同步（一次提交，故 +1）。

@@ -43,7 +43,7 @@
     <string name="translate_auto_toggle">自动翻译正文</string>
     <string name="translate_provider_mymemory_label">MyMemory（免费）</string>
     <string name="translate_provider_mymemory_desc">免费匿名，约 5000 词/天，质量一般</string>
-    <string name="translate_provider_deepseek_label">DeepSeek（自带 Key）</string>
+    <string name="translate_provider_deepseek_label">DeepSeek（需填写密钥）</string>
     <string name="translate_provider_deepseek_desc">按 token 计费，长句与术语质量更好</string>
     <string name="translate_lang_zh_label">中文（简体）</string>
     <string name="translate_lang_zh_desc">英文原文 → 中文对照（默认）</string>
@@ -87,15 +87,15 @@
     <string name="translate_protocol_title">选择协议</string>
     <string name="translate_protocol_recommended">推荐</string>
     <string name="translate_protocol_deepseek">DeepSeek 官方默认协议</string>
-    <string name="translate_protocol_deepseek_desc">POST /chat/completions，Bearer 鉴权</string>
+    <string name="translate_protocol_deepseek_desc">默认协议，OpenAI 兼容方言</string>
     <string name="translate_protocol_openai_chat">OpenAI Chat Completions</string>
     <string name="translate_protocol_openai_chat_desc">通用 OpenAI Chat 响应协议</string>
     <string name="translate_protocol_openai_responses">OpenAI Responses</string>
     <string name="translate_protocol_openai_responses_desc">OpenAI 官版响应协议</string>
     <string name="translate_protocol_anthropic">Anthropic Messages</string>
-    <string name="translate_protocol_anthropic_desc">x-api-key + anthropic-version 两个必填头</string>
+    <string name="translate_protocol_anthropic_desc">Claude 官版消息协议</string>
     <string name="translate_protocol_gemini">Gemini API</string>
-    <string name="translate_protocol_gemini_desc">模型名在路径里，Key 走请求头</string>
+    <string name="translate_protocol_gemini_desc">Google 官版生成协议</string>
     <string name="translate_probe_response">测试响应</string>
     <string name="translate_probe_ok">响应正常，可用模型 %1$s 个</string>
     <string name="translate_model_current">当前</string>
@@ -111,7 +111,7 @@
     <string name="translate_notes_entry">开启入口只有本页的「自动翻译正文」：开启后正文页出现可移动悬浮球，单击展开翻译工具菜单。</string>
     <string name="translate_notes_panel">菜单里有进度、常用开关、翻译全文 / 清空本页译文；「本页翻译」一关悬浮球立刻收起，要再开回本页开总开关。</string>
     <string name="translate_notes_batch">整页候选文本少于 5000 字符时一次翻完，更长时按视口滚动逐段翻译（省额度）。</string>
-    <string name="translate_notes_service">MyMemory 免费匿名（约 5000 词 / 天）；DeepSeek 自带 API Key、按 token 计费。额度用尽 / Key 无效 / 连续失败会自动暂停并提示。</string>
+    <string name="translate_notes_service">MyMemory 免费匿名（约 5000 词 / 天）；DeepSeek 需填写密钥、按 token 计费。额度用尽 / Key 无效 / 连续失败会自动暂停并提示。</string>
     <string name="translate_notes_mix">中英混排：只翻外语片段最省额度；整段一起翻会把中文再翻一遍、质量更差；混排不翻最保守。</string>
     <string name="translate_notes_render">显示方式与译文样式只改呈现，不重翻；样式只改页面根节点的一个属性。</string>
     <string name="translate_notes_cache">本地缓存把译文落盘，重开 App 同一段不再重复翻译；关闭只是不再读写磁盘，不清除已存内容。</string>

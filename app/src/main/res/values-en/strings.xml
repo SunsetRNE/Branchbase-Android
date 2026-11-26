@@ -36,7 +36,7 @@
     <string name="translate_auto_toggle">Auto-translate article text</string>
     <string name="translate_provider_mymemory_label">MyMemory (free)</string>
     <string name="translate_provider_mymemory_desc">Free, anonymous, ~5000 words/day</string>
-    <string name="translate_provider_deepseek_label">DeepSeek (own key)</string>
+    <string name="translate_provider_deepseek_label">DeepSeek (key required)</string>
     <string name="translate_provider_deepseek_desc">Per-token billing; better long text</string>
     <string name="translate_lang_zh_label">Chinese (Simplified)</string>
     <string name="translate_lang_zh_desc">English → Chinese, side by side (default)</string>
@@ -80,15 +80,15 @@
     <string name="translate_protocol_title">Choose protocol</string>
     <string name="translate_protocol_recommended">Recommended</string>
     <string name="translate_protocol_deepseek">DeepSeek official</string>
-    <string name="translate_protocol_deepseek_desc">POST /chat/completions with Bearer auth</string>
+    <string name="translate_protocol_deepseek_desc">Default protocol, OpenAI-compatible dialect</string>
     <string name="translate_protocol_openai_chat">OpenAI Chat Completions</string>
     <string name="translate_protocol_openai_chat_desc">Generic OpenAI Chat response protocol</string>
     <string name="translate_protocol_openai_responses">OpenAI Responses</string>
     <string name="translate_protocol_openai_responses_desc">OpenAI official response protocol</string>
     <string name="translate_protocol_anthropic">Anthropic Messages</string>
-    <string name="translate_protocol_anthropic_desc">Needs x-api-key and anthropic-version</string>
+    <string name="translate_protocol_anthropic_desc">Claude official Messages protocol</string>
     <string name="translate_protocol_gemini">Gemini API</string>
-    <string name="translate_protocol_gemini_desc">Model in the path, key in a header</string>
+    <string name="translate_protocol_gemini_desc">Google official generation protocol</string>
     <string name="translate_probe_response">Test response</string>
     <string name="translate_probe_ok">Response OK, %1$s models available</string>
     <string name="translate_model_current">Current</string>
@@ -104,7 +104,7 @@
     <string name="translate_notes_entry">The only entry point is “Auto-translate article text” here: article pages then show a draggable button that opens the translation tools.</string>
     <string name="translate_notes_panel">The panel has progress, common switches and translate all / clear this page. Turning off “Translate this page” hides the button; turn the master switch back on here to bring it back.</string>
     <string name="translate_notes_batch">Pages under 5000 candidate characters are translated in one go; longer pages are translated segment by segment as you scroll (to save quota).</string>
-    <string name="translate_notes_service">MyMemory is free and anonymous (about 5000 words/day); DeepSeek needs your own key and is billed per token. Quota, key or repeated failures pause translation with a hint.</string>
+    <string name="translate_notes_service">MyMemory is free and anonymous (about 5000 words/day); DeepSeek requires your key and is billed per token. Quota, key or repeated failures pause translation with a hint.</string>
     <string name="translate_notes_mix">Mixed text: snippets only saves the most quota; whole paragraph translates Chinese again with worse quality; skipping mixed paragraphs is the most conservative.</string>
     <string name="translate_notes_render">Display mode and translation style only change presentation, never re-translate; style only sets one attribute on the page root.</string>
     <string name="translate_notes_cache">Local cache stores translations on disk so the same passage is not translated again; turning it off only stops disk reads and writes, it does not clear stored text.</string>
