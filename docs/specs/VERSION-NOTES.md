@@ -74,7 +74,18 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.70 → 1.0.22）
+## 二、`versionName` 流水（1.4.71 → 1.0.22）
+
+### 1.4.71
+
+**Actions 运行列表换卡片面 + 状态图标牌。**
+
+决策七。原来是一行裸文本 + 14dp 状态圆点；现在 `cardSurface()` + 22dp 图标牌：
+进行中/排队 `PlayArrow`（`WARNING` 橙，沿用 `runStatusColor` 对 queued/in_progress 的橙）、
+成功 `Check`（`SUCCESS`）、失败 `Close`（`DANGER`）、取消/跳过 `Remove`（`NEUTRAL`）——
+与任务页同一套映射。
+
+验证：`assembleDebug` 通过。
 
 ### 1.4.70
 
@@ -5664,7 +5675,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（330 → 129）
+## 三、`versionCode` 流水（331 → 129）
+
+- **331**：Actions 运行列表换卡片面 + 状态图标牌（1.4.71）—— 裸文本行 → `cardSurface()`、
+  14dp 圆点 → 22dp 牌（与任务页同一套状态映射）（一次提交，故 +1）。
+
 
 - **330**：仓库 Issues 列表换卡片面 + 状态图标牌（1.4.70）—— 裸文本行 → `cardSurface()`、
   16dp 圆点 → 22dp 牌（open/closed 沿用 stateColor 语义）（一次提交，故 +1）。

@@ -19,6 +19,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -54,7 +58,10 @@ import com.branchbase.joblogs.JobLogStore
 import com.branchbase.ui.resolve
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.CodeSyntax
+import com.branchbase.ui.TintChip
+import com.branchbase.ui.cardSurface
 import com.branchbase.ui.theme.Primer
+import com.branchbase.ui.theme.TintRole
 
 /**
  * 工作流（Actions）四级页面：工作流列表 → 运行历史 → Run 详情（jobs）→ Job 详情（steps+日志）。
@@ -169,13 +176,34 @@ fun WorkflowRunsContent(
     }
 }
 
+/**
+ * 运行行：卡片面 + 状态图标牌（决策七）。
+ *
+ * 原来是一行裸文本 + 14dp 状态圆点。圆点只说「有状态」，图标牌能说「什么状态」：
+ * 进行中/排队 `PlayArrow`（`ACCENT`）、成功 `Check`（`SUCCESS`）、失败 `Close`（`DANGER`）、
+ * 取消/跳过 `Remove`（`NEUTRAL`）—— 与任务页同一套映射，颜色沿用 [runStatusColor] 的语义。
+ */
 @Composable
 private fun WorkflowRunRow(run: WorkflowRun, onClick: () -> Unit) {
+    val (statusRole, statusIcon) = when (run.conclusion) {
+        "success" -> TintRole.SUCCESS to Icons.Filled.Check
+        "failure" -> TintRole.DANGER to Icons.Filled.Close
+        "cancelled", "skipped" -> TintRole.NEUTRAL to Icons.Filled.Remove
+        else -> when (run.status) {
+            "queued", "in_progress" -> TintRole.WARNING to Icons.Filled.PlayArrow
+            else -> TintRole.NEUTRAL to Icons.Filled.Remove
+        }
+    }
     Row(
-        Modifier.fillMaxWidth().clickable { onClick() }.padding(12.dp, 16.dp),
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 3.dp)
+            .cardSurface()
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        Box(Modifier.size(14.dp).clip(CircleShape).background(runStatusColor(run.status, run.conclusion)))
+        TintChip(statusIcon, statusRole)
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(run.name, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, maxLines = 2)
