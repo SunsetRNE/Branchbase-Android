@@ -39,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.stringResource
@@ -63,21 +64,20 @@ import com.branchbase.ui.theme.Primer
  */
 
 /**
- * 紧凑输入框：标签在框上方，框高 34dp（Material `OutlinedTextField` 是 56dp）。
+ * 紧凑输入框：标签在框上方，框高 28dp。
  *
- * ## 为什么不是「标签压边框」
+ * ## 1.4.48 修的两件事（真机迭代到这一版）
  *
- * 1.4.46 试过把标签放到上边框上（省掉独立标签行，整块再矮 1/3）—— 真机读起来很别扭：
- * 标签打断框线、标签与值贴得太近、三个框看起来像黏在一起。这一版**回滚**成常规的
- * 「标签一行、框一行」，只保留框高与间距上的压缩（比 1.4.45 矮约 15%）。
- *
- * ## 尺寸
- *
- * 34dp = 13sp 行高 + 上下 7dp；低于 44dp 推荐命中区，但输入框不是开关（点进去才聚焦、
- * 旁边有卡片留白）。真机仍觉得难点，只改 `minHeight` 一处即可。
+ * 1. **光标上偏**：占位符（12.5sp）与输入行（13sp）原先用各自默认行盒，外层 Box 取较高者，
+ *    输入行被顶到 Box 顶部 —— 光标就比文字高出一截。现在两者都固定 `lineHeight = 16.sp`、
+ *    内层 Box 用 `CenterStart` 对齐，光标与文字在同一条行盒里；聚焦后不再画占位符
+ *    （否则光标会压住占位符第一个字）。
+ * 2. **框高再砍**：34 → 28dp（13sp 行高 + 上下 6dp）。标签仍在框上方（10.5sp + 2dp），
+ *    不叠框线。28dp 低于 44dp 推荐命中区 —— 输入框不是开关（点进去才聚焦、旁边有卡片留白），
+ *    真机仍觉得难点只改 `minHeight` 一处。
  *
  * [headerAction] 放标签行右侧（模型的「获取模型列表」）；[trailingContent] 放框内右侧
- * （Key 的「显示 / 隐藏」与徽章二选一，别同时塞进同一个框）。
+ * （Key 的「显示 / 隐藏」）。
  */
 @Composable
 internal fun CompactField(
@@ -90,7 +90,9 @@ internal fun CompactField(
     headerAction: (@Composable () -> Unit)? = null,
     trailingContent: (@Composable () -> Unit)? = null,
 ) {
-    Column(Modifier.fillMaxWidth().padding(bottom = 5.dp)) {
+    // 聚焦后不再画占位符：BasicTextField 的光标从 x=0 起，会正好压住占位符第一个字
+    var focused by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 label,
@@ -103,34 +105,37 @@ internal fun CompactField(
             )
             if (headerAction != null) headerAction()
         }
-        Spacer(Modifier.height(3.dp))
+        Spacer(Modifier.height(2.dp))
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
             singleLine = true,
             textStyle = TextStyle(
                 fontSize = 13.sp,
+                // 固定行高：光标高度跟它走，不再让占位符的默认行盒把输入行顶高
+                lineHeight = 16.sp,
                 color = Primer.TextPrimary,
                 fontFamily = if (mono) FontFamily.Monospace else null,
             ),
             visualTransformation = visualTransformation,
             cursorBrush = SolidColor(Primer.Blue500),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
             decorationBox = { innerTextField ->
                 Row(
                     Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
                         .border(1.dp, Primer.BorderControl, RoundedCornerShape(8.dp))
-                        .defaultMinSize(minHeight = 34.dp)
-                        .padding(horizontal = 9.dp, vertical = 7.dp),
+                        .heightIn(min = 28.dp)
+                        .padding(horizontal = 9.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(Modifier.weight(1f)) {
-                        if (value.isEmpty()) {
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                        if (value.isEmpty() && !focused) {
                             Text(
                                 placeholder,
-                                fontSize = 12.sp,
+                                fontSize = 12.5.sp,
+                                lineHeight = 16.sp,
                                 color = Primer.TextTertiary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,

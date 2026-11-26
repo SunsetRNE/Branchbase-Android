@@ -296,8 +296,8 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                                 shrinkTowards = Alignment.Top,
                             ) + fadeOut(tween(110)),
                         ) {
-                            // 决策三：块内再压一档 —— 输入框 34dp（不再是 Material 的 56dp）、
-                            // 标签 10.5sp + 3dp 间距、块内边距 10/8、按钮与说明都收一号。
+                            // 决策三：块内再压一档 —— 输入框改成「框内两行」（标签 10sp + 值 13sp，
+                            // 框高 ≥46dp），省掉独立标签行；块内边距 10/8，按钮与说明各收一号。
                             Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)) {
                                 CompactField(
                                     label = "API Key",
@@ -329,8 +329,7 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                                     placeholder = TranslateProvider.DEEPSEEK_MODEL,
                                     mono = true,
                                     onValueChange = { modelDraft = it },
-                                    // 徽章放回标签行右侧（决策五的原始形态）：框内空间留给模型名，
-                                    // 也不会和「显示 / 隐藏」在同一行里打架
+                                    // 徽章在框内标签行右侧（决策五）：不额外占一行，值那一行留给模型名
                                     headerAction = {
                                         ModelListBadge(loading = fetchingModels) { fetchModels() }
                                     },
