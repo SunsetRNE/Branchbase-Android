@@ -593,7 +593,6 @@
     <string name="label_code_editor">代码编辑器</string>
     <string name="action_push_repo">推送仓库 %1$s</string>
     <string name="note_new_branch_from_current">基于当前分支创建，创建后自动切换过去。</string>
-    <string name="label_account_group">账户</string>
     <string name="state_updated">已更新</string>
     <string name="label_frame_watch">慢帧日志</string>
     <string name="note_clone_hint">点击「拉取仓库」将仓库克隆到本地</string>
@@ -609,7 +608,6 @@
     <string name="label_glass_navigation">悬浮玻璃导航栏</string>
     <string name="toast_deleted_branch">已删除分支 %1$s</string>
     <string name="action_create_and_switch">创建并切换</string>
-    <string name="label_code_commit_group">代码与提交</string>
     <string name="label_build_time">构建时间</string>
     <string name="toast_deleted">已删除 %1$s</string>
     <string name="toast_created_and_switched">已创建并切换到 %1$s</string>
@@ -622,7 +620,6 @@
     <string name="label_editor_module_info">%1$s %2$s（%3$s）</string>
     <string name="label_project_home">项目主页（仅 Android）</string>
     <string name="toast_cloned_to">已拉取到 %1$s</string>
-    <string name="label_about_group">关于与诊断</string>
     <string name="confirm_discard_before_switch_body">工作区有 %1$s 个改动，切换分支可能失败或覆盖它们。\n确认后会先撤销所有改动再切换（此操作不可撤销）。</string>
     <string name="state_diverged_needs_decision">本地与远端分叉（需决策）</string>
     <string name="toast_pushed">已推送 %1$s</string>
@@ -634,7 +631,6 @@
     <string name="state_signature_abnormal">异常（未知签名）</string>
     <string name="note_frame_watch_desc">记录每次卡顿的耗时与分段（等待 / 动画 / 绘制 …）并带上页面名；日志每天 0 点换目录、旧的丢弃。</string>
     <string name="error_checksum_unavailable">无法获取校验文件</string>
-    <string name="label_appearance_group">外观</string>
     <string name="error_already_exists">「%1$s」已存在</string>
     <string name="label_community_qq">开发交流（QQ 群）</string>
     <string name="confirm_delete_local_copy">确定删除「%1$s」吗？仅删除本地副本，不影响远端仓库。</string>
@@ -646,7 +642,6 @@
     <string name="state_no_starred">暂无星标</string>
     <string name="label_branches_of_repo">分支 · %1$s</string>
     <string name="action_update_repo">更新仓库 %1$s</string>
-    <string name="label_translation_group">翻译</string>
     <string name="note_load_draft">载入草稿继续编辑，%1$s 个文件恢复为未保存状态。</string>
     <string name="note_discard_draft_open_remote">草稿永久删除（需二次确认），打开远端最新版本。</string>
     <string name="note_remove_secret">回到编辑器，移除或替换密钥后重新提交。</string>

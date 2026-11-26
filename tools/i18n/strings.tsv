@@ -339,20 +339,15 @@ $fileName · 并排对比	%1$s · side by side	label_side_by_side
 项目	Projects	nav_projects
 新建	New	action_new
 暂无项目	No projects yet	state_no_projects
-账户	Account	label_account_group
 $repoCredentialCount 条	%1$s	label_credential_count
 只在当前账号打不开的私有仓库上生效。	Only applies to private repositories the current account cannot open.	note_repo_credentials_scope
-外观	Appearance	label_appearance_group
 主题	Theme	label_theme
 选「跟随系统」时，App 会随系统的浅色 / 深色自动切换。	With “Follow system”, the app switches between light and dark together with the system.	note_theme_follow_system
-翻译	Translation	label_translation_group
 进入自述文件等正文页会自动翻译，页面上出现可移动悬浮球。	Article pages such as README files are translated automatically and a draggable floating button appears.	note_translate_enabled
 关闭后不进正文页翻译，页面上的悬浮球也会收起。	When off, article pages are not translated and the floating button is hidden.	note_translate_disabled
-代码与提交	Code and commits	label_code_commit_group
 开启需先将「提交模式」设为「本地仓库（Git）」。	Turn on by setting Commit mode to “Local repository (Git)” first.	note_local_repo_requires_git_mode
 网络	Network	label_network_group
 仅作用于本地仓库的 clone / pull / push。	Only affects clone / pull / push for local repositories.	note_proxy_scope
-关于与诊断	About and diagnostics	label_about_group
 慢帧日志	Slow-frame log	label_frame_watch
 记录每次卡顿的耗时与分段（等待 / 动画 / 绘制 …）并带上页面名；日志每天 0 点换目录、旧的丢弃。	Records the duration and breakdown of every janky frame (wait / animation / draw …) together with the page name; the log moves to a new directory at midnight and old ones are discarded.	note_frame_watch_desc
 关闭后不再记录慢帧；已经写进日志的内容不受影响。	When off, no more slow frames are recorded; what is already in the log is unaffected.	note_frame_watch_disabled

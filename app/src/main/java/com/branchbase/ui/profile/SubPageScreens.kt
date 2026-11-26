@@ -598,12 +598,22 @@ fun SettingsScreen(
                 Spacer(Modifier.height(4.dp))
             }
 
+            // ── 分组标题全部下线（2026-11-27 决策五）──
+            // 六张卡都不再画 12sp 小标签：组由「卡片边界 + 组内分隔线 + 8dp 间距」区分，
+            // 与 §4.4「可以省掉、靠卡片边界分隔」是同一口径。顺带把整棵树**统一**了 ——
+            // 之前只有「通知」那张卡没有标签（组名与行名都是「通知」），其余五张有，
+            // 一半带标签一半不带正是 §4.4 禁止的形态。
+            // 省下的垂直空间：5 ×（11sp 行 ≈14dp + 4dp 间距）≈ 90dp，主页首屏多露约一行。
+            // 分组名资源（label_*_group）已随唯一调用点一并删除；组名仍留在规范 §3.2 里，
+            // 供代码组织、文档与后续新增行「该挂哪一组」的判断使用。
+            // ⚠️ 别在单张卡上把标签加回来：判定式出现在这里读不出来，要么全有要么全无。
+
             // ── ① 账户：只留入口，主页不回答「我是谁」 ──
             // 账号身份（头像 / 登录名 / 服务器 / 状态胶囊）在 2026-11 的主页压密里删掉了：
             // 多账号的真实形态是列表，主页那张卡只展示「当前是谁」，展示不了「怎么换」——
             // 想看身份就点进去（账号管理页本来就是列表 + 状态胶囊）。
             item {
-                SettingsSection(stringResource(R.string.label_account_group)) {
+                SettingsSection {
                     NavRow(
                         icon = Icons.Filled.Person,
                         name = stringResource(R.string.nav_accounts_manage),
@@ -626,7 +636,7 @@ fun SettingsScreen(
 
             // ── ② 外观：主题入口（三档 + 底栏形态都在主题页里） ──
             item {
-                SettingsSection(stringResource(R.string.label_appearance_group)) {
+                SettingsSection {
                     // 主题与悬浮玻璃导航栏都是「外观」，2026-11 起收进**同一页**（规范 §十七）：
                     // 主页只留一行入口 + 当前值，不再就地展开三档、也不再放底栏开关 ——
                     // 否则以后每加一套 UI 风格，主页就要多一行，重新长回「设置项容器」。
@@ -657,7 +667,7 @@ fun SettingsScreen(
                 }
             }
 
-            // ── ③ 通知：单行卡片，组名与行名不再重复（规范 §3.2） ──
+            // ── ③ 通知：单行卡片 ──
             // 这一行**不是**开关：系统通知权限不是 App 的布尔值，App 只能申请或跳系统设置。
             // 用导航行 + 状态胶囊，才不会让「开了但系统没授权」变成一个骗人的开关（规范 §4.3）。
             item {
@@ -682,9 +692,9 @@ fun SettingsScreen(
             // 主页入口，且与「沉浸式翻译」页顶部那个开关读写同一份配置（`translate.enabled`）——
             // 两处各放一个开关，用户改一边后另一边得回主页才看得到，而 `modules-design.md` §1
             // 本来就写着「开启入口只有一个」。总开关留在翻译页里，与它解释的悬浮球同屏。
-            // 主页行数 13 → 12；「翻译」组从「开关 + 入口」变成单行卡片（组名与行名不重复，§3.2）。
+            // 主页行数 13 → 12；「翻译」组从「开关 + 入口」变成单行卡片。
             item {
-                SettingsSection(stringResource(R.string.label_translation_group)) {
+                SettingsSection {
                     NavRow(
                         icon = Icons.Filled.AutoAwesome,
                         name = stringResource(R.string.translate_title),
@@ -696,7 +706,7 @@ fun SettingsScreen(
 
             // ── ⑤ 代码与提交 ──
             item {
-                SettingsSection(stringResource(R.string.label_code_commit_group)) {
+                SettingsSection {
                     NavRow(
                         icon = Icons.Filled.Commit,
                         name = stringResource(R.string.nav_commit_mode),
@@ -724,7 +734,7 @@ fun SettingsScreen(
 
             // ── ⑦ 关于与诊断：兜底组，位置固定（规范 §3.3） ──
             item {
-                SettingsSection(stringResource(R.string.label_about_group)) {
+                SettingsSection {
                     // 慢帧日志：诊断仪表。默认值随编译通道（Beta 开 / 正式版关，见 build.gradle.kts 的
                     // FRAME_WATCH_DEFAULT），这里可以随时覆盖 —— 正式版用户要抓一次卡顿就靠它。
                     SwitchRow(

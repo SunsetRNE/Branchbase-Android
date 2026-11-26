@@ -891,4 +891,37 @@ class SettingsSpecTest {
             )
         }
     }
+
+    // ── ⑭ 分组标题下线（2026-11-27 决策五） ───────────────────────────────
+
+    /**
+     * 设置主页的六张卡**都不画** 12sp 分组小标签。
+     *
+     * 规范 §4.4 允许「省掉标题、靠卡片边界分组」，但要求**整棵树统一** —— 一半带标签、
+     * 一半不带正是它禁止的形态（1.4.61 之前「通知」是唯一没有标签的卡，另外五张都有）。
+     * 现在组由卡片边界 + 组内分隔线 + 8dp 间距区分；五个分组名资源（`label_*_group`）
+     * 随唯一调用点一并删除，不留死资源。
+     *
+     * ⚠️ 钉的只是**主页**这一棵：二级页（通知 / 主题 / 沉浸式翻译 / Git 代理 / 提交模式抽屉）
+     * 照旧有组名 —— 那是「一页几组」的页内导航，与主页「入口索引」不是同一件事。
+     */
+    @Test
+    fun `设置主页不画分组标题_组靠卡片边界分隔`() {
+        val region = settingsHomeRegion()
+        assertFalse(
+            "主页又给某张卡加了分组标题：整棵树要么全有要么全无（规范 §4.4），" +
+                "组现在靠卡片边界 + 组内分隔线区分",
+            Regex("""SettingsSection\(\s*stringResource""").containsMatchIn(region),
+        )
+        val strings = source("src/main/res/values/strings.xml")
+        listOf(
+            "label_account_group", "label_appearance_group", "label_translation_group",
+            "label_code_commit_group", "label_about_group",
+        ).forEach { key ->
+            assertFalse(
+                "分组名资源 $key 已随唯一调用点删除（不留死资源）；要恢复分组标题就五张卡一起恢复",
+                strings.contains("\"$key\""),
+            )
+        }
+    }
 }

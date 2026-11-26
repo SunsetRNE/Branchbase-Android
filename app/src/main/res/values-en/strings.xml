@@ -586,7 +586,6 @@
     <string name="label_code_editor">Code editor</string>
     <string name="action_push_repo">Push repository %1$s</string>
     <string name="note_new_branch_from_current">Created from the current branch and switched to automatically.</string>
-    <string name="label_account_group">Account</string>
     <string name="state_updated">Updated</string>
     <string name="label_frame_watch">Slow-frame log</string>
     <string name="note_clone_hint">Tap “Clone repository” to clone one locally</string>
@@ -600,7 +599,6 @@
     <string name="label_glass_navigation">Floating glass navigation</string>
     <string name="toast_deleted_branch">Deleted branch %1$s</string>
     <string name="action_create_and_switch">Create and switch</string>
-    <string name="label_code_commit_group">Code and commits</string>
     <string name="label_build_time">Build time</string>
     <string name="toast_deleted">Deleted %1$s</string>
     <string name="toast_created_and_switched">Created and switched to %1$s</string>
@@ -613,7 +611,6 @@
     <string name="label_editor_module_info">%1$s %2$s (%3$s)</string>
     <string name="label_project_home">Project home (Android only)</string>
     <string name="toast_cloned_to">Cloned to %1$s</string>
-    <string name="label_about_group">About and diagnostics</string>
     <string name="confirm_discard_before_switch_body">The working tree has %1$s changes; switching branches may fail or overwrite them.\nIf you confirm, all changes are discarded before switching (this cannot be undone).</string>
     <string name="state_diverged_needs_decision">Local and remote have diverged (decision needed)</string>
     <string name="toast_pushed">Pushed %1$s</string>
@@ -625,7 +622,6 @@
     <string name="state_signature_abnormal">Abnormal (unknown signature)</string>
     <string name="note_frame_watch_desc">Records the duration and breakdown of every janky frame (wait / animation / draw …) together with the page name; the log moves to a new directory at midnight and old ones are discarded.</string>
     <string name="error_checksum_unavailable">Cannot fetch the checksum file</string>
-    <string name="label_appearance_group">Appearance</string>
     <string name="error_already_exists">“%1$s” already exists</string>
     <string name="label_community_qq">Community (QQ group)</string>
     <string name="confirm_delete_local_copy">Delete “%1$s”? Only the local copy is removed; the remote repository is unaffected.</string>
@@ -637,7 +633,6 @@
     <string name="state_no_starred">No starred repositories yet</string>
     <string name="label_branches_of_repo">Branches · %1$s</string>
     <string name="action_update_repo">Update repository %1$s</string>
-    <string name="label_translation_group">Translation</string>
     <string name="note_load_draft">Load the draft and keep editing; %1$s files return to an unsaved state.</string>
     <string name="note_discard_draft_open_remote">The draft is deleted permanently (confirmation required) and the latest remote version is opened.</string>
     <string name="note_remove_secret">Go back to the editor, remove or replace the secret, then commit again.</string>
