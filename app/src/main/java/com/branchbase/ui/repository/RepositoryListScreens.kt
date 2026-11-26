@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -1109,11 +1110,31 @@ private fun NewReleaseButton(onClick: () -> Unit) {
  * 原来的版本把 name 放第一行、tag 混在灰色小字里 —— 一眼扫过去分不出哪条是哪个版本。
  */
 @Composable
+/**
+ * 发布行：卡片面 + 语义图标牌（决策八）。
+ *
+ * 原来是一行裸内容 + 底部分隔线。现在换成 `cardSurface()`，卡片之间不再靠 1dp 灰线切；
+ * 左侧图标牌按**发布性质**取色：草稿 `WARNING`、预发布 `ACCENT`、最新 `SUCCESS`、其余 `NEUTRAL` ——
+ * 与通知列表里 Release 用 `LocalOffer` 的语义一致。
+ */
 private fun ReleaseRow(item: ReleaseItem, isLatest: Boolean, onClick: () -> Unit) {
+    val role = when {
+        item.draft -> TintRole.WARNING
+        item.prerelease -> TintRole.ACCENT
+        isLatest -> TintRole.SUCCESS
+        else -> TintRole.NEUTRAL
+    }
     Row(
-        Modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 16.dp, vertical = 12.dp),
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 3.dp)
+            .cardSurface()
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        TintChip(Icons.Filled.LocalOffer, role)
+        Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ReleaseTagChip(item.tag)
@@ -1155,7 +1176,6 @@ private fun ReleaseRow(item: ReleaseItem, isLatest: Boolean, onClick: () -> Unit
         Spacer(Modifier.width(8.dp))
         Text("›", fontSize = 15.sp, color = Primer.TextTertiary)
     }
-    Box(Modifier.fillMaxWidth().padding(start = 16.dp).height(1.dp).background(Primer.Gray150))
 }
 
 /** 发布性质徽章（最新发布 / 预发布 / 草稿）。底色与文字色成对给，不写死。 */

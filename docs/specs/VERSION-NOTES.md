@@ -74,7 +74,17 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.71 → 1.0.22）
+## 二、`versionName` 流水（1.4.72 → 1.0.22）
+
+### 1.4.72
+
+**Releases 列表换卡片面 + 语义图标牌。**
+
+决策八。原来是一行裸内容 + 底部 1dp 灰分隔线；现在 `cardSurface()`（卡片之间不再靠线切），
+左侧 22dp 图标牌按**发布性质**取色：草稿 `WARNING` 橙、预发布 `ACCENT` 蓝、最新 `SUCCESS` 绿、
+其余 `NEUTRAL`。图标沿用 `LocalOffer`（与通知列表里 Release 同一个）。
+
+验证：`assembleDebug` 通过。
 
 ### 1.4.71
 
@@ -5675,7 +5685,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（331 → 129）
+## 三、`versionCode` 流水（332 → 129）
+
+- **332**：Releases 列表换卡片面 + 语义图标牌（1.4.72）—— 裸内容行 + 底部分隔线 →
+  `cardSurface()` + 22dp 牌（草稿/预发布/最新/其余四档取色）（一次提交，故 +1）。
+
 
 - **331**：Actions 运行列表换卡片面 + 状态图标牌（1.4.71）—— 裸文本行 → `cardSurface()`、
   14dp 圆点 → 22dp 牌（与任务页同一套状态映射）（一次提交，故 +1）。
