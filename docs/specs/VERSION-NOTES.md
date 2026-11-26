@@ -74,7 +74,16 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.73 → 1.0.22）
+## 二、`versionName` 流水（1.4.74 → 1.0.22）
+
+### 1.4.74
+
+**拉取请求列表换卡片面 + 状态图标牌。**
+
+决策九。与 Issues 同一条规则，换 `CallSplit` 图标：开启 `SUCCESS` 绿、已关闭 `DANGER` 红、
+已合并 `DONE` 紫（`stateColor` 本来就这么分，没有新造语义）。行内留白竖向 16 → 8dp。
+
+验证：与 1.4.75 同一次构建（`assembleDebug` 通过）。
 
 ### 1.4.73
 
@@ -5698,7 +5707,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（333 → 129）
+## 三、`versionCode` 流水（334 → 129）
+
+- **334**：拉取请求列表换卡片面 + 状态图标牌（1.4.74）—— 裸文本行 → `cardSurface()` + 22dp 牌
+  （open/merged/closed 三档）（一次提交，故 +1）。
+
 
 - **333**：项目列表按原型落地（1.4.73）—— `ProjectCard` 裸文字 → `cardSurface()` + `DONE` 图标牌；
   无描述给灰字占位，不省行（一次提交，故 +1）。

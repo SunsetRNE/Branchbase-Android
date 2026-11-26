@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CallSplit
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Folder
@@ -776,17 +777,31 @@ fun PullListContent(sessionJson: String, owner: String, repo: String, branch: St
     }
 }
 
+/**
+ * 拉取请求行：卡片面 + 状态图标牌（决策九）。映射与 Issues 同一条规则、换 `CallSplit` 图标：
+ * 开启 `SUCCESS` 绿、已关闭 `DANGER` 红、已合并 `DONE` 紫（`stateColor` 本来就这么分）。
+ */
 @Composable
 private fun PullRow(item: PullItem, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable { onClick() }.padding(12.dp, 16.dp), verticalAlignment = Alignment.Top) {
-        Box(
-            Modifier.size(16.dp).clip(CircleShape).background(stateColor(item.state)),
-            contentAlignment = Alignment.Center,
-        ) {}
+    val role = when (item.state) {
+        "open" -> TintRole.SUCCESS
+        "merged" -> TintRole.DONE
+        else -> TintRole.DANGER
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 3.dp)
+            .cardSurface()
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        TintChip(Icons.Filled.CallSplit, role)
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(item.title, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, lineHeight = 18.sp)
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(3.dp))
             Text("#${item.number} · ${item.author} · ${shortTime(item.createdAt).resolve()}", fontSize = 11.5.sp, color = Primer.TextTertiary)
         }
     }
