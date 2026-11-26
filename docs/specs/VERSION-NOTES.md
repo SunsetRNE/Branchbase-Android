@@ -74,7 +74,17 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.74 → 1.0.22）
+## 二、`versionName` 流水（1.4.75 → 1.0.22）
+
+### 1.4.75
+
+**提交列表换卡片面 + `Commit` 图标牌。**
+
+决策十。原来左侧是 24dp 蓝色字母圆（作者首字母）—— 字母圆与图标牌不是同一种语言
+（圆 vs 方、字母 vs 图标），而作者名下一行就写着。现在换成 `Commit` 图标（`TintRole.ACCENT`，
+与 More 菜单「提交」同色），容器 `cardSurface()`，行内竖向留白 16 → 8dp。
+
+验证：`assembleDebug` 通过。
 
 ### 1.4.74
 
@@ -5707,7 +5717,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（334 → 129）
+## 三、`versionCode` 流水（335 → 129）
+
+- **335**：提交列表换卡片面 + `Commit` 图标牌（1.4.75）—— 24dp 字母圆 → 22dp 牌、裸行 →
+  `cardSurface()`（一次提交，故 +1）。
+
 
 - **334**：拉取请求列表换卡片面 + 状态图标牌（1.4.74）—— 裸文本行 → `cardSurface()` + 22dp 牌
   （open/merged/closed 三档）（一次提交，故 +1）。

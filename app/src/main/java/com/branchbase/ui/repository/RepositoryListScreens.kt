@@ -28,6 +28,7 @@ import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CallSplit
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Commit
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.LocalOffer
@@ -868,16 +869,28 @@ fun CommitListContent(sessionJson: String, owner: String, repo: String, branch: 
     }
 }
 
+/**
+ * 提交行：卡片面 + 图标牌（决策十）。
+ *
+ * 原来左侧是 24dp 蓝色字母圆（作者首字母）。字母圆与图标牌不是同一种语言（圆 vs 方、字母 vs 图标），
+ * 而且作者名下一行就写着 —— 现在换成 `Commit` 图标（`TintRole.ACCENT`，与 More 菜单「提交」同色）。
+ */
 @Composable
 private fun CommitRow(item: CommitItem, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable { onClick() }.padding(12.dp, 16.dp), verticalAlignment = Alignment.Top) {
-        Box(Modifier.size(24.dp).clip(CircleShape).background(Primer.Blue500), contentAlignment = Alignment.Center) {
-            Text(item.author.take(1).uppercase(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 3.dp)
+            .cardSurface()
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        TintChip(Icons.Filled.Commit, TintRole.ACCENT)
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(item.message, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, maxLines = 2)
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(3.dp))
             Text("${item.author} · ${item.sha} · ${shortTime(item.date).resolve()}", fontSize = 11.5.sp, color = Primer.TextTertiary)
         }
     }
