@@ -74,7 +74,25 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.55 → 1.0.22）
+## 二、`versionName` 流水（1.4.56 → 1.0.22）
+
+### 1.4.56
+
+**把 DeepSeek 收进 OpenAI Responses 的地址列表（真机实测结论）。**
+
+① 1.4.55 beta 真机验证：协议选 OpenAI Responses、地址 `https://api.deepseek.com/v1`、
+   模型 `deepseek-flash`、思维深度「低」，**「测试翻译」通过**（严格模式，无兜底）。
+   这证明了两件此前不确定的事：DeepSeek 的 Responses 通道接受 `POST {base}/v1/responses`
+   （官方示例走 SDK，路径不直观），且 `reasoning.effort` 被接受。
+
+② 因此把 `deepseek` 这一行收进 `OPENAI_RESPONSES.addresses`（默认模型 `deepseek-flash`、
+   候选两个），与 OpenAI 官方并列 —— 用户不必再手抄地址。
+
+③ 文档同步：`protocol-matrix.md` 的 DeepSeek 通道表与地址表删掉「暂不收录、需用户自测」的
+   谨慎注解，改为实测结论；协议类注释里「只收文档明示」补上「或真机确认过」。
+
+**验证**：`:translate:test` 161 例 0 失败（地址表断言扩到 Responses 档）；`:app:testDebugUnitTest` 全绿；
+`:app:assembleDebug` 通过；i18n 100%。
 
 ### 1.4.55
 
@@ -5391,7 +5409,10 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（315 → 129）
+## 三、`versionCode` 流水（316 → 129）
+
+- **316**：DeepSeek 收进 OpenAI Responses 地址列表（1.4.56）—— 真机实测 `/v1/responses` 与
+  `reasoning.effort` 均可用，文档去掉「需自测」注解（一次提交，故 +1）。
 
 - **315**：思维深度（1.4.55）—— 四档 + 自定义、单独一行、两套探测（响应 / 翻译）、
   400 时去掉字段重试一次且不改档位、四协议的字段映射；钉子新增 1、单测新增 5（一次提交，故 +1）。

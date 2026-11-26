@@ -43,8 +43,20 @@ class TranslateProtocolTest {
             "https://api.deepseek.com/anthropic",
             TranslateProtocol.ANTHROPIC_MESSAGES.addressOf(" https://api.deepseek.com/anthropic/ ")?.baseUrl,
         )
+        // OpenAI Responses 档也收 DeepSeek（2026-11-27 真机实测 /v1/responses 可用）
+        assertTrue(
+            TranslateProtocol.OPENAI_RESPONSES.addresses.any { it.id == "deepseek" },
+        )
+        assertEquals(
+            "https://api.deepseek.com/v1",
+            TranslateProtocol.OPENAI_RESPONSES.addressOf("https://api.deepseek.com/v1/")?.baseUrl,
+        )
         // DeepSeek 的默认模型挂在**地址**上（不是协议上）：OpenAI 地址不给默认模型
         assertEquals("deepseek-flash", TranslateProtocol.OPENAI_CHAT.defaultModelFor("https://api.deepseek.com/v1"))
+        assertEquals(
+            "deepseek-flash",
+            TranslateProtocol.OPENAI_RESPONSES.defaultModelFor("https://api.deepseek.com/v1"),
+        )
         assertEquals("", TranslateProtocol.OPENAI_CHAT.defaultModelFor("https://api.openai.com/v1"))
         assertEquals("", TranslateProtocol.OPENAI_CHAT.defaultModelFor("https://relay.example.com/v1"))
         assertTrue(TranslateProtocol.OPENAI_CHAT.suggestionsFor("https://relay.example.com/v1").isEmpty())

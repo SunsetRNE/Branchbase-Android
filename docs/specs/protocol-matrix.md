@@ -27,7 +27,7 @@ DeepSeek **没有自己的私有报文**：官方文档把它列在「兼容协�
 |---|---|---|
 | OpenAI Chat 兼容 | `https://api.deepseek.com/v1`（`v1` 与模型版本无关，根地址亦可） | OpenAI Chat Completions |
 | Anthropic 兼容 | `https://api.deepseek.com/anthropic` | Anthropic Messages（`anthropic-version` 会被忽略，多送无害） |
-| Responses 兼容 | `https://api.deepseek.com`（官方示例走 OpenAI SDK） | OpenAI Responses（路径按官方示例是 `{base}/responses`，与我们的 `/v1/responses` **不同**，暂不列进地址表，需用户自测） |
+| Responses 兼容 | `https://api.deepseek.com/v1` | OpenAI Responses（2026-11-27 真机实测 `POST {base}/v1/responses` 可用，`reasoning.effort` 被接受） |
 
 DeepSeek 专属的只有**语义**（`thinking` / `reasoning_effort`、`safety_check`、`title`、模型名映射、
 402 余额错误码）—— 这些是「服务商参数」，不是协议。
@@ -56,7 +56,7 @@ DeepSeek 专属的只有**语义**（`thinking` / `reasoning_effort`、`safety_c
 | 协议 | 已收录地址 | 说明 |
 |---|---|---|
 | OpenAI Chat | `openai`（官方）· `deepseek`（`/v1`，默认模型 `deepseek-flash`，候选两个） | 覆盖面最广的一档；任何 OpenAI 兼容中转都走「自定义地址」 |
-| OpenAI Responses | `openai`（官方） | 模型列表与 Chat 共用 |
+| OpenAI Responses | `openai`（官方）· `deepseek`（`/v1`，实测可用） | 模型列表与 Chat 共用 |
 | Anthropic Messages | `anthropic`（官方）· `deepseek`（`/anthropic`） | DeepSeek 兼容通道 |
 | Gemini | `google`（官方） | — |
 

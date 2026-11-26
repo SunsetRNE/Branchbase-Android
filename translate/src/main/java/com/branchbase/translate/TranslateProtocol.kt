@@ -64,8 +64,9 @@ enum class TranslateProtocol(
     /**
      * 该协议下**已知**的接口地址（第一项 = 官方地址，也是输入框的占位符）。
      *
-     * 只收官方文档明确写过的：`api.deepseek.com/v1` 与 `…/anthropic` 是 DeepSeek 文档
-     * 明示的兼容入口；中转 / 自建网关一律走输入框（不在表里猜）。
+     * 只收**确认过**的：`api.deepseek.com/v1`（OpenAI Chat / Responses，前者文档明示、
+     * 后者 2026-11-27 真机实测）与 `api.deepseek.com/anthropic`（文档明示）；
+     * 中转 / 自建网关一律走输入框（不在表里猜）。
      */
     val addresses: List<ApiAddress>,
 ) {
@@ -99,7 +100,18 @@ enum class TranslateProtocol(
         chatPath = "/v1/responses",
         modelsPath = "/v1/models",
         auth = AuthScheme.BEARER,
-        addresses = listOf(ApiAddress("openai", "https://api.openai.com/v1")),
+        addresses = listOf(
+            ApiAddress("openai", "https://api.openai.com/v1"),
+            // 2026-11-27 真机实测（1.4.55 beta）：DeepSeek 的 Responses 兼容通道接受
+            // `https://api.deepseek.com/v1/responses`（官方示例走 SDK，路径不直观），
+            // 且 `reasoning.effort` 被接受 —— 所以这一行可以收进表里
+            ApiAddress(
+                id = "deepseek",
+                baseUrl = "https://api.deepseek.com/v1",
+                defaultModel = "deepseek-flash",
+                modelSuggestions = listOf("deepseek-flash", "deepseek-v4-pro"),
+            ),
+        ),
     ),
 
     /**
