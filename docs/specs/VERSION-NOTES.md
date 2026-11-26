@@ -74,7 +74,26 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.66 → 1.0.22）
+## 二、`versionName` 流水（1.4.67 → 1.0.22）
+
+### 1.4.67
+
+**设置列表换卡片面 + 图标语义三色。**
+
+决策三。三处一起改：
+
+① `SettingsSection` 的 `Gray100` → `Modifier.cardSurface()`（白面 + 4dp 阴影、12dp 圆角）。两档密度
+共用同一个面，二级页自动跟着变；
+② `SettingsDivider` 的 `BorderEmphasis × 40%` → `Primer.Border`。与首页 `TodoDivider` 同一条真机
+结论：纯黑 40% 压灰底刚好，压白面就成了整页最重的线；
+③ 行首图标加可选 `tint: TintRole?`：传了就是 22dp 图标牌（同色 12% 底），不传仍是裸灰图标 ——
+先把设置主页 11 行按用途分色（账户/翻译/提交 = `ACCENT`、主题/语言/本地仓库 = `DONE`、
+通知/仓库凭据 = `WARNING`、诊断与关于 = `NEUTRAL`、退出 = `DANGER`），二级页暂不强制。
+
+为保住设置树原来的无障碍语义（图标名 = 行名），`TintChip` 增加可选 `contentDescription`，
+设置行把行名继续传进去。
+
+验证：`assembleDebug` 通过。
 
 ### 1.4.66
 
@@ -5605,7 +5624,12 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（326 → 129）
+## 三、`versionCode` 流水（327 → 129）
+
+- **327**：设置列表换卡片面 + 图标三色（1.4.67）—— `SettingsSection` 走 `cardSurface()`、
+  `SettingsDivider` 换 `Border`、行首图标加可选 `tint`（22dp 牌）；主页 11 行按用途分色，
+  `TintChip` 增 `contentDescription` 保设置树的图标名语义（一次提交，故 +1）。
+
 
 - **326**：星标页仓库卡重排（1.4.66）—— 砍掉「已星标」恒真胶囊与蓝色字母圆，描述收 2 行，
   与另外两处仓库卡逐项对齐（一次提交，故 +1）。

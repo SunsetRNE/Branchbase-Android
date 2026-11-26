@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import com.branchbase.core.engineErrorOrRaw
 import com.branchbase.ui.cardSurface
+import com.branchbase.ui.theme.TintRole
 import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import com.branchbase.ui.resolve
 import androidx.compose.foundation.lazy.items
@@ -643,6 +644,7 @@ fun SettingsScreen(
                 SettingsSection {
                     NavRow(
                         icon = Icons.Filled.Person,
+                        tint = TintRole.ACCENT,
                         name = stringResource(R.string.nav_accounts_manage),
                         onClick = onOpenAccounts,
                         divider = false,
@@ -652,6 +654,7 @@ fun SettingsScreen(
                     if (patMode) {
                         NavRow(
                             icon = Icons.Filled.Key,
+                            tint = TintRole.WARNING,
                             name = stringResource(R.string.nav_repo_credentials),
                             // 值列只报条数：令牌与本机 host 一律不进值列（规范 §4.3 / §6.5）。
                             value = if (repoCredentialCount > 0) stringResource(R.string.label_credential_count, repoCredentialCount) else stringResource(R.string.state_not_set),
@@ -669,6 +672,7 @@ fun SettingsScreen(
                     // 否则以后每加一套 UI 风格，主页就要多一行，重新长回「设置项容器」。
                     NavRow(
                         icon = Icons.Filled.Palette,
+                        tint = TintRole.DONE,
                         name = stringResource(R.string.label_theme),
                         // 值列与主题页的单选同源（`ThemeMode.labelRes`），切完语言这里跟着变
                         value = stringResource(themeMode.labelRes),
@@ -681,6 +685,7 @@ fun SettingsScreen(
                     if (languageAvailable) {
                         NavRow(
                             icon = Icons.Filled.Language,
+                            tint = TintRole.DONE,
                             name = stringResource(R.string.settings_language),
                             // 值列与语言页里的名称同源（都是母语自称），别一处写 English、一处写「英语」
                             value = languageRowValue(
@@ -701,6 +706,7 @@ fun SettingsScreen(
                 SettingsSection {
                     NavRow(
                         icon = Icons.Filled.Notifications,
+                        tint = TintRole.WARNING,
                         name = stringResource(R.string.nav_notifications),
                         statusChip = {
                             StatusChip(
@@ -724,6 +730,7 @@ fun SettingsScreen(
                 SettingsSection {
                     NavRow(
                         icon = Icons.Filled.AutoAwesome,
+                        tint = TintRole.ACCENT,
                         name = stringResource(R.string.translate_title),
                         onClick = onOpenTranslate,
                         divider = false,
@@ -736,6 +743,7 @@ fun SettingsScreen(
                 SettingsSection {
                     NavRow(
                         icon = Icons.Filled.Commit,
+                        tint = TintRole.ACCENT,
                         name = stringResource(R.string.nav_commit_mode),
                         value = mode?.let { stringResource(it.labelRes) } ?: stringResource(R.string.state_not_set),
                         onClick = onOpenCommitMode,
@@ -748,6 +756,7 @@ fun SettingsScreen(
                     if (mode == CommitMode.LOCAL_REPO) {
                         NavRow(
                             icon = Icons.Filled.Folder,
+                            tint = TintRole.DONE,
                             name = stringResource(R.string.nav_local_repo),
                             onClick = onOpenLocalRepo,
                         )
@@ -766,6 +775,7 @@ fun SettingsScreen(
                     // FRAME_WATCH_DEFAULT），这里可以随时覆盖 —— 正式版用户要抓一次卡顿就靠它。
                     SwitchRow(
                         icon = Icons.Filled.Speed,
+                        tint = TintRole.NEUTRAL,
                         name = stringResource(R.string.label_frame_watch),
                         checked = frameWatch,
                         onCheckedChange = {
@@ -777,12 +787,14 @@ fun SettingsScreen(
                     )
                     NavRow(
                         icon = Icons.AutoMirrored.Filled.Article,
+                        tint = TintRole.NEUTRAL,
                         name = stringResource(R.string.nav_logs),
                         value = if (logErrors > 0) pluralStringResource(R.plurals.label_error_count, logErrors, logErrors) else null,
                         onClick = onOpenLog,
                     )
                     NavRow(
                         icon = Icons.Filled.Info,
+                        tint = TintRole.NEUTRAL,
                         name = stringResource(R.string.nav_about),
                         onClick = onOpenAbout,
                     )

@@ -40,7 +40,8 @@ private const val ChipTintAlpha = 0.12f
  * Material 的 tonal 是把主色染在整块容器上；这里容器永远是中性面，只有图标那一格带色。
  * 一屏彩色块 ≤3 个才读得成「目录」，染多了就变成装饰。
  *
- * 读屏：图标本身 `contentDescription = null` —— 每行都有文字标签，图标不承载独立信息。
+ * 读屏：图标默认 `contentDescription = null` —— 每行都有文字标签，图标不承载独立信息；
+ * 设置树那种「图标名 = 行名」的旧语义由调用方显式传 `contentDescription` 保留。
  */
 @Composable
 fun TintChip(
@@ -50,6 +51,8 @@ fun TintChip(
     size: Dp = 22.dp,
     corner: Dp = 7.dp,
     iconSize: Dp = 13.dp,
+    /** 图标语义。默认 null（纯装饰）：绝大多数调用点旁边就有文字标签；设置行沿用图标原名。 */
+    contentDescription: String? = null,
 ) {
     val tint = role.color()
     Box(
@@ -59,6 +62,6 @@ fun TintChip(
             .background(tint.copy(alpha = ChipTintAlpha)),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(iconSize))
+        Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(iconSize))
     }
 }

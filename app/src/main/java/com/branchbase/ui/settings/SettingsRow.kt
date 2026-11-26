@@ -60,7 +60,10 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.R
+import com.branchbase.ui.TintChip
+import com.branchbase.ui.cardSurface
 import com.branchbase.ui.theme.Primer
+import com.branchbase.ui.theme.TintRole
 import com.branchbase.ui.theme.selectionColor
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
@@ -114,9 +117,9 @@ private val SectionPadV = 6.dp
  * （本文件头注释）。行型仍是那六个，密度只是它们的外参；`SettingsScreen` 在根部
  * provide 一次，子页拿到的还是 [Comfort]。
  *
- * 卡片底色**不分档**：两档都用 [Primer.Gray100]、都不描边（2026-11 真机反馈「取消掉黑边」：
- * 浅色下 `BorderEmphasis` 是纯黑 1dp，整页会被读成线框图；而 `BackgroundSecondary` == 画布纯白，
- * 去掉描边后卡片就没有边界了）。与首页 `HomeGroupCard` / 常用仓库卡同一套容器语言。
+ * 卡片面**不分档**：两档都用 `Modifier.cardSurface()`（白面 + 4dp 阴影、12dp 圆角）——
+ * 与首页 `HomeGroupCard` / 常用仓库卡同一套。1.4.67 起 `Gray100` 下线：浅色下它是「被染灰的白」，
+ * 深色下又正好等于 `canvasSubtle`（等于没换）。
  */
 enum class SettingsDensity(
     val rowMinHeight: Dp,
@@ -230,10 +233,9 @@ fun SettingsSection(
         Column(
             Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(CardRadius))
-                // 底色统一 Gray100：BackgroundSecondary 在浅色板里 == 画布纯白，卡片没有边界可依；
-                // Gray100 是首页 HomeGroupCard / 常用仓库卡同一套容器语言。
-                .background(Primer.Gray100),
+                // 1.4.67：与首页 / 仓库卡同一套（ui/CardSurface.kt）—— 白面 + 4dp 阴影、12dp 圆角。
+                // 原先的 Gray100 在浅色下靠 5% 明度差硬造边界，深色下又正好等于 canvasSubtle。
+                .cardSurface(),
             content = content,
         )
     }
@@ -251,7 +253,9 @@ fun SettingsSection(
  */
 @Composable
 fun SettingsDivider() {
-    Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.BorderEmphasis.copy(alpha = 0.4f)))
+    // 1.4.67：`BorderEmphasis × 40%` → `Primer.Border`。与首页 `TodoDivider` 同一条真机结论 ——
+    // 纯黑 40% 压在灰底上刚好，压到白面上就是整页对比度最高的东西。
+    Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Border))
 }
 
 /**
@@ -284,9 +288,14 @@ private fun SettingsRowShell(
 
 /** 行首图标（默认 20dp，紧凑档 18dp；`IconSecondary`；危险行由调用方换成 `DangerText`）。 */
 @Composable
-private fun RowScope.RowIcon(icon: ImageVector, name: String, tint: Color = Primer.IconSecondary) {
+private fun RowScope.RowIcon(icon: ImageVector, name: String, tint: TintRole? = null) {
     val d = LocalSettingsDensity.current
-    Icon(icon, contentDescription = name, tint = tint, modifier = Modifier.size(d.iconSize))
+    if (tint != null) {
+        // 22/7/13 与首页区块标题同一档；图标名沿用行名（设置树原本就用图标名当无障碍名）
+        TintChip(icon, tint, contentDescription = name)
+    } else {
+        Icon(icon, contentDescription = name, tint = Primer.IconSecondary, modifier = Modifier.size(d.iconSize))
+    }
     Spacer(Modifier.width(d.iconGap))
 }
 
@@ -382,6 +391,8 @@ fun NavRow(
     divider: Boolean = true,
     enabled: Boolean = true,
     statusChip: (@Composable () -> Unit)? = null,
+    /** 图标语义色：传了就是图标牌（22dp / 同色 12% 底），不传动图标的裸灰图标。 */
+    tint: TintRole? = null,
 ) {
     SettingsRowShell(divider = divider, onClick = onClick, enabled = enabled) {
         Row(
@@ -395,7 +406,7 @@ fun NavRow(
             // 「通知」这种三行说明的行，图标直接贴在卡片左上角。
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            RowIcon(icon, name)
+            RowIcon(icon, name, tint)
             SettingsText(
                 name = name,
                 sub = sub,
@@ -434,6 +445,8 @@ fun SwitchRow(
     sub: String? = null,
     divider: Boolean = true,
     statusChip: (@Composable () -> Unit)? = null,
+    /** 图标语义色：传了就是图标牌，不传是裸灰图标。 */
+    tint: TintRole? = null,
     /** 说明字号覆盖（默认取密度表）；「必须一行」的说明用它收小字号，见 [SettingsText]。 */
     subFontSize: TextUnit? = null,
     subLineHeight: TextUnit? = null,
@@ -453,7 +466,7 @@ fun SwitchRow(
         if (sub != null && subFullWidth) {
             Column(Modifier.weight(1f).padding(vertical = d.textPadV)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    if (icon != null) RowIcon(icon, name)
+                    if (icon != null) RowIcon(icon, name, tint)
                     Text(
                         name,
                         fontSize = d.nameFontSize,
@@ -478,7 +491,7 @@ fun SwitchRow(
                 )
             }
         } else {
-            if (icon != null) RowIcon(icon, name)
+            if (icon != null) RowIcon(icon, name, tint)
             SettingsText(
                 name = name,
                 sub = sub,
@@ -582,9 +595,11 @@ fun ActionRow(
     sub: String? = null,
     hint: String? = null,
     divider: Boolean = true,
+    /** 图标语义色：传了就是图标牌，不传是裸灰图标。 */
+    tint: TintRole? = null,
 ) {
     SettingsRowShell(divider = divider, onClick = onClick) {
-        RowIcon(icon, name)
+        RowIcon(icon, name, tint)
         SettingsText(name = name, sub = sub)
         if (hint != null) {
             Spacer(Modifier.width(ValueGap))
@@ -611,7 +626,7 @@ fun DangerRow(
     divider: Boolean = true,
 ) {
     SettingsRowShell(divider = divider, onClick = onClick) {
-        RowIcon(icon, name, tint = Primer.DangerText)
+        RowIcon(icon, name, tint = TintRole.DANGER)
         SettingsText(name = name, sub = sub)
         if (hint != null) {
             Spacer(Modifier.width(LocalSettingsDensity.current.valueGap))
@@ -636,6 +651,7 @@ fun InfoRow(
     divider: Boolean = true,
     onCopy: ((String) -> Unit)? = null,
     statusChip: (@Composable () -> Unit)? = null,
+    tint: TintRole? = null,
 ) {
     SettingsRowShell(
         divider = divider,
@@ -677,6 +693,7 @@ fun DisabledNavRow(
     onFix: () -> Unit,
     fixLabel: String? = null,
     divider: Boolean = true,
+    tint: TintRole? = null,
 ) {
     val fixText = fixLabel ?: stringResource(R.string.action_open_settings)
     SettingsRowShell(divider = divider, onClick = null) {
