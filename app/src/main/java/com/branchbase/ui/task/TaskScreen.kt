@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import com.branchbase.ui.TintChip
+import com.branchbase.ui.cardSurface
 import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -24,6 +26,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -50,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import com.branchbase.R
 import com.branchbase.ui.navigation.PageLevel
 import com.branchbase.ui.navigation.PageSwitcher
+import com.branchbase.ui.theme.TintRole
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Primer
 import kotlinx.coroutines.delay
@@ -315,31 +322,31 @@ fun TaskScreen(onBack: () -> Unit) {
 
         @Composable
         private fun TaskCard(task: TaskRecord, onOpen: () -> Unit, onDelete: () -> Unit) {
+            // 状态 → 图标牌：颜色沿用原来那四档，图标替掉 9dp 圆点（圆点只说「有状态」，
+            // 图标能说「什么状态」，且与别处列表同一套 tint 语言）。
+            val (statusRole, statusIcon) = when (task.status) {
+                TaskStatus.RUNNING -> TintRole.ACCENT to Icons.Filled.PlayArrow
+                TaskStatus.SUCCESS -> TintRole.SUCCESS to Icons.Filled.Check
+                TaskStatus.FAILED -> TintRole.DANGER to Icons.Filled.Close
+                TaskStatus.CANCELED -> TintRole.NEUTRAL to Icons.Filled.Remove
+            }
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .border(1.dp, Primer.Border, RoundedCornerShape(10.dp))
-                    .background(Primer.BackgroundPrimary)
+                    // 1.4.68：描边卡 → 共用卡片面（白面 + 4dp 阴影、12dp 圆角），卡距 4 → 3dp；
+                    // 同时把行内竖向留白从 11dp 收到 8dp、段落间隙 5/9 → 4/7（决策四：收紧密度）。
+                    .padding(horizontal = 16.dp, vertical = 3.dp)
+                    .cardSurface()
                     .clickable { onOpen() },
             ) {
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(
-                        Modifier
-                            .size(9.dp)
-                            .clip(CircleShape)
-                            .background(
-                                when (task.status) {
-                                    TaskStatus.RUNNING -> Primer.Blue500
-                                    TaskStatus.SUCCESS -> Primer.Green500
-                                    TaskStatus.FAILED -> Primer.Red500
-                                    TaskStatus.CANCELED -> Primer.Gray500
-                                },
-                            ),
+                    TintChip(
+                        statusIcon,
+                        statusRole,
+                        contentDescription = stringResource(task.status.labelRes),
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
@@ -368,7 +375,7 @@ fun TaskScreen(onBack: () -> Unit) {
                         modifier = Modifier.clickable { onDelete() },
                     )
                 }
-                Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 11.dp)) {
+                Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(stringResource(R.string.label_started_at, formatTime(task.createdAt)), fontSize = 11.5.sp, color = Primer.TextTertiary)
                         Text(
@@ -380,7 +387,7 @@ fun TaskScreen(onBack: () -> Unit) {
                         Text(stringResource(task.status.labelRes), fontSize = 11.5.sp, color = Primer.TextTertiary)
                     }
                     if (task.detail.isNotBlank()) {
-                        Spacer(Modifier.height(5.dp))
+                        Spacer(Modifier.height(4.dp))
                         Text(
                             task.detail,
                             fontSize = 11.5.sp,
@@ -389,7 +396,7 @@ fun TaskScreen(onBack: () -> Unit) {
                         )
                     }
                     if (task.status == TaskStatus.RUNNING) {
-                        Spacer(Modifier.height(9.dp))
+                        Spacer(Modifier.height(7.dp))
                         if (task.progress in 0..100) {
                             LinearProgressIndicator(
                                 progress = { task.progress / 100f },

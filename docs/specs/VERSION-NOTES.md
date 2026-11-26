@@ -74,7 +74,21 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.67 → 1.0.22）
+## 二、`versionName` 流水（1.4.68 → 1.0.22）
+
+### 1.4.68
+
+**任务列表换卡片面 + 状态图标牌，并收紧一档密度。**
+
+决策四。三件事：
+
+① 卡片：`1dp 描边 + 画布白` → `Modifier.cardSurface()`（白面 + 4dp 阴影、12dp 圆角），卡距 4 → 3dp；
+② 状态位：9dp 圆点 → 22dp 图标牌。圆点只说「有状态」，图标能说「什么状态」——运行中 `PlayArrow`
+（`ACCENT`）、成功 `Check`（`SUCCESS`）、失败 `Close`（`DANGER`）、已取消 `Remove`（`NEUTRAL`），
+颜色沿用原来那四档，语义与别处列表一致；
+③ 密度：行内竖向留白 11 → 8dp、结果行间距 5 → 4dp、进度条上间距 9 → 7dp，单卡约省 7dp。
+
+验证：`assembleDebug` 通过。
 
 ### 1.4.67
 
@@ -5624,7 +5638,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（327 → 129）
+## 三、`versionCode` 流水（328 → 129）
+
+- **328**：任务列表换卡片面 + 状态图标牌、收紧密度（1.4.68）—— 描边卡 → `cardSurface()`、
+  9dp 圆点 → 22dp 状态牌（四档语义色）、行内留白 11→8 等（一次提交，故 +1）。
+
 
 - **327**：设置列表换卡片面 + 图标三色（1.4.67）—— `SettingsSection` 走 `cardSurface()`、
   `SettingsDivider` 换 `Border`、行首图标加可选 `tint`（22dp 牌）；主页 11 行按用途分色，
