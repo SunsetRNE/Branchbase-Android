@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import com.branchbase.ui.CardElevation
+import com.branchbase.ui.cardSurface
 import com.branchbase.ui.CardShape
 import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
@@ -412,11 +413,11 @@ private fun SelectedReposSheet(
             } else {
                 selected.forEachIndexed { index, fullName ->
                     Row(
-                        // 每行一条浅灰底：抽屉里的行是「条目」，不是列表页的卡片 ——
-                        // 底色只用来把连续几行切成「一条一条」，圆角比卡片小一档（8dp）
+                        // 与页面卡片同一套面（`ui/CardSurface.kt`），但降两档：
+                        // 圆角 10dp、阴影 2dp —— 这些行在抽屉里、只隔 3dp，用 12dp + 4dp
+                        // 会让相邻阴影糊成一片，反而看不出"一条一条"。
                         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Primer.Gray100)
+                            .cardSurface(shape = RoundedCornerShape(10.dp), elevation = 2.dp)
                             .padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
