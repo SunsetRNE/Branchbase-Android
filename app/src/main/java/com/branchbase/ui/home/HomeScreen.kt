@@ -66,6 +66,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -79,6 +80,8 @@ import com.branchbase.R
 import com.branchbase.core.AccountStore
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.LocalizedText
+import com.branchbase.ui.TintChip
+import com.branchbase.ui.theme.TintRole
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Avatar
 import com.branchbase.cache.PageCache
@@ -101,6 +104,17 @@ import org.json.JSONObject
  * 只在一路成功、另一路失败时出现；三路全失败是 [TodoState.Failed]，走重试行。
  */
 private const val COUNT_UNKNOWN = "\u2014"
+
+/**
+ * 首页卡片的统一容器语言：**中性白面 + 4dp 阴影、圆角 12dp**。
+ *
+ * 底色用 `Primer.BackgroundSecondary`（= `canvasSubtle`）：浅色板里它等于 canvas（纯白），
+ * 靠阴影与页面分层；深色板里它是 `#161B22`，靠明度差分层。同一份代码两套主题都成立，
+ * 这也是为什么不再用 `Gray100` —— 灰底在浅色下是"一块被染灰的白"，比白面 + 阴影重，
+ * 在深色下又和 `canvasSubtle` 是同一个面（等于没换）。
+ */
+private val HomeCardShape = RoundedCornerShape(12.dp)
+private val HomeCardElevation = 4.dp
 
 /**
  * 首页 Dashboard。
@@ -371,6 +385,7 @@ fun HomeScreen(
                 SectionHeader(
                     title = stringResource(R.string.label_frequent_repos),
                     icon = Icons.Filled.Folder,
+                    tint = TintRole.DONE,
                     onAction = onEditFrequent,
                     actionIcon = Icons.Filled.Tune,
                     actionLabel = stringResource(R.string.label_manage_frequent_repos),
@@ -402,6 +417,7 @@ fun HomeScreen(
                 SectionHeader(
                     title = stringResource(R.string.label_recent_activity),
                     icon = Icons.Filled.History,
+                    tint = TintRole.ACCENT,
                     onAction = { scope.launch { loadEvents(true) } },
                 )
             }
@@ -560,11 +576,15 @@ private fun GreetingRow(login: String) {
 }
 
 /**
- * 首页分区容器：**无描边、浅底、圆角 10dp**。
+ * 首页分区容器：**中性白面 + 4dp 阴影、圆角 12dp**（与 [RepoCard] 同一套，见 [HomeCardShape]）。
  *
  * 「待处理」与「进行中」共用同一套容器语言 —— 两块并排时不能一个是无框分组、
  * 一个是 1dp 纯黑描边卡片（浅色板里 `BorderEmphasis` 就是纯黑，是页面上最重的线）。
  * 头部与展开体之间、行与行之间都用同一条 `TodoDivider()`。
+ *
+ * 2026-11-27：`Gray100` 灰底换成白面 + 阴影。灰底在浅色下是「一块被染灰的白」，
+ * 分组全靠明度硬造，比同层级的内容还重；白面 + 阴影才是更轻的分组方式。
+ * 深色下阴影不可见，分组由 `canvasSubtle`（#161B22）与 canvas（#0D1117）的明度差承担。
  */
 @Composable
 private fun HomeGroupCard(
@@ -574,8 +594,9 @@ private fun HomeGroupCard(
     Column(
         modifier.fillMaxWidth()
             .padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(Primer.Gray100),
+            .shadow(HomeCardElevation, HomeCardShape)
+            .clip(HomeCardShape)
+            .background(Primer.BackgroundSecondary),
         content = content,
     )
 }
@@ -716,8 +737,8 @@ private fun TodoHead(
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Filled.Notifications, contentDescription = null, tint = Primer.IconPrimary, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(6.dp))
+        TintChip(Icons.Filled.Notifications, TintRole.WARNING)
+        Spacer(Modifier.width(8.dp))
         Text(stringResource(R.string.label_todo), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
         Spacer(Modifier.weight(1f))
         Text(
@@ -783,9 +804,17 @@ private fun TodoRow(
     }
 }
 
+/**
+ * 卡内分隔线（折叠头与展开体之间、展开体各行之间）。
+ *
+ * 2026-11-27：`BorderEmphasis × 40%` 换成 `Primer.Border`。
+ * `BorderEmphasis` 在浅色板里是**纯黑**，压在原本的灰底上 40% 刚好；卡片换成白面之后，
+ * 同样一条线成了整页对比度最高的东西 —— 用户第一眼看到的就是它，而不是「待处理」这几个字。
+ * 描边色（#BFC1C9 / 深色 #30363D）才是"分组"该有的重量：看得见，但不抢读。
+ */
 @Composable
 private fun TodoDivider() {
-    Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.BorderEmphasis.copy(alpha = 0.4f)))
+    Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Border))
 }
 
 /** 取数中：3 行骨架，行高照实（44dp），取数完成前后不跳。 */
@@ -930,6 +959,8 @@ private fun RunningGroup(tasks: List<com.branchbase.ui.task.TaskRecord>) {
 private fun SectionHeader(
     title: String,
     icon: ImageVector,
+    /** 区块图标的语义色：牌底由它派生（同色 12%），调用处不传色值。 */
+    tint: TintRole,
     onAction: (() -> Unit)? = null,
     actionIcon: ImageVector = Icons.Filled.Refresh,
     actionLabel: String = stringResource(R.string.action_refresh),
@@ -948,8 +979,8 @@ private fun SectionHeader(
             ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, tint = Primer.IconPrimary, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(6.dp))
+        TintChip(icon, tint)
+        Spacer(Modifier.width(8.dp))
         Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
         Spacer(Modifier.weight(1f))
         if (onAction != null) {
@@ -970,12 +1001,11 @@ private fun RepoCard(repo: RepoSummary, onClick: () -> Unit = {}) {
         modifier = Modifier
             .padding(start = 16.dp, end = 16.dp, bottom = 6.dp)
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            // Gray100 而不是 BackgroundSecondary：浅色板里后者 == canvas（纯白），
-            // 卡片会和页面底完全同色 —— 没压缩之前靠 10dp 间距还能看出分组，
-            // 内边距一收，卡内留白与卡间间距就并成一片白，"紧凑"变成"糊"。
-            // 圆角也跟着 HomeGroupCard 走 10dp，首页只保留一套容器语言。
-            .background(Primer.Gray100)
+            // 与 HomeGroupCard 同一套容器：白面 + 阴影。浅色下同色不同层靠阴影，
+            // 深色下 BackgroundSecondary 就是 #161B22，阴影不可见也不影响分层。
+            .shadow(HomeCardElevation, HomeCardShape)
+            .clip(HomeCardShape)
+            .background(Primer.BackgroundSecondary)
             .clickable { onClick() }
             // 竖向比横向收得更狠：留白是这张卡最高的成本项，横向再收会让文字贴边
             .padding(horizontal = 14.dp, vertical = 8.dp),

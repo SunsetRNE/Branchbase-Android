@@ -20,4 +20,5 @@
 | 原型 | 说明文档 | 状态 |
 |---|---|---|
 | [`home-todo-empty/index.html`](home-todo-empty/index.html) | [`docs/specs/prototypes/home-todo-empty.md`](../docs/specs/prototypes/home-todo-empty.md) | 首页「待处理」：无框分组 + 可折叠（含空态/三态）：**已落地（1.4.31）** |
+| [`home-tint-chips/index.html`](home-tint-chips/index.html) | [`docs/specs/prototypes/home-tint-chips.md`](../docs/specs/prototypes/home-tint-chips.md) | 首页区块图标 → tint 图标牌（22dp / 7dp / 13dp / 同色 12% 底）+ 卡片白面浮起；浅色 / 深色双屏常驻，卡片四档与配色两档两屏同步：**已落地（1.4.62）** |
 | （待补） | | 历史原型尚未迁入 |

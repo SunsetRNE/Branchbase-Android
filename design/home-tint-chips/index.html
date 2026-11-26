@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>首页 tint 图标牌 · 原型（现状 / 改造后）</title>
+<!--
+  一次性草图（不是产品 UI）：把首页的区块级图标换成「图标 + 同色 12% 底」的 tint 图标牌，
+  与 More 面板同一族。左屏固定浅色、右屏固定深色（主题并排才比得出来）；
+  两屏内容/卡片/配色同步，浅色屏可切「现状」，用来对照图标那一格。
+
+  颜色取自 ui/theme/ThemePalette.kt 的 PrimerPalette（浅 / 深两套），
+  底色 = 图标色 12% 叠在页面实际底色上（卡片 Gray100 #F7F7F9 / 深色 #161B22），是算出来的合成值。
+  尺寸与排版取自 ui/home/HomeScreen.kt 的现值（卡片 10dp 圆角 / 行 44dp / 标题 13sp Bold）。
+
+  结论与落地清单待写进 docs/specs/prototypes/home-tint-chips.md。
+-->
+<style>
+  * { box-sizing: border-box; }
+
+  [data-theme="light"] {
+    color-scheme: light;
+    --canvas: #FFFFFF;
+    --text-1: #050505;
+    --text-2: #41434E;
+    --text-3: #6A6D7C;
+    --icon-1: #000000;
+    --icon-2: #9194A1;
+    --border: #BFC1C9;
+    --fill: #F7F7F9;
+    --fill-strong: #EFF0F5;
+    --link: #0969DA;
+    --accent: #0969DA;
+    --success: #28A745;
+    --danger: #D73A49;
+    --page-bg: #E9EBF0;
+    --press: rgba(0, 0, 0, 0.045);
+    --card-raise: #FFFFFF;
+    --card-shadow-soft: 0 1px 2px rgba(16, 24, 40, .05), 0 10px 24px rgba(16, 24, 40, .06);
+    --hairline: rgba(0, 0, 0, .07);
+    /* 图标牌：图标色 + 同色 12% 底 */
+    --c-warn: #F66A0A;   --t-warn: rgba(246, 106, 10, .12);
+    --c-done: #6F42C1;   --t-done: rgba(111, 66, 193, .12);
+    --c-accent: #0969DA; --t-accent: rgba(9, 105, 218, .12);
+    --c-mono: #4F46E5;   --t-mono: rgba(79, 70, 229, .12);
+  }
+
+  [data-theme="dark"] {
+    color-scheme: dark;
+    --canvas: #0D1117;
+    --text-1: #E6EDF3;
+    --text-2: #C9D1D9;
+    --text-3: #8B949E;
+    --icon-1: #FFFFFF;
+    --icon-2: #8B949E;
+    --border: #30363D;
+    --fill: #161B22;
+    --fill-strong: #21262D;
+    --link: #2F81F7;
+    --accent: #1F6FEB;
+    --success: #3FB950;
+    --danger: #F85149;
+    --page-bg: #010409;
+    --press: rgba(255, 255, 255, .06);
+    --card-raise: #161B22;
+    --card-shadow-soft: 0 1px 2px rgba(0, 0, 0, .5);
+    --hairline: rgba(255, 255, 255, .09);
+    --c-warn: #D29922;   --t-warn: rgba(210, 153, 34, .12);
+    --c-done: #A371F7;   --t-done: rgba(163, 113, 247, .12);
+    --c-accent: #1F6FEB; --t-accent: rgba(31, 111, 235, .12);
+    --c-mono: #818CF8;   --t-mono: rgba(129, 140, 248, .12);
+  }
+
+  /* 单色系变体：三个区块共用一个基色，只保留「有一层底」这层信息 */
+  .frame[data-palette="mono"] {
+    --c-warn: var(--c-mono);   --t-warn: var(--t-mono);
+    --c-done: var(--c-mono);   --t-done: var(--t-mono);
+    --c-accent: var(--c-mono); --t-accent: var(--t-mono);
+  }
+
+  /* 卡片表面四档（工具条切换）。只换「面」，不动内边距与行高 ——
+     所以切档时内容位置不跳，能直接比"哪种面更安静"。 */
+  .frame[data-card="fill"] {
+    --card-bg: var(--fill); --card-border: transparent;
+    --card-shadow: none; --card-radius: 10px; --card-pad: 8px 14px;
+  }
+  .frame[data-card="outline"] {
+    --card-bg: var(--canvas); --card-border: var(--border);
+    --card-shadow: none; --card-radius: 10px; --card-pad: 8px 14px;
+  }
+  .frame[data-card="elevated"] {
+    --card-bg: var(--card-raise); --card-border: transparent;
+    --card-shadow: var(--card-shadow-soft); --card-radius: 12px; --card-pad: 8px 14px;
+  }
+  .frame[data-card="flush"] {
+    --card-bg: transparent; --card-border: transparent;
+    --card-shadow: none; --card-radius: 0; --card-pad: 10px 0;
+  }
+
+  body {
+    margin: 0;
+    padding: 20px 16px 44px;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+    background: var(--page-bg);
+    color: var(--text-1);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ───────── 工具条（原型工具，非产品 UI） ───────── */
+  .toolbar {
+    max-width: 900px;
+    margin: 0 auto 18px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 20px;
+    align-items: center;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: var(--canvas);
+    border: 1px solid var(--fill-strong);
+  }
+  .toolbar .group { display: flex; align-items: center; gap: 8px; }
+  .toolbar .label { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+  .seg { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--fill-strong); }
+  .seg button {
+    appearance: none; border: 0; background: transparent; color: var(--text-2);
+    font: inherit; font-size: 12px; padding: 5px 10px; border-radius: 6px;
+    cursor: pointer; white-space: nowrap;
+  }
+  .seg button[aria-pressed="true"] {
+    background: var(--canvas); color: var(--text-1); font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .12);
+  }
+
+  /* ───────── 双屏 ───────── */
+  .stage {
+    max-width: 900px; margin: 0 auto;
+    display: flex; flex-wrap: wrap; gap: 26px 28px;
+    align-items: flex-start; justify-content: center;
+  }
+  .col { display: flex; flex-direction: column; gap: 10px; width: min(390px, 100%); }
+  .cap { width: 100%; }
+  .cap h4 { margin: 0 0 3px; font-size: 13px; font-weight: 700; }
+  .cap h4 .tag {
+    display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 4px;
+    font-size: 10.5px; font-weight: 600; vertical-align: 1px;
+    background: var(--fill-strong); color: var(--text-3);
+  }
+  .cap p { margin: 0; font-size: 11.5px; line-height: 16px; color: var(--text-3); }
+
+  /* 手机框：宽度永远不超过可用宽 —— 窄视口靠等比缩放，不靠裁切。
+     .frame 负责占位高度（JS 按缩放比回填），.device 绝对定位后整体 scale。 */
+  .frame {
+    position: relative; width: 100%; height: 844px;
+  }
+  .device {
+    position: absolute; top: 0; left: 0;
+    width: 390px; height: 844px;
+    transform: scale(var(--s, 1)); transform-origin: top left;
+    border-radius: 34px; background: var(--canvas);
+    border: 1px solid var(--fill-strong);
+    box-shadow: 0 18px 46px rgba(0, 0, 0, .16);
+    overflow: hidden; display: flex; flex-direction: column;
+  }
+  .statusbar {
+    height: 44px; flex: 0 0 44px; display: flex; align-items: center;
+    justify-content: space-between; padding: 0 22px 0 26px;
+    font-size: 13px; font-weight: 600; color: var(--text-1);
+  }
+  .statusbar .right { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
+  .statusbar .bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 10px; }
+  .statusbar .bars i { width: 3px; background: var(--text-1); border-radius: 1px; }
+  .statusbar .batt { width: 20px; height: 10px; border: 1.5px solid var(--text-2); border-radius: 3px; position: relative; }
+  .statusbar .batt::after { content: ""; position: absolute; inset: 1.5px; right: 5px; background: var(--success); border-radius: 1px; }
+
+  .screen { flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; padding-bottom: 84px; }
+  .screen::-webkit-scrollbar { display: none; }
+
+  /* 顶栏 */
+  .topbar { display: flex; align-items: center; gap: 12px; padding: 2px 16px 12px; }
+  .searchbox {
+    flex: 1; display: flex; align-items: center; gap: 10px; height: 40px;
+    padding: 0 12px; border-radius: 14px; background: var(--fill);
+    color: var(--text-3); font-size: 15px;
+  }
+  .searchbox svg { width: 19px; height: 19px; fill: var(--icon-2); flex: 0 0 19px; }
+  .avatar {
+    width: 34px; height: 34px; border-radius: 9px; flex: 0 0 34px;
+    background: repeating-conic-gradient(var(--success) 0% 25%, #B9F0C8 0% 50%) 50% / 9px 9px;
+    opacity: .85;
+  }
+
+  .greeting { padding: 0 16px 12px; font-size: 17px; font-weight: 600; }
+
+  /* 待处理（折叠态）：与展开体同一张卡片 */
+  .todo-card {
+    margin: 0 16px; border-radius: var(--card-radius);
+    background: var(--card-bg); border: 1px solid var(--card-border);
+    box-shadow: var(--card-shadow);
+  }
+  .todo-head {
+    display: flex; align-items: center; gap: 6px;
+    min-height: 44px; padding: 0 12px; font-size: 13px;
+  }
+  .todo-head .t { font-weight: 700; }
+  .todo-head .sum { margin-left: auto; color: var(--text-3); font-size: 13px; }
+  .todo-head .chev { width: 16px; height: 16px; fill: var(--icon-2); }
+
+  /* 区块标题：固定 40px，两版行高完全一致 —— 差异只允许出现在图标那一格 */
+  .section {
+    display: flex; align-items: center; gap: 6px;
+    height: 40px; margin-top: 8px; padding: 0 16px;
+  }
+  .section .t { font-size: 13px; font-weight: 700; }
+  .section .act { margin-left: auto; width: 18px; height: 18px; fill: var(--icon-2); }
+
+  /* 仓库卡 */
+  .repo {
+    margin: 0 16px 6px; border-radius: var(--card-radius);
+    background: var(--card-bg); border: 1px solid var(--card-border);
+    box-shadow: var(--card-shadow);
+    padding: var(--card-pad); display: flex; flex-direction: column;
+  }
+  /* 无卡档：靠发丝线分组，卡片之间不再留 6dp 缝 */
+  .frame[data-card="flush"] .repo {
+    margin-bottom: 0; border-top: 1px solid var(--hairline);
+  }
+  .frame[data-card="flush"] .todo-card { border-bottom: 1px solid var(--hairline); }
+  /* 无卡档：整块左对齐到与仓库行同一条竖线，不然「待处理」会独自缩进 12dp */
+  .frame[data-card="flush"] .todo-head { padding: 0; }
+  .repo .name { display: flex; align-items: center; gap: 6px; }
+  .repo .full {
+    flex: 0 1 auto; min-width: 0;
+    font-size: 14px; font-weight: 600; color: var(--link);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .badge {
+    flex: 0 0 auto; font-size: 10px; color: var(--text-2);
+    border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px;
+  }
+  .desc {
+    margin-top: 2px; font-size: 12px; line-height: 15px; color: var(--text-2);
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .meta { display: flex; align-items: center; gap: 14px; margin-top: 6px; }
+  .meta .item { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-2); }
+  .meta .item svg { width: 14px; height: 14px; fill: var(--icon-2); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 10px; }
+
+  .empty { padding: 22px 16px; text-align: center; font-size: 13px; color: var(--text-3); }
+
+  /* 浮动底栏 */
+  .nav {
+    position: absolute; left: 50%; transform: translateX(-50%); bottom: 14px;
+    display: flex; align-items: center; gap: 6px; padding: 5px;
+    border-radius: 999px; background: var(--canvas);
+    border: 1px solid var(--fill-strong);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, .14);
+  }
+  .nav .tab {
+    width: 64px; height: 40px; display: flex; align-items: center; justify-content: center;
+    border-radius: 999px;
+  }
+  .nav .tab svg { width: 21px; height: 21px; fill: var(--icon-1); }
+  .nav .tab.on { background: var(--fill-strong); }
+  .nav .tab.on svg { fill: var(--accent); }
+
+  /* ───────── 图标两种呈现 ───────── */
+  /* 现状：裸图标，18dp，IconPrimary */
+  .ico-bare { width: 18px; height: 18px; fill: var(--icon-1); flex: 0 0 18px; }
+
+  /* 改造后：22dp 牌 / 7dp 圆角 / 13dp 图标 / 同色 12% 底 */
+  .chip {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; flex: 0 0 22px;
+    border-radius: 7px; background: var(--t); color: var(--c);
+  }
+  .chip svg { width: 13px; height: 13px; fill: currentColor; }
+  .chip--warn   { --c: var(--c-warn);   --t: var(--t-warn); }
+  .chip--done   { --c: var(--c-done);   --t: var(--t-done); }
+  .chip--accent { --c: var(--c-accent); --t: var(--t-accent); }
+
+  /* 改造后的行距补偿：牌比裸图标高 4dp，标题与牌间距给 8dp 才不显挤 */
+  .after .section, .after .todo-head { gap: 8px; }
+
+  @media (max-width: 860px) {
+    body { padding: 12px 12px 28px; }
+    .toolbar, .stage { max-width: 100%; }
+    .stage { gap: 20px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <div class="group">
+    <span class="label">浅色屏</span>
+    <div class="seg" id="seg-left">
+      <button data-left="after" aria-pressed="true">改造后</button>
+      <button data-left="before" aria-pressed="false">现状</button>
+    </div>
+  </div>
+  <div class="group">
+    <span class="label">配色</span>
+    <div class="seg" id="seg-palette">
+      <button data-palette="semantic" aria-pressed="true">语义三色</button>
+      <button data-palette="mono" aria-pressed="false">单色系（靛蓝）</button>
+    </div>
+  </div>
+  <div class="group">
+    <span class="label">卡片</span>
+    <div class="seg" id="seg-card">
+      <button data-card="fill" aria-pressed="false">灰底</button>
+      <button data-card="outline" aria-pressed="false">描边</button>
+      <button data-card="elevated" aria-pressed="true">浮起</button>
+      <button data-card="flush" aria-pressed="false">无卡</button>
+    </div>
+  </div>
+</div>
+
+<div class="stage">
+
+  <div class="col">
+    <div class="frame" data-theme="light" data-palette="semantic" data-card="elevated"><div class="device" id="device-light">
+      <div class="statusbar">
+        <span>05:29</span>
+        <span class="right">
+          <span class="bars"><i style="height:4px"></i><i style="height:6px"></i><i style="height:8px"></i><i style="height:10px"></i></span>
+          <span class="batt"></span>
+        </span>
+      </div>
+      <div class="screen" id="screen-light"></div>
+      <div class="nav">
+        <span class="tab on"><svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg></span>
+        <span class="tab"><svg viewBox="0 0 24 24"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg></span>
+      </div>
+    </div></div>
+    <div class="cap">
+      <h4>浅色<span class="tag" id="cap-left">改造后</span></h4>
+      <p>左屏可切「现状 / 改造后」，看图标那一格的差别；卡片与配色两屏同步，所以任何一档都能同时看到浅色与深色。</p>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="frame" data-theme="dark" data-palette="semantic" data-card="elevated"><div class="device after" id="device-dark">
+      <div class="statusbar">
+        <span>05:29</span>
+        <span class="right">
+          <span class="bars"><i style="height:4px"></i><i style="height:6px"></i><i style="height:8px"></i><i style="height:10px"></i></span>
+          <span class="batt"></span>
+        </span>
+      </div>
+      <div class="screen" id="screen-dark"></div>
+      <div class="nav">
+        <span class="tab on"><svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg></span>
+        <span class="tab"><svg viewBox="0 0 24 24"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg></span>
+      </div>
+    </div></div>
+    <div class="cap">
+      <h4>深色<span class="tag" id="cap-tag">语义三色</span><span class="tag" id="cap-card">浮起</span></h4>
+      <p>深色下「浮起」与「灰底」是同一种面（都是 <code>#161B22</code>，阴影几乎不可见）—— 深色真正能区分的只有「有面 / 无面」两种，这正是要看的地方。</p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+
+/* Material 图标路径（24×24） */
+const ICONS = {
+  search: "M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z",
+  bell: "M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z",
+  folder: "M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z",
+  history: "M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z",
+  tune: "M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z",
+  refresh: "M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z",
+  star: "M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z",
+  fork: "M14 4l2.29 2.29-2.88 2.88 1.42 1.42 2.88-2.88L20 10V4zm-4 0H4v6l2.29-2.29 4.71 4.7V20h2v-8.41l-5.29-5.3z",
+  chevron: "M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z"
+};
+
+const REPOS = [
+  {
+    full: "SunsetRNE/dsh-android-toolchain",
+    desc: "Shared aarch64 Android/JVM toolchain bundle + single-slot build broker (MCP) for DeepSeek Harness",
+    lang: "JavaScript", langColor: "#F1E05A", stars: "0", forks: "0"
+  },
+  {
+    full: "SunsetRNE/DSHA-Sunset-mod",
+    desc: "SunsetRNE的mod分支：免 ROOT 免 Termux，在手机上跑 DeepSeek Harness。完整 Ubuntu 环境 + proroo…",
+    lang: "Java", langColor: "#B07219", stars: "5", forks: "1", fork: true
+  },
+  {
+    full: "SunsetRNE/Branchbase-Android",
+    desc: "更好的第三方 GitHub Android 开源客户端",
+    lang: "Kotlin", langColor: "#A97BFF", stars: "13", forks: "1"
+  }
+];
+
+function svg(name, cls) {
+  return '<svg viewBox="0 0 24 24" class="' + cls + '" aria-hidden="true"><path d="' + ICONS[name] + '"/></svg>';
+}
+
+/* 唯一的分歧点：裸图标 vs 图标牌 */
+function mark(mode, kind, name) {
+  return mode === "after"
+    ? '<span class="chip chip--' + kind + '">' + svg(name, "ico-chip") + "</span>"
+    : svg(name, "ico-bare");
+}
+
+function repoCard(r) {
+  return (
+    '<div class="repo">' +
+      '<div class="name"><span class="full">' + r.full + "</span>" +
+        (r.fork ? '<span class="badge">复刻</span>' : "") +
+      "</div>" +
+      '<div class="desc">' + r.desc + "</div>" +
+      '<div class="meta">' +
+        '<span class="item"><span class="dot" style="background:' + r.langColor + '"></span>' + r.lang + "</span>" +
+        '<span class="item">' + svg("star", "ico-meta") + r.stars + "</span>" +
+        '<span class="item">' + svg("fork", "ico-meta") + r.forks + "</span>" +
+      "</div>" +
+    "</div>"
+  );
+}
+
+function page(mode) {
+  return (
+    '<div class="topbar">' +
+      '<div class="searchbox">' + svg("search", "ico-search") + "<span>搜索 GitHub</span></div>" +
+      '<span class="avatar"></span>' +
+    "</div>" +
+    '<div class="greeting">夜深了，SunsetRNE</div>' +
+
+    '<div class="todo-card"><div class="todo-head">' +
+      mark(mode, "warn", "bell") +
+      '<span class="t">待处理</span>' +
+      '<span class="sum">1 项待办</span>' +
+      svg("chevron", "chev") +
+    "</div></div>" +
+
+    '<div class="section">' +
+      mark(mode, "done", "folder") +
+      '<span class="t">常用仓库</span>' +
+      svg("tune", "act") +
+    "</div>" +
+    REPOS.map(repoCard).join("") +
+
+    '<div class="section">' +
+      mark(mode, "accent", "history") +
+      '<span class="t">最近活动</span>' +
+      svg("refresh", "act") +
+    "</div>" +
+    '<div class="empty">暂无最近活动</div>'
+  );
+}
+
+var LEFT_MODE = "after";
+
+/* 左屏按 LEFT_MODE 渲染，右屏恒为改造后 —— 两屏同内容、同卡片、同配色，只有主题不同 */
+function render() {
+  document.getElementById("screen-light").innerHTML = page(LEFT_MODE);
+  document.getElementById("screen-dark").innerHTML = page("after");
+  document.getElementById("device-light").classList.toggle("after", LEFT_MODE === "after");
+}
+
+/* ───────── 手机框按可用宽等比缩放 ─────────
+   窄视口（手机里的预览窗）不裁切、不改字号：整块 scale 下来，两屏仍然同尺度可比。 */
+function fitFrames() {
+  document.querySelectorAll(".frame").forEach(function (frame) {
+    var s = Math.min(1, frame.clientWidth / 390);
+    frame.style.setProperty("--s", String(s));
+    frame.style.height = Math.ceil(844 * s) + "px";
+  });
+}
+window.addEventListener("resize", fitFrames);
+
+/* ───────── 工具条 ─────────
+   主题不再整体切换：浅 / 深各一屏常驻，剩下的开关只改"内容"与"卡片面"。 */
+var CARD_LABEL = { fill: "灰底", outline: "描边", elevated: "浮起", flush: "无卡" };
+var LEFT_LABEL = { after: "改造后", before: "现状" };
+
+function press(groupId, key, value) {
+  document.querySelectorAll("#" + groupId + " button").forEach(function (b) {
+    b.setAttribute("aria-pressed", String(b.dataset[key] === value));
+  });
+}
+
+function setFrames(attr, value) {
+  document.querySelectorAll(".frame").forEach(function (f) { f.setAttribute(attr, value); });
+}
+
+function setLeft(value) {
+  LEFT_MODE = value;
+  render();
+  press("seg-left", "left", value);
+  var t = document.getElementById("cap-left");
+  if (t) t.textContent = LEFT_LABEL[value] || value;
+}
+
+function setPalette(value) {
+  setFrames("data-palette", value);
+  press("seg-palette", "palette", value);
+  var t = document.getElementById("cap-tag");
+  if (t) t.textContent = value === "mono" ? "单色系" : "语义三色";
+}
+
+function setCard(value) {
+  setFrames("data-card", value);
+  press("seg-card", "card", value);
+  var t = document.getElementById("cap-card");
+  if (t) t.textContent = CARD_LABEL[value] || value;
+}
+
+document.querySelectorAll("#seg-left button").forEach(function (b) {
+  b.addEventListener("click", function () { setLeft(b.dataset.left); });
+});
+document.querySelectorAll("#seg-palette button").forEach(function (b) {
+  b.addEventListener("click", function () { setPalette(b.dataset.palette); });
+});
+document.querySelectorAll("#seg-card button").forEach(function (b) {
+  b.addEventListener("click", function () { setCard(b.dataset.card); });
+});
+
+render();
+fitFrames();
+</script>
+</body>
+</html>

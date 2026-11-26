@@ -74,7 +74,35 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.61 → 1.0.22）
+## 二、`versionName` 流水（1.4.62 → 1.0.22）
+
+### 1.4.62
+
+**首页图标改 tint 图标牌、卡片换白面浮起，灰底下线。**
+
+真机对照原型（`design/home-tint-chips`，2026-11-27）后拍板「图标语义三色 + 卡片浮起」：
+
+① **图标**：`SectionHeader` 的 18dp 裸图标换成 `TintChip`（22dp 牌 / 7dp 圆角 / 13dp 图标 /
+同色 12% 底），三处语义色按「去哪」分配 —— 待处理 `WARNING` 橙、常用仓库 `DONE` 紫、
+最近活动 `ACCENT` 蓝；`TodoHead` 的铃铛同法。抽成 `ui/TintChip.kt`：12% 是全局唯一常量
+（alpha 合成，换卡片面自动跟着变），图标用 `role.color()` 而不是 `textColor()`
+（后者是「压在同色底上的小字」那一档）。
+
+② **卡片**：`HomeGroupCard` / `RepoCard` 的 `Gray100` → `BackgroundSecondary` + 4dp 阴影，
+圆角 10 → 12dp。**为什么灰底下线**：浅色下灰底是「一块被染灰的白」，分组靠 5% 明度差硬造，
+比同屏的正文与链接都轻；深色下 `Gray100`（`#161B22`）正好等于 `canvasSubtle`，
+和「白面卡片」是**同一个面** —— 浅色的问题只在浅色，深色本来就已经是浮起的样子。
+`BackgroundSecondary` 一行覆盖两套主题（浅 = 白 / 深 = `#161B22`），不需要主题分支。
+
+③ **分割线**：`TodoDivider` 从 `BorderEmphasis × 40%` 换成 `Primer.Border`。真机反馈
+「浅色待处理展开的分割线有点抢眼」—— `BorderEmphasis` 在浅色板里是**纯黑**，40% 压在
+原本的灰底上刚好；卡片换白面后同一根线成了整页对比度最高的元素。副作用（已知并接受）：
+深色下这根线从 `#30363D × 40%` 变成全量 `#30363D`，略明显但对比度仍约 1.3:1。
+
+**边界**：`ActivityItem`（28dp 白圆）与常用仓库管理页的灰底行留到 1.4.63 单独提交；
+仓库页 / 个人页的卡片仍是上一代容器语言，这次不动。
+
+验证：`assembleDebug` 通过；真机安装后确认浅色分割线不再抢眼、深色卡片靠 `#161B22` 分层成立。
 
 ### 1.4.61
 
@@ -5512,7 +5540,13 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（321 → 129）
+## 三、`versionCode` 流水（322 → 129）
+
+- **322**：首页图标牌 + 卡片白面浮起（1.4.62）—— `SectionHeader` / `TodoHead` 换 `TintChip`
+  （22/7/13、同色 12%），卡片 `Gray100` → `BackgroundSecondary` + 4dp 阴影 + 圆角 12，
+  卡内分割线 `BorderEmphasis 40%` → `Primer.Border`（真机反馈抢眼）；原型 `design/home-tint-chips`
+  与说明文档同批入库（一次提交，故 +1）。
+
 
 - **321**：设置主页分组标题下线（1.4.61）—— 五张卡不再画 12sp 组名（「通知」1.4.38 起就没有），
   组靠卡片边界 + 组内分隔线 + 8dp 间距区分，省 ≈90dp；五个 `label_*_group` 资源随调用点删除
