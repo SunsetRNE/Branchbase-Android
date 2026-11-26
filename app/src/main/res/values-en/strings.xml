@@ -82,9 +82,9 @@
     <string name="translate_protocol_deepseek">DeepSeek official</string>
     <string name="translate_protocol_deepseek_desc">POST /chat/completions with Bearer auth</string>
     <string name="translate_protocol_openai_chat">OpenAI Chat Completions</string>
-    <string name="translate_protocol_openai_chat_desc">Native endpoint /v1/chat/completions</string>
+    <string name="translate_protocol_openai_chat_desc">Generic OpenAI Chat response protocol</string>
     <string name="translate_protocol_openai_responses">OpenAI Responses</string>
-    <string name="translate_protocol_openai_responses_desc">Newer endpoint /v1/responses, body uses input</string>
+    <string name="translate_protocol_openai_responses_desc">OpenAI official response protocol</string>
     <string name="translate_protocol_anthropic">Anthropic Messages</string>
     <string name="translate_protocol_anthropic_desc">Needs x-api-key and anthropic-version</string>
     <string name="translate_protocol_gemini">Gemini API</string>

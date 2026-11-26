@@ -89,9 +89,9 @@
     <string name="translate_protocol_deepseek">DeepSeek 官方默认协议</string>
     <string name="translate_protocol_deepseek_desc">POST /chat/completions，Bearer 鉴权</string>
     <string name="translate_protocol_openai_chat">OpenAI Chat Completions</string>
-    <string name="translate_protocol_openai_chat_desc">原生端点 /v1/chat/completions</string>
+    <string name="translate_protocol_openai_chat_desc">通用 OpenAI Chat 响应协议</string>
     <string name="translate_protocol_openai_responses">OpenAI Responses</string>
-    <string name="translate_protocol_openai_responses_desc">新端点 /v1/responses，请求体是 input</string>
+    <string name="translate_protocol_openai_responses_desc">OpenAI 官版响应协议</string>
     <string name="translate_protocol_anthropic">Anthropic Messages</string>
     <string name="translate_protocol_anthropic_desc">x-api-key + anthropic-version 两个必填头</string>
     <string name="translate_protocol_gemini">Gemini API</string>

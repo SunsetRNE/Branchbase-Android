@@ -74,7 +74,25 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.51 → 1.0.22）
+## 二、`versionName` 流水（1.4.52 → 1.0.22）
+
+### 1.4.52
+
+**协议弹窗两条说明改口径：从「端点」改成「协议性质」。**
+
+① 「OpenAI Chat Completions」的说明：`原生端点 /v1/chat/completions` →
+   `通用 OpenAI Chat 响应协议`。它是所有 OpenAI 兼容中转的**通用方言**，不是某一家的原生端点 ——
+   把一个 `/v1/chat/completions` 路径写在说明里，等于暗示「只有官方地址才是这条路」。
+
+② 「OpenAI Responses」的说明：`新端点 /v1/responses，请求体是 input` →
+   `OpenAI 官版响应协议`。「新 / 旧」是相对时间，会随版本过期；「官版」才是稳定口径。
+   请求体用 `input` 属于实现细节，用户选协议时不需要知道。
+
+③ 其余三档（DeepSeek 官方 / Anthropic Messages / Gemini）的说明待定，本轮不动；
+   中英同步改（英文：`Generic OpenAI Chat response protocol` / `OpenAI official response protocol`）。
+
+**验证**：`tools/i18n/check-i18n.py --min-coverage 100` 通过；`:app:assembleDebug` 通过；
+`:app:testDebugUnitTest` / `:translate:test` 无逻辑改动（文案键值不变，只改内容）。
 
 ### 1.4.51
 
@@ -5275,7 +5293,10 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（311 → 129）
+## 三、`versionCode` 流水（312 → 129）
+
+- **312**：协议弹窗两条说明改口径（1.4.52）—— OpenAI Chat 从「原生端点」改为「通用响应协议」、
+  OpenAI Responses 从「新端点」改为「官版响应协议」；中英同步（一次提交，故 +1）。
 
 - **311**：翻译页加协议单选 + 请求头 / 响应头自动补全（1.4.51）—— 五档方言表、`x-api-key` /
   `anthropic-version` / `x-goog-api-key` 自动补、`Retry-After` 与额度头解读、探测按协议发、
