@@ -88,6 +88,8 @@ class SettingsSpecTest {
     private val themePagePath = "src/main/java/com/branchbase/ui/settings/ThemeScreen.kt"
     private val settingsPagePath = "src/main/java/com/branchbase/ui/profile/SubPageScreens.kt"
     private val translatePagePath = "src/main/java/com/branchbase/ui/profile/TranslateSettingsScreen.kt"
+    /** 方言表在隔壁 :translate 模块（测试工作目录是 app/，所以用 ../ 上去）。 */
+    private val protocolPath = "../translate/src/main/java/com/branchbase/translate/TranslateProtocol.kt"
 
     /**
      * 设置主页 + 通知页那一段（不含同一文件里的关于页 / 本地仓库页）。
@@ -300,7 +302,7 @@ class SettingsSpecTest {
         val page = source(translatePagePath)
         assertTrue(
             "模型框不能空着：进入时要用当前生效的默认模型预填",
-            page.contains("ifBlank { TranslateProvider.DEEPSEEK_MODEL }"),
+            page.contains("ifBlank { config.protocolKind.defaultModel }"),
         )
         assertTrue("选中模型要有逐字输入动画", page.contains("typingTarget") && page.contains("delay("))
         assertTrue("当前模型要有绿色徽标", page.contains("translate_model_current"))
@@ -308,6 +310,47 @@ class SettingsSpecTest {
         assertFalse(
             "「测试响应」不许再走真实翻译（会消耗用户额度）；只探端点响应",
             page.contains("translator.selfTest("),
+        )
+    }
+
+    @Test
+    fun `翻译页协议单选_请求头自动补全只有一个真源`() {
+        val page = source(translatePagePath)
+        assertTrue("凭据块要有协议字段（与另外三个输入框同形态）", page.contains("ProtocolField("))
+        assertTrue("协议选择要走弹性弹窗", page.contains("ProtocolPickerDialog("))
+        assertTrue("协议是用户配置，必须落盘", page.contains("TranslateSettings.setProtocol"))
+        assertTrue("换协议要把默认地址 / 模型接力过去", page.contains("carryOver("))
+        assertTrue(
+            "探测必须按当前协议发（否则 Anthropic 的 x-api-key 永远补不上）",
+            page.contains("ModelProbe.fetch(protocolDraft"),
+        )
+        assertTrue("方言表在 :translate（探测与将来的 Rust 分派读同一张表）", File(protocolPath).exists())
+        val table = source(protocolPath)
+        listOf(
+            "deepseek", "openai-chat", "openai-responses", "anthropic-messages", "gemini",
+        ).forEach { code ->
+            assertTrue("方言表缺少协议 $code", table.contains("code = \"$code\""))
+        }
+        listOf("Authorization", "x-api-key", "x-goog-api-key", "anthropic-version").forEach { header ->
+            assertTrue("请求头自动补全缺少 $header", table.contains(header))
+        }
+        assertTrue("模型列表端点也要按协议拼", table.contains("modelsPath"))
+
+        // 两侧是**同一张表的两份实现**（Kotlin 拼探测请求、Rust 发翻译请求）：
+        // 一边加档、另一边没跟上时，这里必须红 —— 否则线上表现是「协议选了不生效」。
+        val rustTable = File("../core/src/translate/mod.rs").readText()
+        com.branchbase.translate.TranslateProtocol.entries.forEach { protocol ->
+            assertTrue(
+                "Rust 方言表缺少协议 ${protocol.code}（Kotlin 与 core/src/translate/mod.rs 必须逐字一致）",
+                rustTable.contains("\"${protocol.code}\""),
+            )
+        }
+        listOf("x-api-key", "x-goog-api-key", "anthropic-version").forEach { header ->
+            assertTrue("Rust 侧缺少头名 $header", rustTable.contains(header))
+        }
+        assertTrue(
+            "Rust 侧必须有 Response 解析模块（Responses / Anthropic / Gemini 各一份）",
+            listOf("responses.rs", "anthropic.rs", "gemini.rs").all { File("../core/src/translate/$it").exists() },
         )
     }
 

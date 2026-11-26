@@ -79,6 +79,27 @@ class TranslateSettingsTest {
         assertEquals("sk-super-secret-value", options.getString("apiKey"))
         assertEquals("some-model", options.getString("model"))
         assertEquals("https://relay.example.com/v1", options.getString("baseUrl"))
+        // 协议也在 options 里（Rust 现在是忽略未知字段，多协议那一轮直接读这个键）
+        assertEquals(TranslateProtocol.DEEPSEEK.code, options.getString("protocol"))
+    }
+
+    @Test
+    fun `协议进 options JSON 并进缓存变体`() {
+        val anthropic = TranslateConfig(
+            provider = TranslateProvider.DEEPSEEK.code,
+            apiKey = "sk-x",
+            baseUrl = "https://api.anthropic.com",
+            protocol = TranslateProtocol.ANTHROPIC_MESSAGES.code,
+        )
+        val options = JSONObject(anthropic.engineOptionsJson())
+        assertEquals("anthropic-messages", options.getString("protocol"))
+
+        // 换协议 = 换方言，译文可能不同，所以缓存键必须跟着变（否则两个方言共用一份译文）
+        val other = anthropic.copy(protocol = TranslateProtocol.GEMINI.code)
+        assertTrue(anthropic.cacheVariant() != other.cacheVariant())
+        assertEquals(TranslateProtocol.GEMINI, other.protocolKind)
+        // 脏值回落默认，且落盘值被规范化（byCode → code）
+        assertEquals(TranslateProtocol.DEEPSEEK, anthropic.copy(protocol = "天知道").protocolKind)
     }
 
     @Test

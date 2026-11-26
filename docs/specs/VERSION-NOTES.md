@@ -74,7 +74,58 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.50 → 1.0.22）
+## 二、`versionName` 流水（1.4.51 → 1.0.22）
+
+### 1.4.51
+
+**翻译页加「协议」单选：五档端点方言 + 请求头 / 响应头自动补全。**
+
+① 凭据块第一行新增**协议字段**（与另外三个输入框同形态，自绘 `ProtocolField`），
+   点开是**弹性单选弹窗**（`ProtocolPickerDialog`，`scaleIn` spring + 点一项即生效）：
+   DeepSeek 官方默认协议 / OpenAI Chat Completions / OpenAI Responses / Anthropic Messages /
+   Gemini API。协议是**独立一层**（与「用谁」正交），收在 `:translate` 的方言表
+   `TranslateProtocol` 里 —— 换服务商不该被迫换方言，同一个 Key 也能按两种方言说
+   （DeepSeek 官方同时提供 `/chat/completions` 与 `/anthropic` 两个入口）。
+
+② **请求头自动补全只有一个真源**：`TranslateProtocol.requestHeaders` 按方言补
+   `Accept` / `Content-Type`（仅 POST）/ 鉴权头（`Authorization: Bearer` / `x-api-key` /
+   `x-goog-api-key`）/ `anthropic-version`（仅 Anthropic，缺了直接 400）。
+   **不补** `User-Agent` / `Content-Length` / `Accept-Encoding`（客户端自己会算）、
+   不把 Key 放查询串（Gemini 的 `?key=` 会进 URL 与代理日志）。版本值取 `2023-06-01`
+   而不是官方当前推荐的 `2026-10-21`：后者更严（移除 `temperature`），中转/兼容网关对老版本接受度最高。
+
+③ **响应头只读能照做的两条**：`Retry-After`（429/503，只认秒数）与
+   `x-ratelimit-remaining` / `anthropic-ratelimit-requests-remaining`（为 0 时提示额度用尽）。
+   失败文案因此从「HTTP 429」变成「HTTP 429（Retry-After 12s）」；头名大小写不敏感。
+   响应体方言也一并进表：`data[].id`（OpenAI / DeepSeek / Anthropic）与 Gemini 的
+   `models[].name`（去 `models/` 前缀，并按 `supportedGenerationMethods` 滤掉只能嵌入的模型）。
+
+④ **探测按协议发**：`DeepSeekModels` 改名并泛化为 `ModelProbe`（`fetch(protocol, baseUrl, key)`），
+   「测试响应」与「获取模型列表」仍共用同一次 `GET {base}{modelsPath}`；端点拼接容忍
+   「地址里已含 `/v1` 或 `/v1beta`」的写法（不写出 `/v1/v1/`），空地址回落到**该协议自己的**官方地址。
+
+⑤ **默认值接力**（`carryOver`）：换协议时地址与模型只在「空着」或「仍等于上一档默认值」时跟着换，
+   用户手填过的值一律不动；换档顺带清掉上一档的探测结果与错误行。协议也进
+   `engineOptionsJson()`（`protocol` 键）与 `cacheVariant()`（换方言 = 换缓存键）。
+
+⑥ **Rust 侧同时接上**（同一个提交）：`core/src/translate/mod.rs` 新增 `Protocol` 与
+   `auth_headers` / `join_endpoint` / `chat_endpoint` 的方言分派，三个新后端模块
+   `responses.rs`（`input` + `instructions`）、`anthropic.rs`（`max_tokens` + 顶层 `system` +
+   只取 `text` 块）、`gemini.rs`（模型在路径、`contents`/`systemInstruction`、跳过 `thought` 块）；
+   `deepseek.rs` 现在同时服务 DeepSeek 与 OpenAI Chat。模型为空时 Rust 与 Kotlin
+   （`requiresExplicitModel` 预检）都直接给「去设置填模型」的 AUTH 错误，不发无意义的请求。
+   新增 `core/tests/protocol_http.rs`：回环服务断言四种方言的**真实请求形状**（路径 / 头 / 字段）。
+   **`.so` 随发版流水线重建后才生效**（旧 `.so` 忽略 `protocol` 字段，会继续按 chat/completions 跑）。
+
+⑦ 边界：本机没有 NDK（`ANDROID_NDK_HOME` 空、`/root/Android/ndk` 不存在），
+   `aarch64-linux-android` 只能在 CI 上交叉编译，所以本轮 Rust 的验证走仓库流水线
+   （CI 的 rust 腿：`cargo check --all-targets` / `cargo test` / `clippy`）。
+   五档方言的完整对照表（端点 / 头 / 请求体 / 响应体 / 两侧实现）写在
+   `docs/specs/protocol-matrix.md`，规范见 §二十一。
+
+**验证**：`:app:testDebugUnitTest` 1184 例 0 失败（1 跳过）+ `:translate:test` 153 例 0 失败；
+`:app:assembleDebug` 通过（`Branchbase-1.4.51-…-debug.apk`）；Rust 侧 `cargo test`（CI）+
+`core/tests/protocol_http.rs` 5 例；i18n 100%。
 
 ### 1.4.50
 
@@ -5224,7 +5275,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（310 → 129）
+## 三、`versionCode` 流水（311 → 129）
+
+- **311**：翻译页加协议单选 + 请求头 / 响应头自动补全（1.4.51）—— 五档方言表、`x-api-key` /
+  `anthropic-version` / `x-goog-api-key` 自动补、`Retry-After` 与额度头解读、探测按协议发、
+  地址与模型默认值接力；钉子新增 1、单测新增 16（一次提交，故 +1）。
 
 - **310**：保存成功覆盖弹窗（1.4.50）—— 弹簧曲线进场、绿色勾 + 本地保存文案、约 1.8s 自动消失；
   钉子新增 1（一次提交，故 +1）。

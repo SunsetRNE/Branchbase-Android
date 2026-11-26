@@ -513,6 +513,7 @@ L1 设置（唯一入口）
 | 13 | **凭据折叠与模型二次确认** | 翻译页必须有 `translate_credentials_toggle` + `AnimatedVisibility` + `spring(`；模型探测必须 `ModelPickerDialog(` → `ModelLocalSaveDialog(` → `TranslateSettings.setModels`；隐私说明三句关键承诺不许删（§十九） |
 | 14 | **模型不空着 + 保存/测试拆分** | 翻译页必须用 `ifBlank { TranslateProvider.DEEPSEEK_MODEL }` 预填；必须有逐字输入（`typingTarget` + `delay(`）与「当前」徽标；「测试响应」不许调 `translator.selfTest(`（不翻译、不耗额度）（§二十） |
 | 15 | **保存有反馈** | 必须出现 `SaveSuccessDialog(` + `spring(`；文案含「当前本地已成功保存相应的 Key 配置」（§20.4） |
+| 16 | **协议单选 + 头自动补全单一真源** | 翻译页必须有 `ProtocolField(` + `ProtocolPickerDialog(` + `TranslateSettings.setProtocol` + `carryOver(`，探测必须 `ModelProbe.fetch(protocolDraft`；`:translate` 的方言表必须含五档 `code` 与四个头名（§二十一） |
 
 > 第 1、5、6 条可以在**本轮就加**（现状已基本满足或改动很小）；
 > 第 2、3、4、7 条依赖 §11 的重构，落地时一并加。
@@ -918,7 +919,7 @@ CompositionLocalProvider(LocalSettingsDensity provides SettingsDensity.Compact) 
 | 类型 | 内容 |
 |---|---|
 | 源码钉子 | `翻译页凭据块可折叠_模型探测有二次确认`；`说明弹窗有可拖动的滚动条`（另钉隐私说明的三句关键承诺） |
-| 单测 | `DeepSeekModelsTest`：端点回落 / 去尾斜杠 / 不重复 `/models` / 解析去重排序 / 坏 JSON / 空 Key 不发请求 |
+| 单测 | `DeepSeekModelsTest`：端点回落 / 去尾斜杠 / 不重复 `/models` / 解析去重排序 / 坏 JSON / 空 Key 不发请求（1.4.51 起改名为 `ModelProbeTest`，见 §二十一） |
 | 视觉 | 弹簧参数见 19.1；滚动条最小拇指 28dp、轨道 3dp |
 
 ---
@@ -976,9 +977,57 @@ API Key 框里的「显示」用 11sp 默认行盒（约 18dp），把它那一�
 |---|---|
 | 源码钉子 | `翻译页模型选择与保存测试拆分`：预填 / 逐字输入 / 当前徽标 / 测试响应四件事都在；`translator.selfTest(` 不许出现在页面（测试不耗额度） |
 | 资源 | 删除 `translate_test_ok_detail` / `translate_test_fail_*` / `translate_save_and_test`（不再有真实翻译测试）；新增 `translate_probe_response` / `translate_probe_ok` / `translate_model_current` |
-| 单测 | 探测逻辑仍是 `DeepSeekModelsTest` 7 例；页面行为由源码钉子覆盖 |
+| 单测 | 探测逻辑仍是 `DeepSeekModelsTest` 7 例；页面行为由源码钉子覆盖（1.4.51 起改名为 `ModelProbeTest`，13 例） |
 
 ---
+
+## 二十一、翻译协议（2026-11 · 第八轮）
+
+页面同 §十八/§十九（`ui/profile/TranslateSettingsScreen.kt`）。用户 2026-11-26 的第二条指令：
+**「加协议选项弹性弹窗选项列表：DeepSeek 官方默认协议 / OpenAI Chat Completions /
+OpenAI Responses / Anthropic Messages / Gemini API」**，并要求调研「请求头 / 响应头自动补全」。
+
+### 21.1 决策与落点
+
+| # | 决策 | 落点 |
+|---|---|---|
+| 一 | 协议是**独立一层**（与「用谁」正交），收在 `:translate` 的方言表里 | `translate/.../TranslateProtocol.kt` |
+| 二 | 凭据块**第一行**是协议字段，形态与另外三个输入框一致（不是 `ActionRow`） | `ProtocolField`（`TranslateModelDialogs.kt`） |
+| 三 | 点开是**弹性单选弹窗**，点一项即生效并关窗（单选不需要二次确认） | `ProtocolPickerDialog` + `ModeOptionRow` |
+| 四 | 请求头**自动补全只有一张表**：`Accept` / `Content-Type` / 鉴权头 / `anthropic-version` | `TranslateProtocol.requestHeaders` |
+| 五 | 响应头只读「用户能照做」的两类：`Retry-After`、`x-ratelimit-*remaining` | `ResponseHints`（`ModelProbe.kt`） |
+| 六 | 换协议时**默认值接力**：地址 / 模型为空或仍等于上一档默认值才跟着换 | `carryOver`（页面私有函数） |
+| 七 | 协议落盘、进 options JSON、进缓存变体 | `translate.deepseek.protocol` / `engineOptionsJson` / `cacheVariant` |
+| 八 | 模型候选不臆造：只有 DeepSeek 给两个已知值，其余四档靠「获取模型列表」 | `modelSuggestions` |
+
+细节（五档的端点 / 头 / 响应体差异、为什么不补 `User-Agent` / 查询串、端点拼接六条规则）
+全部在 **`docs/specs/protocol-matrix.md`**，这里不重复。
+
+### 21.2 为什么协议排在 API Key 之前
+
+方言决定三件事：路径（Gemini 的模型名在路径里）、鉴权头（`Authorization` / `x-api-key` /
+`x-goog-api-key`）、默认地址。用户先选方言，再填地址与 Key 才顺；反过来会出现
+「填完 Key 才发现要换协议，地址还得再改一遍」的返工 —— 而默认值接力只接「没改过的值」，
+用户已经手填过就不会被覆盖。
+
+### 21.3 自动补全的两侧分工
+
+- **Kotlin**：探测（`GET {base}{modelsPath}`）按协议拼端点、补头、解析响应；地址与模型的默认值随协议走；
+- **Rust**：翻译请求按同一个码分派（`core/src/translate/mod.rs` 的 `Protocol` +
+  `responses` / `anthropic` / `gemini` 三个后端模块），端点、鉴权头、请求体、响应体各按方言走；
+- **两侧表必须逐字一致**：钉子 `翻译页协议单选_请求头自动补全只有一个真源` 会读
+  `core/src/translate/mod.rs`，少一档 / 少一个头名立刻红；
+- **`.so` 必须随发版重建**：旧 `.so` 忽略 `protocol` 字段（serde 未知字段），
+  会继续按 `chat/completions` 跑，表现是「选了协议不生效」。本机没有 NDK
+  （`ANDROID_NDK_HOME` 空、`/root/Android/ndk` 不存在），交叉编译只在 CI 上做。
+
+### 21.4 钉子与测试
+
+| 类型 | 内容 |
+|---|---|
+| 源码钉子 | `SettingsSpecTest.翻译页协议单选_请求头自动补全只有一个真源`（§10.1 第 16 条） |
+| 单测 | `TranslateProtocolTest` 9 例 + `ModelProbeTest` 13 例；`TranslateSettingsTest` 新增「协议进 options JSON 并进缓存变体」 |
+| 文案 | 中英各 14 条（`translate_protocol_*`），协议名走资源、不进枚举（与 `TranslateProvider` 同一条约定） |
 
 ## 附：术语
 

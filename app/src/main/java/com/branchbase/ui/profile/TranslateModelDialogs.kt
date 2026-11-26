@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.branchbase.R
+import com.branchbase.translate.TranslateProtocol
 import com.branchbase.ui.theme.Primer
 
 /**
@@ -317,4 +318,156 @@ internal fun ModelLocalSaveDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) 
             }
         },
     )
+}
+
+/**
+ * 「协议」字段：外观与 [CompactField] 完全一致（标签 10.5sp + 28dp 框），但**不可输入** ——
+ * 点一下打开 [ProtocolPickerDialog]。
+ *
+ * 为什么不做成真正的一行 `ActionRow`：四个字段连着排，行型换一种就会破坏「标签 / 值 / 框线」
+ * 对齐（1.4.48 真机反馈过的同一个坑）。协议是这个块里的**第一个字段**，形态必须与另外三个一致。
+ *
+ * 28dp 低于 44dp 命中区 —— 与 [CompactField] 同一条边界说明（§19.4）：输入类控件旁边有卡片留白，
+ * 真机仍觉得难点只改 [CompactField] 的 `minHeight` 与这里的 `heightIn` 两处。
+ */
+@Composable
+internal fun ProtocolField(
+    label: String,
+    value: String,
+    hint: String,
+    onClick: () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                label,
+                fontSize = 10.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Primer.TextSecondary,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(Modifier.height(2.dp))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .border(1.dp, Primer.BorderControl, RoundedCornerShape(8.dp))
+                .clickable { onClick() }
+                .heightIn(min = 28.dp)
+                .padding(horizontal = 9.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                value,
+                fontSize = 13.sp,
+                // 与输入框同一个行高：不加这一条，四种字段的框高会差 2dp（1.4.48 的根因）
+                lineHeight = 16.sp,
+                color = Primer.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                hint,
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Primer.Blue500,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+/**
+ * 协议单选弹窗（2026-11 第八轮）：弹簧缩放进场，点一项**即生效并关窗**。
+ *
+ * 为什么不像模型列表那样「勾选 → 保存 → 二次确认」：
+ * - 单选没有「多选框」这种中间态，点一下意图就完整了；
+ * - 它不涉及隐私边界（写盘的是协议码，不是 Key / 地址 / 模型列表），
+ *   二次确认那一套是为「把配置落在本机」准备的，这里没有可确认的内容。
+ *
+ * 行复用 [ModeOptionRow]：与设置里其它 4–7 档单选（语言 / 主题 / 提交模式）同一个形态与配色，
+ * 用户不必在弹窗里认一套新的单选框。
+ *
+ * [recommended] 是从**当前地址**猜出来的协议（`TranslateProtocol.guessFrom`），只作标记：
+ * 猜错时不打扰（不预选、不自动切换），猜对时用户少想一步。
+ */
+@Composable
+internal fun ProtocolPickerDialog(
+    current: TranslateProtocol,
+    recommended: TranslateProtocol?,
+    onDismiss: () -> Unit,
+    onSelect: (TranslateProtocol) -> Unit,
+) {
+    var shown by remember { mutableStateOf(false) }
+    // 进场用弹簧：Dialog 的窗口本身没有过渡，先挂载再翻转 visible 才能看到缩放
+    LaunchedEffect(Unit) { shown = true }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        AnimatedVisibility(
+            visible = shown,
+            enter = scaleIn(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
+                initialScale = 0.86f,
+            ) + fadeIn(tween(140)),
+            exit = scaleOut(targetScale = 0.92f) + fadeOut(tween(110)),
+        ) {
+            Column(
+                Modifier
+                    .padding(horizontal = 24.dp)
+                    .fillMaxWidth()
+                    .background(Primer.BackgroundPrimary, RoundedCornerShape(16.dp))
+                    .padding(16.dp),
+            ) {
+                Text(
+                    stringResource(R.string.translate_protocol_title),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Primer.TextPrimary,
+                )
+                Spacer(Modifier.height(8.dp))
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 360.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    TranslateProtocol.entries.forEach { protocol ->
+                        ModeOptionRow(
+                            label = stringResource(protocol.labelRes) +
+                                if (protocol == recommended) {
+                                    " · " + stringResource(R.string.translate_protocol_recommended)
+                                } else {
+                                    ""
+                                },
+                            desc = stringResource(protocol.descRes),
+                            selected = protocol == current,
+                        ) {
+                            onSelect(protocol)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) {
+                        Text(stringResource(R.string.action_cancel), color = Primer.TextSecondary)
+                    }
+                }
+            }
+        }
+    }
 }

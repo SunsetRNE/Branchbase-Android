@@ -10,57 +10,16 @@
 //! 3. 请求体是 `{model, messages:[system,user], stream:false}`，system 里带目标语言与占位符约束；
 //! 4. 401 / 402 的错误消息里带**能分类的关键词**（Kotlin 侧 `TranslateEngine.classify` 靠它决定熔断）。
 
+mod common;
+
 use branchbase_core::translate::{translate, Options};
-use std::io::{Read, Write};
-use std::net::TcpListener;
-
-/// 起一次性回环服务：收一个请求、回一个固定响应，并把请求原文交回给测试。
-fn spawn_server(status: &'static str, body: &'static str) -> (String, std::thread::JoinHandle<String>) {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("绑定回环端口失败");
-    let addr = listener.local_addr().unwrap();
-
-    let handle = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().expect("accept 失败");
-        let mut buf: Vec<u8> = Vec::new();
-        let mut chunk = [0u8; 1024];
-        // 读满「头部 + Content-Length 指定的正文」
-        loop {
-            let n = match stream.read(&mut chunk) {
-                Ok(0) => break,
-                Ok(n) => n,
-                Err(_) => break,
-            };
-            buf.extend_from_slice(&chunk[..n]);
-            let text = String::from_utf8_lossy(&buf);
-            if let Some(header_end) = text.find("\r\n\r\n") {
-                let content_len = text[..header_end]
-                    .lines()
-                    .find_map(|l| {
-                        l.to_ascii_lowercase()
-                            .strip_prefix("content-length:")
-                            .map(|v| v.trim().parse::<usize>().unwrap_or(0))
-                    })
-                    .unwrap_or(0);
-                if buf.len() >= header_end + 4 + content_len {
-                    break;
-                }
-            }
-        }
-        let response = format!(
-            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n{body}",
-            len = body.len(),
-        );
-        let _ = stream.write_all(response.as_bytes());
-        let _ = stream.flush();
-        String::from_utf8_lossy(&buf).to_string()
-    });
-
-    (format!("http://{addr}"), handle)
-}
+use common::spawn_server;
 
 fn options(base_url: String, key: &str, model: &str) -> Options {
     Options {
         provider: "deepseek".into(),
+        // 缺省协议 = DeepSeek 官方方言（与本文件钉住的请求形状一致）
+        protocol: "deepseek".into(),
         api_key: key.into(),
         model: model.into(),
         base_url,

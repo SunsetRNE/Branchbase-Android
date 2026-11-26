@@ -47,6 +47,15 @@ data class TranslateConfig(
     val apiKey: String = "",
     val model: String = "",
     val baseUrl: String = "",
+    /**
+     * 端点方言（见 [TranslateProtocol]）：DeepSeek 官方 / OpenAI Chat / OpenAI Responses /
+     * Anthropic Messages / Gemini。它与 [provider] 正交：只影响「怎么发请求」，不影响「用谁」。
+     *
+     * Kotlin 侧用它拼探测请求（`ModelProbe`），Rust 侧用它分派翻译请求（`core/src/translate`）。
+     * 无需额外迁移：老配置没有这个键 → 读回默认 [TranslateProtocol.DEEPSEEK]，
+     * 正是老版本唯一支持的写法。
+     */
+    val protocol: String = TranslateProtocol.DEEPSEEK.code,
     val matchPolicy: String = PageRules.MATCH_POLICY_MATCH,
 ) {
 
@@ -56,6 +65,9 @@ data class TranslateConfig(
     val source: String get() = TranslateLang.sourceOf(target)
 
     val providerKind: TranslateProvider get() = TranslateProvider.byCode(provider)
+
+    /** 当前协议（认不出来的码回落到默认，见 [TranslateProtocol.byCode]）。 */
+    val protocolKind: TranslateProtocol get() = TranslateProtocol.byCode(protocol)
 
     /**
      * 本次生效的判定规则（原生判定与页面脚本注入**共用这一份**）。
@@ -71,8 +83,12 @@ data class TranslateConfig(
     /**
      * **译文缓存变体指纹**（进缓存键，见 `TranslateCache` 的类注释）。
      *
-     * 组成：后端 + 模型 + 接入地址。这三样任一变化都会改变译文，所以必须换键 ——
+     * 组成：后端 + **协议** + 模型 + 接入地址。这四样任一变化都会改变译文，所以必须换键 ——
      * 否则换到 DeepSeek 之后命中的还是 MyMemory 的旧译文，用户看到的是「换了没效果」。
+     *
+     * 协议也算变体：同一句原文按 Chat Completions 与按 Anthropic Messages 发出去，
+     * 提示词相同但**服务端的组织方式不同**（system 的位置、max_tokens 的有无），
+     * 译文可能不同；换协议时留着旧译文等于让两个方言共用一份缓存。
      *
      * **刻意不含 API Key**：同一后端 + 同一模型/地址，换 Key 不改变译文（Key 只是通行证），
      * 把它算进去会让「换 Key」= 「整库缓存作废」，白白重烧一遍额度。
@@ -80,16 +96,22 @@ data class TranslateConfig(
      * 也不含 `style` / `dual`：那两项只影响页面表现（CSS 与插入方式），同一份译文照用 ——
      * 这正是「对照 / 仅译文」「三种样式」切换不重翻的原因（见类注释第一组字段）。
      */
-    fun cacheVariant(): String = "${providerKind.code}|$model|$baseUrl"
+    fun cacheVariant(): String = "${providerKind.code}|$protocol|$model|$baseUrl"
 
     /**
      * 传给 Rust 后端的选项 JSON（`core/src/translate/mod.rs::Options`）。
      *
      * 与 [TranslateSettings.pageConfigJson] 严格分开：那份会**注入到 WebView 页面**里，
      * 这份含 API Key，只走 JNI。两者的字段集合刻意不重叠，避免哪天顺手合并时泄密。
+     *
+     * ## `protocol` 这一项现在还没被 Rust 使用
+     *
+     * Rust 的 `Options` 是 `#[serde(default)]` + 未知字段忽略，所以老 `.so`（不认识这个键）也不会
+     * 报错 —— 1.4.51 起 Rust 侧读它分派（`translate::Protocol`），老 `.so` 则继续按 chat/completions 跑。
      */
     fun engineOptionsJson(): String = JSONObject()
         .put("provider", providerKind.code)
+        .put("protocol", protocolKind.code)
         .put("apiKey", apiKey)
         .put("model", model)
         .put("baseUrl", baseUrl)
@@ -133,6 +155,7 @@ object TranslateSettings {
     private const val KEY_API_KEY = "translate.deepseek.key"
     private const val KEY_MODEL = "translate.deepseek.model"
     private const val KEY_BASE_URL = "translate.deepseek.baseUrl"
+    private const val KEY_PROTOCOL = "translate.deepseek.protocol"
     private const val KEY_MODELS = "translate.deepseek.models"
     private const val KEY_MATCH_POLICY = "translate.matchPolicy"
 
@@ -156,6 +179,7 @@ object TranslateSettings {
             apiKey = p.getString(KEY_API_KEY, "") ?: "",
             model = p.getString(KEY_MODEL, "") ?: "",
             baseUrl = p.getString(KEY_BASE_URL, "") ?: "",
+            protocol = TranslateProtocol.byCode(p.getString(KEY_PROTOCOL, null)).code,
             matchPolicy = PageRules.matchPolicyOf(p.getString(KEY_MATCH_POLICY, null)),
         )
     }
@@ -183,6 +207,15 @@ object TranslateSettings {
     /** 保存自定义接入地址（trim 并去掉末尾 `/`；空串表示用官方地址）。 */
     fun setBaseUrl(context: Context, url: String) =
         write(context, KEY_BASE_URL, url.trim().trimEnd('/'))
+
+    /**
+     * 保存协议（认不出来的码回落到默认）。
+     *
+     * **只改这一个键**：切换协议时不会顺手改地址或模型 —— 「地址该不该跟着换」
+     * 是设置页的交互决定（它会把默认值一起带过去），存储层不做猜测。
+     */
+    fun setProtocol(context: Context, protocol: String) =
+        write(context, KEY_PROTOCOL, TranslateProtocol.byCode(protocol).code)
 
     /**
      * 本机保存的模型列表（2026-11 第六轮）。
@@ -217,6 +250,7 @@ object TranslateSettings {
             .remove(KEY_ENABLED).remove(KEY_TARGET).remove(KEY_DUAL)
             .remove(KEY_STYLE).remove(KEY_PERSIST).remove(KEY_PROTECT)
             .remove(KEY_PROVIDER).remove(KEY_API_KEY).remove(KEY_MODEL).remove(KEY_BASE_URL)
+            .remove(KEY_PROTOCOL)
             .remove(KEY_MODELS).remove(KEY_MATCH_POLICY)
             .apply()
         cached = null

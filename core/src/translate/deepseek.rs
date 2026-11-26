@@ -1,5 +1,9 @@
 //! DeepSeek 后端（OpenAI 兼容 `/chat/completions`，用户自带 API Key）。
 //!
+//! 同一份实现服务**两档协议**：[super::Protocol::DeepSeek]（官方 `/chat/completions`）
+//! 与 [super::Protocol::OpenAiChat]（`/v1/chat/completions`）—— 两者请求体、响应体、
+//! 鉴权头完全一致，只有端点路径与默认地址不同（由 [super::Options::chat_endpoint] 决定）。
+//!
 //! ## 为什么值得加这一家
 //!
 //! MyMemory 这类免费句子库接口在**长句、技术术语、中英混排**上明显吃亏（它本质是找近似句），
@@ -38,24 +42,25 @@ pub async fn translate(
     to: &str,
     options: &super::Options,
 ) -> Result<String> {
+    let protocol = options.protocol();
     let key = options.api_key.trim();
     if key.is_empty() {
         // 上层其实已经拦过一次（引擎里短路），这里是兜底：直接说清是「没配 Key」
         return Err(CoreError::coded(
             "TRANSLATE_AUTH",
-            "DeepSeek 认证失败（401）：尚未配置 API Key",
+            format!("{} 认证失败（401）：尚未配置 API Key", protocol.label()),
         ));
     }
+    let model = super::require_model(options)?;
 
     let body = serde_json::json!({
-        "model": options.model_or_default(),
+        "model": model,
         "messages": build_messages(text, from, to),
         "stream": false,
     });
 
-    let resp = super::http()
-        .post(options.chat_completions_url())
-        .bearer_auth(key)
+    let url = options.chat_endpoint();
+    let resp = super::json_request(protocol, &url, key)
         .json(&body)
         .send()
         .await?;
@@ -63,12 +68,7 @@ pub async fn translate(
     let status = resp.status();
     let raw = resp.text().await?;
     if !status.is_success() {
-        let detail = super::extract_api_error(&raw)
-            .unwrap_or_else(|| super::truncate(&raw, 200));
-        return Err(CoreError::coded(
-            super::failure_code(status.as_u16()),
-            error_message(status.as_u16(), &detail),
-        ));
+        return Err(super::http_failure(protocol, status.as_u16(), &raw));
     }
     parse_response(&raw)
 }
@@ -149,20 +149,6 @@ fn strip_wrapping_quotes(s: &str) -> &str {
     s
 }
 
-/// 把 HTTP 状态码翻成**能被人读懂、也能被 Kotlin 分类**的错误消息。
-///
-/// 关键词是契约：Kotlin 的 `TranslateEngine.classify` 靠「认证失败 / 余额 / 限流 / HTTP 5」
-/// 决定熔断还是重试（见 `translate/src/main/java/.../TranslateEngine.kt`）。
-fn error_message(status: u16, detail: &str) -> String {
-    match status {
-        401 => format!("DeepSeek 认证失败（401）：{detail} —— 请在「设置 → 沉浸式翻译」检查 API Key"),
-        402 => format!("DeepSeek 余额不足（402）：{detail}"),
-        429 => format!("DeepSeek 限流（429）：{detail}"),
-        400 | 422 => format!("DeepSeek 请求参数无效（{status}）：{detail}"),
-        _ => format!("DeepSeek 接口返回 HTTP {status}：{detail}"),
-    }
-}
-
 fn target_label(to: &str) -> String {
     match to.trim().to_ascii_lowercase().as_str() {
         "zh" | "zh-cn" | "zh-hans" => "简体中文".into(),
@@ -238,9 +224,11 @@ mod tests {
 
     #[test]
     fn 状态码映射出可分类的错误消息() {
-        assert!(error_message(401, "Authentication Fails").contains("认证失败"));
-        assert!(error_message(402, "Insufficient Balance").contains("余额不足"));
-        assert!(error_message(429, "Rate Limit Reached").contains("限流"));
-        assert!(error_message(503, "server overloaded").contains("HTTP 503"));
+        // 消息拼装在 mod.rs（按协议带服务名）；这里钉的是**分类关键词**没被改掉
+        let msg = |status, detail| super::super::error_message(super::super::Protocol::DeepSeek, status, detail);
+        assert!(msg(401, "Authentication Fails").contains("认证失败"));
+        assert!(msg(402, "Insufficient Balance").contains("余额不足"));
+        assert!(msg(429, "Rate Limit Reached").contains("限流"));
+        assert!(msg(503, "server overloaded").contains("HTTP 503"));
     }
 }

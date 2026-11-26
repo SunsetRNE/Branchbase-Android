@@ -34,18 +34,23 @@ enum class TranslateProvider(val code: String) {
         fun byCode(code: String?): TranslateProvider =
             entries.firstOrNull { it.code.equals(code, true) } ?: default
 
-        /** DeepSeek 默认接入地址（用户可在设置里改成中转/自建）。 */
-        const val DEEPSEEK_BASE_URL: String = "https://api.deepseek.com"
+        /**
+         * DeepSeek 默认接入地址（用户可在设置里改成中转/自建）。
+         *
+         * 真源在 [TranslateProtocol.DEEPSEEK]：协议的默认地址、模型、候选都归协议表，
+         * 这里只是给「只知道 DeepSeek」的调用点留一个短名字，避免两处各写一份。
+         */
+        val DEEPSEEK_BASE_URL: String get() = TranslateProtocol.DEEPSEEK.defaultBaseUrl
 
         /**
-         * DeepSeek 默认模型。
+         * DeepSeek 默认模型（真源在 [TranslateProtocol.DEEPSEEK]）。
          *
          * 与 Rust 侧 `translate::deepseek::DEFAULT_MODEL` 保持一致：
          * 空模型名时由 Rust 兜底，这里填一份是为了设置页能显示「默认」提示。
          */
-        const val DEEPSEEK_MODEL: String = "deepseek-flash"
+        val DEEPSEEK_MODEL: String get() = TranslateProtocol.DEEPSEEK.defaultModel
 
         /** 设置页里的模型候选（也可以自己填，输入框不受限）。 */
-        val MODEL_SUGGESTIONS: List<String> = listOf(DEEPSEEK_MODEL, "deepseek-v4-pro")
+        val MODEL_SUGGESTIONS: List<String> get() = TranslateProtocol.DEEPSEEK.modelSuggestions
     }
 }
