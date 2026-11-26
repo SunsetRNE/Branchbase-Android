@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -64,23 +63,21 @@ import com.branchbase.ui.theme.Primer
  */
 
 /**
- * 紧凑输入框：**标签压在边框上**，整行 34dp（Material `OutlinedTextField` 是 56dp）。
+ * 紧凑输入框：标签在框上方，框高 34dp（Material `OutlinedTextField` 是 56dp）。
  *
- * ## 为什么标签不单独占一行
+ * ## 为什么不是「标签压边框」
  *
- * 2026-11-26 真机反馈「红框那块行高再砍 1/3」。独立标签行是每行 15dp 文字 + 4dp 间距，
- * 三行就是约 57dp —— 正好是能砍掉的那一截。现在标签坐在输入框上边框上（outlined 字段的
- * 标准做法），标签底 `Gray100` 正好盖住边框一小段；行高只剩 34dp + 6dp 行距。
+ * 1.4.46 试过把标签放到上边框上（省掉独立标签行，整块再矮 1/3）—— 真机读起来很别扭：
+ * 标签打断框线、标签与值贴得太近、三个框看起来像黏在一起。这一版**回滚**成常规的
+ * 「标签一行、框一行」，只保留框高与间距上的压缩（比 1.4.45 矮约 15%）。
  *
- * ## 为什么是 34dp 而不是 28dp
+ * ## 尺寸
  *
- * 再往下砍就要压 13sp 的字号或把文字挤到框线上。34dp = 13sp 行高 + 上下 7dp，
- * 虽然低于 44dp 的推荐命中区，但它是输入框（点进去才聚焦、旁边还有整块卡片的留白），
- * 不是开关；[ModelListBadge] 与「显示 / 隐藏」仍给足横向空间。真机上若觉得难点，
- * 只改这一个数即可。
+ * 34dp = 13sp 行高 + 上下 7dp；低于 44dp 推荐命中区，但输入框不是开关（点进去才聚焦、
+ * 旁边有卡片留白）。真机仍觉得难点，只改 `minHeight` 一处即可。
  *
- * [trailingContent] 放在框内右侧（「显示 / 隐藏」、模型徽章都属于「贴着这个字段的动作」，
- * 不该再占一行）。
+ * [headerAction] 放标签行右侧（模型的「获取模型列表」）；[trailingContent] 放框内右侧
+ * （Key 的「显示 / 隐藏」与徽章二选一，别同时塞进同一个框）。
  */
 @Composable
 internal fun CompactField(
@@ -90,9 +87,23 @@ internal fun CompactField(
     placeholder: String,
     mono: Boolean = false,
     visualTransformation: VisualTransformation = VisualTransformation.None,
+    headerAction: (@Composable () -> Unit)? = null,
     trailingContent: (@Composable () -> Unit)? = null,
 ) {
-    Box(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+    Column(Modifier.fillMaxWidth().padding(bottom = 5.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                label,
+                fontSize = 10.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Primer.TextSecondary,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (headerAction != null) headerAction()
+        }
+        Spacer(Modifier.height(3.dp))
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
@@ -133,21 +144,6 @@ internal fun CompactField(
                     }
                 }
             },
-        )
-        // 标签压在边框上：底 `Gray100` 是设置卡片的底色，正好盖掉框线一小段。
-        // 用固定色而不是参数，是因为这个输入只出现在设置卡片里（见 TranslateSettingsScreen）。
-        Text(
-            label,
-            fontSize = 10.5.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = Primer.TextSecondary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .offset(x = 8.dp, y = (-7).dp)
-                .background(Primer.Gray100)
-                .padding(horizontal = 4.dp),
         )
     }
 }
