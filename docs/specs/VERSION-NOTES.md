@@ -74,7 +74,29 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.62 → 1.0.22）
+## 二、`versionName` 流水（1.4.63 → 1.0.22）
+
+### 1.4.63
+
+**活动项与常用仓库管理页接到同一套卡片语言（1.4.62 的后续）。**
+
+① **抽出共用卡片面**：`ui/CardSurface.kt` 的 `CardShape` / `CardElevation` / `Modifier.cardSurface()`
+—— 1.4.62 在首页里写死的那两个常量，现在三处（首页分组卡、仓库卡、管理页可置顶行）共用一份，
+`ActivityItem` 也接进来。以后调阴影力度只改一个数。
+
+② **活动项**：原来是「28dp 白圆 + 16dp 黑图标」，改成 28dp 图标牌（圆角 8dp / 图标 16dp）+ 卡片面。
+活动列表是**混类型**的，颜色在这里比在区块标题上更有用：星标 = `WARNING` 橙、复刻 / PR = `DONE` 紫、
+议题 = `DANGER` 红、推送 = `ACCENT` 蓝、新建 = `SUCCESS` 绿（与 More 菜单同一套语义）。
+`Activity` 模型多带一个 `tint`，由 `parseActivities` 按事件类型给，渲染处不传色值。
+
+③ **可置顶行**：未选中从 `Gray100` 换成 `BackgroundSecondary` + 4dp 阴影、圆角 10 → 12；
+选中仍是 `InfoSurfaceStrong` + 1.5dp `Blue500` 环。阴影两态恒定 —— 只在选中时加/收会跳一下，
+而边界靠蓝环已经说清楚了。
+
+**边界**：管理页抽屉里那份「已置顶顺序」列表仍是 `Gray100` 行（它在面板里，不是页面卡片，
+缩进与高度都按行设计），这次不动；仓库页 / 个人页卡片仍是上一代。
+
+验证：`assembleDebug` 通过；真机安装确认活动项与置顶行的分层与首页一致。
 
 ### 1.4.62
 
@@ -5540,7 +5562,12 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（322 → 129）
+## 三、`versionCode` 流水（323 → 129）
+
+- **323**：活动项 + 管理页置顶行接到同一套卡片（1.4.63）—— 抽 `ui/CardSurface.kt`（形状 / 阴影 /
+  `Modifier.cardSurface()` 三处共用）；`ActivityItem` 白圆黑图标 → 28dp 语义色图标牌 + 卡片面；
+  可置顶行未选中 `Gray100` → 白面 + 阴影、圆角 12；`Activity` 模型 +`tint`（一次提交，故 +1）。
+
 
 - **322**：首页图标牌 + 卡片白面浮起（1.4.62）—— `SectionHeader` / `TodoHead` 换 `TintChip`
   （22/7/13、同色 12%），卡片 `Gray100` → `BackgroundSecondary` + 4dp 阴影 + 圆角 12，

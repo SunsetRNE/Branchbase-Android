@@ -66,7 +66,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -81,6 +80,7 @@ import com.branchbase.core.AccountStore
 import com.branchbase.core.RustBridge
 import com.branchbase.ui.LocalizedText
 import com.branchbase.ui.TintChip
+import com.branchbase.ui.cardSurface
 import com.branchbase.ui.theme.TintRole
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.Avatar
@@ -105,16 +105,7 @@ import org.json.JSONObject
  */
 private const val COUNT_UNKNOWN = "\u2014"
 
-/**
- * 首页卡片的统一容器语言：**中性白面 + 4dp 阴影、圆角 12dp**。
- *
- * 底色用 `Primer.BackgroundSecondary`（= `canvasSubtle`）：浅色板里它等于 canvas（纯白），
- * 靠阴影与页面分层；深色板里它是 `#161B22`，靠明度差分层。同一份代码两套主题都成立，
- * 这也是为什么不再用 `Gray100` —— 灰底在浅色下是"一块被染灰的白"，比白面 + 阴影重，
- * 在深色下又和 `canvasSubtle` 是同一个面（等于没换）。
- */
-private val HomeCardShape = RoundedCornerShape(12.dp)
-private val HomeCardElevation = 4.dp
+/* 卡片容器语言见 `ui/CardSurface.kt`（1.4.63 抽成共用：首页 + 常用仓库管理页）。 */
 
 /**
  * 首页 Dashboard。
@@ -477,17 +468,20 @@ private fun parseActivities(json: String): List<Activity> {
             val repoName = obj.optJSONObject("repo")?.optString("name") ?: ""
             val createdAt = obj.optString("created_at")
             // 整句资源：原来拼 "$actor $verb $repoName"，只有中文语序拼得对
-            val (icon, text) = when (type) {
-                "WatchEvent" -> Icons.Filled.Star to LocalizedText(R.string.home_activity_starred, listOf(actor, repoName))
-                "ForkEvent" -> Icons.Filled.CallSplit to LocalizedText(R.string.home_activity_forked, listOf(actor, repoName))
-                "IssuesEvent" -> Icons.Filled.ErrorOutline to LocalizedText(R.string.home_activity_issue, listOf(actor, repoName))
-                "PullRequestEvent" -> Icons.Filled.CallSplit to LocalizedText(R.string.home_activity_pr, listOf(actor, repoName))
-                "PushEvent" -> Icons.Filled.Code to LocalizedText(R.string.home_activity_push, listOf(actor, repoName))
-                "CreateEvent" -> Icons.Filled.Add to LocalizedText(R.string.home_activity_created, listOf(actor, repoName))
+            val (icon, tint, text) = when (type) {
+                // 色按「动作的性质」分，与 More 菜单同一套语义：星=警告橙、复刻/PR=紫、
+                // 议题=危险红、推送=主蓝、新建=成功绿。
+                "WatchEvent" -> Triple(Icons.Filled.Star, TintRole.WARNING, LocalizedText(R.string.home_activity_starred, listOf(actor, repoName)))
+                "ForkEvent" -> Triple(Icons.Filled.CallSplit, TintRole.DONE, LocalizedText(R.string.home_activity_forked, listOf(actor, repoName)))
+                "IssuesEvent" -> Triple(Icons.Filled.ErrorOutline, TintRole.DANGER, LocalizedText(R.string.home_activity_issue, listOf(actor, repoName)))
+                "PullRequestEvent" -> Triple(Icons.Filled.CallSplit, TintRole.DONE, LocalizedText(R.string.home_activity_pr, listOf(actor, repoName)))
+                "PushEvent" -> Triple(Icons.Filled.Code, TintRole.ACCENT, LocalizedText(R.string.home_activity_push, listOf(actor, repoName)))
+                "CreateEvent" -> Triple(Icons.Filled.Add, TintRole.SUCCESS, LocalizedText(R.string.home_activity_created, listOf(actor, repoName)))
                 else -> return@mapNotNull null
             }
             Activity(
                 icon = icon,
+                tint = tint,
                 text = text,
                 createdAt = createdAt,
             )
@@ -576,7 +570,7 @@ private fun GreetingRow(login: String) {
 }
 
 /**
- * 首页分区容器：**中性白面 + 4dp 阴影、圆角 12dp**（与 [RepoCard] 同一套，见 [HomeCardShape]）。
+ * 首页分区容器：**中性白面 + 4dp 阴影、圆角 12dp**（与 [RepoCard] 同一套，见 `ui/CardSurface.kt`）。
  *
  * 「待处理」与「进行中」共用同一套容器语言 —— 两块并排时不能一个是无框分组、
  * 一个是 1dp 纯黑描边卡片（浅色板里 `BorderEmphasis` 就是纯黑，是页面上最重的线）。
@@ -594,9 +588,7 @@ private fun HomeGroupCard(
     Column(
         modifier.fillMaxWidth()
             .padding(horizontal = 16.dp)
-            .shadow(HomeCardElevation, HomeCardShape)
-            .clip(HomeCardShape)
-            .background(Primer.BackgroundSecondary),
+            .cardSurface(),
         content = content,
     )
 }
@@ -1001,11 +993,8 @@ private fun RepoCard(repo: RepoSummary, onClick: () -> Unit = {}) {
         modifier = Modifier
             .padding(start = 16.dp, end = 16.dp, bottom = 6.dp)
             .fillMaxWidth()
-            // 与 HomeGroupCard 同一套容器：白面 + 阴影。浅色下同色不同层靠阴影，
-            // 深色下 BackgroundSecondary 就是 #161B22，阴影不可见也不影响分层。
-            .shadow(HomeCardElevation, HomeCardShape)
-            .clip(HomeCardShape)
-            .background(Primer.BackgroundSecondary)
+            // 与 HomeGroupCard 同一套容器（ui/CardSurface.kt）：白面 + 阴影。
+            .cardSurface()
             .clickable { onClick() }
             // 竖向比横向收得更狠：留白是这张卡最高的成本项，横向再收会让文字贴边
             .padding(horizontal = 14.dp, vertical = 8.dp),
@@ -1110,28 +1099,24 @@ private fun RepoBadge(text: String) {
     )
 }
 
-/** 活动项 */
+/**
+ * 活动项。
+ *
+ * 容器与首页仓库卡同一套（[cardSurface]）；图标从「白圆 + 黑图标」换成 28dp 图标牌 ——
+ * 活动列表是**混类型**的，颜色在这里比在区块标题上更有用：一眼能分出星标 / 复刻 / 议题 / 推送。
+ */
 @Composable
 private fun ActivityItem(act: Activity) {
     val context = LocalContext.current
     Row(
         modifier = Modifier
-            .padding(start = 16.dp, end = 16.dp, bottom = 10.dp)
+            .padding(start = 16.dp, end = 16.dp, bottom = 6.dp)
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(Primer.BackgroundSecondary)
+            .cardSurface()
             .padding(12.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        Box(
-            modifier = Modifier
-                .size(28.dp)
-                .clip(CircleShape)
-                .background(Primer.BackgroundPrimary),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(act.icon, contentDescription = null, tint = Primer.IconPrimary, modifier = Modifier.size(16.dp))
-        }
+        TintChip(act.icon, act.tint, size = 28.dp, corner = 8.dp, iconSize = 16.dp)
         Spacer(Modifier.width(10.dp))
         Column {
             Text(act.text.resolve(context), fontSize = 13.sp, color = Primer.TextSecondary)
@@ -1170,6 +1155,8 @@ internal data class RepoSummary(
 /** 活动（来自 received_events） */
 private data class Activity(
     val icon: ImageVector,
+    /** 图标牌的语义色：由事件类型决定，渲染处不传色值。 */
+    val tint: TintRole,
     /** 模型只带「资源 ID + 参数」，渲染时才按当前语言解析（见 [LocalizedText]）。 */
     val text: LocalizedText,
     /** 事件的 ISO 时间。相对时间在**渲染时**算，否则语言切换后旧文案会停在内存里。 */

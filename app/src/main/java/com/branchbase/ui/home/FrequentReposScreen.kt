@@ -27,6 +27,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import com.branchbase.ui.CardElevation
+import com.branchbase.ui.CardShape
 import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -56,6 +58,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -95,10 +98,13 @@ import org.json.JSONObject
  * 所以这一页的列表 = 候选全集（与首页同源：同一份 [MY_REPOS_CACHE_KEY] 缓存），选中态叠在列表上。
  *
  * ## 选中态 = 卡片底色（不是一圈静止的描边）
- * 未选中：[Primer.Gray100] 底、**无描边**；选中：[Primer.InfoSurfaceStrong] 浅蓝实底 +
- * 1.5dp [Primer.Blue500] 蓝环 + 右侧对勾。三者同时变：底色负责「一眼看出哪些已置顶」，
- * 蓝环负责在这一屏 20 张卡里把边界说清楚，对勾负责色弱与强光下的可读性
- * （`NotificationScreen` 的多选行也是这么叠的）。
+ * 未选中：[Primer.BackgroundSecondary] 白面 + 阴影（与首页仓库卡同一套，见 `ui/CardSurface.kt`）；
+ * 选中：[Primer.InfoSurfaceStrong] 浅蓝实底 + 1.5dp [Primer.Blue500] 蓝环 + 右侧对勾。
+ * 三者同时变：底色负责「一眼看出哪些已置顶」，蓝环负责在这一屏 20 张卡里把边界说清楚，
+ * 对勾负责色弱与强光下的可读性（`NotificationScreen` 的多选行也是这么叠的）。
+ *
+ * 1.4.63：未选中的 `Gray100` 换白面 + 阴影。灰底在浅色下是「被染灰的白」，靠 5% 明度差硬造；
+ * 深色下它又正好等于 `canvasSubtle`，与白面是同一个面。
  *
  * 上一版让**每一张**未选中的卡都带 1dp [Primer.Border] 黑框，等于用「框」表达「没选中」——
  * 满屏都是框，选中只是换了个框色 + 6% 蓝底，扫视时读不出来。现在框只在选中时出现。
@@ -444,21 +450,22 @@ private fun SelectedReposSheet(
 }
 
 /**
- * 可置顶的仓库行：**底色 = 选中态**（未选中 Gray100 无框 / 选中 InfoSurfaceStrong + 1.5dp Blue500 环）。
+ * 可置顶的仓库行：**底色 = 选中态**（未选中白面 + 阴影 / 选中 InfoSurfaceStrong + 1.5dp Blue500 环）。
  *
  * 尺寸与字号跟另外两处仓库卡（首页「常用仓库」、个人页「热门仓库」）同一套参数：
- * 圆角 10dp / 卡距 6dp / 内边距 h14·v8 / 名字 14sp / 描述 12sp·行高 15sp·限 2 行 /
+ * 圆角 12dp（[CardShape]）/ 卡距 6dp / 内边距 h14·v8 / 名字 14sp / 描述 12sp·行高 15sp·限 2 行 /
  * 名字↔描述 2dp / 描述↔元信息 6dp。这一页原先还是上一代规格（12dp / 10dp / 14dp / 15sp / 13sp）——
  * 三处卡片各自演化过一次之后，这里成了唯一还胖的那个 —— 一行约多 22dp，20 行滚下来约多半屏。
  */
 @Composable
 private fun PinnableRepoRow(repo: RepoSummary, selected: Boolean, onToggle: () -> Unit) {
-    val shape = RoundedCornerShape(10.dp)
+    // 形状与阴影取共用卡片语言：与首页仓库卡同一套（ui/CardSurface.kt）
+    val shape = CardShape
     val press = remember { MutableInteractionSource() }
     // ② 选中底色 180ms 渐变（ElementMotion.COLOR_MS）：原来是硬切 ——
     // 一次点按在列表里读成「闪了一下」，渐变才读得出「这一张被我钉到首页了」。
     val rowBg by animateColorAsState(
-        targetValue = if (selected) Primer.InfoSurfaceStrong else Primer.Gray100,
+        targetValue = if (selected) Primer.InfoSurfaceStrong else Primer.BackgroundSecondary,
         animationSpec = tween(ElementMotion.COLOR_MS),
         label = "pinRowBg",
     )
@@ -466,9 +473,11 @@ private fun PinnableRepoRow(repo: RepoSummary, selected: Boolean, onToggle: () -
         modifier = Modifier
             .padding(start = 16.dp, end = 16.dp, bottom = 6.dp)
             .fillMaxWidth()
+            // 阴影两态恒定：只在选中时加/收会"跳"一下，而边界靠蓝环就够。
+            .shadow(CardElevation, shape)
             .clip(shape)
-            // 选中 = 底色（浅蓝实底）；未选中 = Gray100 的「有底、无框」——
-            // 旧版让每张卡都带 1dp 黑框，满屏都是框，选中的那张只是框变蓝，扫视读不出来。
+            // 选中 = 浅蓝实底；未选中 = 白面（深色下是 #161B22），两种态都无框，
+            // 框只在选中时以蓝环出现。
             .background(rowBg)
             // 蓝环只在选中时出现：它是「选中」的一部分，不是常驻装饰
             .then(if (selected) Modifier.border(1.5.dp, Primer.Blue500, shape) else Modifier)
