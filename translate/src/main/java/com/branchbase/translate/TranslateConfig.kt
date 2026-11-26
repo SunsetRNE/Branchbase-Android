@@ -1,6 +1,7 @@
 package com.branchbase.translate
 
 import android.content.Context
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -132,6 +133,7 @@ object TranslateSettings {
     private const val KEY_API_KEY = "translate.deepseek.key"
     private const val KEY_MODEL = "translate.deepseek.model"
     private const val KEY_BASE_URL = "translate.deepseek.baseUrl"
+    private const val KEY_MODELS = "translate.deepseek.models"
     private const val KEY_MATCH_POLICY = "translate.matchPolicy"
 
     @Volatile
@@ -182,6 +184,29 @@ object TranslateSettings {
     fun setBaseUrl(context: Context, url: String) =
         write(context, KEY_BASE_URL, url.trim().trimEnd('/'))
 
+    /**
+     * 本机保存的模型列表（2026-11 第六轮）。
+     *
+     * 它是「用户从探测结果里勾选出的子集」，只用来在设置页给候选芯片，**不参与翻译请求**
+     * （真正发出去的是 [TranslateConfig.model]）。默认空 = 没探测过，UI 回落到内置候选。
+     *
+     * 存 JSON 数组而不是 StringSet：顺序要稳定（用户勾选的顺序就是他读到的顺序），
+     * 而 `StringSet` 在 SharedPreferences 里不保证顺序。
+     */
+    fun readModels(context: Context): List<String> {
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_MODELS, null) ?: return emptyList()
+        return runCatching {
+            val arr = JSONArray(raw)
+            (0 until arr.length())
+                .mapNotNull { arr.optString(it)?.trim()?.takeIf(String::isNotEmpty) }
+                .distinct()
+        }.getOrDefault(emptyList())
+    }
+
+    fun setModels(context: Context, models: List<String>) =
+        write(context, KEY_MODELS, JSONArray(models.map { it.trim() }.filter { it.isNotEmpty() }.distinct()).toString())
+
     /** 保存混排段落的处理规则（认不出来的取值回落到默认，见 [PageRules.matchPolicyOf]）。 */
     fun setMatchPolicy(context: Context, policy: String) =
         write(context, KEY_MATCH_POLICY, PageRules.matchPolicyOf(policy))
@@ -192,7 +217,7 @@ object TranslateSettings {
             .remove(KEY_ENABLED).remove(KEY_TARGET).remove(KEY_DUAL)
             .remove(KEY_STYLE).remove(KEY_PERSIST).remove(KEY_PROTECT)
             .remove(KEY_PROVIDER).remove(KEY_API_KEY).remove(KEY_MODEL).remove(KEY_BASE_URL)
-            .remove(KEY_MATCH_POLICY)
+            .remove(KEY_MODELS).remove(KEY_MATCH_POLICY)
             .apply()
         cached = null
     }

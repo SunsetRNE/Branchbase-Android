@@ -509,6 +509,8 @@ L1 设置（唯一入口）
 | 9 | **密度按页** | `LocalSettingsDensity provides` 只许在「主页」与「翻译页」各出现一次，其余设置文件 0 次（§16.2 / §十八） |
 | 10 | **总开关只有一个入口** | 主页不许出现 `translate_auto_toggle`；翻译页必须有它（`modules-design.md` §1） |
 | 11 | **长说明在弹窗里** | 翻译页必须 `SettingsSection(` + `SettingsNotesDialog(`；不许 `SettingsSectionTitle` / `SettingsProse` / `translate_notes_body`；行内 16 条文案 ≤22 字（§十八） |
+| 12 | **说明弹窗可拖滚动条** | `SettingsNotesDialog` 必须有 `NotesScrollbar(` + `detectVerticalDragGestures`（§十九） |
+| 13 | **凭据折叠与模型二次确认** | 翻译页必须有 `translate_credentials_toggle` + `AnimatedVisibility` + `spring(`；模型探测必须 `ModelPickerDialog(` → `ModelLocalSaveDialog(` → `TranslateSettings.setModels`；隐私说明三句关键承诺不许删（§十九） |
 
 > 第 1、5、6 条可以在**本轮就加**（现状已基本满足或改动很小）；
 > 第 2、3、4、7 条依赖 §11 的重构，落地时一并加。
@@ -601,6 +603,7 @@ L1 设置（唯一入口）
 | v3 | 2026-09 | 账户卡修复：`AccountRow` 原来是写死的灰底首字母，改成统一 `theme/Avatar`（本地缓存 → `avatar_url` → 首字母兜底，圆形裁切），新增 `avatar` 参数；账号侧补 `Account.avatarUrl`（快照缺失回落会话 `user.avatar_url`），`MainActivity` 预热同源；`SettingsSpecTest` 新增两条钉子；偏离表补第 4 条。见 §十四 |
 | v5 | 2026-09 | 设置树描边改为纯黑（**仅浅色**）：卡片描边与行分隔线由 `Primer.Gray200`（`#E3E4E8`）改走**新增角色** `Primer.BorderEmphasis`（浅 `#000000` / 深 `#30363D`）；`Primer.BorderControl` 浅色由 `#8B8E99` 改为 `#000000`（深色仍 `#6E7681`）。受影响断言：无 —— `SettingsSpecTest` 本轮**未新增钉子**，因为「无写死色值」那条已覆盖（改的是角色引用，不是字面量）。见 §十四末 |
 | v6 | 2026-09-24 | **行尾控件贴右**（真机截图圈选处）：`SettingsRow.kt` 里 4 处主轴权重盒由 `weight(1f, fill = false)` 改为 `weight(1f)` —— `SettingsText` 名称列、`NavRow` / `DisabledNavRow` 内层 `Row` 与其原因列、`AccountRow` 名称列。`fill = false` 时盒子缩到文字宽度、空白留在行尾，于是值列与 `›` / `Switch` / 分段控件 / 胶囊停在文字后面，每行一个位置。**观感变化**：只有行尾那一截留白归位（值列与尾控件右移到 16dp 内边距），名称/值上限、折行宽度、省略阈值都不变。§4.2 补「行尾控件」一行 + 机制说明与反模式，§10.2 补两条验收，§10.1 补第 8 条钉子（`SettingsSpecTest` 新增 ⑬ 三条：设置树无 `fill = false` 的主轴盒子 / 名称列吃份额 + 值列右对齐 / 8 种行的尾控件都走 `SettingsRowShell`）。受影响断言：`值负责省略而不是挤名称` 原来钉的是 `weight(1f, fill = false)`（正是本次要改的写法），改为钉「名称吃份额 + 值右对齐 + 值可省略」 |
+| v15 | 2026-11-26 | **翻译页第二改**（§十九）：说明弹窗加可拖滚动条；DeepSeek 凭据块改可折叠（`ActionRow` + 弹簧 `AnimatedVisibility`，默认 Key 空则展开）；块内密度再压（自绘 40dp `CompactField`、标签 11sp、按钮 / 芯片 / 说明各收一号）；模型行右侧新增「获取模型列表」徽章（`GET {baseUrl}/models`）；模型列表走弹性弹窗勾选 + 二次隐私确认后落盘（`translate.deepseek.models`，JSON 数组保序）；探测逻辑放 `:translate`（`DeepSeekModels`），Key 不进日志。钉子新增 2、单测新增 6 |
 | v14 | 2026-11-26 | **翻译页压密 + 说明收进弹窗 + 页头「!」徽标**（§十八）：主页删掉「自动翻译正文」开关（总开关只在翻译页，与 `modules-design.md` §1 对齐），主页行数 13 → 12；翻译页根部 provide `Compact`、七组卡片化、`ModeOptionRow` 的内边距/圆点走密度表（`optionPadV` / `optionDotSize`）；页尾 570 字说明与各行 44–99 字长说明收进 `SettingsNotesDialog`，行内 16 条文案 ≤22 字；新增页头徽标（18dp 红圆 / 40dp 命中区 / AA 对比度）；删除过渡态 `SettingsSectionTitle`，新增 `SettingsDivider`；UI 文案从 `:translate` 模块移出（`TranslateProvider` / `TranslateLang` 只留 `code`）。钉子改 1 新增 3 |
 | v13 | 2026-11-26 | **玻璃导航栏说明改为「按状态说话」**：静态一句 → 两句随开关切换（关：`当前主题导航栏，玻璃悬浮默认关闭`；开：`悬浮玻璃已应用，原生导航已替换`），16 / 15 字，回到默认 12sp，仍独占整行宽 + `maxLines = 1`。钉子：两句文案都必须 ≤22 字，主题页必须按 `glassNavigation` 取文案 |
 | v12 | 2026-11-26 | **玻璃导航栏说明再压缩**：24 字在 272dp 文本区里 11sp 仍贴边省略（真机截图），收到 **21 字**「默认主题导航栏；开启后任意主题均为悬浮玻璃」（11sp × 21 ≈ 231dp，余量约 40dp）；同时写明语义：底栏形态与主题模式**正交**（全局一份状态，任意主题生效）。钉子：文案 ≤22 字 |
@@ -855,6 +858,57 @@ CompositionLocalProvider(LocalSettingsDensity provides SettingsDensity.Compact) 
 | `主页翻译组只剩入口_总开关只在翻译页` | 新增：主页不许 `translate_auto_toggle`，必须有 `onOpenTranslate` |
 | `翻译页已卡片化_长说明收进弹窗` | 新增：必须有 `SettingsSection(` + `SettingsNotesDialog(`；不许 `SettingsSectionTitle` / `SettingsProse` / `translate_notes_body` |
 | `翻译页行内说明控制在一行` | 新增：16 条行内文案 ≤22 个汉字 |
+
+---
+
+## 十九、翻译页第二改：说明滚动条 / 凭据折叠 / 模型探测（2026-11 · 第六轮）
+
+页面同 §十八（`ui/profile/TranslateSettingsScreen.kt`）。用户在真机上看过 1.4.44 后给的六条决策：
+
+### 19.1 决策与落点
+
+| # | 决策 | 落点 |
+|---|---|---|
+| 一 | 说明弹窗右侧加可上下滑动的进度条 | `SettingsNotesDialog` 内置 `NotesScrollbar`（20dp 命中区 / 3dp 条 / 可拖） |
+| 二 | 凭据块可折叠、可收起 | `ActionRow(凭据与模型)` + `AnimatedVisibility`；默认：Key 空则展开，已配置则收起 |
+| 三 | 凭据块进一步提高密度 | 自绘 `CompactField`（40dp；Material 是 56dp）、标签 11sp、行距 8dp、芯片 11sp/7×3、按钮 12.5sp/10×6、说明 10.5sp |
+| 四 | 展开 / 收起用弹簧动画，不再固定铺展 | 展开 `expandVertically(spring(MediumBouncy, MediumLow))`；收起 `shrinkVertically(spring(NoBouncy, MediumLow))`；两端都叠 fade |
+| 五 | 模型行右侧「获取模型列表」蓝底徽章 | `GET {baseUrl}/models`（Bearer，OpenAI 兼容）；结果进选择弹窗，失败在行内报 |
+| 六 | 模型列表弹性弹窗勾选 + 二次隐私确认后才保存 | `ModelPickerDialog`（scaleIn spring）+ `ModelLocalSaveDialog` → `TranslateSettings.setModels` |
+
+### 19.2 为什么探测放在 `:translate` 而不是 Rust
+
+- 它只是**一次 GET**，不需要复用翻译后端的「分片 / 重试 / 熔断」；用 `HttpURLConnection`
+  足够，也不必为它重建 `.so`（Rust 侧 `nativeTranslate` 的 ABI 变更代价见 `RustBridge` 注释）；
+- URL 推导与响应解析是纯函数，可 JVM 单测（`DeepSeekModelsTest` 6 例）；
+- Key 只出现在 `Authorization` 头里，**不写日志、不进异常文案、不回显**；失败只回 HTTP 状态码或异常类型。
+
+### 19.3 模型列表的边界
+
+- 落盘键 `translate.deepseek.models`（JSON 数组，保序）；它只作为设置页的候选芯片，
+  **不参与翻译请求** —— 真正发出去的是 `translate.deepseek.model`；
+- 保存前必须过二次确认，正文是产品口径原文（`translate_models_privacy_body`）：
+  官方版本不上传含接口地址 / 密钥 / 模型列表的配置、无任何合作、卸载后无法恢复；
+  任何提供「配置恢复」的版本都视为被篡改的恶意版本。这段只在保存前出现一次；
+- 探测失败**不写任何配置**：地址 / Key 用输入框草稿，不先落盘；
+- 取消二次确认会回到选择弹窗（勾选不丢）；取消选择弹窗则放弃本次结果。
+
+### 19.4 折叠与密度的口径
+
+1. 折叠入口必须是 6 种行型之一：用 `ActionRow`（动作 + `展开 / 收起` 提示），不新增第 7 种行型；
+2. 默认态由「Key 是否为空」决定：空 → 展开（引导配置），非空 → 收起（省高度）；
+   换服务商时重新按同一个规则判定，并清掉上一家的探测结果；
+3. 输入框是**表单块**、不是行型（§5.5）；从 Material 的 56dp 降到 40dp 后仍 ≥40dp 命中区，
+   描边继续走 `BorderControl`（1.4.11 的 3:1）；
+4. 展开用 `MediumBouncy`（过冲读出「弹出来」），收起用 `NoBouncy`（避免卡片底边抖一下再落位）。
+
+### 19.5 钉子与测试
+
+| 类型 | 内容 |
+|---|---|
+| 源码钉子 | `翻译页凭据块可折叠_模型探测有二次确认`；`说明弹窗有可拖动的滚动条`（另钉隐私说明的三句关键承诺） |
+| 单测 | `DeepSeekModelsTest`：端点回落 / 去尾斜杠 / 不重复 `/models` / 解析去重排序 / 坏 JSON / 空 Key 不发请求 |
+| 视觉 | 弹簧参数见 19.1；滚动条最小拇指 28dp、轨道 3dp |
 
 ---
 

@@ -319,6 +319,7 @@
           <li>玻璃导航说明按状态说话：关 / 开两句（16 / 15 字），独占整行宽 + 12sp（1.4.43）</li>
           <li>翻译页压密：八组卡片化 + <code>Compact</code>，行内说明压到 ≤22 字，570 字说明改页头「!」弹窗（1.4.44，规范 §十八）</li>
           <li>主页删掉「自动翻译正文」开关：总开关只在翻译页（同上；<code>modules-design.md</code> §1「开启入口只有一个」）</li>
+          <li>翻译页第二改（1.4.45，规范 §十九）：说明弹窗加可拖滚动条、凭据块弹簧折叠 + 40dp 输入框、模型行「获取模型列表」+ 弹性勾选弹窗 + 二次隐私确认后落盘</li>
         </ul>
       </div>
       <div class="note">
@@ -815,7 +816,7 @@
     { id:'theme', name:'主题页（新）', file:'ui/settings/ThemeScreen.kt', lines:'~130', rows:'4 行', prose:'0',
       problem:'本轮新建：主题模式三档 + 导航栏开关；外观类的唯一落点，后续皮肤也进这里', rec:'C', status:'done' },
     { id:'translate', name:'沉浸式翻译', file:'ui/profile/TranslateSettingsScreen.kt', lines:528, rows:'8 组卡片', prose:'1 段 600+ 字 → 弹窗 11 条',
-      problem:'已优化（1.4.44 / 304）：行内文案 ≤22 字、570 字说明改页头「!」弹窗；偏离：ModeOptionRow 加密度外参', rec:'C', status:'done' },
+      problem:'已优化（1.4.45 / 305）：行内 ≤22 字、说明弹窗可拖滚动条、凭据块弹簧折叠 + 40dp 输入框、模型列表探测 + 二次确认后本地保存', rec:'C', status:'done' },
     { id:'notif', name:'通知', file:'ui/profile/SubPageScreens.kt · NotificationSettingsScreen', lines:'~90', rows:'1 + 4 档', prose:'2 段',
       problem:'4 档单选可压成小分段；说明段落可并成行内一句', rec:'B', status:'todo' },
     { id:'about', name:'关于', file:'ui/profile/SubPageScreens.kt · AboutScreen', lines:'~250', rows:'10 行', prose:'0',

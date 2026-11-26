@@ -1,19 +1,24 @@
 package com.branchbase.ui.settings
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -30,7 +35,15 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,12 +55,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.R
 import com.branchbase.ui.theme.Primer
 import com.branchbase.ui.theme.selectionColor
+import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 /**
  * 设置页的**行型封闭集合**（设计规范 `docs/specs/settings-design.md` §4）。
@@ -768,25 +784,102 @@ fun SettingsNotesDialog(
             Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
         },
         text = {
-            // 说明可能长（翻译页约 9 条）：给上限 + 自己滚，别把弹窗撑出屏幕 ——
+            // 说明可能长（翻译页 11 条）：给上限 + 自己滚，别把弹窗撑出屏幕 ——
             // 撑出屏幕时 AlertDialog 会把按钮顶掉，用户只剩返回键一条路。
-            Column(
-                Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                bullets.forEach { bullet ->
-                    Row(verticalAlignment = Alignment.Top) {
-                        Text("•", fontSize = 13.sp, lineHeight = 19.sp, color = Primer.TextTertiary)
-                        Spacer(Modifier.width(6.dp))
-                        Text(bullet, fontSize = 13.sp, lineHeight = 19.sp, color = Primer.TextSecondary)
+            //
+            // 右侧常驻滚动条：AlertDialog 的滚动区没有系统滚动条，用户看首屏
+            // 不知道下面还有；条本身可拖，不只是装饰。
+            val state = rememberScrollState()
+            var viewport by remember { mutableIntStateOf(0) }
+            var content by remember { mutableIntStateOf(0) }
+            Box(Modifier.fillMaxWidth().heightIn(max = 420.dp).onSizeChanged { viewport = it.height }) {
+                Column(
+                    // 右侧留 10dp 给滚动条：文字不压在条下面，条的命中区仍是 20dp
+                    Modifier.fillMaxWidth().padding(end = 10.dp).verticalScroll(state),
+                ) {
+                    Column(
+                        Modifier.fillMaxWidth().onSizeChanged { content = it.height },
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        bullets.forEach { bullet ->
+                            Row(verticalAlignment = Alignment.Top) {
+                                Text("•", fontSize = 13.sp, lineHeight = 19.sp, color = Primer.TextTertiary)
+                                Spacer(Modifier.width(6.dp))
+                                Text(bullet, fontSize = 13.sp, lineHeight = 19.sp, color = Primer.TextSecondary)
+                            }
+                        }
                     }
                 }
+                NotesScrollbar(
+                    state = state,
+                    viewportPx = viewport,
+                    contentPx = content,
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                )
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) { Text(confirm, color = Primer.AccentText) }
         },
     )
+}
+
+/**
+ * 说明弹窗的**可拖动滚动条**（2026-11 第六轮）。
+ *
+ * 只在这个弹窗里用，所以不抽公共组件：它的尺寸口径（20dp 命中区 / 3dp 条 / 28dp 最小拇指）
+ * 是照「弹窗内滚动」定的，放大到别的列表反而会碍事。
+ *
+ * 拖拽用 `scrollTo` 而不是 `dispatchRawDelta`：要把「拇指走了多少像素」换算成
+ * 「内容滚了多少像素」（比例 = maxValue / 可走轨道），两者不是 1:1。
+ */
+@Composable
+private fun NotesScrollbar(
+    state: ScrollState,
+    viewportPx: Int,
+    contentPx: Int,
+    modifier: Modifier = Modifier,
+) {
+    // 内容没超出视口就不画：画一条拖不动的灰条比没有更让人困惑
+    if (viewportPx <= 0 || contentPx <= viewportPx) return
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+    val maxScroll = state.maxValue.toFloat().coerceAtLeast(1f)
+    val thumbPx = (viewportPx * (viewportPx.toFloat() / contentPx))
+        .coerceAtLeast(with(density) { 28.dp.toPx() })
+        .coerceAtMost(viewportPx.toFloat())
+    val trackPx = (viewportPx - thumbPx).coerceAtLeast(1f)
+    val offsetPx = (trackPx * (state.value / maxScroll)).roundToInt()
+
+    Box(
+        modifier
+            .width(20.dp)
+            .fillMaxHeight()
+            .pointerInput(contentPx, viewportPx) {
+                detectVerticalDragGestures { _, dragAmount ->
+                    // 拖动量 × （内容可滚距离 / 轨道可走距离）
+                    val delta = dragAmount * (maxScroll / trackPx)
+                    scope.launch {
+                        state.scrollTo((state.value + delta).roundToInt().coerceIn(0, state.maxValue))
+                    }
+                }
+            },
+        contentAlignment = Alignment.TopEnd,
+    ) {
+        // 轨道：只做「这里可以滚」的暗示，颜色最淡
+        Box(
+            Modifier.align(Alignment.CenterEnd).width(3.dp).fillMaxHeight()
+                .background(Primer.Gray150, RoundedCornerShape(2.dp)),
+        )
+        // 拇指：跟着 state.value 走；宽度 3dp 在浅色 / 深色下都看得见
+        Box(
+            Modifier.align(Alignment.TopEnd)
+                .offset { IntOffset(0, offsetPx) }
+                .width(3.dp)
+                .height(with(density) { thumbPx.toDp() })
+                .background(Primer.Gray500, RoundedCornerShape(2.dp)),
+        )
+    }
 }
 
 // ───────────────────────── 表单：输入（不是行型） ─────────────────────────

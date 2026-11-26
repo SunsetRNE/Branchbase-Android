@@ -1,10 +1,20 @@
 package com.branchbase.ui.profile
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,9 +31,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.PriorityHigh
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -36,16 +46,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.R
+import com.branchbase.translate.DeepSeekModels
 import com.branchbase.translate.EngineResult
 import com.branchbase.translate.FailKind
 import com.branchbase.translate.PageRules
@@ -61,13 +71,14 @@ import com.branchbase.ui.resolve
 import com.branchbase.ui.settings.ActionRow
 import com.branchbase.ui.settings.LocalSettingsDensity
 import com.branchbase.ui.settings.SettingsDensity
-import com.branchbase.ui.settings.SettingsDivider
 import com.branchbase.ui.settings.SettingsNotesDialog
 import com.branchbase.ui.settings.SettingsSection
 import com.branchbase.ui.settings.SwitchRow
 import com.branchbase.ui.theme.Primer
 import com.branchbase.ui.theme.iconTap
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 「沉浸式翻译」控制面板（设置 → 沉浸式翻译）。
@@ -140,6 +151,19 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
     // 「!」徽标打开的说明弹窗。默认关：说明是「需要时再查」的东西，不该一进页面就糊一屏。
     var notesOpen by remember { mutableStateOf(false) }
 
+    // ── 凭据与模型（2026-11 第六轮） ──
+    // 折叠态默认：还没填 Key 就展开（引导配置），已配置就收起（省高度）。
+    var credentialsExpanded by remember {
+        mutableStateOf(config.providerKind.requiresKey && config.apiKey.isBlank())
+    }
+    // 本机保存的模型列表（用户从探测结果里勾选出的子集）；只用于候选芯片，不参与翻译请求
+    var localModels by remember { mutableStateOf(TranslateSettings.readModels(context)) }
+    var fetchingModels by remember { mutableStateOf(false) }
+    var modelError by remember { mutableStateOf<LocalizedText?>(null) }
+    // 非空 = 模型选择弹窗打开；同时 confirmingModels 也非空 = 二次确认叠在上面
+    var fetchedModels by remember { mutableStateOf<List<String>?>(null) }
+    var confirmingModels by remember { mutableStateOf<Set<String>?>(null) }
+
     LaunchedEffect(Unit) { stats = translator.stats() }
 
     /** 落盘凭据并清熔断：改完立刻可用，不用回页面点重试。 */
@@ -151,6 +175,30 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
         translator.resetFailures()
         testResult = null
         scope.launch { stats = translator.stats() }
+    }
+
+    /**
+     * 探测模型列表（决策五）：只读当前输入框里的地址与 Key，**不先落盘** ——
+     * 探测失败不该顺手改掉用户正在编辑的配置。
+     */
+    fun fetchModels() {
+        if (fetchingModels) return
+        fetchingModels = true
+        modelError = null
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { DeepSeekModels.fetch(baseUrlDraft, keyDraft) }
+            fetchingModels = false
+            when (result) {
+                is DeepSeekModels.Result.Ok -> fetchedModels = result.models
+                is DeepSeekModels.Result.Fail -> modelError = when (result.detail) {
+                    DeepSeekModels.EMPTY_KEY -> LocalizedText(R.string.translate_models_need_key)
+                    DeepSeekModels.EMPTY_LIST -> LocalizedText(R.string.translate_models_empty)
+                    DeepSeekModels.NETWORK -> LocalizedText(R.string.translate_models_network)
+                    DeepSeekModels.TIMEOUT -> LocalizedText(R.string.translate_models_timeout)
+                    else -> LocalizedText(R.string.translate_models_failed, listOf(result.detail))
+                }
+            }
+        }
     }
 
     Column(
@@ -202,82 +250,144 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                             // 换后端后清掉上一次的熔断（例如从「Key 无效」切回免费接口）
                             translator.resetFailures()
                             testResult = null
+                            // 模型探测的结果属于上一家服务商：换后端不能把旧列表留在屏上
+                            fetchedModels = null
+                            confirmingModels = null
+                            modelError = null
+                            credentialsExpanded = keyDraft.isBlank()
                             scope.launch { stats = translator.stats() }
                         }
                     }
 
-                    // DeepSeek 凭据：只在选中时展开。它是「卡片里不是行」的一块，
-                    // 用公开的 SettingsDivider 与上面的单选行断开（分隔线只能有一份真源）。
+                    // DeepSeek 凭据：只在选中时出现，且**默认可折叠**（决策二）。
+                    // 折叠态只用一行 ActionRow 报「已配置 / 未配置 Key」；展开态才铺表单。
                     if (config.providerKind.requiresKey) {
-                        SettingsDivider()
-                        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
-                            InputField(
-                                label = "API Key",
-                                value = keyDraft,
-                                placeholder = stringResource(R.string.translate_key_placeholder),
-                                mono = true,
-                                visualTransformation = if (keyVisible) {
-                                    VisualTransformation.None
+                        ActionRow(
+                            icon = Icons.Filled.Key,
+                            name = stringResource(R.string.translate_credentials_toggle),
+                            sub = if (keyDraft.isNotBlank()) {
+                                stringResource(R.string.translate_credentials_configured)
+                            } else {
+                                stringResource(R.string.translate_credentials_missing)
+                            },
+                            hint = if (credentialsExpanded) {
+                                stringResource(R.string.action_collapse)
+                            } else {
+                                stringResource(R.string.action_expand)
+                            },
+                            onClick = { credentialsExpanded = !credentialsExpanded },
+                        )
+                        // 展开 / 收起都是弹簧（决策四）：展开的过冲读出「弹出来」，
+                        // 收起用无过冲阻尼，避免卡片底边抖一下再落位。
+                        AnimatedVisibility(
+                            visible = credentialsExpanded,
+                            enter = expandVertically(
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessMediumLow,
+                                ),
+                                expandFrom = Alignment.Top,
+                            ) + fadeIn(tween(140)),
+                            exit = shrinkVertically(
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMediumLow,
+                                ),
+                                shrinkTowards = Alignment.Top,
+                            ) + fadeOut(tween(110)),
+                        ) {
+                            // 决策三：块内再压一档 —— 输入框 40dp（不再是 Material 的 56dp）、
+                            // 标签 11sp、行距 8dp、按钮与说明都收一号。
+                            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                                CompactField(
+                                    label = "API Key",
+                                    value = keyDraft,
+                                    placeholder = stringResource(R.string.translate_key_placeholder),
+                                    mono = true,
+                                    visualTransformation = if (keyVisible) {
+                                        VisualTransformation.None
+                                    } else {
+                                        PasswordVisualTransformation()
+                                    },
+                                    trailing = if (keyVisible) stringResource(R.string.action_hide) else stringResource(R.string.action_show),
+                                    onTrailingClick = { keyVisible = !keyVisible },
+                                    onValueChange = { keyDraft = it },
+                                )
+                                // 模型行右侧的「获取模型列表」：探测 `{baseUrl}/models`（决策五）。
+                                CompactField(
+                                    label = stringResource(R.string.translate_model_label),
+                                    value = modelDraft,
+                                    placeholder = TranslateProvider.DEEPSEEK_MODEL,
+                                    mono = true,
+                                    onValueChange = { modelDraft = it },
+                                    headerAction = {
+                                        ModelListBadge(loading = fetchingModels) { fetchModels() }
+                                    },
+                                )
+                                modelError?.let { error ->
+                                    Text(
+                                        error.resolve(),
+                                        fontSize = 11.sp,
+                                        lineHeight = 15.sp,
+                                        color = Primer.DangerText,
+                                        modifier = Modifier.padding(bottom = 6.dp),
+                                    )
+                                }
+                                // 候选芯片：本机保存的列表优先；还没探测过时回落到内置候选。
+                                // FlowRow：网关可能返回几十个模型，Row 不换行会超出卡片被裁掉，且不报错。
+                                val chips = if (localModels.isEmpty()) {
+                                    TranslateProvider.MODEL_SUGGESTIONS
                                 } else {
-                                    PasswordVisualTransformation()
-                                },
-                                trailing = if (keyVisible) stringResource(R.string.action_hide) else stringResource(R.string.action_show),
-                                onTrailingClick = { keyVisible = !keyVisible },
-                                onValueChange = { keyDraft = it },
-                            )
-                            InputField(
-                                label = stringResource(R.string.translate_model_label),
-                                value = modelDraft,
-                                placeholder = TranslateProvider.DEEPSEEK_MODEL,
-                                mono = true,
-                                onValueChange = { modelDraft = it },
-                            )
-                            // 模型候选：官方模型名会变，点一下填入，也允许手打其它名字
-                            Row(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
-                                TranslateProvider.MODEL_SUGGESTIONS.forEach { model ->
-                                    SuggestionChip(model) {
-                                        modelDraft = model
-                                    }
-                                    Spacer(Modifier.width(8.dp))
+                                    localModels
                                 }
-                            }
-                            InputField(
-                                label = stringResource(R.string.translate_base_url_label),
-                                value = baseUrlDraft,
-                                placeholder = TranslateProvider.DEEPSEEK_BASE_URL,
-                                mono = true,
-                                onValueChange = { baseUrlDraft = it },
-                            )
-                            Row(
-                                Modifier.fillMaxWidth().padding(bottom = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                ActionPill(
-                                    text = if (testing) stringResource(R.string.translate_testing) else stringResource(R.string.translate_save_and_test),
-                                    enabled = !testing,
+                                FlowRow(
+                                    Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
                                 ) {
-                                    saveCredentials()
-                                    testing = true
-                                    testResult = null
-                                    scope.launch {
-                                        val result = translator.selfTest(to = config.target, from = config.source)
-                                        testResult = describeTestResult(result)
-                                        testing = false
-                                        stats = translator.stats()
+                                    chips.forEach { model ->
+                                        SuggestionChip(model) { modelDraft = model }
                                     }
                                 }
-                                Spacer(Modifier.width(10.dp))
-                                TestResultText(testResult)
+                                CompactField(
+                                    label = stringResource(R.string.translate_base_url_label),
+                                    value = baseUrlDraft,
+                                    placeholder = TranslateProvider.DEEPSEEK_BASE_URL,
+                                    mono = true,
+                                    onValueChange = { baseUrlDraft = it },
+                                )
+                                Row(
+                                    Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    ActionPill(
+                                        text = if (testing) stringResource(R.string.translate_testing) else stringResource(R.string.translate_save_and_test),
+                                        enabled = !testing,
+                                    ) {
+                                        saveCredentials()
+                                        testing = true
+                                        testResult = null
+                                        scope.launch {
+                                            val result = translator.selfTest(to = config.target, from = config.source)
+                                            testResult = describeTestResult(result)
+                                            testing = false
+                                            stats = translator.stats()
+                                        }
+                                    }
+                                    Spacer(Modifier.width(10.dp))
+                                    // 结果文字占剩余宽度：长错误（网络不可达 + 原因）不会把按钮顶出卡片
+                                    Box(Modifier.weight(1f)) { TestResultText(testResult) }
+                                }
+                                // 隐私说明压成一行：Key 的归属与「不外泄」是必须留在表面的信息（§6.2）；
+                                // OpenAI 兼容 / 可接中转属于「怎么用」，在「!」弹窗里。
+                                Text(
+                                    stringResource(R.string.translate_key_note),
+                                    fontSize = 10.5.sp,
+                                    color = Primer.TextTertiary,
+                                    lineHeight = 15.sp,
+                                    modifier = Modifier.padding(bottom = 2.dp),
+                                )
                             }
-                            // 隐私说明压成一行：Key 的归属与「不外泄」是必须留在表面的信息（§6.2），
-                            // OpenAI 兼容 / 可接中转这半句属于「怎么用」，进了「!」弹窗。
-                            Text(
-                                stringResource(R.string.translate_key_note),
-                                fontSize = 11.5.sp,
-                                color = Primer.TextTertiary,
-                                lineHeight = 17.sp,
-                                modifier = Modifier.padding(bottom = 6.dp),
-                            )
                         }
                     }
                 }
@@ -471,6 +581,34 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
             onDismiss = { notesOpen = false },
         )
     }
+
+    // 模型选择（决策六第一步）：勾选来自本次探测的结果；「保存」再进二次确认。
+    fetchedModels?.let { models ->
+        val preset = remember(models, localModels, modelDraft) {
+            (localModels.filter { it in models } + listOfNotNull(modelDraft.takeIf { it in models })).toSet()
+        }
+        ModelPickerDialog(
+            models = models,
+            initiallyChecked = preset,
+            onDismiss = { fetchedModels = null },
+            onConfirm = { confirmingModels = it },
+        )
+    }
+
+    // 二次确认（决策六第二步）：只在保存前出现，讲清「配置只在本机」，确认后才写盘。
+    confirmingModels?.let { selected ->
+        ModelLocalSaveDialog(
+            onDismiss = { confirmingModels = null },
+            onConfirm = {
+                val saved = selected.sorted()
+                TranslateSettings.setModels(context, saved)
+                localModels = saved
+                confirmingModels = null
+                fetchedModels = null
+                Toast.makeText(context, context.getString(R.string.translate_models_saved), Toast.LENGTH_SHORT).show()
+            },
+        )
+    }
 }
 
 /**
@@ -576,84 +714,34 @@ private val TranslateLang.descRes: Int
         TranslateLang.EN -> R.string.translate_lang_en_desc
     }
 
-/**
- * 单行输入（标签 + 输入框 + 可选右侧动作）。
- *
- * 与 [ProfileEditScreen] 里的 `EditField` 同款外观，这里额外支持「密码态 + 显示/隐藏」：
- * API Key 是一串敏感字符，默认遮住，但允许用户核对粘贴进来的内容。
- */
-@Composable
-private fun InputField(
-    label: String,
-    value: String,
-    placeholder: String,
-    onValueChange: (String) -> Unit,
-    mono: Boolean = false,
-    visualTransformation: VisualTransformation = VisualTransformation.None,
-    trailing: String? = null,
-    onTrailingClick: (() -> Unit)? = null,
-) {
-    Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
-        Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
-        Spacer(Modifier.height(5.dp))
-        OutlinedTextField(
-            value = value,
-            onValueChange = onValueChange,
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text(placeholder, fontSize = 13.sp, color = Primer.TextTertiary) },
-            singleLine = true,
-            visualTransformation = visualTransformation,
-            trailingIcon = if (trailing == null || onTrailingClick == null) {
-                null
-            } else {
-                {
-                    Text(
-                        trailing,
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Primer.Blue500,
-                        modifier = Modifier
-                            .clickable { onTrailingClick() }
-                            .padding(horizontal = 10.dp, vertical = 4.dp),
-                    )
-                }
-            },
-            textStyle = TextStyle(
-                fontSize = 13.5.sp,
-                fontFamily = if (mono) FontFamily.Monospace else null,
-            ),
-        )
-    }
-}
-
-/** 小圆角建议按钮（模型候选）。 */
+/** 小圆角建议按钮（模型候选）。块内压密后 11sp / 7×3dp。 */
 @Composable
 private fun SuggestionChip(text: String, onClick: () -> Unit) {
     Text(
         text,
-        fontSize = 11.5.sp,
+        fontSize = 11.sp,
         color = Primer.Blue500,
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
             .background(Primer.Gray100)
             .clickable { onClick() }
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 7.dp, vertical = 3.dp),
     )
 }
 
-/** 主操作按钮（本页只有「保存并测试连接」一处）。 */
+/** 主操作按钮（本页只有「保存并测试连接」一处）。块内压密后 12.5sp / 10×6dp。 */
 @Composable
 private fun ActionPill(text: String, enabled: Boolean, onClick: () -> Unit) {
     Text(
         text,
-        fontSize = 13.sp,
+        fontSize = 12.5.sp,
         fontWeight = FontWeight.SemiBold,
-        color = if (enabled) androidx.compose.ui.graphics.Color.White else Primer.TextTertiary,
+        color = if (enabled) Color.White else Primer.TextTertiary,
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
             .background(if (enabled) Primer.Blue500 else Primer.Gray100)
             .clickable(enabled = enabled) { onClick() }
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp),
     )
 }
 

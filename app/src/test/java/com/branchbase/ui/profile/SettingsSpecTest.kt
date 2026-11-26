@@ -81,6 +81,7 @@ class SettingsSpecTest {
         "src/main/java/com/branchbase/ui/profile/CommitModeScreen.kt",
         "src/main/java/com/branchbase/ui/profile/CommitModeStore.kt",
         "src/main/java/com/branchbase/ui/profile/TranslateSettingsScreen.kt",
+        "src/main/java/com/branchbase/ui/profile/TranslateModelDialogs.kt",
     )
 
     private val rowComponentsPath = "src/main/java/com/branchbase/ui/settings/SettingsRow.kt"
@@ -264,6 +265,34 @@ class SettingsSpecTest {
             "SettingsSectionTitle 已无调用点：过渡态函数要从行组件文件里删掉",
             source(rowComponentsPath).contains("fun SettingsSectionTitle("),
         )
+    }
+
+    @Test
+    fun `翻译页凭据块可折叠_模型探测有二次确认`() {
+        val page = source(translatePagePath)
+        assertTrue("凭据块要有折叠入口行", page.contains("translate_credentials_toggle"))
+        assertTrue(
+            "展开 / 收起必须走 AnimatedVisibility + spring（决策四的弹性动画），不是固定铺展",
+            page.contains("AnimatedVisibility(") && page.contains("spring("),
+        )
+        assertTrue("模型探测结果要进选择弹窗", page.contains("ModelPickerDialog("))
+        assertTrue("保存本机列表前必须有二次确认弹窗", page.contains("ModelLocalSaveDialog("))
+        assertTrue("确认后才写本地列表", page.contains("TranslateSettings.setModels"))
+    }
+
+    @Test
+    fun `说明弹窗有可拖动的滚动条`() {
+        val row = source(rowComponentsPath)
+        assertTrue("说明弹窗要画滚动条（AlertDialog 没有系统滚动条）", row.contains("NotesScrollbar("))
+        assertTrue(
+            "滚动条要能拖（detectVerticalDragGestures），不是纯装饰",
+            row.contains("detectVerticalDragGestures"),
+        )
+        // 二次确认的正文是本轮新增的安全边界，两句关键承诺不能被删掉
+        val strings = source("src/main/res/values/strings.xml")
+        listOf("不会上传任何第三方服务端", "均为恶意修改版本", "官方仓库发布列表中下载正确版本").forEach { claim ->
+            assertTrue("隐私说明缺少关键承诺：$claim", strings.contains(claim))
+        }
     }
 
     @Test

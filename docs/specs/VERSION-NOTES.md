@@ -74,7 +74,40 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.44 → 1.0.22）
+## 二、`versionName` 流水（1.4.45 → 1.0.22）
+
+### 1.4.45
+
+**翻译页第二改：说明弹窗滚动条 / 凭据块弹簧折叠 + 密度再压 / 模型列表探测与二次确认落盘。**
+
+① 说明弹窗右侧加**常驻可拖动滚动条**（20dp 命中区、3dp 条、最小拇指 28dp）：
+`AlertDialog` 的滚动区没有系统条，用户看首屏不知道下面还有 11 条。拖拽按
+「内容可滚距离 / 轨道可走距离」换算，不是 1:1。
+
+② DeepSeek 凭据块改**可折叠**：折叠态只有一行 `ActionRow(凭据与模型)`，报
+「已配置 / 未配置 Key」+「展开 / 收起」；默认 Key 空则展开（引导配置）、已配置则收起（省高度）。
+展开 / 收起走 `AnimatedVisibility` + spring（展开 `MediumBouncy` 有过冲、收起 `NoBouncy`），
+不是固定铺展；换服务商时清掉上一家的探测结果。
+
+③ 块内密度再压一档：自绘 40dp `CompactField`（Material `OutlinedTextField` 是 56dp）、
+标签 11sp、行距 8dp、候选芯片 11sp/7×3、按钮 12.5sp/10×6、隐私说明 10.5sp；
+描边仍走 `BorderControl`（1.4.11 的 3:1）。
+
+④ 模型行右侧新增**「获取模型列表」蓝底徽章**：`GET {baseUrl}/models`（Bearer，OpenAI 兼容）；
+只填域名时自动补 `https://`；失败在行内按原因提示（未填 Key / 空列表 / 网络不可达 / 超时 /
+HTTP 状态），**不写任何配置** —— 探测只读输入框草稿。
+
+⑤ 探测结果进**弹性勾选弹窗**（`scaleIn` spring），勾选后点「保存」再进**二次确认**：
+正文是产品给定的安全边界（官方版本不上传含接口地址 / 密钥 / 模型列表的配置、无任何合作、
+卸载后无法恢复；任何提供「配置恢复」的版本均视为被篡改的恶意版本）。确认后才写
+`translate.deepseek.models`（JSON 数组保序），它只作候选芯片、**不参与翻译请求**。
+
+⑥ 探测逻辑放 `:translate`（`DeepSeekModels`）：一次 GET 不必重建 Rust `.so`；
+Key 只进 `Authorization` 头，不写日志 / 不进异常文案。`DeepSeekModelsTest` 7 例钉住
+端点拼接（空地址 / 去尾斜杠 / 已带 `/models` / 只填域名补 https）与响应解析（去重排序 / 坏 JSON / 空 Key）。
+
+**验证**：`:app:testDebugUnitTest` 1181 例 0 失败（1 跳过）+ `:translate:test` 136 例 0 失败
+（含新增 `DeepSeekModelsTest` 7 例）；`:app:assembleDebug` 通过；i18n 100%。
 
 ### 1.4.44
 
@@ -5091,7 +5124,10 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（304 → 129）
+## 三、`versionCode` 流水（305 → 129）
+
+- **305**：翻译页第二改（1.4.45）—— 说明弹窗可拖滚动条、凭据块弹簧折叠 + 40dp 输入框、
+  模型列表探测 + 弹性勾选 + 二次隐私确认后本地保存；钉子新增 2、单测新增 7（一次提交，故 +1）。
 
 - **304**：翻译页压密 + 长说明弹窗 + 页头「!」徽标（1.4.44）—— 主页删自动翻译开关（总开关只在翻译页，
   13 → 12 行）、八组卡片化 + `Compact` + 行内文案 ≤22 字、`SettingsNotesDialog`、删除
