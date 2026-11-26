@@ -598,24 +598,33 @@ private fun CrumbFlow(layers: List<CrumbLayer>, onNavigate: (String) -> Unit, mo
     }
 }
 
+/**
+ * 代码浏览的文件 / 目录行（决策十一）：卡片面 + 类型图标牌，并比其它列表**再紧一档**。
+ *
+ * 这一屏动辄几十行、且是"翻目录"的动作，行密度比可读性权重更高：
+ * 卡片竖向外距 2dp（其它列表 3dp）、行内竖向留白 5dp（原 9dp），单行净高 32dp 左右；
+ * 目录 = `Folder`（`DONE` 紫）、文件 = `InsertDriveFile`（`NEUTRAL`），
+ * 颜色只用来分「能进去 / 是文件」，不做第二层编码。
+ */
 @Composable
 private fun FileTreeRow(item: FileTreeItem, onClick: () -> Unit) {
+    val isDir = item.type == "dir"
     Row(
         Modifier
             .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 2.dp)
+            .cardSurface()
             .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 9.dp),
+            .padding(horizontal = 12.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            if (item.type == "dir") Icons.Filled.Folder else Icons.AutoMirrored.Filled.InsertDriveFile,
-            null,
-            tint = Primer.IconSecondary,
-            modifier = Modifier.size(16.dp),
+        TintChip(
+            if (isDir) Icons.Filled.Folder else Icons.AutoMirrored.Filled.InsertDriveFile,
+            if (isDir) TintRole.DONE else TintRole.NEUTRAL,
         )
         Spacer(Modifier.width(10.dp))
         Text(item.name, fontSize = 13.sp, color = Primer.TextPrimary, modifier = Modifier.weight(1f))
-        if (item.type == "file" && item.size > 0) {
+        if (!isDir && item.size > 0) {
             Text(formatBytes(item.size), fontSize = 11.sp, color = Primer.TextTertiary)
         }
     }
