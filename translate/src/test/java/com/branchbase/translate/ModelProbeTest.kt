@@ -15,15 +15,15 @@ import org.junit.Test
  */
 class ModelProbeTest {
 
-    private val deepseek = TranslateProtocol.DEEPSEEK
+    private val chat = TranslateProtocol.OPENAI_CHAT
     private val anthropic = TranslateProtocol.ANTHROPIC_MESSAGES
     private val gemini = TranslateProtocol.GEMINI
     private val openai = TranslateProtocol.OPENAI_CHAT
 
     @Test
     fun `空接入地址回落到该协议自己的官方端点`() {
-        assertEquals("https://api.deepseek.com/models", ModelProbe.endpoint(deepseek, ""))
-        assertEquals("https://api.deepseek.com/models", ModelProbe.endpoint(deepseek, "   "))
+        assertEquals("https://api.openai.com/v1/models", ModelProbe.endpoint(chat, ""))
+        assertEquals("https://api.openai.com/v1/models", ModelProbe.endpoint(chat, "   "))
         assertEquals("https://api.openai.com/v1/models", ModelProbe.endpoint(openai, ""))
         assertEquals("https://api.anthropic.com/v1/models", ModelProbe.endpoint(anthropic, ""))
         assertEquals(
@@ -35,17 +35,17 @@ class ModelProbeTest {
     @Test
     fun `接入地址去掉末尾斜杠再拼路径`() {
         assertEquals("https://gw.example.com/v1/models", ModelProbe.endpoint(openai, "https://gw.example.com/v1/"))
-        assertEquals("https://api.deepseek.com/models", ModelProbe.endpoint(deepseek, "https://api.deepseek.com/"))
+        assertEquals("https://api.deepseek.com/v1/models", ModelProbe.endpoint(chat, "https://api.deepseek.com/v1/"))
     }
 
     @Test
     fun `只填域名时补 https`() {
-        assertEquals("https://api.deepseek.com/models", ModelProbe.endpoint(deepseek, "api.deepseek.com"))
+        assertEquals("https://api.deepseek.com/v1/models", ModelProbe.endpoint(chat, "api.deepseek.com/v1"))
     }
 
     @Test
     fun `已经以完整路径结尾不再重复追加`() {
-        assertEquals("https://gw.example.com/models", ModelProbe.endpoint(deepseek, "https://gw.example.com/models"))
+        assertEquals("https://gw.example.com/v1/models", ModelProbe.endpoint(chat, "https://gw.example.com/v1/models"))
         assertEquals(
             "https://generativelanguage.googleapis.com/v1beta/models",
             ModelProbe.endpoint(gemini, "https://generativelanguage.googleapis.com/v1beta/models"),
@@ -71,7 +71,7 @@ class ModelProbeTest {
               {"id":"deepseek-flash"}
             ]}
         """.trimIndent()
-        assertEquals(listOf("deepseek-flash", "deepseek-v4-pro"), ModelProbe.parse(deepseek, json))
+        assertEquals(listOf("deepseek-flash", "deepseek-v4-pro"), ModelProbe.parse(chat, json))
     }
 
     @Test
@@ -99,10 +99,17 @@ class ModelProbeTest {
 
     @Test
     fun `解析坏 JSON 或结构不符返回空表`() {
-        assertTrue(ModelProbe.parse(deepseek, "not json").isEmpty())
-        assertTrue(ModelProbe.parse(deepseek, """{"object":"list"}""").isEmpty())
+        assertTrue(ModelProbe.parse(chat, "not json").isEmpty())
+        assertTrue(ModelProbe.parse(chat, """{"object":"list"}""").isEmpty())
         // 拿 OpenAI 的解析器读 Gemini 的体：结构不同 → 空表（而不是抛异常）
-        assertTrue(ModelProbe.parse(deepseek, """{"models":[{"name":"models/x"}]}""").isEmpty())
+        assertTrue(ModelProbe.parse(chat, """{"models":[{"name":"models/x"}]}""").isEmpty())
+    }
+
+    @Test
+    fun `服务商没有模型列表接口时给专门的哨兵值`() {
+        // DeepSeek 的 /anthropic 兼容通道没有 GET /v1/models：这不该被当成「地址填错」
+        assertTrue(ModelProbe.NO_MODELS_ENDPOINT.isNotEmpty())
+        assertEquals("NO_MODELS_ENDPOINT", ModelProbe.NO_MODELS_ENDPOINT)
     }
 
     @Test

@@ -63,6 +63,7 @@ import com.branchbase.translate.TranslateConfig
 import com.branchbase.translate.TranslatePageCommands
 import com.branchbase.translate.TranslatePageSnapshot
 import com.branchbase.translate.TranslateProvider
+import com.branchbase.ui.profile.addressLabelRes
 import com.branchbase.translate.TranslateRuntime
 import com.branchbase.translate.TranslateSettings
 import com.branchbase.ui.theme.Primer
@@ -508,7 +509,15 @@ private fun ProgressBlock(snapshot: TranslatePageSnapshot, settings: TranslateCo
     Spacer(Modifier.height(5.dp))
     KeyValue(stringResource(R.string.label_translated_of_total, snapshot.translated, total), stringResource(R.string.label_chars_percent, snapshot.chars, (fraction * 100).roundToInt()))
     KeyValue(
-        stringResource(R.string.label_service, if (settings.providerKind == TranslateProvider.DEEPSEEK) "DeepSeek" else "MyMemory"),
+        stringResource(
+            R.string.label_service,
+            if (settings.providerKind == TranslateProvider.EXTERNAL) {
+                // 1.4.54 起「外部模型」不是一个厂商：显示地址行（OpenAI 官方 / DeepSeek 官方 / 自定义地址）
+                stringResource(settings.protocolKind.addressOf(settings.baseUrl)?.addressLabelRes ?: R.string.translate_address_custom)
+            } else {
+                stringResource(R.string.translate_provider_mymemory_label)
+            },
+        ),
         stringResource(R.string.label_target_language_style, if (settings.target == TranslateConfig.EN) "English" else stringResource(R.string.label_chinese), styleLabel(settings.style)),
     )
 }

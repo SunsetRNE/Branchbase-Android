@@ -43,6 +43,15 @@ object ModelProbe {
     /** 端点返回 200 但列表为空（或结构不是这个协议的）。 */
     const val EMPTY_LIST: String = "EMPTY_LIST"
 
+    /**
+     * 该服务商**没有模型列表接口**（HTTP 404 / 405）。
+     *
+     * 这不是错误配置：很多兼容网关只实现 `chat/completions`，不实现 `GET /models`
+     * （DeepSeek 的 `/anthropic` 兼容通道就是 404）。界面据此提示「请手动填写模型名」，
+     * 而不是甩一个 HTTP 404 让用户以为地址填错了。
+     */
+    const val NO_MODELS_ENDPOINT: String = "NO_MODELS_ENDPOINT"
+
     /** 网络不可达（DNS / 连接拒绝）；UI 据此给本地化提示，而不是把异常类名糊给用户。 */
     const val NETWORK: String = "NETWORK"
 
@@ -88,7 +97,10 @@ object ModelProbe {
                 protocol.requestHeaders(key).forEach { (name, value) -> setRequestProperty(name, value) }
             }
             val code = connection.responseCode
-            if (code !in 200..299) {
+            if (code == 404 || code == 405) {
+                // 「没有这个接口」与「地址/Key 错了」是两件事：前者该让用户手填模型
+                Result.Fail(NO_MODELS_ENDPOINT)
+            } else if (code !in 200..299) {
                 failure(code, connection.headerFields)
             } else {
                 val models = parse(protocol, readUtf8(connection.inputStream))

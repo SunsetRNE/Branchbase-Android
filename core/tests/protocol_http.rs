@@ -118,7 +118,7 @@ async fn responses_用_input_与_instructions() {
 
 #[tokio::test]
 async fn 模型为空时不发请求_给出可分类的配置错误() {
-    for protocol in ["anthropic-messages", "gemini", "openai-responses"] {
+    for protocol in ["openai-chat", "anthropic-messages", "gemini", "openai-responses"] {
         // 端口 1 一定连不上：真发了请求就会得到网络错误，而不是这条配置错误
         let err = translate(
             "hi",

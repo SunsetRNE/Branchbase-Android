@@ -5,7 +5,7 @@
 //! | 后端 | 需要 Key | 定位 |
 //! |------|---------|------|
 //! | [mymemory] | 否 | **默认**。匿名公开接口，无需任何配置，额度约 5000 词/天 |
-//! | [deepseek] / [responses] / [anthropic] / [gemini] | 是（用户自带） | 大模型，按 **协议**（端点方言）分派，译文质量、术语一致性与长句处理明显更好，按 token 计费 |
+//! | [openai_chat] / [responses] / [anthropic] / [gemini] | 是（用户自带） | 大模型，按 **协议**（端点方言）分派，译文质量、术语一致性与长句处理明显更好，按 token 计费 |
 //!
 //! 选哪家由 [Options]（Kotlin 侧序列化成 JSON 传进来）决定，**本模块只做「建请求 + 解析响应」**；
 //! 分片、去重、串行、重试与缓存都在 Kotlin 侧（`:translate` 模块），
@@ -34,17 +34,15 @@
 //! 15s 会把**正常翻译**掐成超时失败，于是这里单独维护一个超时更长的客户端（见 [http]）。
 
 pub mod anthropic;
-pub mod deepseek;
 pub mod gemini;
 pub mod mymemory;
+pub mod openai_chat;
+pub mod prompt;
 pub mod responses;
 
 use crate::error::Result;
 use serde::Deserialize;
 use std::time::Duration;
-
-/// DeepSeek 官方 OpenAI 兼容地址（用户可在设置里覆盖成代理/中转/其它兼容服务）。
-pub const DEFAULT_DEEPSEEK_BASE: &str = "https://api.deepseek.com";
 
 /// OpenAI 官方地址。
 pub const DEFAULT_OPENAI_BASE: &str = "https://api.openai.com";
@@ -95,16 +93,20 @@ impl Provider {
     }
 }
 
-/// 端点方言：同一个「翻译这段文本」的意图，五种线上写法。
+/// 端点方言：同一个「翻译这段文本」的意图，四种线上写法。
 ///
 /// 码值与 Kotlin 侧 `TranslateProtocol.code` **逐字对应**（落盘键、options JSON 都用它）；
-/// 改了就是破坏性变更。认不出来的码一律回落到 [Protocol::DeepSeek] —— 那正是 1.4.50
-/// 及更早版本唯一支持的写法，老配置 / 手写配置都不会因为这一项失效。
+/// 改了就是破坏性变更。认不出来的码一律回落到 [Protocol::OpenAiChat]。
+///
+/// ## 厂商不在这一层（1.4.54）
+///
+/// DeepSeek 之前是一个协议，但它**没有私有报文**（官方文档把它列在「兼容协议」下）：
+/// OpenAI Chat 兼容、OpenAI Responses 兼容、Anthropic 兼容三条通道，各自与对应的协议同形。
+/// 现在「用哪家」由 `base_url` 决定（Kotlin 侧有地址列表），协议只描述「怎么说」。
+/// 老配置里的 `protocol = "deepseek"` 在这里折成 [Protocol::OpenAiChat]（地址由 Kotlin 迁移）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Protocol {
-    /// DeepSeek 官方：`POST {base}/chat/completions`，`Authorization: Bearer`。
-    DeepSeek,
-    /// OpenAI Chat Completions：`POST {base}/v1/chat/completions`。
+    /// OpenAI Chat Completions：`POST {base}/v1/chat/completions`（覆盖面最广的一档）。
     OpenAiChat,
     /// OpenAI Responses：`POST {base}/v1/responses`（`input` 而不是 `messages`）。
     OpenAiResponses,
@@ -115,26 +117,25 @@ pub enum Protocol {
 }
 
 impl Protocol {
-    pub const DEFAULT: Protocol = Protocol::DeepSeek;
+    pub const DEFAULT: Protocol = Protocol::OpenAiChat;
 
     /// 从设置里的字符串还原协议（大小写 / 前后空格不敏感，认不出来回落默认）。
     ///
-    /// 兼容几种别名：手写配置或早期草稿里可能写成 `openai`、`anthropic`、`google`。
+    /// 兼容别名：`deepseek`（1.4.53 及更早的唯一协议）、`openai`、`anthropic`、`google`。
     pub fn from_code(code: &str) -> Protocol {
         match code.trim().to_ascii_lowercase().as_str() {
-            "openai-chat" | "openai_chat" | "openai" | "chat-completions" => Protocol::OpenAiChat,
             "openai-responses" | "responses" => Protocol::OpenAiResponses,
             "anthropic-messages" | "anthropic_messages" | "anthropic" | "messages" => {
                 Protocol::AnthropicMessages
             }
             "gemini" | "google" | "gemini-api" => Protocol::Gemini,
-            _ => Protocol::DeepSeek,
+            // openai-chat / openai / deepseek / "" / 脏值 都落在这里
+            _ => Protocol::OpenAiChat,
         }
     }
 
     pub fn code(self) -> &'static str {
         match self {
-            Protocol::DeepSeek => "deepseek",
             Protocol::OpenAiChat => "openai-chat",
             Protocol::OpenAiResponses => "openai-responses",
             Protocol::AnthropicMessages => "anthropic-messages",
@@ -145,7 +146,6 @@ impl Protocol {
     /// 错误消息里的服务名（给人读的那半句）。
     pub fn label(self) -> &'static str {
         match self {
-            Protocol::DeepSeek => "DeepSeek",
             Protocol::OpenAiChat | Protocol::OpenAiResponses => "OpenAI",
             Protocol::AnthropicMessages => "Anthropic",
             Protocol::Gemini => "Gemini",
@@ -155,7 +155,6 @@ impl Protocol {
     /// 接入地址留空时用的官方地址。
     pub fn default_base(self) -> &'static str {
         match self {
-            Protocol::DeepSeek => DEFAULT_DEEPSEEK_BASE,
             Protocol::OpenAiChat | Protocol::OpenAiResponses => DEFAULT_OPENAI_BASE,
             Protocol::AnthropicMessages => DEFAULT_ANTHROPIC_BASE,
             Protocol::Gemini => DEFAULT_GEMINI_BASE,
@@ -165,22 +164,10 @@ impl Protocol {
     /// 翻译端点路径（Gemini 含 [MODEL_PLACEHOLDER]）。
     pub fn chat_path(self) -> &'static str {
         match self {
-            Protocol::DeepSeek => "/chat/completions",
             Protocol::OpenAiChat => "/v1/chat/completions",
             Protocol::OpenAiResponses => "/v1/responses",
             Protocol::AnthropicMessages => "/v1/messages",
             Protocol::Gemini => "/v1beta/models/{model}:generateContent",
-        }
-    }
-
-    /// 默认模型（空 = 该协议必须由用户显式填一个）。
-    ///
-    /// 只有 DeepSeek 有默认值（与 Kotlin 侧 `TranslateProtocol.defaultModel` 一致）；
-    /// 其余四档的官方模型名变化快，不自造 —— 由设置页的「获取模型列表」去问服务端。
-    pub fn default_model(self) -> &'static str {
-        match self {
-            Protocol::DeepSeek => deepseek::DEFAULT_MODEL,
-            _ => "",
         }
     }
 }
@@ -218,14 +205,9 @@ impl Options {
         Protocol::from_code(&self.protocol)
     }
 
-    /// 模型名（带协议默认值）。
+    /// 模型名（去空格；**没有内置默认** —— 空模型由 [require_model] 拦住）。
     pub fn model_or_default(&self) -> &str {
-        let m = self.model.trim();
-        if m.is_empty() {
-            self.protocol().default_model()
-        } else {
-            m
-        }
+        self.model.trim()
     }
 
     /// 拼接翻译端点：空地址 → 该协议的官方地址；已含路径首段（`/v1`、`/v1beta`）不重复追加。
@@ -283,7 +265,7 @@ pub fn auth_headers(protocol: Protocol, key: &str) -> Vec<(&'static str, String)
         return Vec::new();
     }
     match protocol {
-        Protocol::DeepSeek | Protocol::OpenAiChat | Protocol::OpenAiResponses => {
+        Protocol::OpenAiChat | Protocol::OpenAiResponses => {
             vec![("Authorization", format!("Bearer {key}"))]
         }
         Protocol::AnthropicMessages => vec![
@@ -309,13 +291,14 @@ pub(crate) fn json_request(protocol: Protocol, url: &str, key: &str) -> reqwest:
     req
 }
 
-/// 需要显式模型名的协议（其余四档）在模型为空时的统一错误。
+/// 模型为空时的统一错误（四档协议都要求显式模型，内置默认模型在 1.4.54 一并删掉了：
+/// 默认模型属于「地址行」而不是协议，见 Kotlin 侧 `ApiAddress.defaultModel`）。
 ///
 /// 归 `TRANSLATE_AUTH`：这不是「重试就会好」的错误，用户必须去设置里填一个模型。
 /// 调度器对 AUTH 的处理正是「停发 + 提示去设置检查」，与这里要的行为一致。
 pub(crate) fn require_model(options: &Options) -> Result<&str> {
     let model = options.model_or_default();
-    if model.trim().is_empty() {
+    if model.is_empty() {
         return Err(crate::error::CoreError::coded(
             "TRANSLATE_AUTH",
             format!(
@@ -342,10 +325,7 @@ pub async fn translate(text: &str, from: &str, to: &str, options: &Options) -> R
     match options.provider() {
         Provider::MyMemory => mymemory::translate(text, from, to).await,
         Provider::DeepSeek => match options.protocol() {
-            // 两者请求体一致（都是 chat completions），只有端点与错误文案里的服务名不同
-            Protocol::DeepSeek | Protocol::OpenAiChat => {
-                deepseek::translate(text, from, to, options).await
-            }
+            Protocol::OpenAiChat => openai_chat::translate(text, from, to, options).await,
             Protocol::OpenAiResponses => responses::translate(text, from, to, options).await,
             Protocol::AnthropicMessages => anthropic::translate(text, from, to, options).await,
             Protocol::Gemini => gemini::translate(text, from, to, options).await,
@@ -476,7 +456,6 @@ mod tests {
     #[test]
     fn 协议码与_kotlin_侧逐字一致() {
         let codes = [
-            (Protocol::DeepSeek, "deepseek"),
             (Protocol::OpenAiChat, "openai-chat"),
             (Protocol::OpenAiResponses, "openai-responses"),
             (Protocol::AnthropicMessages, "anthropic-messages"),
@@ -488,10 +467,11 @@ mod tests {
             // 大小写 / 空格不敏感（手写配置、备份导入）
             assert_eq!(Protocol::from_code(&format!(" {} ", code.to_uppercase())), protocol);
         }
-        // 认不出来（含老版本 App 不带这个字段）一律回落 DeepSeek
+        // 1.4.53 及更早的 deepseek：协议折成 OpenAI Chat（DeepSeek 没有私有报文）
+        assert_eq!(Protocol::from_code("deepseek"), Protocol::OpenAiChat);
         assert_eq!(Protocol::from_code(""), Protocol::DEFAULT);
         assert_eq!(Protocol::from_code("天知道"), Protocol::DEFAULT);
-        assert_eq!(Protocol::DEFAULT, Protocol::DeepSeek);
+        assert_eq!(Protocol::DEFAULT, Protocol::OpenAiChat);
     }
 
     #[test]
@@ -504,10 +484,10 @@ mod tests {
         assert_eq!(o.api_key, "sk-x");
         assert_eq!(o.chat_endpoint(), "https://api.anthropic.com/v1/messages");
 
-        // 老版本 App 没有 protocol 字段 → DeepSeek，模型空 → 默认模型
+        // 老版本 App 没有 protocol 字段 → OpenAI Chat；**没有默认模型**（空模型由 require_model 拦）
         let legacy = Options::parse("{\"provider\":\"deepseek\",\"apiKey\":\"sk-x\",\"model\":\"\",\"baseUrl\":\"\"}");
-        assert_eq!(legacy.protocol(), Protocol::DeepSeek);
-        assert_eq!(legacy.model_or_default(), deepseek::DEFAULT_MODEL);
+        assert_eq!(legacy.protocol(), Protocol::OpenAiChat);
+        assert!(legacy.model_or_default().is_empty());
 
         let broken = Options::parse("not json at all");
         assert_eq!(broken.provider(), Provider::MyMemory);
@@ -517,17 +497,15 @@ mod tests {
     }
 
     #[test]
-    fn 端点拼接容忍三种写法并按协议回落() {
+    fn 端点拼接容忍四种写法并按协议回落() {
+        // OpenAI Chat：用户填的是通道根地址 / 带 /v1 / 完整端点
         let cases = [
-            ("", "https://api.deepseek.com/chat/completions"),
-            ("https://api.deepseek.com", "https://api.deepseek.com/chat/completions"),
-            ("https://api.deepseek.com/", "https://api.deepseek.com/chat/completions"),
-            ("https://api.deepseek.com/v1", "https://api.deepseek.com/v1/chat/completions"),
             ("https://relay.example.com/openai/v1/", "https://relay.example.com/openai/v1/chat/completions"),
             (
                 "https://relay.example.com/v1/chat/completions",
                 "https://relay.example.com/v1/chat/completions",
             ),
+            ("api.deepseek.com/v1", "https://api.deepseek.com/v1/chat/completions"),
         ];
         for (base, want) in cases {
             let o = Options {
@@ -537,9 +515,8 @@ mod tests {
             assert_eq!(o.chat_endpoint(), want, "base = {base}");
         }
 
-        // 空地址回落到**该协议自己的**官方地址，不是统一回落 DeepSeek
+        // 空地址回落到**该协议自己的**官方地址
         let by_protocol = [
-            (Protocol::DeepSeek, "https://api.deepseek.com/chat/completions"),
             (Protocol::OpenAiChat, "https://api.openai.com/v1/chat/completions"),
             (Protocol::OpenAiResponses, "https://api.openai.com/v1/responses"),
             (Protocol::AnthropicMessages, "https://api.anthropic.com/v1/messages"),
@@ -562,7 +539,7 @@ mod tests {
         };
         assert_eq!(o.chat_endpoint(), "https://api.openai.com/v1/chat/completions");
 
-        // DeepSeek 同时提供 Anthropic 兼容入口：base 带 /anthropic，路径仍是 /v1/messages
+        // DeepSeek 的 Anthropic 兼容入口：base 带 /anthropic，路径仍是 /v1/messages
         let o = Options {
             protocol: Protocol::AnthropicMessages.code().to_string(),
             base_url: "https://api.deepseek.com/anthropic".to_string(),
@@ -598,7 +575,7 @@ mod tests {
     #[test]
     fn 鉴权头按协议补且没_key_时不补() {
         assert_eq!(
-            auth_headers(Protocol::DeepSeek, "sk-1"),
+            auth_headers(Protocol::OpenAiChat, "sk-1"),
             vec![("Authorization", "Bearer sk-1".to_string())]
         );
         assert_eq!(
@@ -620,23 +597,28 @@ mod tests {
     }
 
     #[test]
-    fn 需要显式模型的协议在空模型时给可分类的配置错误() {
-        // DeepSeek 有默认模型，不报错
+    fn 空模型在所有协议下都给可分类的配置错误() {
+        for protocol in [
+            Protocol::OpenAiChat,
+            Protocol::OpenAiResponses,
+            Protocol::AnthropicMessages,
+            Protocol::Gemini,
+        ] {
+            let o = Options {
+                protocol: protocol.code().to_string(),
+                ..Default::default()
+            };
+            let err = require_model(&o).unwrap_err();
+            // 码由 JNI 边界拼进 `ERROR:<code>:<message>`；这里钉的是错误本身带的码与文案
+            assert_eq!(err.code(), Some("TRANSLATE_AUTH"), "{protocol:?}: {err}");
+            assert!(err.to_string().contains("模型"), "{protocol:?}: {err}");
+        }
+        // 填了就能过
         let o = Options {
-            provider: "deepseek".to_string(),
-            protocol: Protocol::DeepSeek.code().to_string(),
+            model: " any-model ".to_string(),
             ..Default::default()
         };
-        assert_eq!(require_model(&o).unwrap(), deepseek::DEFAULT_MODEL);
-
-        let o = Options {
-            protocol: Protocol::AnthropicMessages.code().to_string(),
-            ..Default::default()
-        };
-        let err = require_model(&o).unwrap_err();
-        // 码由 JNI 边界拼进 `ERROR:<code>:<message>`；这里钉的是错误本身带的码与文案
-        assert_eq!(err.code(), Some("TRANSLATE_AUTH"), "{err}");
-        assert!(err.to_string().contains("模型"), "{err}");
+        assert_eq!(require_model(&o).unwrap(), "any-model");
     }
 
     #[test]
@@ -647,7 +629,7 @@ mod tests {
         assert!(msg.contains("invalid_api_key"));
 
         assert_eq!(extract_api_error(r#"{"error":"boom"}"#).unwrap(), "boom");
-        // Gemini：error.code 是数字，不该被当成字符串码拼进去
+        // Gemini：error.code 是数字，不该被当成字符串码拼进去；status 是它的语义码
         assert_eq!(
             extract_api_error(r#"{"error":{"code":400,"message":"API key not valid","status":"INVALID_ARGUMENT"}}"#)
                 .unwrap(),
@@ -662,8 +644,8 @@ mod tests {
         assert!(error_message(Protocol::Gemini, 429, "quota").contains("Gemini 限流（429）"));
         assert!(error_message(Protocol::OpenAiResponses, 503, "overloaded").contains("HTTP 503"));
         // Kotlin 侧的分类关键词必须仍然在
-        assert!(error_message(Protocol::DeepSeek, 402, "Insufficient Balance").contains("余额不足"));
-        assert!(error_message(Protocol::DeepSeek, 400, "bad").contains("请求参数无效（400）"));
+        assert!(error_message(Protocol::OpenAiChat, 402, "Insufficient Balance").contains("余额不足"));
+        assert!(error_message(Protocol::OpenAiChat, 400, "bad").contains("请求参数无效（400）"));
     }
 
     #[test]

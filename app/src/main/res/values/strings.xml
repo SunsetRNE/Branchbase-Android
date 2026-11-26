@@ -43,8 +43,8 @@
     <string name="translate_auto_toggle">自动翻译正文</string>
     <string name="translate_provider_mymemory_label">MyMemory（免费）</string>
     <string name="translate_provider_mymemory_desc">免费匿名，约 5000 词/天，质量一般</string>
-    <string name="translate_provider_deepseek_label">DeepSeek（需填写密钥）</string>
-    <string name="translate_provider_deepseek_desc">按 token 计费，长句与术语质量更好</string>
+    <string name="translate_provider_external_label">外部模型接入</string>
+    <string name="translate_provider_external_desc">任意厂商，按所选协议接入</string>
     <string name="translate_lang_zh_label">中文（简体）</string>
     <string name="translate_lang_zh_desc">英文原文 → 中文对照（默认）</string>
     <string name="translate_lang_en_label">English</string>
@@ -63,7 +63,7 @@
     <string name="translate_decision_stats">本次运行判定：跳过 %1$s 段 · 匹配翻译 %2$s 段（%3$s 对片段）</string>
     <string name="translate_style_plain">淡灰</string>
     <string name="translate_cache_cleared">已清空译文缓存</string>
-    <string name="translate_key_placeholder">sk-…（platform.deepseek.com 申请）</string>
+    <string name="translate_key_placeholder">粘贴服务商控制台生成的 Key</string>
     <string name="translate_cache_disk_toggle">本地缓存</string>
     <string name="action_hide">隐藏</string>
     <string name="translate_style_section">译文样式</string>
@@ -86,8 +86,6 @@
     <string name="translate_protocol_choose">选择</string>
     <string name="translate_protocol_title">选择协议</string>
     <string name="translate_protocol_recommended">推荐</string>
-    <string name="translate_protocol_deepseek">DeepSeek 官方默认协议</string>
-    <string name="translate_protocol_deepseek_desc">默认协议，OpenAI 兼容方言</string>
     <string name="translate_protocol_openai_chat">OpenAI Chat Completions</string>
     <string name="translate_protocol_openai_chat_desc">通用 OpenAI Chat 响应协议</string>
     <string name="translate_protocol_openai_responses">OpenAI Responses</string>
@@ -96,6 +94,18 @@
     <string name="translate_protocol_anthropic_desc">Claude 官版消息协议</string>
     <string name="translate_protocol_gemini">Gemini API</string>
     <string name="translate_protocol_gemini_desc">Google 官版生成协议</string>
+    <string name="translate_address_list">官方地址</string>
+    <string name="translate_address_title">选择接口地址</string>
+    <string name="translate_address_openai">OpenAI 官方</string>
+    <string name="translate_address_deepseek">DeepSeek 官方</string>
+    <string name="translate_address_anthropic">Anthropic 官方</string>
+    <string name="translate_address_google">Google 官方</string>
+    <string name="translate_address_custom">自定义地址</string>
+    <string name="translate_address_custom_desc">直接改输入框（中转 / 自建网关）</string>
+    <string name="translate_models_no_endpoint">该服务商没有模型列表接口，请手动填写模型名</string>
+    <string name="translate_warning_title">保存前确认</string>
+    <string name="translate_warning_body">API Key 的格式需要准确：不同厂商的 Key 前缀与长度不同，粘贴时不要带空格或换行。\n\n并非所有厂商都兼容所选的协议：协议选错时服务端通常返回 401 / 404 / 400，而不是「翻译失败」。\n\n建议保存后点一次「测试响应」，先确认该服务商的端口响应；如果它不提供模型列表，模型名请手动填写。</string>
+    <string name="translate_warning_confirm">已了解，保存</string>
     <string name="translate_probe_response">测试响应</string>
     <string name="translate_probe_ok">响应正常，可用模型 %1$s 个</string>
     <string name="translate_model_current">当前</string>
@@ -111,7 +121,7 @@
     <string name="translate_notes_entry">开启入口只有本页的「自动翻译正文」：开启后正文页出现可移动悬浮球，单击展开翻译工具菜单。</string>
     <string name="translate_notes_panel">菜单里有进度、常用开关、翻译全文 / 清空本页译文；「本页翻译」一关悬浮球立刻收起，要再开回本页开总开关。</string>
     <string name="translate_notes_batch">整页候选文本少于 5000 字符时一次翻完，更长时按视口滚动逐段翻译（省额度）。</string>
-    <string name="translate_notes_service">MyMemory 免费匿名（约 5000 词 / 天）；DeepSeek 需填写密钥、按 token 计费。额度用尽 / Key 无效 / 连续失败会自动暂停并提示。</string>
+    <string name="translate_notes_service">MyMemory 免费匿名（约 5000 词 / 天）；外部模型接入需填写密钥、按 token 计费。额度用尽 / Key 无效 / 连续失败会自动暂停并提示。</string>
     <string name="translate_notes_mix">中英混排：只翻外语片段最省额度；整段一起翻会把中文再翻一遍、质量更差；混排不翻最保守。</string>
     <string name="translate_notes_render">显示方式与译文样式只改呈现，不重翻；样式只改页面根节点的一个属性。</string>
     <string name="translate_notes_cache">本地缓存把译文落盘，重开 App 同一段不再重复翻译；关闭只是不再读写磁盘，不清除已存内容。</string>

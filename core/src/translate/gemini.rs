@@ -25,7 +25,7 @@ use serde_json::{json, Value};
 pub(crate) fn build_body(text: &str, from: &str, to: &str) -> Value {
     json!({
         "systemInstruction": {
-            "parts": [{ "text": super::deepseek::system_prompt(from, to) }]
+            "parts": [{ "text": super::prompt::system_prompt(from, to) }]
         },
         "contents": [{
             "role": "user",
@@ -87,7 +87,7 @@ pub(crate) fn parse_response(body: &str) -> Result<String> {
         }
     }
 
-    let cleaned = super::deepseek::clean_output(&out);
+    let cleaned = super::prompt::clean_output(&out);
     if cleaned.is_empty() {
         // 被安全策略拦截时给一句能懂的话（此时没有 candidates，只有 promptFeedback）
         if let Some(reason) = v

@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.branchbase.R
+import com.branchbase.translate.ApiAddress
 import com.branchbase.translate.TranslateProtocol
 import com.branchbase.ui.theme.Primer
 
@@ -470,4 +471,152 @@ internal fun ProtocolPickerDialog(
             }
         }
     }
+}
+
+/** 「官方地址」徽章：与「获取模型列表」同款蓝底徽章，点开地址列表。 */
+@Composable
+internal fun AddressListBadge(onClick: () -> Unit) {
+    Text(
+        stringResource(R.string.translate_address_list),
+        fontSize = 11.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = Color.White,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(Primer.Blue500)
+            .clickable { onClick() }
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    )
+}
+
+/**
+ * 接口地址单选弹窗（1.4.54）：**协议只知道「怎么说」，对谁说在这里选**。
+ *
+ * 列表来自 `TranslateProtocol.addresses`（官方地址 + 文档明示的兼容入口），
+ * 最后一行是「自定义地址」——它不写任何值，只关窗，把选择权交回输入框
+ * （中转 / 自建网关 / 只填域名都在那儿改）。
+ *
+ * 选中状态按**规范化后的地址**比：用户手抄时多一个尾斜杠不该让「当前」消失。
+ */
+@Composable
+internal fun AddressPickerDialog(
+    protocol: TranslateProtocol,
+    currentBaseUrl: String,
+    onDismiss: () -> Unit,
+    onSelect: (ApiAddress) -> Unit,
+) {
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { shown = true }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        AnimatedVisibility(
+            visible = shown,
+            enter = scaleIn(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
+                initialScale = 0.86f,
+            ) + fadeIn(tween(140)),
+            exit = scaleOut(targetScale = 0.92f) + fadeOut(tween(110)),
+        ) {
+            Column(
+                Modifier
+                    .padding(horizontal = 24.dp)
+                    .fillMaxWidth()
+                    .background(Primer.BackgroundPrimary, RoundedCornerShape(16.dp))
+                    .padding(16.dp),
+            ) {
+                Text(
+                    stringResource(R.string.translate_address_title),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Primer.TextPrimary,
+                )
+                Spacer(Modifier.height(8.dp))
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 360.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    val current = currentBaseUrl.trim().trimEnd('/').lowercase()
+                    protocol.addresses.forEach { address ->
+                        ModeOptionRow(
+                            label = stringResource(address.addressLabelRes),
+                            desc = address.baseUrl,
+                            selected = current.isNotEmpty() &&
+                                current == address.baseUrl.trimEnd('/').lowercase(),
+                        ) {
+                            onSelect(address)
+                        }
+                    }
+                    ModeOptionRow(
+                        label = stringResource(R.string.translate_address_custom),
+                        desc = stringResource(R.string.translate_address_custom_desc),
+                        selected = current.isEmpty() || protocol.addressOf(currentBaseUrl) == null,
+                        divider = true,
+                    ) {
+                        onDismiss()
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) {
+                        Text(stringResource(R.string.action_cancel), color = Primer.TextSecondary)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 保存前的兼容性提醒（用户 2026-11-26 决策四）：只在**协议变了**时出现。
+ *
+ * 三句话分别对应三条真会踩的坑：Key 格式（空格 / 换行 / 前缀）、厂商对协议的兼容性
+ * （选错协议服务端回 401 / 404 / 400，不是「翻译失败」）、以及「先测端口再谈翻译」。
+ * 它不是每次保存都弹 —— 那会变成噪音，用户会闭眼点「已了解」。
+ */
+@Composable
+internal fun ProtocolWarningDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                stringResource(R.string.translate_warning_title),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Primer.TextPrimary,
+            )
+        },
+        text = {
+            Column(
+                Modifier
+                    .heightIn(max = 380.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                Text(
+                    stringResource(R.string.translate_warning_body),
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                    color = Primer.TextSecondary,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(stringResource(R.string.translate_warning_confirm), color = Primer.AccentText)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_cancel), color = Primer.TextSecondary)
+            }
+        },
+    )
 }

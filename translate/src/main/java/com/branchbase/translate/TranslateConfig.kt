@@ -48,14 +48,17 @@ data class TranslateConfig(
     val model: String = "",
     val baseUrl: String = "",
     /**
-     * 端点方言（见 [TranslateProtocol]）：DeepSeek 官方 / OpenAI Chat / OpenAI Responses /
-     * Anthropic Messages / Gemini。它与 [provider] 正交：只影响「怎么发请求」，不影响「用谁」。
+     * 端点方言（见 [TranslateProtocol]）：OpenAI Chat / OpenAI Responses / Anthropic Messages / Gemini。
+     * 它与 [provider] 正交：只影响「怎么发请求」，不影响「用谁」。
      *
      * Kotlin 侧用它拼探测请求（`ModelProbe`），Rust 侧用它分派翻译请求（`core/src/translate`）。
-     * 无需额外迁移：老配置没有这个键 → 读回默认 [TranslateProtocol.DEEPSEEK]，
-     * 正是老版本唯一支持的写法。
+     *
+     * 缺省是 **OpenAI Chat Completions**（1.4.54 起）：覆盖面最广的一档，任何
+     * 「OpenAI 兼容」的厂商 / 中转都能接。老配置里的 `deepseek` 由
+     * [TranslateProtocol.byCode] 折回本档，地址由 [TranslateSettings] 的迁移补成
+     * `https://api.deepseek.com/v1`（否则会变成「DeepSeek 的 Key + OpenAI 的地址」）。
      */
-    val protocol: String = TranslateProtocol.DEEPSEEK.code,
+    val protocol: String = TranslateProtocol.default.code,
     val matchPolicy: String = PageRules.MATCH_POLICY_MATCH,
 ) {
 
@@ -156,7 +159,10 @@ object TranslateSettings {
     private const val KEY_MODEL = "translate.deepseek.model"
     private const val KEY_BASE_URL = "translate.deepseek.baseUrl"
     private const val KEY_PROTOCOL = "translate.deepseek.protocol"
+    /** 模型列表（按协议 + 地址分桶的 JSON 对象；键名沿用 1.4.53 的名字以免丢数据）。 */
     private const val KEY_MODELS = "translate.deepseek.models"
+    /** 1.4.53 的 DeepSeek 默认地址（`/v1` 与根地址等价，文档明示）。 */
+    private const val LEGACY_DEEPSEEK_BASE = "https://api.deepseek.com/v1"
     private const val KEY_MATCH_POLICY = "translate.matchPolicy"
 
     @Volatile
@@ -178,10 +184,30 @@ object TranslateSettings {
             provider = TranslateProvider.byCode(p.getString(KEY_PROVIDER, null)).code,
             apiKey = p.getString(KEY_API_KEY, "") ?: "",
             model = p.getString(KEY_MODEL, "") ?: "",
-            baseUrl = p.getString(KEY_BASE_URL, "") ?: "",
+            baseUrl = migrateLegacyBaseUrl(
+                rawProtocol = p.getString(KEY_PROTOCOL, null),
+                baseUrl = p.getString(KEY_BASE_URL, "") ?: "",
+            ),
             protocol = TranslateProtocol.byCode(p.getString(KEY_PROTOCOL, null)).code,
             matchPolicy = PageRules.matchPolicyOf(p.getString(KEY_MATCH_POLICY, null)),
         )
+    }
+
+    /**
+     * 1.4.53 → 1.4.54 的地址迁移：老配置「协议 = deepseek 且地址留空」。
+     *
+     * 老语义是「DeepSeek 的 Key + DeepSeek 的地址」，折成新语义是「OpenAI Chat 协议 +
+     * `https://api.deepseek.com/v1`」。不迁移的话会变成「DeepSeek 的 Key + OpenAI 的地址」，
+     * 每个请求都 401 —— 这是这次拆层里唯一会让老用户「升级后突然不能翻」的地方。
+     *
+     * **只读时计算，不落盘**：用户没改过设置时行为与老版本一致；一旦保存，
+     * 界面里的草稿（已经带迁移后的地址）就会被写进配置，迁移自然收敛。
+     * 用户如果本来填了自定义地址，则原样保留（那可能是他自己的中转）。
+     */
+    internal fun migrateLegacyBaseUrl(rawProtocol: String?, baseUrl: String): String {
+        val wasDeepSeek = rawProtocol?.trim()?.lowercase() == "deepseek"
+        if (!wasDeepSeek || baseUrl.isNotBlank()) return baseUrl
+        return LEGACY_DEEPSEEK_BASE
     }
 
     fun setEnabled(context: Context, enabled: Boolean) = write(context, KEY_ENABLED, enabled)
@@ -218,27 +244,52 @@ object TranslateSettings {
         write(context, KEY_PROTOCOL, TranslateProtocol.byCode(protocol).code)
 
     /**
-     * 本机保存的模型列表（2026-11 第六轮）。
+     * 本机保存的模型列表（2026-11 第六轮起；1.4.54 起**按协议 + 地址分桶**）。
      *
      * 它是「用户从探测结果里勾选出的子集」，只用来在设置页给候选芯片，**不参与翻译请求**
-     * （真正发出去的是 [TranslateConfig.model]）。默认空 = 没探测过，UI 回落到内置候选。
+     * （真正发出去的是 [TranslateConfig.model]）。
      *
-     * 存 JSON 数组而不是 StringSet：顺序要稳定（用户勾选的顺序就是他读到的顺序），
-     * 而 `StringSet` 在 SharedPreferences 里不保证顺序。
+     * ## 为什么要分桶
+     *
+     * 1.4.53 的列表是全局一份：在 DeepSeek 下保存的 `deepseek-*` 会在切到 Anthropic 之后
+     * 继续显示（真机截图里的那排芯片），点了必然 404。现在按 [scopeKey] 存，
+     * 换协议 / 换地址都看不到上一家的模型。
+     *
+     * 存 JSON 对象（`{scope: [models]}`）而不是 `StringSet`：顺序要稳定（用户勾选的顺序
+     * 就是他读到的顺序），而 `StringSet` 在 SharedPreferences 里不保证顺序。
      */
-    fun readModels(context: Context): List<String> {
+    fun readModels(context: Context, scope: String): List<String> {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(KEY_MODELS, null) ?: return emptyList()
         return runCatching {
-            val arr = JSONArray(raw)
+            val byScope = JSONObject(raw)
+            val arr = byScope.optJSONArray(scope) ?: return emptyList()
             (0 until arr.length())
                 .mapNotNull { arr.optString(it)?.trim()?.takeIf(String::isNotEmpty) }
                 .distinct()
         }.getOrDefault(emptyList())
     }
 
-    fun setModels(context: Context, models: List<String>) =
-        write(context, KEY_MODELS, JSONArray(models.map { it.trim() }.filter { it.isNotEmpty() }.distinct()).toString())
+    fun setModels(context: Context, scope: String, models: List<String>) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val current = runCatching { JSONObject(prefs.getString(KEY_MODELS, null) ?: "{}") }.getOrDefault(JSONObject())
+        current.put(
+            scope,
+            JSONArray(models.map { it.trim() }.filter { it.isNotEmpty() }.distinct()),
+        )
+        write(context, KEY_MODELS, current.toString())
+    }
+
+    /**
+     * 模型列表的分桶键：协议 + 规范化后的地址。
+     *
+     * 地址参与分桶是因为同一档协议下，不同厂商的模型集合完全不同（OpenAI vs DeepSeek）。
+     * 空地址归一成协议官方地址，避免「留空」与「显式填官方地址」被当成两个桶。
+     */
+    fun modelsScope(protocol: TranslateProtocol, baseUrl: String): String {
+        val base = baseUrl.trim().trimEnd('/').lowercase().ifEmpty { protocol.officialBaseUrl.lowercase() }
+        return "${protocol.code}|$base"
+    }
 
     /** 保存混排段落的处理规则（认不出来的取值回落到默认，见 [PageRules.matchPolicyOf]）。 */
     fun setMatchPolicy(context: Context, policy: String) =

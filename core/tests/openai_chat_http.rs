@@ -1,14 +1,9 @@
-//! DeepSeek 后端的**真实 HTTP 形状**集成测试：起一个本机回环的小服务当端点，不联网。
+//! OpenAI Chat Completions 的**真实 HTTP 形状**集成测试。
 //!
-//! 为什么值得写：单元测试能覆盖提示词、响应解析、错误消息映射，但「请求到底长什么样」
-//! （端点拼接、`Authorization` 头、请求体字段、是否漏传了 key）只有真的发一次才看得见。
-//! 而真端点需要 API Key、还会花钱，所以这里用回环服务断言请求本身。
+//! 这一档是覆盖面最广的一档（任何 OpenAI 兼容的厂商 / 中转 / 自建网关），
+//! 所以这里钉的是**通用契约**，不是某一家：请求行、鉴权头、请求体字段、错误消息的可分类关键词。
 //!
-//! 覆盖的是**契约**，不是网络库：
-//! 1. `POST {base}/chat/completions`；
-//! 2. `Authorization: Bearer <key>`；
-//! 3. 请求体是 `{model, messages:[system,user], stream:false}`，system 里带目标语言与占位符约束；
-//! 4. 401 / 402 的错误消息里带**能分类的关键词**（Kotlin 侧 `TranslateEngine.classify` 靠它决定熔断）。
+//! 端点用本机回环服务，不联网、不花钱。
 
 mod common;
 
@@ -18,8 +13,7 @@ use common::spawn_server;
 fn options(base_url: String, key: &str, model: &str) -> Options {
     Options {
         provider: "deepseek".into(),
-        // 缺省协议 = DeepSeek 官方方言（与本文件钉住的请求形状一致）
-        protocol: "deepseek".into(),
+        protocol: "openai-chat".into(),
         api_key: key.into(),
         model: model.into(),
         base_url,
@@ -46,7 +40,10 @@ async fn 请求形状与响应解析都符合_openai_兼容约定() {
 
     let request = server.join().unwrap();
     let lower = request.to_ascii_lowercase();
-    assert!(request.starts_with("POST /chat/completions "), "请求行不对：{request}");
+    assert!(
+        request.starts_with("POST /v1/chat/completions "),
+        "请求行不对：{request}"
+    );
     assert!(
         lower.contains("authorization: bearer sk-test-key"),
         "缺少 Authorization 头：{request}"
@@ -63,14 +60,14 @@ async fn 请求形状与响应解析都符合_openai_兼容约定() {
 }
 
 #[tokio::test]
-async fn 自定义_base_url_会补上_chat_completions() {
+async fn 自定义_base_url_会补上_路径且模型原样透传() {
     let (base, server) = spawn_server("200 OK", r#"{"choices":[{"message":{"content":"ok"}}]}"#);
-    // 用户填的是中转的 /v1 地址
+    // 用户填的是中转的 /v1 地址（DeepSeek 官方地址也长这样）
     let out = translate(
         "hi",
         "en",
         "zh-CN",
-        &options(format!("{base}/v1"), "sk-x", ""),
+        &options(format!("{base}/v1"), "sk-x", "some-model"),
     )
     .await
     .unwrap();
@@ -81,11 +78,26 @@ async fn 自定义_base_url_会补上_chat_completions() {
         request.starts_with("POST /v1/chat/completions "),
         "端点没补对：{request}"
     );
-    // 模型留空 → 用默认模型
+    // 1.4.54 起没有内置默认模型：填了什么就发什么
     assert!(
-        request.contains(&format!("\"model\":\"{}\"", branchbase_core::translate::deepseek::DEFAULT_MODEL)),
-        "默认模型没生效：{request}"
+        request.contains("\"model\":\"some-model\""),
+        "模型没原样透传：{request}"
     );
+}
+
+#[tokio::test]
+async fn 模型为空时不发请求_直接给配置错误() {
+    // 端口 1 一定连不上：真发了请求就会得到网络错误
+    let err = translate(
+        "hi",
+        "en",
+        "zh-CN",
+        &options("http://127.0.0.1:1".into(), "sk-x", "   "),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err.code(), Some("TRANSLATE_AUTH"), "{err}");
+    assert!(err.to_string().contains("模型"), "{err}");
 }
 
 #[tokio::test]
@@ -94,7 +106,7 @@ async fn 认证失败与余额不足的消息要能被上层分类() {
         "401 Unauthorized",
         r#"{"error":{"message":"Authentication Fails, Your api key is invalid","type":"authentication_error","code":"invalid_api_key"}}"#,
     );
-    let err = translate("hi", "en", "zh-CN", &options(base, "bad-key", ""))
+    let err = translate("hi", "en", "zh-CN", &options(base, "bad-key", "m"))
         .await
         .unwrap_err()
         .to_string();
@@ -106,7 +118,7 @@ async fn 认证失败与余额不足的消息要能被上层分类() {
         "402 Payment Required",
         r#"{"error":{"message":"Insufficient Balance","type":"insufficient_balance"}}"#,
     );
-    let err = translate("hi", "en", "zh-CN", &options(base, "sk-x", ""))
+    let err = translate("hi", "en", "zh-CN", &options(base, "sk-x", "m"))
         .await
         .unwrap_err()
         .to_string();
@@ -119,7 +131,7 @@ async fn 没填_key_时直接报认证错误而不是发请求() {
         "hi",
         "en",
         "zh-CN",
-        &options("http://127.0.0.1:1".into(), "   ", ""),
+        &options("http://127.0.0.1:1".into(), "   ", "m"),
     )
     .await
     .unwrap_err()

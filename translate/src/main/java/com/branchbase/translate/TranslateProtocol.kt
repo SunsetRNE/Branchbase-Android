@@ -3,46 +3,45 @@ package com.branchbase.translate
 import org.json.JSONObject
 
 /**
- * 翻译协议（**端点方言**）：同一句「把这段翻成中文」，各家的路径、鉴权头、响应体长得都不一样。
+ * Anthropic 的必填版本头值（与 Rust 侧 `translate::ANTHROPIC_VERSION` 一致）。
  *
- * ## 为什么是一个独立概念，而不是 [TranslateProvider] 的一个字段
+ * 放在**文件顶层**而不是 companion 里：枚举项的构造参数要用它，而 companion 在枚举项
+ * 初始化时还没建好（Kotlin 会直接报 `Companion object is uninitialized`）。
+ */
+const val ANTHROPIC_VERSION: String = "2023-06-01"
+
+/**
+ * 翻译协议（**端点方言**）：同一句「把这段翻成中文」，各家要的路径、鉴权头、响应体都不一样。
  *
- * [TranslateProvider] 回答的是**「用谁」**（免费匿名接口 / 自带 Key 的大模型），
- * 协议回答的是**「怎么说」**：同样是自带 Key，可以按 DeepSeek 官方写法说、
- * 按 OpenAI Chat Completions 说、按 Anthropic Messages 说、按 Gemini 说。
- * 两者正交 —— 换协议不改「用谁」，换服务商也不该被迫改协议。
+ * ## 协议与厂商是两件事（1.4.54 起彻底拆开）
  *
- * 把方言收在一张表里，是为了让「请求头自动补全」只有**一个真源**：
+ * | 概念 | 回答什么 | 谁定义 |
+ * |---|---|---|
+ * | **协议**（本文件） | 「怎么说」：路径形状、鉴权头、请求体与响应体的结构 | OpenAI / Anthropic / Google 三家 |
+ * | **接口地址**（[ApiAddress]） | 「对谁说」：某个厂商 / 中转 / 自建网关的 base URL | 用户选（官方列表 + 输入框） |
+ *
+ * 这是这次通用化的核心：以前 [DEEPSEEK] 既是「协议」又是「厂商」，于是模型候选、默认地址、
+ * 错误文案全被锁死在 DeepSeek 上；换成任意厂商就得改代码。现在协议只有四档（三家的原生格式），
+ * 厂商只是「地址列表里的一行」，新增厂商 = 加一行 [ApiAddress]，不动协议。
+ *
+ * DeepSeek 在这套模型里的位置很直白：它**没有自己的报文协议**（官方文档把它归在「兼容协议」），
+ * 三条通道分别是「OpenAI Chat 兼容（`…/v1`）」「OpenAI Responses 兼容」「Anthropic 兼容（`…/anthropic`）」，
+ * 所以它在三档协议下各占一行地址，而不是一个协议。
+ *
+ * ## 请求头自动补全只有**一个真源**
+ *
  * 探测（本模块的模型列表 GET）与翻译（`core/src/translate` 的分派）读同一张表，
- * 不会出现「探测认得 x-api-key、翻译却还在发 Bearer」的分叉。
- *
- * ## 表里为什么是这五档
- *
- * 用户 2026-11-26 定的清单：DeepSeek 官方（默认）/ OpenAI Chat Completions /
- * OpenAI Responses / Anthropic Messages / Gemini API。覆盖了主流三家的原生格式
- * 与 OpenAI 的两代端点；任何「OpenAI 兼容」的中转都归到 [DEEPSEEK] 或 [OPENAI_CHAT]
- * （两者只差默认地址与路径前缀，鉴权头完全相同）。
+ * 不会出现「探测认得 x-api-key、翻译却还在发 Bearer」的分叉。Rust 侧是这张表的第二份实现
+ * （跨 JNI 共用不了代码），码值逐字一致，由 `SettingsSpecTest` 的钉子互盯。
  *
  * ## 这里**只有技术事实**（路径 / 头 / 解析）
  *
- * 界面上的名称与一句话说明是 app 层字符串资源（同 [TranslateProvider] 的约定）：
- * 写在这里切英文就切不过去了。同理也**不自造模型候选** —— 官方模型名变化快，
- * 只有默认协议给两个已知值，其余留空，交给「获取模型列表」去问服务端。
- *
- * ## 两侧的分工（1.4.51 起五档协议端到端可用）
- *
- * - Kotlin（本文件）：探测（模型列表）、默认地址 / 模型、设置页渲染；
- * - Rust（`core/src/translate` 的 `Protocol` + `responses` / `anthropic` / `gemini` 三个
- *   后端模块）：真正发翻译请求时的端点、鉴权头、请求体与响应体解析。
- *
- * 两侧是**同一张表的两份实现**（Kotlin 要拼探测请求，Rust 要发翻译请求，共用不了同一份代码），
- * 加协议 / 改默认值时两边一起改；`.so` 随发版流水线重建，改完 Rust 必须发一次版才生效。
+ * 界面上的名称与说明是 app 层字符串资源：写在这里切英文就切不过去了。同理也**不臆造模型候选** ——
+ * 只有已知厂商（如 DeepSeek）在其地址行里给两个官方模型名，其余交给「获取模型列表」问服务端。
  */
 enum class TranslateProtocol(
     /** 落盘 / options JSON 里的稳定码；**改了就是破坏性变更**（老配置读不回来）。 */
     val code: String,
-    /** 接入地址留空时用的官方地址（也是界面上的占位符）。 */
-    val defaultBaseUrl: String,
     /**
      * 翻译端点路径。
      *
@@ -62,66 +61,63 @@ enum class TranslateProtocol(
      * —— 它不是用户的配置，是协议的组成部分。
      */
     val versionHeader: Pair<String, String>? = null,
-    /** 默认模型（空 = 不自造，界面留空由服务端默认）。 */
-    val defaultModel: String = "",
-    /** 界面候选芯片（空 = 不显示芯片行）。 */
-    val modelSuggestions: List<String> = emptyList(),
-) {
-
     /**
-     * DeepSeek 官方默认协议：`POST {base}/chat/completions`，`Authorization: Bearer`。
+     * 该协议下**已知**的接口地址（第一项 = 官方地址，也是输入框的占位符）。
      *
-     * 官方同时给了 `base_url (OpenAI) = https://api.deepseek.com` 与
-     * `base_url (Anthropic) = https://api.deepseek.com/anthropic`，所以同一个 Key
-     * 既能按本协议说，也能按 [ANTHROPIC_MESSAGES] 说 —— 选哪档是用户的自由。
+     * 只收官方文档明确写过的：`api.deepseek.com/v1` 与 `…/anthropic` 是 DeepSeek 文档
+     * 明示的兼容入口；中转 / 自建网关一律走输入框（不在表里猜）。
      */
-    DEEPSEEK(
-        code = "deepseek",
-        defaultBaseUrl = "https://api.deepseek.com",
-        chatPath = "/chat/completions",
-        modelsPath = "/models",
-        auth = AuthScheme.BEARER,
-        defaultModel = "deepseek-flash",
-        modelSuggestions = listOf("deepseek-flash", "deepseek-v4-pro"),
-    ),
+    val addresses: List<ApiAddress>,
+) {
 
     /** OpenAI Chat Completions：`POST {base}/v1/chat/completions`。 */
     OPENAI_CHAT(
         code = "openai-chat",
-        defaultBaseUrl = "https://api.openai.com",
         chatPath = "/v1/chat/completions",
         modelsPath = "/v1/models",
         auth = AuthScheme.BEARER,
+        addresses = listOf(
+            ApiAddress("openai", "https://api.openai.com/v1"),
+            // DeepSeek 官方：base 用 /v1（文档明示「v1 与模型版本无关」），路径与 OpenAI 完全一致
+            ApiAddress(
+                id = "deepseek",
+                baseUrl = "https://api.deepseek.com/v1",
+                defaultModel = "deepseek-flash",
+                modelSuggestions = listOf("deepseek-flash", "deepseek-v4-pro"),
+            ),
+        ),
     ),
 
     /**
      * OpenAI Responses：`POST {base}/v1/responses`。
      *
      * 模型列表与 Chat Completions **共用** `GET /v1/models`（同一个 Models API）；
-     * 变的是请求体（`input` 而不是 `messages`）与响应体（`output[]` 里的 `output_text`），
-     * 那两段在 Rust 侧接入时才会用到。
+     * 变的是请求体（`input` 而不是 `messages`）与响应体（`output[]` 里的 `output_text`）。
      */
     OPENAI_RESPONSES(
         code = "openai-responses",
-        defaultBaseUrl = "https://api.openai.com",
         chatPath = "/v1/responses",
         modelsPath = "/v1/models",
         auth = AuthScheme.BEARER,
+        addresses = listOf(ApiAddress("openai", "https://api.openai.com/v1")),
     ),
 
     /**
      * Anthropic Messages：`POST {base}/v1/messages`。
      *
-     * 三个独有要求：`x-api-key`（不是 Bearer）、`anthropic-version`（缺了直接 400）、
-     * `max_tokens` 必填且 `system` 是**顶层字段**（不是 messages 里的一条）。
+     * 三个独有要求：`x-api-key`（不是 Bearer）、`anthropic-version`（Anthropic 缺了直接 400，
+     * DeepSeek 的兼容通道会忽略它 —— 多送无害，所以统一补上）、`max_tokens` 必填且 `system` 是顶层字段。
      */
     ANTHROPIC_MESSAGES(
         code = "anthropic-messages",
-        defaultBaseUrl = "https://api.anthropic.com",
         chatPath = "/v1/messages",
         modelsPath = "/v1/models",
         auth = AuthScheme.X_API_KEY,
-        versionHeader = "anthropic-version" to "2023-06-01",
+        versionHeader = "anthropic-version" to ANTHROPIC_VERSION,
+        addresses = listOf(
+            ApiAddress("anthropic", "https://api.anthropic.com"),
+            ApiAddress("deepseek", "https://api.deepseek.com/anthropic"),
+        ),
     ),
 
     /**
@@ -132,20 +128,32 @@ enum class TranslateProtocol(
      */
     GEMINI(
         code = "gemini",
-        defaultBaseUrl = "https://generativelanguage.googleapis.com",
         chatPath = "/v1beta/models/{model}:generateContent",
         modelsPath = "/v1beta/models",
         auth = AuthScheme.X_GOOG_API_KEY,
+        addresses = listOf(ApiAddress("google", "https://generativelanguage.googleapis.com")),
     ),
     ;
 
+    /** 官方地址（地址列表第一项；输入框留空时用它）。 */
+    val officialBaseUrl: String get() = addresses.first().baseUrl
+
     /**
-     * 是否必须由用户显式填模型（没有内置默认值）。
+     * 某个地址属于表里的哪一项（认不出来 = 自定义地址）。
      *
-     * DeepSeek 有默认模型；其余四档的口径是「不臆造模型名」，空着就一定发不出去 ——
-     * 设置页的翻译链路据此提前给一句「去填模型」，而不是让服务端回一个 400。
+     * 比较前统一：去空格、去尾 `/`、小写 —— 用户手抄地址时常带这两样。
      */
-    val requiresExplicitModel: Boolean get() = defaultModel.isEmpty()
+    fun addressOf(baseUrl: String): ApiAddress? {
+        val normalized = normalize(baseUrl)
+        if (normalized.isEmpty()) return null
+        return addresses.firstOrNull { normalize(it.baseUrl) == normalized }
+    }
+
+    /** 该地址行的默认模型（自定义地址 = 空，由用户填或探测）。 */
+    fun defaultModelFor(baseUrl: String): String = addressOf(baseUrl)?.defaultModel.orEmpty()
+
+    /** 该地址行的内置候选（自定义地址 = 空，界面只显示探测/保存过的列表）。 */
+    fun suggestionsFor(baseUrl: String): List<String> = addressOf(baseUrl)?.modelSuggestions.orEmpty()
 
     /** 当前协议的鉴权头（值就是 Key 本身或 `Bearer <Key>`；没 Key 就不补头）。 */
     fun authHeaders(apiKey: String): List<Pair<String, String>> {
@@ -181,16 +189,16 @@ enum class TranslateProtocol(
         } else {
             chatPath
         }
-        return joinEndpoint(baseUrl, path, defaultBaseUrl)
+        return joinEndpoint(baseUrl, path, officialBaseUrl)
     }
 
     /** 模型列表端点：`{base}{modelsPath}`（地址里已含路径前缀时不重复追加）。 */
-    fun modelsEndpoint(baseUrl: String): String = joinEndpoint(baseUrl, modelsPath, defaultBaseUrl)
+    fun modelsEndpoint(baseUrl: String): String = joinEndpoint(baseUrl, modelsPath, officialBaseUrl)
 
     /**
      * 解析模型列表响应（**响应体方言**也在这里）。
      *
-     * - OpenAI / DeepSeek / Anthropic：`{"data":[{"id":"…"}]}`；
+     * - OpenAI / Anthropic：`{"data":[{"id":"…"}]}`；
      * - Gemini：`{"models":[{"name":"models/gemini-…","supportedGenerationMethods":[…]}]}` ——
      *   名字带 `models/` 前缀（用的时候要去掉），且**混着只能做嵌入的模型**，
      *   所以按 `supportedGenerationMethods` 过滤掉不支持 `generateContent` 的那些。
@@ -209,13 +217,22 @@ enum class TranslateProtocol(
     companion object {
 
         /** 界面默认协议（也是认不出来的码的落点）。 */
-        val default: TranslateProtocol = DEEPSEEK
+        val default: TranslateProtocol = OPENAI_CHAT
 
         private const val MODEL_PLACEHOLDER = "{model}"
 
-        /** 认不出来的码一律回落到默认，绝不抛异常（老配置 / 手写配置都可能带脏值）。 */
-        fun byCode(code: String?): TranslateProtocol =
-            entries.firstOrNull { it.code.equals(code?.trim(), ignoreCase = true) } ?: default
+        /**
+         * 认不出来的码一律回落到默认，绝不抛异常（老配置 / 手写配置都可能带脏值）。
+         *
+         * **兼容 1.4.53 及更早的 `deepseek`**：那时它既是协议又是厂商，落在
+         * 「OpenAI Chat 兼容 + DeepSeek 地址」这一格；这里只搬协议，地址由
+         * `TranslateSettings` 的一次性迁移补上（否则老配置会变成「DeepSeek 的 Key + OpenAI 的地址」）。
+         */
+        fun byCode(code: String?): TranslateProtocol {
+            val c = code?.trim()?.lowercase().orEmpty()
+            if (c == "deepseek") return OPENAI_CHAT
+            return entries.firstOrNull { it.code == c } ?: default
+        }
 
         /**
          * 从接入地址猜协议 —— 只用于弹窗里的「推荐」标记，**绝不自动改用户配置**。
@@ -225,7 +242,8 @@ enum class TranslateProtocol(
         fun guessFrom(baseUrl: String): TranslateProtocol? {
             val host = hostOf(baseUrl) ?: return null
             return when {
-                host == "api.deepseek.com" || host.endsWith(".deepseek.com") -> DEEPSEEK
+                // DeepSeek 的三条通道：默认按 OpenAI Chat 兼容（地址列表里还有 /anthropic 一行）
+                host == "api.deepseek.com" || host.endsWith(".deepseek.com") -> OPENAI_CHAT
                 host == "api.openai.com" || host.endsWith(".openai.com") -> OPENAI_CHAT
                 host == "api.anthropic.com" || host.endsWith(".anthropic.com") -> ANTHROPIC_MESSAGES
                 host == "generativelanguage.googleapis.com" -> GEMINI
@@ -266,8 +284,27 @@ enum class TranslateProtocol(
             }
             return base + path
         }
+
+        private fun normalize(baseUrl: String): String =
+            baseUrl.trim().trimEnd('/').lowercase()
     }
 }
+
+/**
+ * 某档协议下的一个**接口地址**（厂商 / 中转 / 自建网关）。
+ *
+ * `id` 只是给 app 层查名字用的稳定键（`"openai"` / `"deepseek"` / …），名字是字符串资源；
+ * 这样加厂商不需要动界面代码，也不会把中文写进模块。
+ *
+ * [defaultModel] / [modelSuggestions] 挂在地址上而不是协议上：同一档协议下，不同厂商的
+ * 默认模型与已知模型完全不同（OpenAI 地址不该预填 `deepseek-flash`，DeepSeek 地址该预填）。
+ */
+data class ApiAddress(
+    val id: String,
+    val baseUrl: String,
+    val defaultModel: String = "",
+    val modelSuggestions: List<String> = emptyList(),
+)
 
 /**
  * 鉴权头的三种写法（值由 [TranslateProtocol.authHeaders] 拼）。
@@ -281,7 +318,7 @@ enum class AuthScheme {
     X_GOOG_API_KEY,
 }
 
-/** `{"data":[{"id":"…"}]}`：OpenAI / DeepSeek / Anthropic 三家共用（Anthropic 多几个字段，忽略）。 */
+/** `{"data":[{"id":"…"}]}`：OpenAI / Anthropic 两家共用（Anthropic 多几个字段，忽略）。 */
 private fun parseDataIds(root: JSONObject): List<String> {
     val data = root.optJSONArray("data") ?: return emptyList()
     return (0 until data.length()).mapNotNull { index ->

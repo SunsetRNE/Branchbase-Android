@@ -514,6 +514,7 @@ L1 设置（唯一入口）
 | 14 | **模型不空着 + 保存/测试拆分** | 翻译页必须用 `ifBlank { TranslateProvider.DEEPSEEK_MODEL }` 预填；必须有逐字输入（`typingTarget` + `delay(`）与「当前」徽标；「测试响应」不许调 `translator.selfTest(`（不翻译、不耗额度）（§二十） |
 | 15 | **保存有反馈** | 必须出现 `SaveSuccessDialog(` + `spring(`；文案含「当前本地已成功保存相应的 Key 配置」（§20.4） |
 | 16 | **协议单选 + 头自动补全单一真源** | 翻译页必须有 `ProtocolField(` + `ProtocolPickerDialog(` + `TranslateSettings.setProtocol` + `carryOver(`，探测必须 `ModelProbe.fetch(protocolDraft`；`:translate` 的方言表必须含五档 `code` 与四个头名（§二十一） |
+| 17 | **地址与协议拆开** | 翻译页必须有 `AddressListBadge` + `AddressPickerDialog(` + `ProtocolWarningDialog(` + `TranslateSettings.modelsScope(`；服务商行必须叫「外部模型接入」，且不许再出现「自带 Key」口径（§二十二） |
 
 > 第 1、5、6 条可以在**本轮就加**（现状已基本满足或改动很小）；
 > 第 2、3、4、7 条依赖 §11 的重构，落地时一并加。
@@ -1028,6 +1029,50 @@ OpenAI Responses / Anthropic Messages / Gemini API」**，并要求调研「请�
 | 源码钉子 | `SettingsSpecTest.翻译页协议单选_请求头自动补全只有一个真源`（§10.1 第 16 条） |
 | 单测 | `TranslateProtocolTest` 9 例 + `ModelProbeTest` 13 例；`TranslateSettingsTest` 新增「协议进 options JSON 并进缓存变体」 |
 | 文案 | 中英各 14 条（`translate_protocol_*`），协议名走资源、不进枚举（与 `TranslateProvider` 同一条约定） |
+
+## 二十二、协议与厂商拆开（2026-11 · 第九轮）
+
+页面同 §十八–§二十一（`ui/profile/TranslateSettingsScreen.kt`）。用户 2026-11-26 的决策：
+「DeepSeek 应该改为『外部模型接入』，整体往通用化的方向去演化；协议层和地址拆开」。
+
+### 22.1 决策与落点
+
+| # | 决策 | 落点 |
+|---|---|---|
+| 一 | 协议只留四档，默认 OpenAI Chat Completions | `TranslateProtocol`（4 个枚举项） |
+| 二 | DeepSeek 不是协议，是地址表里的两行 | `ApiAddress("deepseek", …/v1 或 …/anthropic)` |
+| 三 | 「接口地址」独立成字段：官方地址列表 + 输入框 | `AddressListBadge` + `AddressPickerDialog` + 原 `CompactField` |
+| 四 | 服务商行改名「外部模型接入」 | `translate_provider_external_label` |
+| 五 | 模型列表按协议 + 地址分桶 | `TranslateSettings.modelsScope` |
+| 六 | 404/405 收敛成「没有模型列表接口」 | `ModelProbe.NO_MODELS_ENDPOINT` |
+| 七 | 保存前兼容性提醒（协议变过才弹） | `ProtocolWarningDialog` |
+| 八 | 响应拼接不再锁死 DeepSeek | `core/src/translate/{openai_chat,prompt,responses,anthropic,gemini}.rs` |
+
+### 22.2 为什么默认是 OpenAI Chat Completions
+
+它是覆盖面最广的一档：任何「OpenAI 兼容」的厂商 / 中转 / 自建网关都能接，路径与载荷与 OpenAI 一致。
+DeepSeek 的官方推荐写法也是这一档（`base_url = https://api.deepseek.com/v1`），所以默认档 + 默认地址
+（OpenAI 官方）之外，用户只需要在地址弹窗里点一下 DeepSeek 那一行。
+
+### 22.3 老用户怎么不掉线
+
+`protocol = "deepseek"` 折成 `openai-chat`；若地址为空，`migrateLegacyBaseUrl` 补成
+`https://api.deepseek.com/v1`。否则会变成「DeepSeek 的 Key + OpenAI 的地址」，每个请求 401 ——
+这是拆层里唯一会让老用户「升级后突然不能翻」的地方，由 `TranslateSettingsTest` 钉住。
+
+### 22.4 默认模型为什么挂在地址上
+
+同一档协议下，不同厂商的模型集合完全不同（OpenAI vs DeepSeek）。默认模型与已知候选放
+`ApiAddress` 里：`api.deepseek.com/v1` 预填 `deepseek-flash`、`api.openai.com/v1` 不预填；
+换地址时只带「还等于上一行默认值（或空着）」的模型名，用户手填过的一律不动（`carryOver`）。
+
+### 22.5 边界
+
+「思维深度字段 + 探测按钮」在下一轮：四档协议的字段形状不同（`reasoning_effort` /
+`reasoning.effort` / `thinking.budget_tokens` / `thinkingConfig.thinkingBudget`），
+需要先定档位与预算映射，再落 Rust 与探测。
+
+---
 
 ## 附：术语
 

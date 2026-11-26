@@ -9,11 +9,16 @@ package com.branchbase.translate
  * | 后端 | Key | 计费 | 适用 |
  * |------|-----|------|------|
  * | [MYMEMORY] | 不需要 | 匿名额度约 5000 词/天 | 默认；随手看两眼够了 |
- * | [DEEPSEEK] | 用户自带 | 按 token（官方/中转） | 长句、术语一致性要求高的技术文档 |
+ * | [EXTERNAL] | 用户自备 | 按 token（官方/中转） | 长句、术语一致性要求高的技术文档 |
  *
- * 注意：[DEEPSEEK] 的模型名与接入地址都是**可配置**的，因为官方模型名会随版本调整
- * （`deepseek-chat` → `deepseek-flash` → …），而接口是 OpenAI 兼容的，
- * 用户也可能想接到中转 / 自建网关上。
+ * ## 1.4.54 起 [EXTERNAL] 是「外部模型接入」，不再是 DeepSeek
+ *
+ * 以前这一档写死 DeepSeek（模型候选、默认地址、错误文案全带 DeepSeek）。现在它只是
+ * 「用户自己的大模型服务」这个**入口**：具体用哪家、哪种协议，由设置页里的
+ * **协议**（[TranslateProtocol]）与**接口地址**（[ApiAddress]）两个字段决定。
+ * DeepSeek 降级成地址列表里的一行，不再有专属代码路径。
+ *
+ * `code` 仍是 `"deepseek"`：它是落盘键（`translate.provider`）的一部分，改了老配置就读不回来。
  *
  * **这里只放与语言无关的 `code`**：名称与说明是界面文案（设置页的服务单选行），
  * 必须走 app 层的字符串资源，否则切到英文后这一行仍是中文（2026-11 文案重写时收口）。
@@ -21,36 +26,22 @@ package com.branchbase.translate
 enum class TranslateProvider(val code: String) {
 
     MYMEMORY("mymemory"),
-    DEEPSEEK("deepseek"),
+
+    /** 外部模型接入（协议 + 地址 + Key 由用户配）。 */
+    EXTERNAL("deepseek"),
     ;
 
     /** 是否需要用户填 Key（决定设置页要不要展开输入框）。 */
-    val requiresKey: Boolean get() = this == DEEPSEEK
+    val requiresKey: Boolean get() = this == EXTERNAL
 
     companion object {
 
         val default: TranslateProvider = MYMEMORY
 
-        fun byCode(code: String?): TranslateProvider =
-            entries.firstOrNull { it.code.equals(code, true) } ?: default
-
-        /**
-         * DeepSeek 默认接入地址（用户可在设置里改成中转/自建）。
-         *
-         * 真源在 [TranslateProtocol.DEEPSEEK]：协议的默认地址、模型、候选都归协议表，
-         * 这里只是给「只知道 DeepSeek」的调用点留一个短名字，避免两处各写一份。
-         */
-        val DEEPSEEK_BASE_URL: String get() = TranslateProtocol.DEEPSEEK.defaultBaseUrl
-
-        /**
-         * DeepSeek 默认模型（真源在 [TranslateProtocol.DEEPSEEK]）。
-         *
-         * 与 Rust 侧 `translate::deepseek::DEFAULT_MODEL` 保持一致：
-         * 空模型名时由 Rust 兜底，这里填一份是为了设置页能显示「默认」提示。
-         */
-        val DEEPSEEK_MODEL: String get() = TranslateProtocol.DEEPSEEK.defaultModel
-
-        /** 设置页里的模型候选（也可以自己填，输入框不受限）。 */
-        val MODEL_SUGGESTIONS: List<String> get() = TranslateProtocol.DEEPSEEK.modelSuggestions
+        fun byCode(code: String?): TranslateProvider {
+            val c = code?.trim()?.lowercase().orEmpty()
+            // 1.4.53 及更早把它叫 deepseek；两套写法都认，落盘键保持不变
+            return entries.firstOrNull { it.code == c } ?: default
+        }
     }
 }

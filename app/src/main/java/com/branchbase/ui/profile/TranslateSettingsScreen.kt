@@ -121,8 +121,8 @@ import kotlinx.coroutines.withContext
  * - **中英混排**：中文段落里夹着外语片段时怎么办（判定引擎的使用规则）—— 只翻外语片段（默认，
  *   按「片段 → 译文」配对展示）/ 整段一起翻（旧行为）/ 混排不翻。规则真源在 `PageRules.matchPolicy`，
  *   既进原生判定也随设置注入页面脚本；
- * - **翻译服务**：MyMemory（免费零配置，默认）或 DeepSeek（**用户自带 API Key**）。
- *   选后者时展开 Key / 模型 / 接入地址三个输入框与一个「测试连接」；
+ * - **翻译服务**：MyMemory（免费零配置，默认）或**外部模型接入**（用户自备 Key 与协议）。
+ *   选后者时展开「协议 / 地址 / Key / 模型」四个字段与两个动作（保存、测试响应）；
  * - **本地缓存 / 保护代码与链接 / 清空缓存**：见各自的说明文案（细节在「!」弹窗里）。
  *
  * ## 关于自带 API Key
@@ -154,14 +154,19 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
     // 模型框**不空着**：保存的值为空时直接填当前协议的默认模型（Rust 侧空值即各后端的默认值），
     // 用户一眼能看到「实际会用哪个」，不用猜占位符。
     var modelDraft by remember {
-        // 2026-11 第八轮：默认模型跟着**协议**走（换到 Gemini / Anthropic 时不该预填 deepseek-flash）
-        mutableStateOf(config.model.ifBlank { config.protocolKind.defaultModel })
+        // 默认模型跟着「协议 + 地址」走：DeepSeek 地址预填 deepseek-flash，OpenAI 地址留空
+        mutableStateOf(
+            config.model.ifBlank { config.protocolKind.defaultModelFor(config.baseUrl) },
+        )
     }
     var baseUrlDraft by remember { mutableStateOf(config.baseUrl) }
     // 协议草稿与其它三个字段同一原则：**改完点保存才落盘**（探测只读草稿，不顺手改配置）。
     var protocolDraft by remember { mutableStateOf(config.protocolKind) }
-    // 协议是单选，点一项就选完并关窗（不像模型列表要勾多个 + 二次确认）
+    // 协议 / 地址都是单选，点一项就选完并关窗
     var protocolPickerOpen by remember { mutableStateOf(false) }
+    var addressPickerOpen by remember { mutableStateOf(false) }
+    // 保存前的兼容性提醒（只在**协议变了**时出现一次，见 ProtocolWarningDialog）
+    var warningOpen by remember { mutableStateOf(false) }
     var keyVisible by remember { mutableStateOf(false) }
     var testingResponse by remember { mutableStateOf(false) }
     var probeOutcome by remember { mutableStateOf<TestOutcome?>(null) }
@@ -177,8 +182,10 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
     var credentialsExpanded by remember {
         mutableStateOf(config.providerKind.requiresKey && config.apiKey.isBlank())
     }
-    // 本机保存的模型列表（用户从探测结果里勾选出的子集）；只用于候选芯片，不参与翻译请求
-    var localModels by remember { mutableStateOf(TranslateSettings.readModels(context)) }
+    // 本机保存的模型列表（用户从探测结果里勾选出的子集）；只用于候选芯片，不参与翻译请求。
+    // 1.4.54 起按「协议 + 地址」分桶：在 DeepSeek 下保存的列表不会飘到 Anthropic 档。
+    val modelScope = TranslateSettings.modelsScope(protocolDraft, baseUrlDraft)
+    var localModels by remember(modelScope) { mutableStateOf(TranslateSettings.readModels(context, modelScope)) }
     var fetchingModels by remember { mutableStateOf(false) }
     var modelError by remember { mutableStateOf<LocalizedText?>(null) }
     // 非空 = 模型选择弹窗打开；同时 confirmingModels 也非空 = 二次确认叠在上面
@@ -210,6 +217,7 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
         return when {
             detail == ModelProbe.EMPTY_KEY -> LocalizedText(R.string.translate_models_need_key)
             detail == ModelProbe.EMPTY_LIST -> LocalizedText(R.string.translate_models_empty)
+            detail == ModelProbe.NO_MODELS_ENDPOINT -> LocalizedText(R.string.translate_models_no_endpoint)
             detail == ModelProbe.NETWORK -> LocalizedText(R.string.translate_models_network)
             detail == ModelProbe.TIMEOUT -> LocalizedText(R.string.translate_models_timeout)
             fail.retryAfterSeconds != null -> LocalizedText(
@@ -223,8 +231,8 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
 
     /** 保存**只写配置**，不发任何网络请求（决策：保存与测试拆开）。 */
     fun saveCredentials() {
-        // 空模型 = 用默认；保存时就写成默认值，避免「界面空着、实际却有个隐藏默认」
-        if (modelDraft.isBlank()) modelDraft = TranslateProvider.DEEPSEEK_MODEL
+        // 空模型：用当前地址行的默认模型（没有就留空，翻译时会明确提示去填）
+        if (modelDraft.isBlank()) modelDraft = protocolDraft.defaultModelFor(baseUrlDraft)
         TranslateSettings.setApiKey(context, keyDraft)
         TranslateSettings.setModel(context, modelDraft)
         TranslateSettings.setBaseUrl(context, baseUrlDraft)
@@ -337,7 +345,7 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                         }
                     }
 
-                    // DeepSeek 凭据：只在选中时出现，且**默认可折叠**（决策二）。
+                    // 外部模型的凭据块：只在选中时出现，且**默认可折叠**（决策二）。
                     // 折叠态只用一行 ActionRow 报「已配置 / 未配置 Key」；展开态才铺表单。
                     if (config.providerKind.requiresKey) {
                         ActionRow(
@@ -385,6 +393,19 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                                     hint = stringResource(R.string.translate_protocol_choose),
                                     onClick = { protocolPickerOpen = true },
                                 )
+                                // 地址行（1.4.54 通用化）：协议只管「怎么说」，对谁说在这里。
+                                // 标签行右侧是「官方地址」徽章 —— 点开是当前协议的已知地址列表，
+                                // 选完写进下面的输入框；输入框本身仍可自由编辑（中转 / 自建）。
+                                CompactField(
+                                    label = stringResource(R.string.translate_base_url_label),
+                                    value = baseUrlDraft,
+                                    placeholder = protocolDraft.officialBaseUrl,
+                                    mono = true,
+                                    onValueChange = { baseUrlDraft = it },
+                                    headerAction = {
+                                        AddressListBadge { addressPickerOpen = true }
+                                    },
+                                )
                                 CompactField(
                                     label = "API Key",
                                     value = keyDraft,
@@ -417,7 +438,7 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                                 CompactField(
                                     label = stringResource(R.string.translate_model_label),
                                     value = modelDraft,
-                                    placeholder = protocolDraft.defaultModel,
+                                    placeholder = protocolDraft.defaultModelFor(baseUrlDraft),
                                     mono = true,
                                     onValueChange = { modelDraft = it },
                                     headerAction = {
@@ -442,7 +463,7 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                                 // 横向滚动：网关可能返回几十个模型；选中蓝底、未选中白底。
                                 // 协议没给候选（OpenAI / Anthropic / Gemini 的模型名变化快，不臆造）
                                 // 且没探测过时，整行不出现 —— 空行比一排假候选诚实。
-                                val chips = localModels.ifEmpty { protocolDraft.modelSuggestions }
+                                val chips = localModels.ifEmpty { protocolDraft.suggestionsFor(baseUrlDraft) }
                                 if (chips.isNotEmpty()) {
                                     Row(
                                         Modifier
@@ -461,20 +482,14 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                                         }
                                     }
                                 }
-                                CompactField(
-                                    label = stringResource(R.string.translate_base_url_label),
-                                    value = baseUrlDraft,
-                                    placeholder = protocolDraft.defaultBaseUrl,
-                                    mono = true,
-                                    onValueChange = { baseUrlDraft = it },
-                                )
                                 // 保存与测试拆开：保存只写配置；测试只探端点响应（不翻译、不耗 token）。
                                 Row(
                                     Modifier.fillMaxWidth().padding(top = 2.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     ActionPill(text = stringResource(R.string.action_save), enabled = true) {
-                                        saveCredentials()
+                                        // 换过协议才提醒一次：Key 格式 / 厂商兼容性 / 自行探测端点
+                                        if (protocolDraft != config.protocolKind) warningOpen = true else saveCredentials()
                                     }
                                     Spacer(Modifier.width(8.dp))
                                     ActionPill(
@@ -702,25 +717,62 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
         )
     }
 
-    // 协议单选弹窗（2026-11 第八轮）：弹簧进场、点一项即生效 —— 单选不需要「保存」再确认一次。
+    // 协议单选弹窗：弹簧进场、点一项即生效 —— 单选不需要「保存」再确认一次。
     // 换协议要顺手把**默认值**带过去：地址与模型如果还是上一档的默认值（或空着），
     // 就跟到新协议；用户手填过的值一律不动（`carryOver` 只认「空」与「等于旧默认」两种）。
     if (protocolPickerOpen) {
         val previous = protocolDraft
+        val previousAddressDefault = previous.defaultModelFor(baseUrlDraft)
         ProtocolPickerDialog(
             current = previous,
             recommended = TranslateProtocol.guessFrom(baseUrlDraft),
             onDismiss = { protocolPickerOpen = false },
             onSelect = { picked ->
                 protocolDraft = picked
-                baseUrlDraft = carryOver(baseUrlDraft, previous.defaultBaseUrl, picked.defaultBaseUrl)
-                modelDraft = carryOver(modelDraft, previous.defaultModel, picked.defaultModel)
+                baseUrlDraft = carryOver(baseUrlDraft, previous.officialBaseUrl, picked.officialBaseUrl)
+                modelDraft = carryOver(modelDraft, previousAddressDefault, picked.defaultModelFor(baseUrlDraft))
                 // 上一档的探测结果对新方言没有意义（路径与响应体都变了），一律清掉
                 fetchedModels = null
                 confirmingModels = null
                 modelError = null
                 probeOutcome = null
                 protocolPickerOpen = false
+            },
+        )
+    }
+
+    // 地址单选弹窗：当前协议的已知地址（第一项 = 官方）。选完写进输入框，仍可手改。
+    // 同样只带「默认值」：模型若还是上一行的默认模型（或空着）才跟到新行的默认模型。
+    if (addressPickerOpen) {
+        val previousDefaultModel = protocolDraft.defaultModelFor(baseUrlDraft)
+        AddressPickerDialog(
+            protocol = protocolDraft,
+            currentBaseUrl = baseUrlDraft,
+            onDismiss = { addressPickerOpen = false },
+            onSelect = { address ->
+                baseUrlDraft = address.baseUrl
+                modelDraft = carryOver(
+                    modelDraft,
+                    previousDefaultModel,
+                    protocolDraft.defaultModelFor(address.baseUrl),
+                )
+                fetchedModels = null
+                confirmingModels = null
+                modelError = null
+                probeOutcome = null
+                addressPickerOpen = false
+            },
+        )
+    }
+
+    // 保存前的兼容性提醒（用户 2026-11-26 决策四）：只在**协议变了**时出现。
+    // 「协议换了但 Key 还是上一家的」是这里最容易踩的坑，提醒一句比事后 401 好懂。
+    if (warningOpen) {
+        ProtocolWarningDialog(
+            onDismiss = { warningOpen = false },
+            onConfirm = {
+                warningOpen = false
+                saveCredentials()
             },
         )
     }
@@ -744,7 +796,7 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
             onDismiss = { confirmingModels = null },
             onConfirm = {
                 val saved = selected.sorted()
-                TranslateSettings.setModels(context, saved)
+                TranslateSettings.setModels(context, modelScope, saved)
                 localModels = saved
                 // 当前模型如果不在这次保存的列表里，用排序后的首个当默认并用打字动画填入
                 if (saved.isNotEmpty() && modelDraft.trim() !in saved) {
@@ -826,19 +878,18 @@ private fun carryOver(current: String, previousDefault: String, nextDefault: Str
 private val TranslateProvider.labelRes: Int
     get() = when (this) {
         TranslateProvider.MYMEMORY -> R.string.translate_provider_mymemory_label
-        TranslateProvider.DEEPSEEK -> R.string.translate_provider_deepseek_label
+        TranslateProvider.EXTERNAL -> R.string.translate_provider_external_label
     }
 
 private val TranslateProvider.descRes: Int
     get() = when (this) {
         TranslateProvider.MYMEMORY -> R.string.translate_provider_mymemory_desc
-        TranslateProvider.DEEPSEEK -> R.string.translate_provider_deepseek_desc
+        TranslateProvider.EXTERNAL -> R.string.translate_provider_external_desc
     }
 
 /** 协议名（短名，进「协议」字段的值位）。 */
 internal val TranslateProtocol.labelRes: Int
     get() = when (this) {
-        TranslateProtocol.DEEPSEEK -> R.string.translate_protocol_deepseek
         TranslateProtocol.OPENAI_CHAT -> R.string.translate_protocol_openai_chat
         TranslateProtocol.OPENAI_RESPONSES -> R.string.translate_protocol_openai_responses
         TranslateProtocol.ANTHROPIC_MESSAGES -> R.string.translate_protocol_anthropic
@@ -848,7 +899,6 @@ internal val TranslateProtocol.labelRes: Int
 /** 协议的一句话说明（进弹窗的每一行）：说清端点与鉴权头这两个用户能验证的事实。 */
 internal val TranslateProtocol.descRes: Int
     get() = when (this) {
-        TranslateProtocol.DEEPSEEK -> R.string.translate_protocol_deepseek_desc
         TranslateProtocol.OPENAI_CHAT -> R.string.translate_protocol_openai_chat_desc
         TranslateProtocol.OPENAI_RESPONSES -> R.string.translate_protocol_openai_responses_desc
         TranslateProtocol.ANTHROPIC_MESSAGES -> R.string.translate_protocol_anthropic_desc

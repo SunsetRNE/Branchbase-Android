@@ -74,7 +74,51 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.53 → 1.0.22）
+## 二、`versionName` 流水（1.4.54 → 1.0.22）
+
+### 1.4.54
+
+**协议与厂商拆开：四档协议 + 接口地址列表，「外部模型接入」不再锁死 DeepSeek。**
+
+① **协议只剩四档**（OpenAI Chat Completions / OpenAI Responses / Anthropic Messages / Gemini API），
+   默认改为 OpenAI Chat Completions。DeepSeek 不再是协议 —— 它没有私有报文（官方文档把它列在
+   「兼容协议」下），三条通道各与一档协议同形，所以它降级成**地址表里的两行**
+   （`api.deepseek.com/v1`、`api.deepseek.com/anthropic`）。老配置里的 `protocol = "deepseek"`
+   折成 `openai-chat`；地址为空的老配置由 `migrateLegacyBaseUrl` 补成 `https://api.deepseek.com/v1`
+   （不补就会变成「DeepSeek 的 Key + OpenAI 的地址」，每次请求 401）。
+
+② **「接口地址」独立成字段**：标签行右侧「官方地址」徽章打开地址弹窗（当前协议的已知地址 +
+   自定义地址），下面的输入框仍可自由编辑（中转 / 自建网关）。地址表第一行 = 官方地址，
+   也是输入框的占位符。默认模型与已知候选**挂在地址行上**：`api.deepseek.com/v1` 预填
+   `deepseek-flash`，`api.openai.com/v1` 不预填（不臆造模型名）。
+
+③ **服务商行改名**：`DeepSeek（需填写密钥）` → **外部模型接入**（说明：任意厂商，按所选协议接入）。
+   正文页悬浮球的服务名也改成显示当前地址行（OpenAI 官方 / DeepSeek 官方 / 自定义地址）。
+
+④ **模型列表按「协议 + 地址」分桶**（`translate.deepseek.models` 从数组改成 `{scope: [...]}`）：
+   1.4.53 的全局一份会把 DeepSeek 的模型芯片飘到 Anthropic 档（真机截图里那排点不动的芯片），
+   现在换协议 / 换地址都看不到上一家的模型。
+
+⑤ **探测更稳**：HTTP 404 / 405 单独收敛成 `NO_MODELS_ENDPOINT`，提示
+   「该服务商没有模型列表接口，请手动填写模型名」——不再甩一个 404 让用户以为地址填错。
+
+⑥ **保存前的兼容性提醒**（用户决策）：协议变过才弹一次，写明 Key 格式要准、并非所有厂商都兼容
+   所选协议、请自行用「测试响应」验证服务商端口。
+
+⑦ **Rust 侧同步重写**（`core/src/translate/`）：`Protocol` 四档、`deepseek.rs` 拆成
+   `openai_chat.rs` + `prompt.rs`（提示词与输出清理**与协议无关**，四档共用）、
+   `default_model` 一并删除（默认模型属于地址，不属于协议）；`require_model` 对四档协议统一生效。
+   集成测试 `deepseek_http.rs` → `openai_chat_http.rs`（钉通用契约，不再钉某一家）。
+
+⑧ 边界：`.so` 随发版流水线重建后生效；本轮**没有**做「思维深度字段 + 探测按钮」（下一轮，
+   各协议的字段形状不同：Chat 是 `reasoning_effort`、Responses 是 `reasoning.effort`、
+   Anthropic 是 `thinking.budget_tokens`、Gemini 是 `thinkingConfig.thinkingBudget`，
+   还需要先定档位与预算映射）。
+
+**验证**：`:translate:test` 156 例 0 失败 + `:app:testDebugUnitTest` 1185 例 0 失败（1 跳过）；
+`:app:assembleDebug` 通过（`Branchbase-1.4.54-…-debug.apk`）；core：`cargo check --all-targets` +
+`cargo test` 150 例 0 失败（含 `openai_chat_http` 5 例、`protocol_http` 5 例）；
+`tools/i18n/check-i18n.py --min-coverage 100` 通过。
 
 ### 1.4.53
 
@@ -5314,7 +5358,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（313 → 129）
+## 三、`versionCode` 流水（314 → 129）
+
+- **314**：协议与厂商拆开（1.4.54）—— 四档协议、地址列表与自定义输入、服务商改名「外部模型接入」、
+  模型列表按协议 + 地址分桶、404 单独收敛、保存前兼容性提醒、Rust 拆 `openai_chat`/`prompt`；
+  钉子新增 1、单测新增 3（一次提交，故 +1）。
 
 - **313**：协议说明收口 A 版 + 「自带 Key」改「需填写密钥」（1.4.53）—— 三档协议说明改成协议性质口径、
   服务商与说明弹窗同一口径；中英同步（一次提交，故 +1）。

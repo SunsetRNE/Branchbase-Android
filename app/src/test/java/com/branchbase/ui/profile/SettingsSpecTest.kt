@@ -302,7 +302,7 @@ class SettingsSpecTest {
         val page = source(translatePagePath)
         assertTrue(
             "模型框不能空着：进入时要用当前生效的默认模型预填",
-            page.contains("ifBlank { config.protocolKind.defaultModel }"),
+            page.contains("protocolKind.defaultModelFor(config.baseUrl)"),
         )
         assertTrue("选中模型要有逐字输入动画", page.contains("typingTarget") && page.contains("delay("))
         assertTrue("当前模型要有绿色徽标", page.contains("translate_model_current"))
@@ -326,11 +326,12 @@ class SettingsSpecTest {
         )
         assertTrue("方言表在 :translate（探测与将来的 Rust 分派读同一张表）", File(protocolPath).exists())
         val table = source(protocolPath)
-        listOf(
-            "deepseek", "openai-chat", "openai-responses", "anthropic-messages", "gemini",
-        ).forEach { code ->
+        listOf("openai-chat", "openai-responses", "anthropic-messages", "gemini").forEach { code ->
             assertTrue("方言表缺少协议 $code", table.contains("code = \"$code\""))
         }
+        // 1.4.54：DeepSeek 不再是协议，而是协议下的一行**地址**
+        assertTrue("地址表里要保留 DeepSeek 这一行", table.contains("id = \"deepseek\""))
+        assertTrue("协议层不许再出现 deepseek 档", !table.contains("DEEPSEEK("))
         listOf("Authorization", "x-api-key", "x-goog-api-key", "anthropic-version").forEach { header ->
             assertTrue("请求头自动补全缺少 $header", table.contains(header))
         }
@@ -348,10 +349,31 @@ class SettingsSpecTest {
         listOf("x-api-key", "x-goog-api-key", "anthropic-version").forEach { header ->
             assertTrue("Rust 侧缺少头名 $header", rustTable.contains(header))
         }
+        // 协议码在 Rust 侧也必须只有四档（deepseek 只作为 from_code 的兼容别名出现）
+        listOf("openai-chat", "openai-responses", "anthropic-messages", "gemini").forEach { code ->
+            assertTrue("Rust 方言表缺少协议 $code", rustTable.contains("\"$code\""))
+        }
         assertTrue(
-            "Rust 侧必须有 Response 解析模块（Responses / Anthropic / Gemini 各一份）",
-            listOf("responses.rs", "anthropic.rs", "gemini.rs").all { File("../core/src/translate/$it").exists() },
+            "Rust 侧必须有回应答解析模块（Chat / Responses / Anthropic / Gemini 各一份）",
+            listOf("openai_chat.rs", "responses.rs", "anthropic.rs", "gemini.rs", "prompt.rs")
+                .all { File("../core/src/translate/$it").exists() },
         )
+    }
+
+    @Test
+    fun `翻译页地址与协议拆开_换协议才提醒`() {
+        val page = source(translatePagePath)
+        assertTrue("地址行要有「官方地址」入口（徽章 + 弹窗）", page.contains("AddressListBadge"))
+        assertTrue("地址选择要走弹性弹窗", page.contains("AddressPickerDialog("))
+        assertTrue("换协议时要提醒 Key 格式与厂商兼容性", page.contains("ProtocolWarningDialog("))
+        assertTrue(
+            "模型列表要按协议 + 地址分桶（1.4.53 的全局一份会把上一家的模型飘过来）",
+            page.contains("TranslateSettings.modelsScope("),
+        )
+        // 服务商行改名：不再是 DeepSeek
+        val strings = source("src/main/res/values/strings.xml")
+        assertTrue("服务商行要叫「外部模型接入」", strings.contains("name=\"translate_provider_external_label\">外部模型接入"))
+        assertFalse("「DeepSeek（自带 Key）」这类口径不许回来", strings.contains("自带 Key"))
     }
 
     @Test
@@ -377,7 +399,7 @@ class SettingsSpecTest {
             "translate_mix_match_desc", "translate_mix_whole_desc", "translate_mix_skip_desc",
             "translate_style_card_desc", "translate_style_underline_desc", "translate_style_plain_desc",
             "translate_guard_toggle_desc", "translate_cache_disk_toggle_desc", "translate_key_note",
-            "translate_provider_mymemory_desc", "translate_provider_deepseek_desc",
+            "translate_provider_mymemory_desc", "translate_provider_external_desc",
             "translate_lang_zh_desc", "translate_lang_en_desc",
         ).forEach { key ->
             val value = Regex("""<string name="$key">([^<]*)</string>""").find(strings)

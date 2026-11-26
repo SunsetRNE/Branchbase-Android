@@ -15,25 +15,46 @@ import org.junit.Test
 class TranslateProtocolTest {
 
     @Test
-    fun `五档协议与稳定码`() {
+    fun `四档协议与稳定码_老的_deepseek_折成_openai_chat`() {
         assertEquals(
-            listOf("deepseek", "openai-chat", "openai-responses", "anthropic-messages", "gemini"),
+            listOf("openai-chat", "openai-responses", "anthropic-messages", "gemini"),
             TranslateProtocol.entries.map { it.code },
         )
-        // 落盘键是稳定契约：认不出来 / 空 → 默认（老配置只有 DeepSeek 这一种写法）
-        assertEquals(TranslateProtocol.DEEPSEEK, TranslateProtocol.byCode(null))
-        assertEquals(TranslateProtocol.DEEPSEEK, TranslateProtocol.byCode("  "))
-        assertEquals(TranslateProtocol.DEEPSEEK, TranslateProtocol.byCode("天知道"))
-        assertEquals(TranslateProtocol.DEEPSEEK, TranslateProtocol.default)
+        // 落盘键是稳定契约：认不出来 / 空 → 默认 OpenAI Chat
+        assertEquals(TranslateProtocol.OPENAI_CHAT, TranslateProtocol.byCode(null))
+        assertEquals(TranslateProtocol.OPENAI_CHAT, TranslateProtocol.byCode("  "))
+        assertEquals(TranslateProtocol.OPENAI_CHAT, TranslateProtocol.byCode("天知道"))
+        assertEquals(TranslateProtocol.OPENAI_CHAT, TranslateProtocol.default)
+        // 1.4.53 及更早只有 deepseek 一档：DeepSeek 没有私有报文，折成 OpenAI Chat
+        assertEquals(TranslateProtocol.OPENAI_CHAT, TranslateProtocol.byCode("deepseek"))
         // 大小写 / 前后空格不敏感（手写配置、备份导入都可能带）
         assertEquals(TranslateProtocol.GEMINI, TranslateProtocol.byCode(" GEMINI "))
+    }
+
+    @Test
+    fun `协议自带官方地址与已知厂商地址`() {
+        // 第一项 = 官方（输入框占位符）；其余是文档明示的兼容入口
+        assertEquals("https://api.openai.com/v1", TranslateProtocol.OPENAI_CHAT.officialBaseUrl)
+        assertEquals(
+            listOf("openai", "deepseek"),
+            TranslateProtocol.OPENAI_CHAT.addresses.map { it.id },
+        )
+        assertEquals(
+            "https://api.deepseek.com/anthropic",
+            TranslateProtocol.ANTHROPIC_MESSAGES.addressOf(" https://api.deepseek.com/anthropic/ ")?.baseUrl,
+        )
+        // DeepSeek 的默认模型挂在**地址**上（不是协议上）：OpenAI 地址不给默认模型
+        assertEquals("deepseek-flash", TranslateProtocol.OPENAI_CHAT.defaultModelFor("https://api.deepseek.com/v1"))
+        assertEquals("", TranslateProtocol.OPENAI_CHAT.defaultModelFor("https://api.openai.com/v1"))
+        assertEquals("", TranslateProtocol.OPENAI_CHAT.defaultModelFor("https://relay.example.com/v1"))
+        assertTrue(TranslateProtocol.OPENAI_CHAT.suggestionsFor("https://relay.example.com/v1").isEmpty())
     }
 
     @Test
     fun `Bearer 系只补一个 Authorization 头`() {
         assertEquals(
             listOf("Authorization" to "Bearer sk-abc"),
-            TranslateProtocol.DEEPSEEK.authHeaders("sk-abc"),
+            TranslateProtocol.OPENAI_CHAT.authHeaders("sk-abc"),
         )
         // 前后空格在补头之前就被吃掉（从剪贴板粘贴常带换行）
         assertEquals(
@@ -75,15 +96,20 @@ class TranslateProtocolTest {
         // POST 才补 Content-Type：GET 没有请求体
         assertEquals(
             listOf("Accept" to "application/json"),
-            TranslateProtocol.DEEPSEEK.requestHeaders("", json = false),
+            TranslateProtocol.OPENAI_CHAT.requestHeaders("", json = false),
         )
     }
 
     @Test
     fun `翻译端点按协议拼上模型`() {
         assertEquals(
-            "https://api.deepseek.com/chat/completions",
-            TranslateProtocol.DEEPSEEK.chatEndpoint("", ""),
+            "https://api.openai.com/v1/chat/completions",
+            TranslateProtocol.OPENAI_CHAT.chatEndpoint("", ""),
+        )
+        // DeepSeek 现在只是一个地址（OpenAI Chat 协议 + /v1 通道）
+        assertEquals(
+            "https://api.deepseek.com/v1/chat/completions",
+            TranslateProtocol.OPENAI_CHAT.chatEndpoint("https://api.deepseek.com/v1", "deepseek-flash"),
         )
         assertEquals(
             "https://api.openai.com/v1/responses",
@@ -119,8 +145,9 @@ class TranslateProtocolTest {
 
     @Test
     fun `从接入地址猜协议只认确定的主机`() {
-        assertEquals(TranslateProtocol.DEEPSEEK, TranslateProtocol.guessFrom("https://api.deepseek.com"))
-        assertEquals(TranslateProtocol.DEEPSEEK, TranslateProtocol.guessFrom("api.deepseek.com/anthropic"))
+        // DeepSeek 的三条兼容通道：默认按 OpenAI Chat 认（/anthropic 那行仍是这一档，用户可再改）
+        assertEquals(TranslateProtocol.OPENAI_CHAT, TranslateProtocol.guessFrom("https://api.deepseek.com/v1"))
+        assertEquals(TranslateProtocol.OPENAI_CHAT, TranslateProtocol.guessFrom("api.deepseek.com/v1"))
         assertEquals(TranslateProtocol.OPENAI_CHAT, TranslateProtocol.guessFrom("https://api.openai.com/v1"))
         assertEquals(TranslateProtocol.ANTHROPIC_MESSAGES, TranslateProtocol.guessFrom("api.anthropic.com"))
         assertEquals(
@@ -134,31 +161,16 @@ class TranslateProtocolTest {
     }
 
     @Test
-    fun `没有默认模型的协议要求显式填模型`() {
-        assertTrue(!TranslateProtocol.DEEPSEEK.requiresExplicitModel)
-        listOf(
-            TranslateProtocol.OPENAI_CHAT,
-            TranslateProtocol.OPENAI_RESPONSES,
-            TranslateProtocol.ANTHROPIC_MESSAGES,
-            TranslateProtocol.GEMINI,
-        ).forEach { protocol ->
-            assertTrue("$protocol 没有默认模型，应要求显式填", protocol.requiresExplicitModel)
-        }
-    }
-
-    @Test
-    fun `默认模型与候选只在能确定的那一档给`() {
-        assertEquals("deepseek-flash", TranslateProtocol.DEEPSEEK.defaultModel)
-        assertEquals(listOf("deepseek-flash", "deepseek-v4-pro"), TranslateProtocol.DEEPSEEK.modelSuggestions)
-        // 其余四档的模型名变化快，不臆造候选（界面回落到「探测过才有芯片」）
-        listOf(
-            TranslateProtocol.OPENAI_CHAT,
-            TranslateProtocol.OPENAI_RESPONSES,
-            TranslateProtocol.ANTHROPIC_MESSAGES,
-            TranslateProtocol.GEMINI,
-        ).forEach { protocol ->
-            assertEquals("$protocol 不应预填模型", "", protocol.defaultModel)
-            assertTrue("$protocol 不应有内置候选", protocol.modelSuggestions.isEmpty())
+    fun `内置模型候选只挂在已知的地址行上`() {
+        val deepseek = TranslateProtocol.OPENAI_CHAT.addressOf("https://api.deepseek.com/v1")!!
+        assertEquals("deepseek-flash", deepseek.defaultModel)
+        assertEquals(listOf("deepseek-flash", "deepseek-v4-pro"), deepseek.modelSuggestions)
+        // 其它地址行的模型名变化快，不臆造候选（界面回落到「探测过才有芯片」）
+        TranslateProtocol.entries.forEach { protocol ->
+            protocol.addresses.filter { it.id != "deepseek" }.forEach { address ->
+                assertEquals("${protocol.code}/${address.id} 不应预填模型", "", address.defaultModel)
+                assertTrue("${protocol.code}/${address.id} 不应有内置候选", address.modelSuggestions.isEmpty())
+            }
         }
     }
 }

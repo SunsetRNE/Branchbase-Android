@@ -70,7 +70,7 @@ class BranchbaseApp : Application(), ImageLoaderFactory {
         // 唯一的归因通道是「最近一条 UI 类日志」，见 frame-perf-design.md §8/§9。
         Logger.startupOnce("app-assemble", "启动 ▸ 应用装配（Application.onCreate）")
         NetworkWatch.install(this)
-        // 沉浸式翻译：后端用 Rust（core/src/translate/：MyMemory 或用户自带的 DeepSeek Key），
+        // 沉浸式翻译：后端用 Rust（core/src/translate/：MyMemory 或用户自备的外部模型），
         // 缓存落 filesDir。引擎拿到的是「取设置的函数」而不是设置快照 ——
         // 用户在设置页改 Key / 换后端之后，下一页就生效，不需要重启 App。
         TranslateRuntime.install(

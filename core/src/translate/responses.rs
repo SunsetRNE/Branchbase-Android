@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 pub(crate) fn build_body(text: &str, from: &str, to: &str, model: &str) -> Value {
     json!({
         "model": model,
-        "instructions": super::deepseek::system_prompt(from, to),
+        "instructions": super::prompt::system_prompt(from, to),
         "input": [{
             "role": "user",
             "content": [{ "type": "input_text", "text": text }],
@@ -60,7 +60,7 @@ pub async fn translate(
 /// 解析响应：优先顶层聚合字段 `output_text`（SDK 侧同款，部分网关直接给），
 /// 否则遍历 `output[] → content[]` 取 `output_text` 块的 `text` 并拼接。
 ///
-/// 模型偶尔会无视提示词加「译文：」前缀，这里复用 [super::deepseek::clean_output]：
+/// 模型偶尔会无视提示词加「译文：」前缀，这里复用 [super::prompt::clean_output]：
 /// 两档协议共用同一套清理规则，换协议不该让译文外壳的清理行为变掉。
 pub(crate) fn parse_response(body: &str) -> Result<String> {
     let v: Value = serde_json::from_str(body)?;
@@ -87,7 +87,7 @@ pub(crate) fn parse_response(body: &str) -> Result<String> {
         }
     }
 
-    let cleaned = super::deepseek::clean_output(&out);
+    let cleaned = super::prompt::clean_output(&out);
     if cleaned.is_empty() {
         return Err(CoreError::coded(
             "TRANSLATE_EMPTY",

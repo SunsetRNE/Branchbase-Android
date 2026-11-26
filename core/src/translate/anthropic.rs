@@ -28,7 +28,7 @@ pub(crate) fn build_body(text: &str, from: &str, to: &str, model: &str) -> Value
     json!({
         "model": model,
         "max_tokens": MAX_TOKENS,
-        "system": super::deepseek::system_prompt(from, to),
+        "system": super::prompt::system_prompt(from, to),
         "messages": [{ "role": "user", "content": text }],
     })
 }
@@ -79,7 +79,7 @@ pub(crate) fn parse_response(body: &str) -> Result<String> {
         }
     }
 
-    let cleaned = super::deepseek::clean_output(&out);
+    let cleaned = super::prompt::clean_output(&out);
     if cleaned.is_empty() {
         return Err(CoreError::coded(
             "TRANSLATE_EMPTY",

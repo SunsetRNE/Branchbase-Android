@@ -61,7 +61,7 @@ class TranslateSettingsTest {
     @Test
     fun `页面注入里绝不能出现_API_Key`() {
         val config = TranslateConfig(
-            provider = TranslateProvider.DEEPSEEK.code,
+            provider = TranslateProvider.EXTERNAL.code,
             apiKey = "sk-super-secret-value",
             model = "some-model",
             baseUrl = "https://relay.example.com/v1",
@@ -75,18 +75,18 @@ class TranslateSettingsTest {
 
         // 凭据只走 JNI 选项 JSON
         val options = JSONObject(config.engineOptionsJson())
-        assertEquals(TranslateProvider.DEEPSEEK.code, options.getString("provider"))
+        assertEquals(TranslateProvider.EXTERNAL.code, options.getString("provider"))
         assertEquals("sk-super-secret-value", options.getString("apiKey"))
         assertEquals("some-model", options.getString("model"))
         assertEquals("https://relay.example.com/v1", options.getString("baseUrl"))
         // 协议也在 options 里（Rust 现在是忽略未知字段，多协议那一轮直接读这个键）
-        assertEquals(TranslateProtocol.DEEPSEEK.code, options.getString("protocol"))
+        assertEquals(TranslateProtocol.default.code, options.getString("protocol"))
     }
 
     @Test
     fun `协议进 options JSON 并进缓存变体`() {
         val anthropic = TranslateConfig(
-            provider = TranslateProvider.DEEPSEEK.code,
+            provider = TranslateProvider.EXTERNAL.code,
             apiKey = "sk-x",
             baseUrl = "https://api.anthropic.com",
             protocol = TranslateProtocol.ANTHROPIC_MESSAGES.code,
@@ -99,18 +99,51 @@ class TranslateSettingsTest {
         assertTrue(anthropic.cacheVariant() != other.cacheVariant())
         assertEquals(TranslateProtocol.GEMINI, other.protocolKind)
         // 脏值回落默认，且落盘值被规范化（byCode → code）
-        assertEquals(TranslateProtocol.DEEPSEEK, anthropic.copy(protocol = "天知道").protocolKind)
+        assertEquals(TranslateProtocol.OPENAI_CHAT, anthropic.copy(protocol = "天知道").protocolKind)
     }
 
     @Test
     fun `选了需要 Key 的后端但没填时_ready 为 false`() {
         assertTrue(TranslateConfig.DEFAULT.ready)   // 默认 MyMemory 不需要 Key
-        assertFalse(TranslateConfig(provider = TranslateProvider.DEEPSEEK.code).ready)
-        assertFalse(TranslateConfig(provider = TranslateProvider.DEEPSEEK.code, apiKey = "   ").ready)
-        assertTrue(TranslateConfig(provider = TranslateProvider.DEEPSEEK.code, apiKey = "sk-x").ready)
+        assertFalse(TranslateConfig(provider = TranslateProvider.EXTERNAL.code).ready)
+        assertFalse(TranslateConfig(provider = TranslateProvider.EXTERNAL.code, apiKey = "   ").ready)
+        assertTrue(TranslateConfig(provider = TranslateProvider.EXTERNAL.code, apiKey = "sk-x").ready)
         // 认不出来的后端码回落到默认（不需要 Key）
         assertTrue(TranslateConfig(provider = "天知道").ready)
         assertEquals(TranslateProvider.MYMEMORY, TranslateConfig(provider = "天知道").providerKind)
+    }
+
+    @Test
+    fun `模型列表按协议与地址分桶_换档不串模型`() {
+        val chatOpenAi = TranslateSettings.modelsScope(TranslateProtocol.OPENAI_CHAT, "https://api.openai.com/v1")
+        val chatDeepSeek = TranslateSettings.modelsScope(TranslateProtocol.OPENAI_CHAT, "https://api.deepseek.com/v1")
+        val anthropic = TranslateSettings.modelsScope(TranslateProtocol.ANTHROPIC_MESSAGES, "https://api.anthropic.com")
+        // 协议不同 / 地址不同 → 不同的桶（1.4.53 的全局一份会把这些模型混在一起）
+        assertEquals(3, setOf(chatOpenAi, chatDeepSeek, anthropic).size)
+        // 尾斜杠与大小写不该产生新桶；空地址等同官方地址
+        assertEquals(
+            chatOpenAi,
+            TranslateSettings.modelsScope(TranslateProtocol.OPENAI_CHAT, " https://api.openai.com/v1/ "),
+        )
+        assertEquals(
+            chatOpenAi,
+            TranslateSettings.modelsScope(TranslateProtocol.OPENAI_CHAT, ""),
+        )
+    }
+
+    @Test
+    fun `老配置_deepseek_且地址留空时补成_deepseek_v1`() {
+        // 老语义：DeepSeek 的 Key + DeepSeek 的地址
+        assertEquals("https://api.deepseek.com/v1", TranslateSettings.migrateLegacyBaseUrl("deepseek", ""))
+        assertEquals("https://api.deepseek.com/v1", TranslateSettings.migrateLegacyBaseUrl(" DeepSeek ", "  "))
+        // 用户自己填过地址 → 一字不改（可能是他的中转）
+        assertEquals(
+            "https://relay.example.com/v1",
+            TranslateSettings.migrateLegacyBaseUrl("deepseek", "https://relay.example.com/v1"),
+        )
+        // 新配置（协议已不是 deepseek）→ 不迁移
+        assertEquals("", TranslateSettings.migrateLegacyBaseUrl("openai-chat", ""))
+        assertEquals("", TranslateSettings.migrateLegacyBaseUrl(null, ""))
     }
 
     @Test
