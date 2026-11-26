@@ -17,6 +17,7 @@ fn options(base_url: String, key: &str, model: &str) -> Options {
         api_key: key.into(),
         model: model.into(),
         base_url,
+        thinking: Default::default(),
     }
 }
 

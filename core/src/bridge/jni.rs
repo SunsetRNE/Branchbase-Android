@@ -55,6 +55,22 @@ fn into_jstring(env: &mut JNIEnv, r: crate::error::Result<String>) -> jstring {
     }
 }
 
+/// 读一次「刚才这次翻译是否因为服务商不认而丢掉了思维深度字段」（读完即清）。
+///
+/// 用途：真实翻译的兜底是静默的，设置页要据此把思维深度标灰。
+/// 老 `.so` 没有这个符号 —— Kotlin 侧用 `runCatching` 兜住（缺失时视为 false）。
+#[no_mangle]
+pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeTakeThinkingDropped(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jboolean {
+    if crate::translate::take_thinking_dropped() {
+        jni::sys::JNI_TRUE
+    } else {
+        jni::sys::JNI_FALSE
+    }
+}
+
 /// 返回核心库版本号
 #[no_mangle]
 pub extern "system" fn Java_com_branchbase_core_RustBridge_nativeCoreVersion<'local>(

@@ -55,6 +55,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.branchbase.R
 import com.branchbase.translate.ApiAddress
 import com.branchbase.translate.TranslateProtocol
+import com.branchbase.translate.TranslateThinking
 import com.branchbase.ui.theme.Primer
 
 /**
@@ -160,13 +161,23 @@ internal fun CompactField(
     }
 }
 
-/** 「获取模型列表」蓝底徽章按钮（11sp，比行内说明略重、但不抢行内主操作）。 */
+/**
+ * 蓝底徽章按钮（11sp，比行内说明略重、但不抢行内主操作）。
+ *
+ * 默认文案是「获取模型列表」，也用来挂别的行内动作（1.4.55 的「测试翻译」）：
+ * 两处只是文案不同，形态与命中区必须一致，否则同一块里会出现两种徽章。
+ */
 @Composable
-internal fun ModelListBadge(loading: Boolean, onClick: () -> Unit) {
+internal fun ModelListBadge(
+    loading: Boolean,
+    textRes: Int = R.string.translate_models_fetch,
+    loadingTextRes: Int = R.string.translate_models_fetching,
+    onClick: () -> Unit,
+) {
     val background = if (loading) Primer.Gray150 else Primer.Blue500
     val foreground = if (loading) Primer.TextTertiary else Color.White
     Text(
-        stringResource(if (loading) R.string.translate_models_fetching else R.string.translate_models_fetch),
+        stringResource(if (loading) loadingTextRes else textRes),
         fontSize = 11.sp,
         fontWeight = FontWeight.SemiBold,
         color = foreground,
@@ -337,6 +348,8 @@ internal fun ProtocolField(
     value: String,
     hint: String,
     onClick: () -> Unit,
+    /** 标签行右侧的动作（思维深度行用它挂「测试翻译」，与模型行的「获取模型列表」同款）。 */
+    headerAction: (@Composable () -> Unit)? = null,
 ) {
     Column(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
         Row(
@@ -352,6 +365,7 @@ internal fun ProtocolField(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (headerAction != null) headerAction()
         }
         Spacer(Modifier.height(2.dp))
         Row(
@@ -620,3 +634,99 @@ internal fun ProtocolWarningDialog(onDismiss: () -> Unit, onConfirm: () -> Unit)
         },
     )
 }
+
+/**
+ * 思维深度单选弹窗（1.4.55）：Off / Low / High / Max / 自定义。
+ *
+ * 档位顺序与「推荐」标记都按用户口径：**推荐最低档**（日常翻译够用且更快），
+ * 高档位只是满足「想要更细」的调节需求，Max 会明显更慢 —— 说明里如实写出来。
+ */
+@Composable
+internal fun ThinkingPickerDialog(
+    current: TranslateThinking,
+    onDismiss: () -> Unit,
+    onSelect: (TranslateThinking) -> Unit,
+) {
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { shown = true }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        AnimatedVisibility(
+            visible = shown,
+            enter = scaleIn(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
+                initialScale = 0.86f,
+            ) + fadeIn(tween(140)),
+            exit = scaleOut(targetScale = 0.92f) + fadeOut(tween(110)),
+        ) {
+            Column(
+                Modifier
+                    .padding(horizontal = 24.dp)
+                    .fillMaxWidth()
+                    .background(Primer.BackgroundPrimary, RoundedCornerShape(16.dp))
+                    .padding(16.dp),
+            ) {
+                Text(
+                    stringResource(R.string.translate_thinking_title),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Primer.TextPrimary,
+                )
+                Spacer(Modifier.height(8.dp))
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 380.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    TranslateThinking.entries.forEach { level ->
+                        ModeOptionRow(
+                            label = stringResource(level.labelRes) +
+                                if (level == TranslateThinking.LOW) {
+                                    " · " + stringResource(R.string.translate_protocol_recommended)
+                                } else {
+                                    ""
+                                },
+                            desc = stringResource(level.descRes),
+                            selected = level == current,
+                        ) {
+                            onSelect(level)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) {
+                        Text(stringResource(R.string.action_cancel), color = Primer.TextSecondary)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 档位名（模块只有 code，文案在 app 层）。 */
+internal val TranslateThinking.labelRes: Int
+    get() = when (this) {
+        TranslateThinking.OFF -> R.string.translate_thinking_off
+        TranslateThinking.LOW -> R.string.translate_thinking_low
+        TranslateThinking.HIGH -> R.string.translate_thinking_high
+        TranslateThinking.MAX -> R.string.translate_thinking_max
+        TranslateThinking.CUSTOM -> R.string.translate_thinking_custom
+    }
+
+/** 档位说明（每行必须说清「代价」，用户才知道自己换来了什么）。 */
+internal val TranslateThinking.descRes: Int
+    get() = when (this) {
+        TranslateThinking.OFF -> R.string.translate_thinking_off_desc
+        TranslateThinking.LOW -> R.string.translate_thinking_low_desc
+        TranslateThinking.HIGH -> R.string.translate_thinking_high_desc
+        TranslateThinking.MAX -> R.string.translate_thinking_max_desc
+        TranslateThinking.CUSTOM -> R.string.translate_thinking_custom_desc
+    }

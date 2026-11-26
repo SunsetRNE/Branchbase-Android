@@ -41,24 +41,45 @@ pub async fn translate(
     }
     let model = super::require_model(options)?;
 
-    let body = serde_json::json!({
+    // 带字段 / 不带字段两份请求体：服务商不认 `reasoning_effort` 时去掉重试一次
+    let with = options
+        .thinking
+        .is_active()
+        .then(|| build_body(text, from, to, model, Some(&options.thinking)));
+    let without = build_body(text, from, to, model, None);
+
+    let url = options.chat_endpoint();
+    let raw = super::post_with_thinking(
+        protocol,
+        &url,
+        key,
+        with,
+        without,
+        options.thinking.strict,
+    )
+    .await?;
+    parse_response(&raw)
+}
+
+/// 组装请求体；[thinking] 有值时加 `reasoning_effort`（OpenAI 系没有「预算」概念）。
+pub(crate) fn build_body(
+    text: &str,
+    from: &str,
+    to: &str,
+    model: &str,
+    thinking: Option<&super::Thinking>,
+) -> serde_json::Value {
+    let mut body = serde_json::json!({
         "model": model,
         "messages": super::prompt::build_messages(text, from, to),
         "stream": false,
     });
-
-    let url = options.chat_endpoint();
-    let resp = super::json_request(protocol, &url, key)
-        .json(&body)
-        .send()
-        .await?;
-
-    let status = resp.status();
-    let raw = resp.text().await?;
-    if !status.is_success() {
-        return Err(super::http_failure(protocol, status.as_u16(), &raw));
+    if let Some(t) = thinking {
+        if !t.effort().is_empty() {
+            body["reasoning_effort"] = serde_json::json!(t.effort());
+        }
     }
-    parse_response(&raw)
+    body
 }
 
 /// 解析响应：`{"choices":[{"message":{"content":"…"}}]}`。
@@ -87,6 +108,20 @@ pub(crate) fn parse_response(body: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn 思维深度按_effort_放进请求体_关掉就不放字段() {
+        let off = build_body("hi", "en", "zh-CN", "m", None);
+        assert!(off.get("reasoning_effort").is_none());
+
+        let thinking = super::super::Thinking {
+            effort: "low".into(),
+            budget_tokens: 0,
+            strict: false,
+        };
+        let on = build_body("hi", "en", "zh-CN", "m", Some(&thinking));
+        assert_eq!(on["reasoning_effort"], "low");
+    }
 
     #[test]
     fn 解析正常响应并清理外壳() {

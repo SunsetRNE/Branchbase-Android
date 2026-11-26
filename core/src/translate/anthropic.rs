@@ -24,13 +24,33 @@ use serde_json::{json, Value};
 pub const MAX_TOKENS: u32 = 4096;
 
 /// 组装请求体（`system` 在顶层，`messages` 只有用户一条）。
-pub(crate) fn build_body(text: &str, from: &str, to: &str, model: &str) -> Value {
-    json!({
+///
+/// [thinking] 有预算时加 `thinking: {type:"enabled", budget_tokens}`，并把 `max_tokens`
+/// 抬到**大于预算**（Anthropic 要求 `budget_tokens < max_tokens`，否则直接 400 ——
+/// 这是接思维深度时最容易踩的一脚）。
+pub(crate) fn build_body(
+    text: &str,
+    from: &str,
+    to: &str,
+    model: &str,
+    thinking: Option<&super::Thinking>,
+) -> Value {
+    let budget = thinking.map(|t| t.budget_tokens).unwrap_or(0);
+    let max_tokens = if budget > 0 {
+        (budget as u32 + 1024).max(MAX_TOKENS)
+    } else {
+        MAX_TOKENS
+    };
+    let mut body = json!({
         "model": model,
-        "max_tokens": MAX_TOKENS,
+        "max_tokens": max_tokens,
         "system": super::prompt::system_prompt(from, to),
         "messages": [{ "role": "user", "content": text }],
-    })
+    });
+    if budget > 0 {
+        body["thinking"] = json!({ "type": "enabled", "budget_tokens": budget });
+    }
+    body
 }
 
 /// 翻译一段文本。
@@ -50,17 +70,22 @@ pub async fn translate(
     }
     let model = super::require_model(options)?;
 
-    let url = options.chat_endpoint();
-    let resp = super::json_request(protocol, &url, key)
-        .json(&build_body(text, from, to, model))
-        .send()
-        .await?;
+    let with = options
+        .thinking
+        .is_active()
+        .then(|| build_body(text, from, to, model, Some(&options.thinking)));
+    let without = build_body(text, from, to, model, None);
 
-    let status = resp.status();
-    let raw = resp.text().await?;
-    if !status.is_success() {
-        return Err(super::http_failure(protocol, status.as_u16(), &raw));
-    }
+    let url = options.chat_endpoint();
+    let raw = super::post_with_thinking(
+        protocol,
+        &url,
+        key,
+        with,
+        without,
+        options.thinking.strict,
+    )
+    .await?;
     parse_response(&raw)
 }
 
@@ -95,7 +120,7 @@ mod tests {
 
     #[test]
     fn 请求体带_max_tokens_与顶层_system() {
-        let body = build_body("Hello", "en", "zh-CN", "claude-x");
+        let body = build_body("Hello", "en", "zh-CN", "claude-x", None);
         assert_eq!(body["model"], "claude-x");
         assert_eq!(body["max_tokens"], MAX_TOKENS);
         // system 是顶层字段（Anthropic 的硬性格式），不在 messages 里
@@ -103,6 +128,24 @@ mod tests {
         assert_eq!(body["messages"].as_array().unwrap().len(), 1);
         assert_eq!(body["messages"][0]["role"], "user");
         assert_eq!(body["messages"][0]["content"], "Hello");
+    }
+
+    #[test]
+    fn 思维深度按预算放进请求体_并抬高_max_tokens() {
+        let thinking = super::super::Thinking {
+            effort: String::new(),
+            budget_tokens: 4096,
+            strict: false,
+        };
+        let body = build_body("hi", "en", "zh-CN", "claude-x", Some(&thinking));
+        assert_eq!(body["thinking"]["type"], "enabled");
+        assert_eq!(body["thinking"]["budget_tokens"], 4096);
+        // budget_tokens 必须 < max_tokens，否则 Anthropic 直接 400
+        assert!(body["max_tokens"].as_u64().unwrap() > 4096);
+        // 关掉时既没有 thinking 字段，max_tokens 也回到默认
+        let plain = build_body("hi", "en", "zh-CN", "claude-x", None);
+        assert!(plain.get("thinking").is_none());
+        assert_eq!(plain["max_tokens"], MAX_TOKENS);
     }
 
     #[test]

@@ -4,6 +4,8 @@ import com.branchbase.translate.EngineResult
 import com.branchbase.translate.FailKind
 import com.branchbase.translate.TranslateConfig
 import com.branchbase.translate.TranslateEngine
+import com.branchbase.translate.TranslateRuntime
+import com.branchbase.translate.TranslateThinking
 
 /**
  * 翻译后端的 Rust 实现（`:translate` 模块的 [TranslateEngine] 在 Android 侧的落地）。
@@ -67,9 +69,20 @@ class RustTranslateEngine(
                 val (_, text) = TranslateEngine.splitErrorCode(message)
                 EngineResult.Fail(TranslateEngine.classify(message), text)
             }
-            else -> EngineResult.Ok(raw)
+            else -> {
+                // 兜底会「去掉字段重试一次」（翻译能成、思维深度没生效）：记下来给设置页标灰。
+                // 只在成功路径消费，失败路径没有可信结论。
+                if (isThinkingActive(current) && RustBridge.takeThinkingDropped()) {
+                    TranslateRuntime.markThinkingUnsupported(current)
+                }
+                EngineResult.Ok(raw)
+            }
         }
     }
+
+    /** 当前配置是否真的会带思维深度字段（关着就不用关心兜底标记）。 */
+    private fun isThinkingActive(config: TranslateConfig): Boolean =
+        TranslateThinking.byCode(config.thinking).isActive(config.thinkingCustom)
 
     private companion object {
         /** 与 `core/src/bridge/jni.rs::into_jstring` 的约定保持一致。 */

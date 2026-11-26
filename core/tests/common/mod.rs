@@ -60,6 +60,57 @@ pub fn spawn_server(
     (format!("http://{addr}"), handle)
 }
 
+/// 起一个**多请求**回环服务：按顺序回放 `responses`，把收到的请求原文按序交回。
+///
+/// 用来测「服务商不认字段 → 去掉字段重试一次」这类**两次请求**的行为。
+pub fn spawn_sequence(
+    responses: Vec<(&'static str, &'static str)>,
+) -> (String, std::thread::JoinHandle<Vec<String>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("绑定回环端口失败");
+    let addr = listener.local_addr().unwrap();
+
+    let handle = std::thread::spawn(move || {
+        let mut requests = Vec::new();
+        for (status, body) in responses {
+            let (mut stream, _) = listener.accept().expect("accept 失败");
+            let mut buf: Vec<u8> = Vec::new();
+            let mut chunk = [0u8; 1024];
+            loop {
+                let n = match stream.read(&mut chunk) {
+                    Ok(0) => break,
+                    Ok(n) => n,
+                    Err(_) => break,
+                };
+                buf.extend_from_slice(&chunk[..n]);
+                let text = String::from_utf8_lossy(&buf);
+                if let Some(header_end) = text.find("\r\n\r\n") {
+                    let content_len = text[..header_end]
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse::<usize>().unwrap_or(0))
+                        })
+                        .unwrap_or(0);
+                    if buf.len() >= header_end + 4 + content_len {
+                        break;
+                    }
+                }
+            }
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n{body}",
+                len = body.len(),
+            );
+            let _ = stream.write_all(response.as_bytes());
+            let _ = stream.flush();
+            requests.push(String::from_utf8_lossy(&buf).to_string());
+        }
+        requests
+    });
+
+    (format!("http://{addr}"), handle)
+}
+
 /// 一份「自带 Key 的大模型」选项：协议码 + 地址 + Key + 模型。
 pub fn options(protocol: &str, base_url: String, key: &str, model: &str) -> Options {
     Options {
@@ -68,5 +119,6 @@ pub fn options(protocol: &str, base_url: String, key: &str, model: &str) -> Opti
         api_key: key.into(),
         model: model.into(),
         base_url,
+        thinking: Default::default(),
     }
 }

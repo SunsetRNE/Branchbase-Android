@@ -146,6 +146,7 @@ async fn 没填_key_时按协议报认证错误() {
             api_key: "   ".into(),
             model: "gemini-2.5-flash".into(),
             base_url: "http://127.0.0.1:1".into(),
+            thinking: Default::default(),
         },
     )
     .await

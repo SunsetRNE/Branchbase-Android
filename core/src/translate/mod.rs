@@ -189,6 +189,36 @@ pub struct Options {
     pub model: String,
     /// 自定义接入地址（空 = 该协议的官方地址）
     pub base_url: String,
+    /// 思维深度（档位在 Kotlin 侧已折成 effort / budgetTokens 两套值）
+    pub thinking: Thinking,
+}
+
+/// 思维深度：同一件事（让模型多想一点）在两套方言里的两种写法。
+///
+/// Kotlin 侧把「档位」折成这两套值（见 `TranslateThinking`），这里只负责**按协议摆字段**：
+/// OpenAI 系用 [effort]（`reasoning_effort` / `reasoning.effort`），
+/// Anthropic / Gemini 用 [budget_tokens]（`thinking.budget_tokens` / `thinkingConfig.thinkingBudget`）。
+///
+/// [strict] 是**探测专用**：置 true 时失败如实报错，不走「去掉字段重试一次」的兜底，
+/// 否则「服务商不接受这个字段」会被兜底掩盖成成功，探测就失去意义。
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Thinking {
+    pub effort: String,
+    pub budget_tokens: u64,
+    pub strict: bool,
+}
+
+impl Thinking {
+    /// 是否真的会往请求里放字段（空 effort + 0 预算 = 不放）。
+    pub fn is_active(&self) -> bool {
+        !self.effort.trim().is_empty() || self.budget_tokens > 0
+    }
+
+    /// OpenAI 系的 effort（空 = 不发字段）。
+    pub fn effort(&self) -> &str {
+        self.effort.trim()
+    }
 }
 
 impl Options {
@@ -289,6 +319,75 @@ pub(crate) fn json_request(protocol: Protocol, url: &str, key: &str) -> reqwest:
         req = req.header(name, value);
     }
     req
+}
+
+/// 「这一次请求把思维深度字段丢掉了」的进程内标记（跨 JNI 交给 Kotlin 读一次就清）。
+///
+/// 为什么需要它：真实翻译的兜底是**静默**的（翻译能成、字段没生效），
+/// 但界面要「标灰提示」，得知道发生过这件事。用一次性的标记而不是返回值前缀，
+/// 是为了不污染译文（那是用户要看到的内容）。
+static THINKING_DROPPED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 读一次「刚才是否丢掉过思维深度字段」，读完即清（JNI 边界用）。
+pub fn take_thinking_dropped() -> bool {
+    THINKING_DROPPED.swap(false, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// 发一次 JSON POST，返回 `(状态码, 原始响应体)`；**非 2xx 不在这里报错**，交给调用方决定兜底。
+pub(crate) async fn post_json(
+    protocol: Protocol,
+    url: &str,
+    key: &str,
+    body: &serde_json::Value,
+) -> Result<(u16, String)> {
+    let resp = json_request(protocol, url, key)
+        .json(body)
+        .send()
+        .await?;
+    let status = resp.status().as_u16();
+    let raw = resp.text().await?;
+    Ok((status, raw))
+}
+
+/// 带「思维深度字段兜底」的一次翻译请求。
+///
+/// - [with] = 带字段的请求体（`None` = 这次本来就不带字段）；
+/// - [without] = 同一份请求体去掉字段；
+/// - [strict] = 探测模式：**不做兜底**，失败如实报错。
+///
+/// 兜底只对 `400 / 422`（参数类错误）生效：401 是 Key 问题、429 是额度、5xx 是服务端，
+/// 去掉字段重试只会白花一次请求。**不擅自改用户的档位**：只丢掉这一次请求里的字段。
+pub(crate) async fn post_with_thinking(
+    protocol: Protocol,
+    url: &str,
+    key: &str,
+    with: Option<serde_json::Value>,
+    without: serde_json::Value,
+    strict: bool,
+) -> Result<String> {
+    let Some(body) = with else {
+        let (status, raw) = post_json(protocol, url, key, &without).await?;
+        if (200..300).contains(&status) {
+            return Ok(raw);
+        }
+        return Err(http_failure(protocol, status, &raw));
+    };
+
+    let (status, raw) = post_json(protocol, url, key, &body).await?;
+    if (200..300).contains(&status) {
+        return Ok(raw);
+    }
+    if !strict && matches!(status, 400 | 422) {
+        // 服务商不认这个字段：去掉再试一次（静默兜底，翻译能成、思维深度不生效）
+        let (status2, raw2) = post_json(protocol, url, key, &without).await?;
+        if (200..300).contains(&status2) {
+            // 记一次「这个服务商不认字段」，让 Kotlin 侧把设置标灰（只是一次标记，不改档位）
+            THINKING_DROPPED.store(true, std::sync::atomic::Ordering::Relaxed);
+            return Ok(raw2);
+        }
+        return Err(http_failure(protocol, status2, &raw2));
+    }
+    Err(http_failure(protocol, status, &raw))
 }
 
 /// 模型为空时的统一错误（四档协议都要求显式模型，内置默认模型在 1.4.54 一并删掉了：
@@ -646,6 +745,14 @@ mod tests {
         // Kotlin 侧的分类关键词必须仍然在
         assert!(error_message(Protocol::OpenAiChat, 402, "Insufficient Balance").contains("余额不足"));
         assert!(error_message(Protocol::OpenAiChat, 400, "bad").contains("请求参数无效（400）"));
+    }
+
+    #[test]
+    fn 兜底成功后标记可被读一次() {
+        // 直接置位再读：take 必须「读一次就清」，否则界面会一直标灰
+        THINKING_DROPPED.store(true, std::sync::atomic::Ordering::Relaxed);
+        assert!(take_thinking_dropped());
+        assert!(!take_thinking_dropped());
     }
 
     #[test]

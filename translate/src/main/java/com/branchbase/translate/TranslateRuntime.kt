@@ -37,6 +37,10 @@ object TranslateRuntime {
     @Volatile
     private var instance: Translator? = null
 
+    /** 装配时记住的 Context（只用于把「服务商不认思维深度」这种结论写进设置）。 */
+    @Volatile
+    private var appContext: Context? = null
+
     private val fallback: Translator by lazy { Translator(TranslateEngine.NONE) }
 
     /** 是否已经装配（关于页/日志用）。 */
@@ -57,6 +61,7 @@ object TranslateRuntime {
         log: (String) -> Unit = {},
     ): Translator {
         val app = context.applicationContext
+        appContext = app
         val disk = diskCache ?: TranslateDiskCache(File(app.filesDir, "translate/cache.tsv"), DISK_ENTRIES)
         val cache = TranslateCache(MEMORY_ENTRIES) {
             // 开关每次读取：设置页关掉「本地缓存」后立刻停止落盘，无需重新 install
@@ -75,6 +80,18 @@ object TranslateRuntime {
         )
         instance = translator
         return translator
+    }
+
+    /**
+     * 真实翻译走了一次「去掉思维深度字段」的兜底：把结论写进设置（界面据此标灰）。
+     *
+     * 只记「不支持」，**不改档位** —— 用户选的档位永远由用户自己改。
+     * 未装配（没有 Context）时安静地什么都不做。
+     */
+    fun markThinkingUnsupported(config: TranslateConfig) {
+        val ctx = appContext ?: return
+        val scope = TranslateSettings.thinkingScope(config.protocolKind, config.baseUrl, config.model)
+        TranslateSettings.setThinkingSupport(ctx, scope, false)
     }
 
     /** 当前实例（未装配时返回降级实例）。 */

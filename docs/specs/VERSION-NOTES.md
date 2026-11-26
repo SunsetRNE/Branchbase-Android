@@ -74,7 +74,40 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.54 → 1.0.22）
+## 二、`versionName` 流水（1.4.55 → 1.0.22）
+
+### 1.4.55
+
+**思维深度：四档 + 自定义、单独一行、两套探测不混用、兜底只丢字段不改档位。**
+
+① 档位 **Off / Low / High / Max / 自定义**（`TranslateThinking`）：默认 **Off**，弹窗里 Low 带「· 推荐」。
+   说明如实写代价（High「稍慢、更费 token」，Max「思考更深、翻译更慢，体验可能变差」），
+   因为用户口径是「最低档就够日常翻译」。自定义值按「是不是纯数字」分流：数字 → token 预算
+   （Anthropic / Gemini），其它 → effort 词（OpenAI 系）。
+
+② **单独一行**：它只影响质量与延迟（还要花 token），不属于「不填就用不了」的字段，所以与协议 / 地址 /
+   Key / 模型之间加了一条分隔线；档位选择走弹性弹窗（`ThinkingPickerDialog`）。
+
+③ **两套探测、两个按钮**（用户明确要求不混用）：
+   - 「测试响应」仍只探 `GET /models`（可能 404，很多网关没有）；
+   - 新增「测试翻译」：真实翻一句。内部先以 **Off** 翻一句证明翻译可用，再以 **严格模式 + 当前档位**
+     翻一句判断服务商认不认该字段；结论按「协议 + 地址 + 模型」落盘（`translate.thinking.support`），
+     界面据说不支持时标灰提示。按钮旁写明「会真实请求一次，消耗少量 token」。
+
+④ **兜底只丢字段、不改档位**：真实翻译带字段收到 `400 / 422` 时，去掉字段重试一次
+   （翻译能成、思维深度不生效）；401 / 429 / 5xx 不重试。**用户选的档位永远不会被自动改低**。
+   探测路径带 `strict`，不做兜底 —— 否则「服务商不认字段」会被兜底伪装成成功。
+
+⑤ 各协议的字段与映射：Chat `reasoning_effort`、Responses `reasoning.effort`、
+   Anthropic `thinking.budget_tokens`（并把 `max_tokens` 抬到 `budget + 1024`，官方要求
+   `budget < max_tokens`）、Gemini `generationConfig.thinkingConfig.thinkingBudget`。
+
+⑥ 边界：档位进缓存变体（换了档位不命中旧译文）；Max 在 OpenAI 系与 High 同值（枚举只到 high），
+   要更细的值请用「自定义」；结论按「协议 + 地址 + 模型」记，换模型需重测。
+
+**验证**：`:translate:test` 161 例 0 失败 + `:app:testDebugUnitTest` 1186 例 0 失败（1 跳过）；
+`:app:assembleDebug` 通过（`Branchbase-1.4.55-…-debug.apk`）；core：`cargo check --all-targets` +
+`cargo test` 158 例 0 失败（新增 `thinking_http` 4 例）；`tools/i18n/check-i18n.py --min-coverage 100` 通过。
 
 ### 1.4.54
 
@@ -5358,7 +5391,10 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（314 → 129）
+## 三、`versionCode` 流水（315 → 129）
+
+- **315**：思维深度（1.4.55）—— 四档 + 自定义、单独一行、两套探测（响应 / 翻译）、
+  400 时去掉字段重试一次且不改档位、四协议的字段映射；钉子新增 1、单测新增 5（一次提交，故 +1）。
 
 - **314**：协议与厂商拆开（1.4.54）—— 四档协议、地址列表与自定义输入、服务商改名「外部模型接入」、
   模型列表按协议 + 地址分桶、404 单独收敛、保存前兼容性提醒、Rust 拆 `openai_chat`/`prompt`；

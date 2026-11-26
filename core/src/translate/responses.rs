@@ -15,15 +15,29 @@ use crate::error::{CoreError, Result};
 use serde_json::{json, Value};
 
 /// 组装请求体（system 走顶层 `instructions`，用户内容走 `input` 的内容块）。
-pub(crate) fn build_body(text: &str, from: &str, to: &str, model: &str) -> Value {
-    json!({
+///
+/// [thinking] 有值时加 `reasoning: {effort}`（Responses 的写法与 Chat 的 `reasoning_effort` 不同）。
+pub(crate) fn build_body(
+    text: &str,
+    from: &str,
+    to: &str,
+    model: &str,
+    thinking: Option<&super::Thinking>,
+) -> Value {
+    let mut body = json!({
         "model": model,
         "instructions": super::prompt::system_prompt(from, to),
         "input": [{
             "role": "user",
             "content": [{ "type": "input_text", "text": text }],
         }],
-    })
+    });
+    if let Some(t) = thinking {
+        if !t.effort().is_empty() {
+            body["reasoning"] = json!({ "effort": t.effort() });
+        }
+    }
+    body
 }
 
 /// 翻译一段文本。
@@ -43,17 +57,22 @@ pub async fn translate(
     }
     let model = super::require_model(options)?;
 
-    let url = options.chat_endpoint();
-    let resp = super::json_request(protocol, &url, key)
-        .json(&build_body(text, from, to, model))
-        .send()
-        .await?;
+    let with = options
+        .thinking
+        .is_active()
+        .then(|| build_body(text, from, to, model, Some(&options.thinking)));
+    let without = build_body(text, from, to, model, None);
 
-    let status = resp.status();
-    let raw = resp.text().await?;
-    if !status.is_success() {
-        return Err(super::http_failure(protocol, status.as_u16(), &raw));
-    }
+    let url = options.chat_endpoint();
+    let raw = super::post_with_thinking(
+        protocol,
+        &url,
+        key,
+        with,
+        without,
+        options.thinking.strict,
+    )
+    .await?;
     parse_response(&raw)
 }
 
@@ -103,7 +122,7 @@ mod tests {
 
     #[test]
     fn 请求体用_input_与_instructions() {
-        let body = build_body("Hello world", "en", "zh-CN", "gpt-x");
+        let body = build_body("Hello world", "en", "zh-CN", "gpt-x", None);
         assert_eq!(body["model"], "gpt-x");
         // system 在顶层 instructions，不在 input 里
         assert!(body["instructions"].as_str().unwrap().contains("简体中文"));
@@ -111,6 +130,19 @@ mod tests {
         assert_eq!(body["input"][0]["role"], "user");
         assert_eq!(body["input"][0]["content"][0]["type"], "input_text");
         assert_eq!(body["input"][0]["content"][0]["text"], "Hello world");
+    }
+
+    #[test]
+    fn 思维深度按_reasoning_effort_放进请求体() {
+        let thinking = super::super::Thinking {
+            effort: "high".into(),
+            budget_tokens: 0,
+            strict: false,
+        };
+        let body = build_body("hi", "en", "zh-CN", "gpt-x", Some(&thinking));
+        assert_eq!(body["reasoning"]["effort"], "high");
+        // 关掉时不出现 reasoning 字段
+        assert!(build_body("hi", "en", "zh-CN", "gpt-x", None).get("reasoning").is_none());
     }
 
     #[test]

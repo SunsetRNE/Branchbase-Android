@@ -514,6 +514,7 @@ L1 设置（唯一入口）
 | 14 | **模型不空着 + 保存/测试拆分** | 翻译页必须用 `ifBlank { TranslateProvider.DEEPSEEK_MODEL }` 预填；必须有逐字输入（`typingTarget` + `delay(`）与「当前」徽标；「测试响应」不许调 `translator.selfTest(`（不翻译、不耗额度）（§二十） |
 | 15 | **保存有反馈** | 必须出现 `SaveSuccessDialog(` + `spring(`；文案含「当前本地已成功保存相应的 Key 配置」（§20.4） |
 | 16 | **协议单选 + 头自动补全单一真源** | 翻译页必须有 `ProtocolField(` + `ProtocolPickerDialog(` + `TranslateSettings.setProtocol` + `carryOver(`，探测必须 `ModelProbe.fetch(protocolDraft`；`:translate` 的方言表必须含五档 `code` 与四个头名（§二十一） |
+| 18 | **思维深度单独一行 + 两套探测** | 翻译页必须有 `ThinkingPickerDialog(` + `translate_thinking_label` + `probeTranslation()` + `strictThinking = true` + `TranslateSettings.setThinkingSupport`；「测试响应」与「测试翻译」的结论变量必须分开（§二十三） |
 | 17 | **地址与协议拆开** | 翻译页必须有 `AddressListBadge` + `AddressPickerDialog(` + `ProtocolWarningDialog(` + `TranslateSettings.modelsScope(`；服务商行必须叫「外部模型接入」，且不许再出现「自带 Key」口径（§二十二） |
 
 > 第 1、5、6 条可以在**本轮就加**（现状已基本满足或改动很小）；
@@ -1073,6 +1074,47 @@ DeepSeek 的官方推荐写法也是这一档（`base_url = https://api.deepseek
 需要先定档位与预算映射，再落 Rust 与探测。
 
 ---
+
+## 二十三、思维深度（2026-11 · 第十轮）
+
+页面同 §十八–§二十二。用户 2026-11-26 的决策：**多档位（+自定义）+ 接受消耗 + 不自动降级**，
+档位「由用户自主决策」，并明确「推荐最低档位足以满足日常消耗与更快速的翻译；
+Max 会让模型思考更深、实际体验丢失更严重」。
+
+### 23.1 决策与落点
+
+| # | 决策 | 落点 |
+|---|---|---|
+| 一 | 档位：Off / Low / High / Max / 自定义 | `TranslateThinking` + `ThinkingPickerDialog` |
+| 二 | 默认 Off，**推荐 Low**（弹窗里带「· 推荐」） | `translate_thinking_low_desc` |
+| 三 | 自定义：一个输入框，数字→预算、词→effort | `TranslateThinking.effort/budgetTokens` |
+| 四 | 单独一行（它只影响质量与延迟，不是「不填就用不了」） | 分隔线 + `ProtocolField` 复用 |
+| 五 | 探测拆两套、两个按钮 | 「测试响应」= `GET /models`；「测试翻译」= 真实翻一句 |
+| 六 | 探测不替用户决策、会消耗 token | 按钮旁写明「会真实请求一次」 |
+| 七 | 服务商不认字段：去掉字段重试一次，界面标灰 | `post_with_thinking` + `translate.thinking.support` |
+| 八 | 不自动降级档位 | 兜底只丢这一次请求的字段，从不改写用户选的档位 |
+
+### 23.2 为什么探测要分两个按钮
+
+「端口通」与「翻译通」不是一件事：很多网关有 `GET /models` 却跑不了某档协议，
+也有很多（含 DeepSeek 的 `/anthropic`）根本没有 `/models` 但翻译能成。
+两套逻辑混成一个按钮，用户就永远分不清「是地址错了还是协议错了」。
+
+「测试翻译」内部做两次极短请求：先用 **Off** 翻一句（翻译本身可用吗），
+再用 **严格模式 + 当前档位** 翻一句（服务商认不认这个字段）。结论落盘，界面据此标灰。
+
+### 23.3 为什么兜底不能掩盖探测
+
+真实翻译收到 `400/422` 会去掉字段重试一次（翻译能成、思维深度不生效）——这是**保翻译**的兜底。
+但探测必须看见真实失败，所以 options JSON 里带 `strict` 标记，Rust 在严格模式下不做兜底。
+否则用户点了「测试翻译」、服务商明明拒绝字段，界面却显示「已被接受」。
+
+### 23.4 边界
+
+- 档位只影响**翻译请求**，不影响已缓存译文（换档位会换缓存变体，见 `cacheVariant`）；
+- 各协议对高档位的实际效果差异很大（Max 在 OpenAI 系与 High 同值），自定义值由用户自己填、
+  自己用「测试翻译」验证；
+- 结论按「协议 + 地址 + 模型」记录：换模型要重测（同一地址下不同模型对字段的支持可能不同）。
 
 ## 附：术语
 

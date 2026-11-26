@@ -59,6 +59,14 @@ data class TranslateConfig(
      * `https://api.deepseek.com/v1`（否则会变成「DeepSeek 的 Key + OpenAI 的地址」）。
      */
     val protocol: String = TranslateProtocol.default.code,
+    /**
+     * 思维深度档位（见 [TranslateThinking]）。默认 [TranslateThinking.OFF]：
+     * 思考会让翻译变慢、也更费 token，而「最低档就够日常翻译」是实测口径 ——
+     * 所以它**默认关**，由用户自己为质量多付延迟。
+     */
+    val thinking: String = TranslateThinking.OFF.code,
+    /** 自定义档位的原值（数字 → token 预算，词 → effort；见 [TranslateThinking]）。 */
+    val thinkingCustom: String = "",
     val matchPolicy: String = PageRules.MATCH_POLICY_MATCH,
 ) {
 
@@ -71,6 +79,9 @@ data class TranslateConfig(
 
     /** 当前协议（认不出来的码回落到默认，见 [TranslateProtocol.byCode]）。 */
     val protocolKind: TranslateProtocol get() = TranslateProtocol.byCode(protocol)
+
+    /** 当前思维深度档位（认不出来的码回落到关）。 */
+    val thinkingKind: TranslateThinking get() = TranslateThinking.byCode(thinking)
 
     /**
      * 本次生效的判定规则（原生判定与页面脚本注入**共用这一份**）。
@@ -99,7 +110,8 @@ data class TranslateConfig(
      * 也不含 `style` / `dual`：那两项只影响页面表现（CSS 与插入方式），同一份译文照用 ——
      * 这正是「对照 / 仅译文」「三种样式」切换不重翻的原因（见类注释第一组字段）。
      */
-    fun cacheVariant(): String = "${providerKind.code}|$protocol|$model|$baseUrl"
+    fun cacheVariant(): String =
+        "${providerKind.code}|$protocol|$model|$baseUrl|${thinkingKind.code}:${thinkingCustom.trim()}"
 
     /**
      * 传给 Rust 后端的选项 JSON（`core/src/translate/mod.rs::Options`）。
@@ -112,12 +124,22 @@ data class TranslateConfig(
      * Rust 的 `Options` 是 `#[serde(default)]` + 未知字段忽略，所以老 `.so`（不认识这个键）也不会
      * 报错 —— 1.4.51 起 Rust 侧读它分派（`translate::Protocol`），老 `.so` 则继续按 chat/completions 跑。
      */
-    fun engineOptionsJson(): String = JSONObject()
+    fun engineOptionsJson(strictThinking: Boolean = false): String = JSONObject()
         .put("provider", providerKind.code)
         .put("protocol", protocolKind.code)
         .put("apiKey", apiKey)
         .put("model", model)
         .put("baseUrl", baseUrl)
+        .put(
+            // 档位在本侧就折成两套值：Rust 只负责按协议摆字段，不再自己解释档位
+            "thinking",
+            JSONObject()
+                .put("effort", thinkingKind.effort(thinkingCustom))
+                .put("budgetTokens", thinkingKind.budgetTokens(thinkingCustom))
+                // 探测「服务商认不认这个字段」时必须**严格**：失败要如实报错，
+                // 不能走真实翻译的「去掉字段重试一次」兜底，否则探测永远成功
+                .put("strict", strictThinking),
+        )
         .toString()
 
     companion object {
@@ -159,6 +181,10 @@ object TranslateSettings {
     private const val KEY_MODEL = "translate.deepseek.model"
     private const val KEY_BASE_URL = "translate.deepseek.baseUrl"
     private const val KEY_PROTOCOL = "translate.deepseek.protocol"
+    private const val KEY_THINKING = "translate.thinking.level"
+    private const val KEY_THINKING_CUSTOM = "translate.thinking.custom"
+    /** 探测结果：某档「协议 + 地址 + 模型」认不认思维深度字段（JSON 对象，scope → bool）。 */
+    private const val KEY_THINKING_SUPPORT = "translate.thinking.support"
     /** 模型列表（按协议 + 地址分桶的 JSON 对象；键名沿用 1.4.53 的名字以免丢数据）。 */
     private const val KEY_MODELS = "translate.deepseek.models"
     /** 1.4.53 的 DeepSeek 默认地址（`/v1` 与根地址等价，文档明示）。 */
@@ -189,6 +215,8 @@ object TranslateSettings {
                 baseUrl = p.getString(KEY_BASE_URL, "") ?: "",
             ),
             protocol = TranslateProtocol.byCode(p.getString(KEY_PROTOCOL, null)).code,
+            thinking = TranslateThinking.byCode(p.getString(KEY_THINKING, null)).code,
+            thinkingCustom = p.getString(KEY_THINKING_CUSTOM, "") ?: "",
             matchPolicy = PageRules.matchPolicyOf(p.getString(KEY_MATCH_POLICY, null)),
         )
     }
@@ -242,6 +270,44 @@ object TranslateSettings {
      */
     fun setProtocol(context: Context, protocol: String) =
         write(context, KEY_PROTOCOL, TranslateProtocol.byCode(protocol).code)
+
+    /** 保存思维深度档位与自定义值（认不出来的档位回落到关）。 */
+    fun setThinking(context: Context, level: String, custom: String) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString(KEY_THINKING, TranslateThinking.byCode(level).code)
+            .putString(KEY_THINKING_CUSTOM, custom.trim())
+            .apply()
+        cached = null
+    }
+
+    /**
+     * 上次「测试翻译」的结论：该 scope（协议 + 地址 + 模型）认不认思维深度字段。
+     *
+     * `null` = 还没测过（不置灰、不提示）；`false` = 服务商拒绝该字段（界面标灰 + 一句解释）。
+     * 只由**显式探测**写入 —— 真实翻译的「去掉字段重试」是静默兜底，不改变这里的结论。
+     */
+    fun readThinkingSupport(context: Context, scope: String): Boolean? {
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_THINKING_SUPPORT, null) ?: return null
+        return runCatching { JSONObject(raw) }.getOrNull()?.let { if (it.has(scope)) it.getBoolean(scope) else null }
+    }
+
+    fun setThinkingSupport(context: Context, scope: String, supported: Boolean) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val current = runCatching { JSONObject(prefs.getString(KEY_THINKING_SUPPORT, null) ?: "{}") }
+            .getOrDefault(JSONObject())
+        current.put(scope, supported)
+        write(context, KEY_THINKING_SUPPORT, current.toString())
+    }
+
+    /**
+     * 探测结论与思维深度的 scope：协议 + 地址 + **模型**（同一地址下不同模型对字段的支持可能不同）。
+     */
+    fun thinkingScope(protocol: TranslateProtocol, baseUrl: String, model: String): String {
+        val base = baseUrl.trim().trimEnd('/').lowercase().ifEmpty { protocol.officialBaseUrl.lowercase() }
+        return "${protocol.code}|$base|${model.trim()}"
+    }
 
     /**
      * 本机保存的模型列表（2026-11 第六轮起；1.4.54 起**按协议 + 地址分桶**）。
@@ -301,7 +367,8 @@ object TranslateSettings {
             .remove(KEY_ENABLED).remove(KEY_TARGET).remove(KEY_DUAL)
             .remove(KEY_STYLE).remove(KEY_PERSIST).remove(KEY_PROTECT)
             .remove(KEY_PROVIDER).remove(KEY_API_KEY).remove(KEY_MODEL).remove(KEY_BASE_URL)
-            .remove(KEY_PROTOCOL)
+            .remove(KEY_PROTOCOL).remove(KEY_THINKING).remove(KEY_THINKING_CUSTOM)
+            .remove(KEY_THINKING_SUPPORT)
             .remove(KEY_MODELS).remove(KEY_MATCH_POLICY)
             .apply()
         cached = null

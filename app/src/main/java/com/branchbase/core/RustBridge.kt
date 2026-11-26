@@ -172,6 +172,17 @@ object RustBridge {
         optionsJson: String,
     ): String
 
+    /**
+     * 上一次翻译是否因为「服务商不认思维深度字段」而走了兜底（去掉字段重试）。
+     *
+     * 读完即清（原生侧 `swap(false)`）。老 `.so` 没有这个符号 → 视为 false：
+     * 宁可不标灰，也不能因为探测能力缺失把翻译链路弄崩。
+     */
+    fun takeThinkingDropped(): Boolean =
+        runCatching { nativeTakeThinkingDropped() }.getOrDefault(false)
+
+    private external fun nativeTakeThinkingDropped(): Boolean
+
     /** 通用 PATCH：编辑评论正文 / 勾选任务清单等。 */
     private external fun nativePatchJson(host: String, token: String, path: String, body: String): String
 

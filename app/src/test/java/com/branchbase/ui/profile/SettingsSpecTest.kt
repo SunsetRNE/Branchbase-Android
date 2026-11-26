@@ -377,6 +377,23 @@ class SettingsSpecTest {
     }
 
     @Test
+    fun `翻译页思维深度单独一行_两套探测互不混用`() {
+        val page = source(translatePagePath)
+        assertTrue("档位选择要走弹性弹窗", page.contains("ThinkingPickerDialog("))
+        assertTrue("思维深度要有独立一行", page.contains("translate_thinking_label"))
+        assertTrue("要有自己的探测按钮（不是复用测试响应）", page.contains("probeTranslation()"))
+        assertTrue(
+            "探测必须走严格模式：否则「服务商不认字段」会被去掉字段的兜底掩盖成成功",
+            page.contains("strictThinking = true"),
+        )
+        assertTrue("探测结论要落盘（界面据此标灰）", page.contains("TranslateSettings.setThinkingSupport"))
+        assertTrue("保存时档位要落盘", page.contains("TranslateSettings.setThinking("))
+        // 两套探测的结论变量必须分开：混用一个就会「测完端口把翻译结论冲掉」
+        assertTrue(page.contains("probeOutcome"))
+        assertTrue(page.contains("translationOutcome"))
+    }
+
+    @Test
     fun `翻译页保存成功有弹簧反馈`() {
         val page = source(translatePagePath)
         assertTrue("保存成功要有覆盖弹窗", page.contains("SaveSuccessDialog("))

@@ -63,9 +63,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.branchbase.R
+import com.branchbase.core.RustBridge
 import com.branchbase.translate.ModelProbe
 import com.branchbase.translate.PageRules
 import com.branchbase.translate.TranslateConfig
+import com.branchbase.translate.TranslateEngine
+import com.branchbase.translate.TranslateThinking
 import com.branchbase.translate.TranslateLang
 import com.branchbase.translate.TranslateProtocol
 import com.branchbase.translate.TranslateProvider
@@ -167,6 +170,19 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
     var addressPickerOpen by remember { mutableStateOf(false) }
     // 保存前的兼容性提醒（只在**协议变了**时出现一次，见 ProtocolWarningDialog）
     var warningOpen by remember { mutableStateOf(false) }
+    // ── 思维深度（1.4.55）──
+    // 默认关：思考会更慢更贵，而「最低档就够日常翻译」是实测口径；档位由用户自己选。
+    var thinkingDraft by remember { mutableStateOf(config.thinkingKind) }
+    var thinkingCustomDraft by remember { mutableStateOf(config.thinkingCustom) }
+    var thinkingPickerOpen by remember { mutableStateOf(false) }
+    var testingTranslation by remember { mutableStateOf(false) }
+    // 「测试翻译」的结论：与「测试响应」（端口探测）**分开两条**，互不覆盖
+    var translationOutcome by remember { mutableStateOf<TestOutcome?>(null) }
+    // 上次探测的结论：该服务商认不认这个字段（null = 还没测过，不置灰）
+    val thinkingScope = TranslateSettings.thinkingScope(protocolDraft, baseUrlDraft, modelDraft)
+    var thinkingSupported by remember(thinkingScope) {
+        mutableStateOf(TranslateSettings.readThinkingSupport(context, thinkingScope))
+    }
     var keyVisible by remember { mutableStateOf(false) }
     var testingResponse by remember { mutableStateOf(false) }
     var probeOutcome by remember { mutableStateOf<TestOutcome?>(null) }
@@ -229,6 +245,90 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
         }
     }
 
+    /**
+     * 「测试翻译」（1.4.55）：与「测试响应」**两套逻辑、两个按钮**，互不混用。
+     *
+     * - 「测试响应」= `GET /models`：只证明端口与鉴权通（可能 404，很多网关没有这个接口）；
+     * - 「测试翻译」= 真的翻一句话：证明「这组协议 + 地址 + Key + 模型」能出译文。
+     *
+     * 它做两件事，因为「字段被接受」只有在翻译真的跑通时才有意义：
+     * 1. 先用**关闭思维深度**的配置翻一句 —— 不通就到此为止（翻译本身不可用）；
+     * 2. 思维深度开着时，再用**严格模式**（`strictThinking`，不做兜底）翻一句：
+     *    成功 = 服务商接受该字段；失败 = 拒绝。结论落盘，界面标灰提示。
+     *
+     * 消耗：两次极短请求（各一个词），与真实翻译同一价格量级，所以按钮旁写明。
+     */
+    fun probeTranslation() {
+        if (testingTranslation) return
+        if (keyDraft.isBlank()) {
+            translationOutcome = TestOutcome(LocalizedText(R.string.translate_thinking_need_key), ok = false)
+            return
+        }
+        if (modelDraft.isBlank()) {
+            translationOutcome = TestOutcome(LocalizedText(R.string.translate_thinking_need_model), ok = false)
+            return
+        }
+        testingTranslation = true
+        translationOutcome = null
+        val base = TranslateSettings.read(context).copy(
+            provider = TranslateProvider.EXTERNAL.code,
+            protocol = protocolDraft.code,
+            apiKey = keyDraft.trim(),
+            model = modelDraft.trim(),
+            baseUrl = baseUrlDraft.trim(),
+        )
+        val level = thinkingDraft
+        val custom = thinkingCustomDraft
+        scope.launch {
+            var supported: Boolean? = null
+            val outcome = withContext(Dispatchers.IO) {
+                fun detail(raw: String): String =
+                    TranslateEngine.splitErrorCode(raw.removePrefix("ERROR:").trim()).second
+
+                // ① 翻译本身可用吗（关掉思维深度）
+                val plain = RustBridge.translateOrError(
+                    "Hello",
+                    "en",
+                    base.target,
+                    base.copy(thinking = TranslateThinking.OFF.code).engineOptionsJson(),
+                )
+                if (plain.startsWith("ERROR:")) {
+                    TestOutcome(
+                        LocalizedText(R.string.translate_thinking_unavailable, listOf(detail(plain))),
+                        ok = false,
+                    )
+                } else if (!level.isActive(custom)) {
+                    TestOutcome(LocalizedText(R.string.translate_thinking_ok), ok = true)
+                } else {
+                    // ② 服务商认不认这个字段（严格模式：失败不兜底，如实暴露）
+                    val strict = RustBridge.translateOrError(
+                        "Hello",
+                        "en",
+                        base.target,
+                        base.copy(thinking = level.code, thinkingCustom = custom)
+                            .engineOptionsJson(strictThinking = true),
+                    )
+                    if (strict.startsWith("ERROR:")) {
+                        supported = false
+                        TestOutcome(
+                            LocalizedText(R.string.translate_thinking_rejected, listOf(detail(strict))),
+                            ok = false,
+                        )
+                    } else {
+                        supported = true
+                        TestOutcome(LocalizedText(R.string.translate_thinking_ok_field), ok = true)
+                    }
+                }
+            }
+            testingTranslation = false
+            translationOutcome = outcome
+            supported?.let {
+                TranslateSettings.setThinkingSupport(context, thinkingScope, it)
+                thinkingSupported = it
+            }
+        }
+    }
+
     /** 保存**只写配置**，不发任何网络请求（决策：保存与测试拆开）。 */
     fun saveCredentials() {
         // 空模型：用当前地址行的默认模型（没有就留空，翻译时会明确提示去填）
@@ -237,6 +337,7 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
         TranslateSettings.setModel(context, modelDraft)
         TranslateSettings.setBaseUrl(context, baseUrlDraft)
         TranslateSettings.setProtocol(context, protocolDraft.code)
+        TranslateSettings.setThinking(context, thinkingDraft.code, thinkingCustomDraft)
         config = TranslateSettings.read(context)
         translator.resetFailures()
         probeOutcome = null
@@ -482,6 +583,61 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                                         }
                                     }
                                 }
+                                // ── 思维深度（1.4.55）：与「翻译能不能用」无关，单独占一行 ──
+                                // 单独拆出来的原因：它只影响质量与延迟，且**要花 token**；
+                                // 不该和「地址 / Key / 模型」这些「不填就用不了」的字段混在一起。
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 2.dp, bottom = 6.dp)
+                                        .height(1.dp)
+                                        .background(Primer.Gray200),
+                                )
+                                ProtocolField(
+                                    label = stringResource(R.string.translate_thinking_label),
+                                    value = stringResource(thinkingDraft.labelRes),
+                                    hint = stringResource(R.string.translate_thinking_choose),
+                                    onClick = { thinkingPickerOpen = true },
+                                    headerAction = {
+                                        // 与「获取模型列表」同款徽章：真实翻一句（消耗极少 token）
+                                        ModelListBadge(
+                                            loading = testingTranslation,
+                                            textRes = R.string.translate_thinking_probe,
+                                            loadingTextRes = R.string.translate_thinking_probing,
+                                        ) { probeTranslation() }
+                                    },
+                                )
+                                if (thinkingDraft == TranslateThinking.CUSTOM) {
+                                    CompactField(
+                                        label = stringResource(R.string.translate_thinking_custom_field),
+                                        value = thinkingCustomDraft,
+                                        placeholder = stringResource(R.string.translate_thinking_custom_placeholder),
+                                        mono = true,
+                                        onValueChange = { thinkingCustomDraft = it },
+                                    )
+                                }
+                                Text(
+                                    if (thinkingSupported == false) {
+                                        stringResource(R.string.translate_thinking_unsupported)
+                                    } else {
+                                        stringResource(R.string.translate_thinking_hint)
+                                    },
+                                    fontSize = 10.sp,
+                                    lineHeight = 14.sp,
+                                    color = if (thinkingSupported == false) Primer.DangerText else Primer.TextTertiary,
+                                )
+                                translationOutcome?.let { outcome ->
+                                    Box(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                                        TestResultText(outcome)
+                                    }
+                                }
+                                Text(
+                                    stringResource(R.string.translate_thinking_cost),
+                                    fontSize = 10.sp,
+                                    lineHeight = 14.sp,
+                                    color = Primer.TextTertiary,
+                                )
+
                                 // 保存与测试拆开：保存只写配置；测试只探端点响应（不翻译、不耗 token）。
                                 Row(
                                     Modifier.fillMaxWidth().padding(top = 2.dp),
@@ -761,6 +917,20 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                 modelError = null
                 probeOutcome = null
                 addressPickerOpen = false
+            },
+        )
+    }
+
+    // 思维深度单选弹窗：Off / Low / High / Max / 自定义（推荐最低档）
+    if (thinkingPickerOpen) {
+        ThinkingPickerDialog(
+            current = thinkingDraft,
+            onDismiss = { thinkingPickerOpen = false },
+            onSelect = { picked ->
+                thinkingDraft = picked
+                // 换档位后上一次的「字段是否被接受」不再代表新档位
+                translationOutcome = null
+                thinkingPickerOpen = false
             },
         )
     }

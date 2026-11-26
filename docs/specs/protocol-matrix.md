@@ -114,7 +114,30 @@ DeepSeek 专属的只有**语义**（`thinking` / `reasoning_effort`、`safety_c
 （否则会变成「DeepSeek 的 Key + OpenAI 的地址」，每次请求都 401）。
 `.so` 是构建产物，Rust 改动必须随发版流水线重建（本机没有 NDK，交叉编译只在 CI 做）。
 
-## 七、验证
+## 七、思维深度（1.4.55）：同一件事的两种写法
+
+「让模型多想一点」在四档协议里有两种表达：OpenAI 系是**枚举 effort**，Anthropic / Gemini 是**token 预算**。
+档位到值的映射在 Kotlin 侧完成（`TranslateThinking`），Rust 只负责按协议摆字段（`translate::Thinking`）。
+
+| 档位 | OpenAI Chat `reasoning_effort` | OpenAI Responses `reasoning.effort` | Anthropic `thinking.budget_tokens` | Gemini `thinkingConfig.thinkingBudget` |
+|---|---|---|---|---|
+| Off | 不发 | 不发 | 不发 | 不发 |
+| Low（推荐） | `low` | `low` | `1024` | `1024` |
+| High | `high` | `high` | `4096` | `4096` |
+| Max | `high`（OpenAI 枚举到 high 为止） | `high` | `16384` | `16384` |
+| 自定义 | 非数字 → 原样当 effort | 同左 | 纯数字 → 当预算 | 同左 |
+
+规则：
+
+1. **档位在 Kotlin 折算**：`effort` 与 `budgetTokens` 一起进 options JSON，Rust 不再解释「高 / 低」；
+2. **Anthropic 的 `max_tokens` 会被抬到 `budget_tokens + 1024`**（官方要求 `budget < max_tokens`，否则 400）；
+3. **兜底只丢字段、不改档位**：请求带字段收到 `400 / 422` 时，去掉字段重试**一次**；401 / 429 / 5xx 不重试
+   （重试只会白花请求）。用户选的档位**不会被改写**；
+4. **探测走严格模式**（`thinking.strict = true`）：失败如实报错，不走兜底 ——
+   否则「服务商不认这个字段」会被兜底伪装成成功，探测就没有意义了；
+5. 探测结论按「协议 + 地址 + 模型」落盘（`translate.thinking.support`），界面据此标灰提示。
+
+## 八、验证
 
 | 类型 | 内容 |
 |---|---|
@@ -122,4 +145,4 @@ DeepSeek 专属的只有**语义**（`thinking` / `reasoning_effort`、`safety_c
 | 单测（`:translate`） | `ModelProbeTest`（地址写法 / 两种响应体 / 坏 JSON / 空 Key / `Retry-After` / 额度用尽 / 头名大小写） |
 | 单测（`:translate`） | `TranslateSettingsTest`（模型列表按协议 + 地址分桶、老配置地址迁移、options JSON、缓存变体） |
 | 源码钉子（`:app`） | `SettingsSpecTest`：协议行 / 地址行 / 弹性弹窗 / 落盘 / 探测传协议 / 四档码 / 四个头名 / **Rust 表逐字一致** / 服务商行叫「外部模型接入」 |
-| 集成（`core/tests`） | `openai_chat_http.rs` 5 例 + `protocol_http.rs` 5 例：真实请求行 / 鉴权头 / 必填头 / 请求体字段；空模型不发请求；没 Key 报认证错误 |
+| 集成（`core/tests`） | `openai_chat_http.rs` 5 例 + `protocol_http.rs` 5 例 + `thinking_http.rs` 4 例：真实请求行 / 鉴权头 / 必填头 / 请求体字段；空模型不发请求；没 Key 报认证错误；**400 时去掉字段重试一次、strict 不兜底、预算抬高 `max_tokens`** |

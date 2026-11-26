@@ -22,8 +22,10 @@ use crate::error::{CoreError, Result};
 use serde_json::{json, Value};
 
 /// 组装请求体（system 走 `systemInstruction`，用户内容走 `contents[0].parts[0].text`）。
-pub(crate) fn build_body(text: &str, from: &str, to: &str) -> Value {
-    json!({
+///
+/// [thinking] 有预算时加 `generationConfig.thinkingConfig.thinkingBudget`（token 数）。
+pub(crate) fn build_body(text: &str, from: &str, to: &str, thinking: Option<&super::Thinking>) -> Value {
+    let mut body = json!({
         "systemInstruction": {
             "parts": [{ "text": super::prompt::system_prompt(from, to) }]
         },
@@ -31,7 +33,15 @@ pub(crate) fn build_body(text: &str, from: &str, to: &str) -> Value {
             "role": "user",
             "parts": [{ "text": text }],
         }],
-    })
+    });
+    if let Some(t) = thinking {
+        if t.budget_tokens > 0 {
+            body["generationConfig"] = json!({
+                "thinkingConfig": { "thinkingBudget": t.budget_tokens }
+            });
+        }
+    }
+    body
 }
 
 /// 翻译一段文本。
@@ -52,17 +62,22 @@ pub async fn translate(
     // 模型名在 URL 里，空模型必须在这里拦住（否则拼出一个 `…/models/:generateContent` 的怪路径）
     super::require_model(options)?;
 
-    let url = options.chat_endpoint();
-    let resp = super::json_request(protocol, &url, key)
-        .json(&build_body(text, from, to))
-        .send()
-        .await?;
+    let with = options
+        .thinking
+        .is_active()
+        .then(|| build_body(text, from, to, Some(&options.thinking)));
+    let without = build_body(text, from, to, None);
 
-    let status = resp.status();
-    let raw = resp.text().await?;
-    if !status.is_success() {
-        return Err(super::http_failure(protocol, status.as_u16(), &raw));
-    }
+    let url = options.chat_endpoint();
+    let raw = super::post_with_thinking(
+        protocol,
+        &url,
+        key,
+        with,
+        without,
+        options.thinking.strict,
+    )
+    .await?;
     parse_response(&raw)
 }
 
@@ -114,7 +129,7 @@ mod tests {
 
     #[test]
     fn 请求体用_contents_与_system_instruction() {
-        let body = build_body("Hello", "en", "zh-CN");
+        let body = build_body("Hello", "en", "zh-CN", None);
         assert!(body["systemInstruction"]["parts"][0]["text"]
             .as_str()
             .unwrap()
@@ -123,6 +138,19 @@ mod tests {
         assert_eq!(body["contents"][0]["parts"][0]["text"], "Hello");
         // 模型名不在请求体里（在 URL 里）
         assert!(body["model"].is_null());
+    }
+
+    #[test]
+    fn 思维深度按_thinking_budget_放进_generation_config() {
+        let thinking = super::super::Thinking {
+            effort: String::new(),
+            budget_tokens: 2048,
+            strict: false,
+        };
+        let body = build_body("hi", "en", "zh-CN", Some(&thinking));
+        assert_eq!(body["generationConfig"]["thinkingConfig"]["thinkingBudget"], 2048);
+        // 关掉时不出现 generationConfig
+        assert!(build_body("hi", "en", "zh-CN", None).get("generationConfig").is_none());
     }
 
     #[test]
