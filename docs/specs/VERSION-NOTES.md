@@ -74,7 +74,20 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.72 → 1.0.22）
+## 二、`versionName` 流水（1.4.73 → 1.0.22）
+
+### 1.4.73
+
+**项目列表按原型落地：卡片面 + `DONE` 图标牌。**
+
+决策五（原型 1.4.69 已确认，浅深两套都看过）。`ProjectCard` 从「裸文字、行距 14dp」换成
+`cardSurface()`（白面 + 4dp 阴影、12dp 圆角）、内边距 h12·v8、左侧 22dp `Dashboard` 牌
+（`TintRole.DONE`，与 More 菜单「项目」同色）；名字 14sp 单行、描述 12sp·15sp·限 2 行。
+
+无描述时给一行灰字「此项目暂无描述」（复用 `state_no_repo_description`），不省行 ——
+否则卡片比邻居矮一截，读起来像被截断。项目卡当前不可点，因此没有 `›`。
+
+验证：`assembleDebug` 通过。
 
 ### 1.4.72
 
@@ -5685,7 +5698,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（332 → 129）
+## 三、`versionCode` 流水（333 → 129）
+
+- **333**：项目列表按原型落地（1.4.73）—— `ProjectCard` 裸文字 → `cardSurface()` + `DONE` 图标牌；
+  无描述给灰字占位，不省行（一次提交，故 +1）。
+
 
 - **332**：Releases 列表换卡片面 + 语义图标牌（1.4.72）—— 裸内容行 + 底部分隔线 →
   `cardSurface()` + 22dp 牌（草稿/预发布/最新/其余四档取色）（一次提交，故 +1）。

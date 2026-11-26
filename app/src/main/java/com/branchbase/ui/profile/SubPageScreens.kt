@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import com.branchbase.core.engineErrorOrRaw
+import com.branchbase.ui.TintChip
 import com.branchbase.ui.cardSurface
 import com.branchbase.ui.theme.TintRole
 import com.branchbase.ui.navigation.BranchbaseLazyColumn
@@ -41,6 +42,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
@@ -489,15 +491,55 @@ fun ProjectsScreen(sessionJson: String, onBack: () -> Unit) {
     }
 }
 
+/**
+ * 项目卡（决策五，原型见 `design/projects-tint-cards/`）。
+ *
+ * 原来是裸文字（名字 + 描述，无容器、行距 14dp）。现在与其它仓库卡同一套：
+ * `cardSurface()`（白面 + 4dp 阴影、12dp 圆角）、内边距 h12·v8（比仓库卡紧一档，只有两行文本）、
+ * 左侧 22dp 图标牌 `TintRole.DONE`（与 More 菜单「项目」同色）。
+ *
+ * 无描述时不省行：给一行灰字「此项目暂无描述」（复用仓库卡同一条资源），
+ * 否则卡片比邻居矮一截、读起来像被截断。项目卡当前不可点，所以没有 `›`。
+ */
 @Composable
 private fun ProjectCard(project: ProjectItem) {
-    Column(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 3.dp)
+            .cardSurface()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.Top,
     ) {
-        Text(project.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
-        if (project.description != null) {
+        TintChip(Icons.Filled.Dashboard, TintRole.DONE)
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                project.name,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Primer.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
             Spacer(Modifier.height(2.dp))
-            Text(project.description, fontSize = 12.5.sp, color = Primer.TextSecondary, lineHeight = 18.sp)
+            if (project.description != null) {
+                Text(
+                    project.description,
+                    fontSize = 12.sp,
+                    lineHeight = 15.sp,
+                    color = Primer.TextSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            } else {
+                Text(
+                    stringResource(R.string.state_no_repo_description),
+                    fontSize = 12.sp,
+                    lineHeight = 15.sp,
+                    color = Primer.TextTertiary,
+                )
+            }
         }
     }
 }
