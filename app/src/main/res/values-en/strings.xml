@@ -121,6 +121,12 @@
     <string name="translate_thinking_ok_field">Translation works; the provider accepted the thinking field</string>
     <string name="translate_thinking_rejected">Translation works, but the provider rejected the thinking field: %1$s</string>
     <string name="translate_thinking_unavailable">Translation unavailable: %1$s</string>
+    <string name="translate_thinking_custom_badge_ok">Applies</string>
+    <string name="translate_thinking_custom_badge_off">Treated as off</string>
+    <string name="translate_thinking_custom_badge_risky">May be rejected</string>
+    <string name="translate_thinking_custom_warn_title">Custom value problem</string>
+    <string name="translate_thinking_custom_warn_body">Custom value “%1$s”: %2$s. Save anyway?</string>
+    <string name="translate_thinking_custom_warn_confirm">Save anyway</string>
     <string name="translate_thinking_custom_ok_budget">Sent as a token budget (Anthropic / Gemini)</string>
     <string name="translate_thinking_custom_ok_effort">Sent as effort (OpenAI family)</string>
     <string name="translate_thinking_custom_empty">Custom value is empty; treated as off</string>

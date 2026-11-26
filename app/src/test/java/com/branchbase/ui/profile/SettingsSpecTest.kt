@@ -392,6 +392,10 @@ class SettingsSpecTest {
             "自定义值要当场校验（填了但当前协议不认 → 等同关闭，必须当场说清）",
             page.contains("TranslateThinking.checkCustom("),
         )
+        // 只靠小字不可靠：必须有带色徽章 + 保存前的拦截
+        assertTrue("自定义值要有状态徽章", page.contains("StatusBadge("))
+        assertTrue("无效值保存前要拦一次", page.contains("CustomValueWarningDialog("))
+        assertTrue("保存走统一的 requestSave（先校验再存）", page.contains("requestSave()"))
         // 两套探测的结论变量必须分开：混用一个就会「测完端口把翻译结论冲掉」
         assertTrue(page.contains("probeOutcome"))
         assertTrue(page.contains("translationOutcome"))

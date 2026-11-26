@@ -128,6 +128,12 @@
     <string name="translate_thinking_ok_field">翻译可用，服务商接受了思维深度字段</string>
     <string name="translate_thinking_rejected">翻译可用，但服务商拒绝了思维深度字段：%1$s</string>
     <string name="translate_thinking_unavailable">翻译不可用：%1$s</string>
+    <string name="translate_thinking_custom_badge_ok">将生效</string>
+    <string name="translate_thinking_custom_badge_off">等同关闭</string>
+    <string name="translate_thinking_custom_badge_risky">可能被拒</string>
+    <string name="translate_thinking_custom_warn_title">自定义值有问题</string>
+    <string name="translate_thinking_custom_warn_body">当前自定义值「%1$s」：%2$s。仍要保存吗？</string>
+    <string name="translate_thinking_custom_warn_confirm">仍要保存</string>
     <string name="translate_thinking_custom_ok_budget">将作为 token 预算发给 Anthropic / Gemini</string>
     <string name="translate_thinking_custom_ok_effort">将作为 effort 发给 OpenAI 系</string>
     <string name="translate_thinking_custom_empty">自定义值不能为空，当前等同关闭</string>

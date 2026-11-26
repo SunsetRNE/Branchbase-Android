@@ -730,3 +730,79 @@ internal val TranslateThinking.descRes: Int
         TranslateThinking.MAX -> R.string.translate_thinking_max_desc
         TranslateThinking.CUSTOM -> R.string.translate_thinking_custom_desc
     }
+
+/**
+ * 状态徽章（1.4.58）：把「这个值到底会不会生效」从一行小字升级成**带色的标签**。
+ *
+ * 为什么需要：小字（10sp、第三级灰）在真机上极易被跳过，而「自定义值不会被发出去」
+ * 恰恰是那种「看起来设置了、实际没生效」的问题 —— 必须靠颜色与位置，而不是靠读句子。
+ *
+ * 三种语义：将生效（绿）/ 等同关闭（灰）/ 可能被拒（红）。文字极短，
+ * 详细原因仍由下面那行说明承担（徽章说不下）。
+ */
+@Composable
+internal fun StatusBadge(text: String, tone: BadgeTone) {
+    val (fg, bg) = when (tone) {
+        BadgeTone.OK -> Primer.SuccessTextStrong to Primer.SuccessSurface
+        BadgeTone.OFF -> Primer.TextTertiary to Primer.Gray150
+        BadgeTone.RISKY -> Primer.DangerText to Primer.DangerSurface
+    }
+    Text(
+        text,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.SemiBold,
+        lineHeight = 12.sp,
+        color = fg,
+        maxLines = 1,
+        modifier = Modifier
+            .background(bg, RoundedCornerShape(4.dp))
+            .padding(horizontal = 5.dp, vertical = 2.dp),
+    )
+}
+
+/** 徽章语义（颜色由它决定，文案由调用方给）。 */
+internal enum class BadgeTone { OK, OFF, RISKY }
+
+/**
+ * 自定义值有问题时的保存确认（1.4.58）：**只在判定不是「将生效」时**出现一次。
+ *
+ * 这不是「替用户决策」，而是「让无效的配置必须被看见一次」：徽章 + 一行说明仍可能被跳过，
+ * 但保存动作是用户一定会做的那一步。点「仍要保存」照常保存。
+ */
+@Composable
+internal fun CustomValueWarningDialog(
+    value: String,
+    reason: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                stringResource(R.string.translate_thinking_custom_warn_title),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Primer.TextPrimary,
+            )
+        },
+        text = {
+            Text(
+                stringResource(R.string.translate_thinking_custom_warn_body, value.trim().ifEmpty { "—" }, reason),
+                fontSize = 13.sp,
+                lineHeight = 19.sp,
+                color = Primer.TextSecondary,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(stringResource(R.string.translate_thinking_custom_warn_confirm), color = Primer.AccentText)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_cancel), color = Primer.TextSecondary)
+            }
+        },
+    )
+}

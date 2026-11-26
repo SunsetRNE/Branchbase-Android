@@ -176,6 +176,8 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
     var thinkingDraft by remember { mutableStateOf(config.thinkingKind) }
     var thinkingCustomDraft by remember { mutableStateOf(config.thinkingCustom) }
     var thinkingPickerOpen by remember { mutableStateOf(false) }
+    // 自定义值无效时的保存确认（徽章 + 小字都可能被跳过，保存这一步必须看见一次）
+    var customWarningOpen by remember { mutableStateOf(false) }
     var testingTranslation by remember { mutableStateOf(false) }
     // 「测试翻译」的结论：与「测试响应」（端口探测）**分开两条**，互不覆盖
     var translationOutcome by remember { mutableStateOf<TestOutcome?>(null) }
@@ -344,6 +346,26 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
         probeOutcome = null
         saveSuccess = true
         scope.launch { stats = translator.stats() }
+    }
+
+    /**
+     * 保存入口：先做「值到底会不会生效」的拦截，再看协议是否变过。
+     *
+     * 判定为「将生效」才直接保存；否则先弹一次确认 —— 不是替用户决策（仍可保存），
+     * 而是让「设了等于没设」这件事在**保存**这一步必须被看见。
+     */
+    fun requestSave() {
+        val issue = if (thinkingDraft == TranslateThinking.CUSTOM) {
+            TranslateThinking.checkCustom(thinkingCustomDraft, protocolDraft)
+        } else {
+            CustomValueIssue.OK_BUDGET
+        }
+        when {
+            issue != CustomValueIssue.OK_BUDGET && issue != CustomValueIssue.OK_EFFORT ->
+                customWarningOpen = true
+            protocolDraft != config.protocolKind -> warningOpen = true
+            else -> saveCredentials()
+        }
     }
 
     /**
@@ -608,6 +630,8 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                                         ) { probeTranslation() }
                                     },
                                 )
+                                // 自定义值的判定（纯函数）：既驱动标签行徽章，也驱动保存前的拦截
+                                val customIssue = TranslateThinking.checkCustom(thinkingCustomDraft, protocolDraft)
                                 if (thinkingDraft == TranslateThinking.CUSTOM) {
                                     CompactField(
                                         label = stringResource(R.string.translate_thinking_custom_field),
@@ -615,35 +639,39 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                                         placeholder = stringResource(R.string.translate_thinking_custom_placeholder),
                                         mono = true,
                                         onValueChange = { thinkingCustomDraft = it },
+                                        headerAction = {
+                                            // 只靠小字不可靠：先给一枚带色的状态徽章（将生效 / 等同关闭 / 可能被拒）
+                                            StatusBadge(
+                                                text = stringResource(customIssue.badgeRes),
+                                                tone = customIssue.tone,
+                                            )
+                                        },
                                     )
-                                    // 即时校验：这一行随输入实时变。「填了但当前协议不认」是最容易
-                                    // 静默失效的情况（请求里什么都不加，等同关闭），必须当场说清。
-                                    val issue = TranslateThinking.checkCustom(thinkingCustomDraft, protocolDraft)
                                     Text(
-                                        stringResource(issue.messageRes),
+                                        stringResource(customIssue.messageRes),
                                         fontSize = 10.sp,
                                         lineHeight = 14.sp,
-                                        color = when {
-                                            issue == CustomValueIssue.OK_BUDGET ||
-                                                issue == CustomValueIssue.OK_EFFORT -> Primer.SuccessTextStrong
-                                            issue == CustomValueIssue.UNKNOWN_EFFORT ||
-                                                issue == CustomValueIssue.BUDGET_TOO_SMALL ||
-                                                issue == CustomValueIssue.BUDGET_TOO_LARGE -> Primer.DangerText
-                                            else -> Primer.TextTertiary
+                                        color = when (customIssue.tone) {
+                                            BadgeTone.OK -> Primer.SuccessTextStrong
+                                            BadgeTone.OFF -> Primer.TextTertiary
+                                            BadgeTone.RISKY -> Primer.DangerText
                                         },
                                         modifier = Modifier.padding(bottom = 2.dp),
                                     )
                                 }
-                                Text(
-                                    if (thinkingSupported == false) {
-                                        stringResource(R.string.translate_thinking_unsupported)
-                                    } else {
-                                        stringResource(R.string.translate_thinking_hint)
-                                    },
-                                    fontSize = 10.sp,
-                                    lineHeight = 14.sp,
-                                    color = if (thinkingSupported == false) Primer.DangerText else Primer.TextTertiary,
-                                )
+                                // 「推荐最低档」只对**选档位**有意义；选了自定义就不该再拿推荐挤一行
+                                if (thinkingDraft != TranslateThinking.CUSTOM || thinkingSupported == false) {
+                                    Text(
+                                        if (thinkingSupported == false) {
+                                            stringResource(R.string.translate_thinking_unsupported)
+                                        } else {
+                                            stringResource(R.string.translate_thinking_hint)
+                                        },
+                                        fontSize = 10.sp,
+                                        lineHeight = 14.sp,
+                                        color = if (thinkingSupported == false) Primer.DangerText else Primer.TextTertiary,
+                                    )
+                                }
                                 translationOutcome?.let { outcome ->
                                     Box(Modifier.fillMaxWidth().padding(top = 4.dp)) {
                                         TestResultText(outcome)
@@ -662,8 +690,7 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     ActionPill(text = stringResource(R.string.action_save), enabled = true) {
-                                        // 换过协议才提醒一次：Key 格式 / 厂商兼容性 / 自行探测端点
-                                        if (protocolDraft != config.protocolKind) warningOpen = true else saveCredentials()
+                                        requestSave()
                                     }
                                     Spacer(Modifier.width(8.dp))
                                     ActionPill(
@@ -953,6 +980,20 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
         )
     }
 
+    // 自定义值无效的保存确认：徽章之外的第二道（也更难忽略的）提示
+    if (customWarningOpen) {
+        val issue = TranslateThinking.checkCustom(thinkingCustomDraft, protocolDraft)
+        CustomValueWarningDialog(
+            value = thinkingCustomDraft,
+            reason = stringResource(issue.messageRes),
+            onDismiss = { customWarningOpen = false },
+            onConfirm = {
+                customWarningOpen = false
+                if (protocolDraft != config.protocolKind) warningOpen = true else saveCredentials()
+            },
+        )
+    }
+
     // 保存前的兼容性提醒（用户 2026-11-26 决策四）：只在**协议变了**时出现。
     // 「协议换了但 Key 还是上一家的」是这里最容易踩的坑，提醒一句比事后 401 好懂。
     if (warningOpen) {
@@ -1073,6 +1114,24 @@ private val TranslateProvider.descRes: Int
     get() = when (this) {
         TranslateProvider.MYMEMORY -> R.string.translate_provider_mymemory_desc
         TranslateProvider.EXTERNAL -> R.string.translate_provider_external_desc
+    }
+
+/** 判定 → 徽章文字（极短：徽章说不下原因，原因交给下面那行）。 */
+private val CustomValueIssue.badgeRes: Int
+    get() = when (this) {
+        CustomValueIssue.OK_BUDGET, CustomValueIssue.OK_EFFORT ->
+            R.string.translate_thinking_custom_badge_ok
+        CustomValueIssue.EMPTY, CustomValueIssue.DIGITS_IGNORED, CustomValueIssue.WORD_IGNORED ->
+            R.string.translate_thinking_custom_badge_off
+        else -> R.string.translate_thinking_custom_badge_risky
+    }
+
+/** 判定 → 徽章语义（绿 / 灰 / 红）。 */
+private val CustomValueIssue.tone: BadgeTone
+    get() = when (this) {
+        CustomValueIssue.OK_BUDGET, CustomValueIssue.OK_EFFORT -> BadgeTone.OK
+        CustomValueIssue.EMPTY, CustomValueIssue.DIGITS_IGNORED, CustomValueIssue.WORD_IGNORED -> BadgeTone.OFF
+        else -> BadgeTone.RISKY
     }
 
 /** 自定义值的校验结论 → 一句话（模块只给分类，句子在这里）。 */
