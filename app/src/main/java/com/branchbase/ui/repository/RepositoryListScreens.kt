@@ -26,6 +26,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.CircularProgressIndicator
@@ -70,7 +72,10 @@ import com.branchbase.ui.navigation.rememberPageResumeTick
 import com.branchbase.ui.resolve
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.LanguageColors
+import com.branchbase.ui.TintChip
+import com.branchbase.ui.cardSurface
 import com.branchbase.ui.theme.Primer
+import com.branchbase.ui.theme.TintRole
 import org.json.JSONObject
 
 // ── 通用 ──
@@ -677,17 +682,33 @@ fun IssueListContent(sessionJson: String, owner: String, repo: String, refreshTi
     }
 }
 
+/**
+ * 议题行：卡片面 + 状态图标牌（决策六）。
+ *
+ * 原来是一行裸文本 + 16dp 状态圆点。圆点只说「有状态」，图标牌能说「什么状态」：
+ * 开启 = `ErrorOutline`（`SUCCESS` 绿）、已关闭 = `CheckCircle`（`DANGER` 红）——
+ * 颜色沿用 [stateColor] 那一套（open 绿 / closed 红 / merged 紫），不另造语义。
+ */
 @Composable
 private fun IssueRow(item: IssueItem, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable { onClick() }.padding(12.dp, 16.dp), verticalAlignment = Alignment.Top) {
-        Box(
-            Modifier.size(16.dp).clip(CircleShape).background(stateColor(item.state)),
-            contentAlignment = Alignment.Center,
-        ) {}
+    val open = item.state == "open"
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 3.dp)
+            .cardSurface()
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        TintChip(
+            if (open) Icons.Filled.ErrorOutline else Icons.Filled.CheckCircle,
+            if (open) TintRole.SUCCESS else TintRole.DANGER,
+        )
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(item.title, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, lineHeight = 18.sp)
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(3.dp))
             Text("#${item.number} · ${item.author} · ${shortTime(item.createdAt).resolve()}", fontSize = 11.5.sp, color = Primer.TextTertiary)
         }
     }

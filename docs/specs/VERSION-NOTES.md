@@ -74,7 +74,17 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.69 → 1.0.22）
+## 二、`versionName` 流水（1.4.70 → 1.0.22）
+
+### 1.4.70
+
+**仓库 Issues 列表换卡片面 + 状态图标牌。**
+
+决策六。原来是一行裸文本 + 16dp 状态圆点；现在 `cardSurface()`（白面 + 4dp 阴影、12dp 圆角）
++ 22dp 图标牌：开启 `ErrorOutline`（`SUCCESS` 绿）、已关闭 `CheckCircle`（`DANGER` 红），
+颜色沿用 `stateColor` 原来那套，不另造语义。行内留白 18dp → 14dp（竖 16 → 8）。
+
+验证：`assembleDebug` 通过。
 
 ### 1.4.69
 
@@ -5654,7 +5664,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（329 → 129）
+## 三、`versionCode` 流水（330 → 129）
+
+- **330**：仓库 Issues 列表换卡片面 + 状态图标牌（1.4.70）—— 裸文本行 → `cardSurface()`、
+  16dp 圆点 → 22dp 牌（open/closed 沿用 stateColor 语义）（一次提交，故 +1）。
+
 
 - **329**：项目列表交互原型（1.4.69）—— 账号没建过项目，实机只有空态；先用原型覆盖
   有项目 / 空态 / 加载三态 × 浅深，待确认（一次提交，故 +1）。
