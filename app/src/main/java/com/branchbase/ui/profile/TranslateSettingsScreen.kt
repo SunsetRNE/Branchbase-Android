@@ -10,11 +10,12 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -56,8 +57,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.R
 import com.branchbase.translate.DeepSeekModels
-import com.branchbase.translate.EngineResult
-import com.branchbase.translate.FailKind
 import com.branchbase.translate.PageRules
 import com.branchbase.translate.TranslateConfig
 import com.branchbase.translate.TranslateLang
@@ -77,6 +76,7 @@ import com.branchbase.ui.settings.SwitchRow
 import com.branchbase.ui.theme.Primer
 import com.branchbase.ui.theme.iconTap
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -143,11 +143,17 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
     // 输入中的文本与「已保存的配置」分开：Key/模型/地址都是**失焦或点保存才落盘**，
     // 否则每敲一个字符都会写一次 SharedPreferences 并清一次熔断
     var keyDraft by remember { mutableStateOf(config.apiKey) }
-    var modelDraft by remember { mutableStateOf(config.model) }
+    // 模型框**不空着**：保存的值为空时直接填当前生效的默认模型（Rust 侧空值即 deepseek-flash），
+    // 用户一眼能看到「实际会用哪个」，不用猜占位符。
+    var modelDraft by remember {
+        mutableStateOf(config.model.ifBlank { TranslateProvider.DEEPSEEK_MODEL })
+    }
     var baseUrlDraft by remember { mutableStateOf(config.baseUrl) }
     var keyVisible by remember { mutableStateOf(false) }
-    var testing by remember { mutableStateOf(false) }
-    var testResult by remember { mutableStateOf<TestOutcome?>(null) }
+    var testingResponse by remember { mutableStateOf(false) }
+    var probeOutcome by remember { mutableStateOf<TestOutcome?>(null) }
+    // 非空 = 正在「逐字输入」这个模型名（点候选芯片 / 保存模型列表后触发）
+    var typingTarget by remember { mutableStateOf<String?>(null) }
     // 「!」徽标打开的说明弹窗。默认关：说明是「需要时再查」的东西，不该一进页面就糊一屏。
     var notesOpen by remember { mutableStateOf(false) }
 
@@ -166,19 +172,63 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
 
     LaunchedEffect(Unit) { stats = translator.stats() }
 
-    /** 落盘凭据并清熔断：改完立刻可用，不用回页面点重试。 */
+    // 选中模型时**模仿人打字**逐字填入（决策：选中后的输入动画）。28ms/字，一个模型名约 0.4s；
+    // 中途换目标会取消上一条协程，不会出现两段打字叠加。
+    LaunchedEffect(typingTarget) {
+        val target = typingTarget ?: return@LaunchedEffect
+        modelDraft = ""
+        target.forEachIndexed { index, _ ->
+            delay(28)
+            modelDraft = target.substring(0, index + 1)
+        }
+        typingTarget = null
+    }
+
+    /** 探测失败的统一文案（「获取模型列表」与「测试响应」共用一张映射表）。 */
+    fun modelsFailure(detail: String): LocalizedText = when (detail) {
+        DeepSeekModels.EMPTY_KEY -> LocalizedText(R.string.translate_models_need_key)
+        DeepSeekModels.EMPTY_LIST -> LocalizedText(R.string.translate_models_empty)
+        DeepSeekModels.NETWORK -> LocalizedText(R.string.translate_models_network)
+        DeepSeekModels.TIMEOUT -> LocalizedText(R.string.translate_models_timeout)
+        else -> LocalizedText(R.string.translate_models_failed, listOf(detail))
+    }
+
+    /** 保存**只写配置**，不发任何网络请求（决策：保存与测试拆开）。 */
     fun saveCredentials() {
+        // 空模型 = 用默认；保存时就写成默认值，避免「界面空着、实际却有个隐藏默认」
+        if (modelDraft.isBlank()) modelDraft = TranslateProvider.DEEPSEEK_MODEL
         TranslateSettings.setApiKey(context, keyDraft)
         TranslateSettings.setModel(context, modelDraft)
         TranslateSettings.setBaseUrl(context, baseUrlDraft)
         config = TranslateSettings.read(context)
         translator.resetFailures()
-        testResult = null
+        probeOutcome = null
         scope.launch { stats = translator.stats() }
     }
 
     /**
-     * 探测模型列表（决策五）：只读当前输入框里的地址与 Key，**不先落盘** ——
+     * 「测试响应」：只确认端点**有响应**，不做任何真实翻译（不耗 token、不出译文）。
+     * 复用 `GET {baseUrl}/models` —— 它正是「服务器是否接受这组地址 + Key」的最小请求。
+     */
+    fun probeResponse() {
+        if (testingResponse) return
+        testingResponse = true
+        probeOutcome = null
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { DeepSeekModels.fetch(baseUrlDraft, keyDraft) }
+            testingResponse = false
+            probeOutcome = when (result) {
+                is DeepSeekModels.Result.Ok -> TestOutcome(
+                    LocalizedText(R.string.translate_probe_ok, listOf(result.models.size.toString())),
+                    ok = true,
+                )
+                is DeepSeekModels.Result.Fail -> TestOutcome(modelsFailure(result.detail), ok = false)
+            }
+        }
+    }
+
+    /**
+     * 获取模型列表（决策五）：只读当前输入框里的地址与 Key，**不先落盘** ——
      * 探测失败不该顺手改掉用户正在编辑的配置。
      */
     fun fetchModels() {
@@ -190,13 +240,7 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
             fetchingModels = false
             when (result) {
                 is DeepSeekModels.Result.Ok -> fetchedModels = result.models
-                is DeepSeekModels.Result.Fail -> modelError = when (result.detail) {
-                    DeepSeekModels.EMPTY_KEY -> LocalizedText(R.string.translate_models_need_key)
-                    DeepSeekModels.EMPTY_LIST -> LocalizedText(R.string.translate_models_empty)
-                    DeepSeekModels.NETWORK -> LocalizedText(R.string.translate_models_network)
-                    DeepSeekModels.TIMEOUT -> LocalizedText(R.string.translate_models_timeout)
-                    else -> LocalizedText(R.string.translate_models_failed, listOf(result.detail))
-                }
+                is DeepSeekModels.Result.Fail -> modelError = modelsFailure(result.detail)
             }
         }
     }
@@ -249,7 +293,7 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                             TranslateSettings.setProvider(context, provider.code)
                             // 换后端后清掉上一次的熔断（例如从「Key 无效」切回免费接口）
                             translator.resetFailures()
-                            testResult = null
+                            probeOutcome = null
                             // 模型探测的结果属于上一家服务商：换后端不能把旧列表留在屏上
                             fetchedModels = null
                             confirmingModels = null
@@ -314,24 +358,33 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                                         Text(
                                             if (keyVisible) stringResource(R.string.action_hide) else stringResource(R.string.action_show),
                                             fontSize = 11.sp,
+                                            // 固定 16sp 行高：不加这一行，11sp + 默认行盒会比输入行高 2dp，
+                                            // 把 API Key 框撑到 30dp，与另外两个 28dp 的框对不齐
+                                            lineHeight = 16.sp,
                                             fontWeight = FontWeight.SemiBold,
                                             color = Primer.Blue500,
                                             modifier = Modifier
                                                 .clickable { keyVisible = !keyVisible }
-                                                .padding(horizontal = 2.dp, vertical = 2.dp),
+                                                .padding(horizontal = 2.dp),
                                         )
                                     },
                                 )
-                                // 模型行右侧的「获取模型列表」：探测 `{baseUrl}/models`（决策五）。
+                                // 模型行：标签行右侧「获取模型列表」，框内右侧绿色「当前」徽标。
+                                // activeModel = 正在打的字或已填的值（打字过程中徽标不闪）
+                                val activeModel = typingTarget ?: modelDraft.trim()
                                 CompactField(
                                     label = stringResource(R.string.translate_model_label),
                                     value = modelDraft,
                                     placeholder = TranslateProvider.DEEPSEEK_MODEL,
                                     mono = true,
                                     onValueChange = { modelDraft = it },
-                                    // 徽章在框内标签行右侧（决策五）：不额外占一行，值那一行留给模型名
                                     headerAction = {
                                         ModelListBadge(loading = fetchingModels) { fetchModels() }
+                                    },
+                                    trailingContent = if (activeModel.isNotBlank()) {
+                                        { ModelCurrentBadge() }
+                                    } else {
+                                        null
                                     },
                                 )
                                 modelError?.let { error ->
@@ -344,19 +397,26 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                                     )
                                 }
                                 // 候选芯片：本机保存的列表优先；还没探测过时回落到内置候选。
-                                // FlowRow：网关可能返回几十个模型，Row 不换行会超出卡片被裁掉，且不报错。
+                                // 横向滚动：网关可能返回几十个模型；选中蓝底、未选中白底。
                                 val chips = if (localModels.isEmpty()) {
                                     TranslateProvider.MODEL_SUGGESTIONS
                                 } else {
                                     localModels
                                 }
-                                FlowRow(
-                                    Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 6.dp)
+                                        .horizontalScroll(rememberScrollState()),
                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalArrangement = Arrangement.spacedBy(5.dp),
                                 ) {
                                     chips.forEach { model ->
-                                        SuggestionChip(model) { modelDraft = model }
+                                        SelectableModelChip(
+                                            text = model,
+                                            // 打字过程中按目标高亮：整段输入动画读起来是「这一项正在被选中」
+                                            selected = model == activeModel,
+                                            onClick = { typingTarget = model },
+                                        )
                                     }
                                 }
                                 CompactField(
@@ -366,27 +426,31 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                                     mono = true,
                                     onValueChange = { baseUrlDraft = it },
                                 )
+                                // 保存与测试拆开：保存只写配置；测试只探端点响应（不翻译、不耗 token）。
                                 Row(
-                                    Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                                    Modifier.fillMaxWidth().padding(top = 2.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    ActionPill(
-                                        text = if (testing) stringResource(R.string.translate_testing) else stringResource(R.string.translate_save_and_test),
-                                        enabled = !testing,
-                                    ) {
+                                    ActionPill(text = stringResource(R.string.action_save), enabled = true) {
                                         saveCredentials()
-                                        testing = true
-                                        testResult = null
-                                        scope.launch {
-                                            val result = translator.selfTest(to = config.target, from = config.source)
-                                            testResult = describeTestResult(result)
-                                            testing = false
-                                            stats = translator.stats()
-                                        }
                                     }
-                                    Spacer(Modifier.width(10.dp))
-                                    // 结果文字占剩余宽度：长错误（网络不可达 + 原因）不会把按钮顶出卡片
-                                    Box(Modifier.weight(1f)) { TestResultText(testResult) }
+                                    Spacer(Modifier.width(8.dp))
+                                    ActionPill(
+                                        text = if (testingResponse) {
+                                            stringResource(R.string.translate_testing)
+                                        } else {
+                                            stringResource(R.string.translate_probe_response)
+                                        },
+                                        enabled = !testingResponse,
+                                        secondary = true,
+                                    ) {
+                                        probeResponse()
+                                    }
+                                }
+                                probeOutcome?.let { outcome ->
+                                    Box(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                                        TestResultText(outcome)
+                                    }
                                 }
                                 // 隐私说明压成一行：Key 的归属与「不外泄」是必须留在表面的信息（§6.2）；
                                 // OpenAI 兼容 / 可接中转属于「怎么用」，在「!」弹窗里。
@@ -612,6 +676,10 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                 val saved = selected.sorted()
                 TranslateSettings.setModels(context, saved)
                 localModels = saved
+                // 当前模型如果不在这次保存的列表里，用排序后的首个当默认并用打字动画填入
+                if (saved.isNotEmpty() && modelDraft.trim() !in saved) {
+                    typingTarget = saved.first()
+                }
                 confirmingModels = null
                 fetchedModels = null
                 Toast.makeText(context, context.getString(R.string.translate_models_saved), Toast.LENGTH_SHORT).show()
@@ -673,30 +741,6 @@ private fun statusNote(stats: TranslateStats): LocalizedText? = when {
     else -> null
 }
 
-/** 把「测试连接」的结果翻成一句人话（判定见 [TestOutcome.ok]，文案交给资源）。 */
-private fun describeTestResult(result: EngineResult): TestOutcome = when (result) {
-    is EngineResult.Ok -> TestOutcome(
-        LocalizedText(R.string.translate_test_ok_detail, listOf(result.text.take(60))),
-        ok = true,
-    )
-    is EngineResult.Fail -> when (result.kind) {
-        FailKind.AUTH -> TestOutcome(LocalizedText(R.string.translate_test_fail_auth), ok = false)
-        FailKind.QUOTA -> TestOutcome(LocalizedText(R.string.translate_test_fail_quota), ok = false)
-        FailKind.NETWORK -> TestOutcome(
-            LocalizedText(R.string.translate_test_fail_network, listOf(result.message.take(60))),
-            ok = false,
-        )
-        FailKind.UNSUPPORTED -> TestOutcome(
-            LocalizedText(R.string.translate_test_fail_unsupported, listOf(result.message.take(60))),
-            ok = false,
-        )
-        FailKind.UNKNOWN -> TestOutcome(
-            LocalizedText(R.string.translate_test_fail_raw, listOf(result.message.take(80))),
-            ok = false,
-        )
-    }
-}
-
 /** 翻译后端的界面文案在 app 层（模块只留与语言无关的 `code`，UI 文案必须走资源）。 */
 private val TranslateProvider.labelRes: Int
     get() = when (this) {
@@ -723,32 +767,84 @@ private val TranslateLang.descRes: Int
         TranslateLang.EN -> R.string.translate_lang_en_desc
     }
 
-/** 小圆角建议按钮（模型候选）。块内压密后 11sp / 7×3dp。 */
+/**
+ * 候选模型芯片：选中蓝底白字、未选中白底深字（决策：用底色区分选中态）。
+ *
+ * 白底 + `BorderControl` 描边：白底在 `Gray100` 卡片上仍然看得见，且 1dp 控件边界
+ * 满足 3:1（装饰性 `Border` 只有 1.8:1）。
+ */
 @Composable
-private fun SuggestionChip(text: String, onClick: () -> Unit) {
+private fun SelectableModelChip(text: String, selected: Boolean, onClick: () -> Unit) {
     Text(
         text,
         fontSize = 11.sp,
-        color = Primer.Blue500,
+        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+        color = if (selected) Color.White else Primer.TextSecondary,
+        maxLines = 1,
         modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(Primer.Gray100)
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (selected) Primer.Blue500 else Primer.BackgroundPrimary)
+            .border(
+                1.dp,
+                if (selected) Primer.Blue500 else Primer.BorderControl,
+                RoundedCornerShape(999.dp),
+            )
             .clickable { onClick() }
-            .padding(horizontal = 7.dp, vertical = 2.dp),
+            .padding(horizontal = 9.dp, vertical = 3.dp),
     )
 }
 
-/** 主操作按钮（本页只有「保存并测试连接」一处）。块内压密后 12.5sp / 10×6dp。 */
+/**
+ * 「当前使用模型」徽标（绿色）：放在模型框内右侧，高度 16dp —— 刚好与 28dp 框的
+ * 内容行同高，不会把框撑高（这正是 1.4.48 之前 API Key 框比别的框高 2dp 的同一个坑）。
+ *
+ * 配色：`SuccessTextStrong` 底 + `BackgroundPrimary` 字。浅色下 ≈4.9:1、深色下 ≈7:1。
+ */
 @Composable
-private fun ActionPill(text: String, enabled: Boolean, onClick: () -> Unit) {
+private fun ModelCurrentBadge() {
+    Text(
+        stringResource(R.string.translate_model_current),
+        fontSize = 10.sp,
+        fontWeight = FontWeight.SemiBold,
+        lineHeight = 12.sp,
+        color = Primer.BackgroundPrimary,
+        modifier = Modifier
+            .background(Primer.SuccessTextStrong, RoundedCornerShape(4.dp))
+            .padding(horizontal = 5.dp, vertical = 2.dp),
+    )
+}
+
+/**
+ * 操作按钮：主按钮蓝底白字、次按钮浅灰底深色字。
+ *
+ * 本轮把「保存」与「测试响应」拆成两个：保存只写配置，测试只探端点 ——
+ * 一个按钮同时做两件事时，用户无法只保存不测试（或只测试不保存）。
+ */
+@Composable
+private fun ActionPill(
+    text: String,
+    enabled: Boolean,
+    secondary: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val background = when {
+        !enabled -> Primer.Gray100
+        secondary -> Primer.Gray150
+        else -> Primer.Blue500
+    }
+    val foreground = when {
+        !enabled -> Primer.TextTertiary
+        secondary -> Primer.TextPrimary
+        else -> Color.White
+    }
     Text(
         text,
         fontSize = 12.sp,
         fontWeight = FontWeight.SemiBold,
-        color = if (enabled) Color.White else Primer.TextTertiary,
+        color = foreground,
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(if (enabled) Primer.Blue500 else Primer.Gray100)
+            .background(background)
             .clickable(enabled = enabled) { onClick() }
             .padding(horizontal = 10.dp, vertical = 5.dp),
     )

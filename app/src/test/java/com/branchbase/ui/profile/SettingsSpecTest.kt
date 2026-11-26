@@ -296,6 +296,22 @@ class SettingsSpecTest {
     }
 
     @Test
+    fun `翻译页模型选择与保存测试拆分`() {
+        val page = source(translatePagePath)
+        assertTrue(
+            "模型框不能空着：进入时要用当前生效的默认模型预填",
+            page.contains("ifBlank { TranslateProvider.DEEPSEEK_MODEL }"),
+        )
+        assertTrue("选中模型要有逐字输入动画", page.contains("typingTarget") && page.contains("delay("))
+        assertTrue("当前模型要有绿色徽标", page.contains("translate_model_current"))
+        assertTrue("保存与测试必须是两个动作", page.contains("translate_probe_response"))
+        assertFalse(
+            "「测试响应」不许再走真实翻译（会消耗用户额度）；只探端点响应",
+            page.contains("translator.selfTest("),
+        )
+    }
+
+    @Test
     fun `翻译页行内说明控制在一行`() {
         // 决策二：整页行高压下来，靠的是「每行一句、11sp 一行放得下」。
         // 文本区约 246dp（360 − 行内边距 − 圆点 − 间距 − 开关），11sp 下约 22 个汉字。

@@ -80,6 +80,9 @@
     <string name="translate_models_network">网络不可达，检查接入地址或网络</string>
     <string name="translate_models_timeout">连接超时，稍后重试</string>
     <string name="translate_models_saved">已保存本地模型列表</string>
+    <string name="translate_probe_response">测试响应</string>
+    <string name="translate_probe_ok">响应正常，可用模型 %1$s 个</string>
+    <string name="translate_model_current">当前</string>
     <string name="translate_models_privacy_title">本地保存说明</string>
     <string name="translate_models_privacy_confirm">我已了解并保存</string>
     <string name="translate_models_privacy_body">“Branchbase”官方版本中，相应含有接口地址、密钥、模型列表的配置文件不会上传任何第三方服务端且无任何合作，涉及的数据只会停留在本地或相应的服务商处，卸载后无法恢复。\n\n“Branchbase”官方后续若提供如类似“个人 GitHub 私有仓库备份配置”的功能及服务，不会上传这类配置和密钥数据。\n\n若出现提供相应模型列表配置恢复服务的版本或相似应用，均为恶意修改版本，可能会盗取密钥或相关私有数据；请在相应的 API Key 配置列表中删除相应配置，立即卸载相应版本，并到官方仓库发布列表中下载正确版本。</string>
@@ -99,7 +102,6 @@
     <string name="translate_notes_credentials">Key / 模型 / 接入地址只能在本页改；接口为 OpenAI 兼容格式，接入地址可填中转或自建网关。</string>
     <string name="translate_base_url_label">接入地址（可留空用官方）</string>
     <string name="translate_style_card">卡片</string>
-    <string name="translate_save_and_test">保存并测试连接</string>
     <string name="translate_testing">测试中…</string>
     <string name="translate_guard_toggle">保护代码与链接</string>
     <string name="translate_cache_section">译文缓存</string>
@@ -114,12 +116,6 @@
     <string name="translate_title">沉浸式翻译</string>
     <string name="translate_mode_only">仅显示译文</string>
     <string name="translate_style_card_desc">蓝边框 + 浅灰底（默认）</string>
-    <string name="translate_test_ok_detail">连接正常，译文：%1$s</string>
-    <string name="translate_test_fail_auth">失败：Key 无效或未填写</string>
-    <string name="translate_test_fail_quota">失败：额度不足或被限流</string>
-    <string name="translate_test_fail_network">失败：网络不可达（%1$s）</string>
-    <string name="translate_test_fail_unsupported">失败：参数不被接受（%1$s）</string>
-    <string name="translate_test_fail_raw">失败：%1$s</string>
     <string name="translate_cache_with_status" translatable="false">%1$s · %2$s</string>
     <string name="translate_status_auth_failed">API Key 无效或未配置</string>
     <string name="translate_status_quota_blocked">额度已用尽（会话内暂停）</string>

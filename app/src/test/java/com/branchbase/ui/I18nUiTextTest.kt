@@ -219,10 +219,9 @@ class I18nUiTextTest {
             "search_error_rate_limited", "search_error_cap_reached", "search_error_validation",
             "search_error_unauthorized", "search_error_no_response", "search_error_raw",
             "result_count_all", "result_count_partial", "search_load_more_progress",
-            // 沉浸式翻译「测试连接」的结论与缓存行的熔断说明
-            "translate_test_ok_detail", "translate_test_fail_auth", "translate_test_fail_quota",
-            "translate_test_fail_network", "translate_test_fail_unsupported", "translate_test_fail_raw",
+            // 沉浸式翻译缓存行的熔断说明（「测试响应」不再出译文，原 test_* 结论键已删除）
             "translate_status_auth_failed", "translate_status_quota_blocked", "translate_status_paused",
+            "translate_probe_response", "translate_probe_ok", "translate_model_current",
             // 日志导出失败提示（report.md 正文按约定保持中文，不在此列）
             "log_export_empty", "log_export_denied_uri", "log_export_open_stream_failed",
             "log_export_need_permission", "log_export_mkdir_failed", "log_export_security",

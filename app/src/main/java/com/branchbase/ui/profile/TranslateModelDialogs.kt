@@ -93,7 +93,12 @@ internal fun CompactField(
     // 聚焦后不再画占位符：BasicTextField 的光标从 x=0 起，会正好压住占位符第一个字
     var focused by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        // 三个字段的标签行统一 20dp：模型行的徽章高约 20dp，另外两行如果只有文字高度，
+        // 三个框的起始位置就会参差（真机反馈「密钥框高度对不齐」的一半原因）
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
                 label,
                 fontSize = 10.5.sp,

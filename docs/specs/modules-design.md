@@ -156,8 +156,11 @@ Compose 覆盖层（`ui/translate/TranslateBubble.kt`，在 `MainActivity` 根�
   官方对「翻译推荐温度」的说法变过，与其钉死一个可能被弃用的参数，不如用服务端默认；
 - 系统提示词里唯一承担职责的一条是「`⟦n⟧` 占位符必须原样保留」（配合下面的占位符保护），
   另外要求「只输出译文、不加引号/前缀」，Rust 侧还会兜底清理模型爱加的外壳（`译文：`、包裹引号）；
-- Key 只存在 App 私有 SharedPreferences、**绝不注入网页**（有单测钉住这条边界），设置页里可以
-  「保存并测试连接」，失败原因会区分「Key 无效 / 余额不足 / 网络不可达」；
+- Key 只存在 App 私有 SharedPreferences、**绝不注入网页**（有单测钉住这条边界）；设置页把
+  「保存」与「测试响应」拆开：保存只写配置，测试只探 `GET {baseUrl}/models`（**不做真实翻译、
+  不消耗 token**），失败原因会区分「Key 无效 / 网络不可达 / 超时 / HTTP 状态」；
+- 模型名留空时由 Rust 的 `Options::model_or_default()` 回落到 `deepseek-flash`；设置页从
+  1.4.49 起会把这个**当前生效值预填**进输入框（空模型不再藏在代码背后）；
 - 实现落在 `core/src/translate/`（`mod.rs` 选后端 + 2 个 provider），Kotlin 侧只是换一个后端选项，
   分片、缓存、串行、熔断全部复用同一套。
 

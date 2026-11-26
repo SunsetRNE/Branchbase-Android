@@ -73,6 +73,9 @@
     <string name="translate_models_network">Network unreachable; check the endpoint or connection</string>
     <string name="translate_models_timeout">Timed out; try again</string>
     <string name="translate_models_saved">Local model list saved</string>
+    <string name="translate_probe_response">Test response</string>
+    <string name="translate_probe_ok">Response OK, %1$s models available</string>
+    <string name="translate_model_current">Current</string>
     <string name="translate_models_privacy_title">Saved on this device</string>
     <string name="translate_models_privacy_confirm">I understand, save</string>
     <string name="translate_models_privacy_body">In the official Branchbase build, the configuration containing the endpoint, key and model list is never uploaded to any third-party server, and there is no such partnership. The data stays on this device or with the provider you choose, and cannot be recovered after uninstalling.\n\nIf Branchbase later offers features such as “backup to a personal GitHub private repository”, they will not upload this configuration or the key.\n\nAny build or similar app that offers to restore your model-list configuration is a malicious modification that may steal your key or private data. Delete the configuration in the API key list, uninstall that build immediately, and download the correct build from the official repository release list.</string>
@@ -92,7 +95,6 @@
     <string name="translate_notes_credentials">Key, model and endpoint can only be changed on this page; the API is OpenAI-compatible, so the endpoint may be a proxy or self-hosted gateway.</string>
     <string name="translate_base_url_label">Endpoint (leave blank for the official one)</string>
     <string name="translate_style_card">Card</string>
-    <string name="translate_save_and_test">Save and test connection</string>
     <string name="translate_testing">Testing…</string>
     <string name="translate_guard_toggle">Protect code and links</string>
     <string name="translate_cache_section">Translation cache</string>
@@ -107,12 +109,6 @@
     <string name="translate_title">Immersive translation</string>
     <string name="translate_mode_only">Translation only</string>
     <string name="translate_style_card_desc">Blue border + light grey fill (default)</string>
-    <string name="translate_test_ok_detail">Connection OK. Translation: %1$s</string>
-    <string name="translate_test_fail_auth">Failed: the key is invalid or missing</string>
-    <string name="translate_test_fail_quota">Failed: quota exhausted or rate-limited</string>
-    <string name="translate_test_fail_network">Failed: network unreachable (%1$s)</string>
-    <string name="translate_test_fail_unsupported">Failed: parameters rejected (%1$s)</string>
-    <string name="translate_test_fail_raw">Failed: %1$s</string>
     <string name="translate_status_auth_failed">API key invalid or not configured</string>
     <string name="translate_status_quota_blocked">Quota exhausted (paused this session)</string>
     <string name="translate_status_paused">Paused after repeated failures</string>

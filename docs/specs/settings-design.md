@@ -511,6 +511,7 @@ L1 设置（唯一入口）
 | 11 | **长说明在弹窗里** | 翻译页必须 `SettingsSection(` + `SettingsNotesDialog(`；不许 `SettingsSectionTitle` / `SettingsProse` / `translate_notes_body`；行内 16 条文案 ≤22 字（§十八） |
 | 12 | **说明弹窗可拖滚动条** | `SettingsNotesDialog` 必须有 `NotesScrollbar(` + `detectVerticalDragGestures`（§十九） |
 | 13 | **凭据折叠与模型二次确认** | 翻译页必须有 `translate_credentials_toggle` + `AnimatedVisibility` + `spring(`；模型探测必须 `ModelPickerDialog(` → `ModelLocalSaveDialog(` → `TranslateSettings.setModels`；隐私说明三句关键承诺不许删（§十九） |
+| 14 | **模型不空着 + 保存/测试拆分** | 翻译页必须用 `ifBlank { TranslateProvider.DEEPSEEK_MODEL }` 预填；必须有逐字输入（`typingTarget` + `delay(`）与「当前」徽标；「测试响应」不许调 `translator.selfTest(`（不翻译、不耗额度）（§二十） |
 
 > 第 1、5、6 条可以在**本轮就加**（现状已基本满足或改动很小）；
 > 第 2、3、4、7 条依赖 §11 的重构，落地时一并加。
@@ -603,6 +604,7 @@ L1 设置（唯一入口）
 | v3 | 2026-09 | 账户卡修复：`AccountRow` 原来是写死的灰底首字母，改成统一 `theme/Avatar`（本地缓存 → `avatar_url` → 首字母兜底，圆形裁切），新增 `avatar` 参数；账号侧补 `Account.avatarUrl`（快照缺失回落会话 `user.avatar_url`），`MainActivity` 预热同源；`SettingsSpecTest` 新增两条钉子；偏离表补第 4 条。见 §十四 |
 | v5 | 2026-09 | 设置树描边改为纯黑（**仅浅色**）：卡片描边与行分隔线由 `Primer.Gray200`（`#E3E4E8`）改走**新增角色** `Primer.BorderEmphasis`（浅 `#000000` / 深 `#30363D`）；`Primer.BorderControl` 浅色由 `#8B8E99` 改为 `#000000`（深色仍 `#6E7681`）。受影响断言：无 —— `SettingsSpecTest` 本轮**未新增钉子**，因为「无写死色值」那条已覆盖（改的是角色引用，不是字面量）。见 §十四末 |
 | v6 | 2026-09-24 | **行尾控件贴右**（真机截图圈选处）：`SettingsRow.kt` 里 4 处主轴权重盒由 `weight(1f, fill = false)` 改为 `weight(1f)` —— `SettingsText` 名称列、`NavRow` / `DisabledNavRow` 内层 `Row` 与其原因列、`AccountRow` 名称列。`fill = false` 时盒子缩到文字宽度、空白留在行尾，于是值列与 `›` / `Switch` / 分段控件 / 胶囊停在文字后面，每行一个位置。**观感变化**：只有行尾那一截留白归位（值列与尾控件右移到 16dp 内边距），名称/值上限、折行宽度、省略阈值都不变。§4.2 补「行尾控件」一行 + 机制说明与反模式，§10.2 补两条验收，§10.1 补第 8 条钉子（`SettingsSpecTest` 新增 ⑬ 三条：设置树无 `fill = false` 的主轴盒子 / 名称列吃份额 + 值列右对齐 / 8 种行的尾控件都走 `SettingsRowShell`）。受影响断言：`值负责省略而不是挤名称` 原来钉的是 `weight(1f, fill = false)`（正是本次要改的写法），改为钉「名称吃份额 + 值右对齐 + 值可省略」 |
+| v19 | 2026-11-26 | **模型选择 UX + 保存/测试拆分 + 输入框等高**：模型预填生效默认（空值 = `deepseek-flash`）、保存模型列表后取排序首个、芯片选中底色 + 逐字输入动画、绿色「当前」徽标；保存只写配置、测试只探 `/models`（不翻译不耗额度，删掉 `translator.selfTest` 调用与 6 条 test_* 资源）；API Key 框「显示」固定 16sp 行高、标签行统一 20dp 后三框等高。协议列表按 C 延后。见 §二十 |
 | v18 | 2026-11-26 | **输入框 28dp + 修光标上偏**：标签仍在框上方（10.5sp + 2dp），框 34 → 28dp；光标偏高的根因是占位符与输入行用不同默认行盒、输入行被顶到 Box 顶部 —— 统一 `lineHeight = 16.sp` + 内层 Box `CenterStart` + 聚焦隐藏占位符。整行比 1.4.47 再少 6dp；28dp 的命中区边界写进 §19.4 |
 | v17 | 2026-11-26 | **回滚标签压边框**：1.4.46 的「标签叠在输入框上边框」被真机否决（框线被打断、值与标签贴太近、三个框黏在一起）。恢复「标签一行 + 34dp 框」，徽章回到标签行右侧；块高比 1.4.45 约 −15%。结论进 §19.4：密度不靠破坏输入框常规形态换 |
 | v16 | 2026-11-26 | **凭据块第二压**：标签从独立一行改为压在输入框上边框（`Gray100` 底盖住框线），输入框 40 → 34dp，「显示 / 隐藏」与「获取模型列表」徽章移进框内右侧，芯片 / 按钮 / 说明各收一号，整块约 −1/3；34dp 的命中区边界与回调方式写进 §19.4（一次提交） |
@@ -916,6 +918,53 @@ CompositionLocalProvider(LocalSettingsDensity provides SettingsDensity.Compact) 
 | 源码钉子 | `翻译页凭据块可折叠_模型探测有二次确认`；`说明弹窗有可拖动的滚动条`（另钉隐私说明的三句关键承诺） |
 | 单测 | `DeepSeekModelsTest`：端点回落 / 去尾斜杠 / 不重复 `/models` / 解析去重排序 / 坏 JSON / 空 Key 不发请求 |
 | 视觉 | 弹簧参数见 19.1；滚动条最小拇指 28dp、轨道 3dp |
+
+---
+
+## 二十、模型选择与保存 / 测试拆分（2026-11 · 第七轮）
+
+页面同 §十八/§十九（`ui/profile/TranslateSettingsScreen.kt`）。真机上「模型框空着、密钥框比另两框高 2dp」
+暴露的一组问题，用户 2026-11-26 给了明确口径。
+
+### 20.1 模型默认值的真源（先回答「空着时用哪个」）
+
+| 层 | 位置 | 行为 |
+|---|---|---|
+| 落盘 | `translate.deepseek.model` | 默认**空串** |
+| 界面 | `TranslateProvider.DEEPSEEK_MODEL` | 提示 / 候选；**只是提示，不是真源** |
+| 翻译请求 | Rust `Options::model_or_default()` | 空 → `deepseek::DEFAULT_MODEL = "deepseek-flash"` |
+
+两个常量（Kotlin / Rust）必须手工保持一致（改默认模型时两处一起改）。本轮起**界面预填真源**：
+进页时若保存值为空，输入框直接显示当前生效的默认模型，不再让用户猜。
+
+### 20.2 本轮行为
+
+1. **不空着**：`config.model.ifBlank { DEEPSEEK_MODEL }` 预填；保存时仍空则写默认；
+2. **保存列表后选当前**：二次确认保存的模型列表若不含当前模型，取排序后的首个作为默认，
+   并用逐字输入动画填进输入框；
+3. **候选芯片**：横向滚动；选中蓝底白字、未选中白底深字（`BorderControl` 1dp 描边，3:1）；
+   点选切换当前模型 + 逐字输入（28ms/字）；
+4. **绿色「当前」徽标**：模型框内右侧，16dp 高；`SuccessTextStrong` 底 / `BackgroundPrimary` 字；
+5. **保存 / 测试拆分**：保存只写配置；测试只探 `GET {baseUrl}/models`，不调用翻译引擎；
+6. **协议列表延后**：按用户决策 C，等 Rust 后端支持多协议那一轮再加；本轮的端点探测仍按
+   OpenAI 兼容 `/models`。
+
+### 20.3 输入框等高（本轮顺带修的根因）
+
+API Key 框里的「显示」用 11sp 默认行盒（约 18dp），把它那一个框撑到 30dp，而模型 / 地址是 28dp；
+再叠加标签行高度不同（模型行有徽章），三框看起来参差。修法：
+
+- 「显示」固定 `lineHeight = 16.sp`（与输入行同高）；
+- 三个字段的**标签行统一 `heightIn(min = 20.dp)`**（容纳模型徽章）；
+- 框本身仍 `heightIn(min = 28.dp)`，内容 16dp。
+
+### 20.4 钉子与测试
+
+| 类型 | 内容 |
+|---|---|
+| 源码钉子 | `翻译页模型选择与保存测试拆分`：预填 / 逐字输入 / 当前徽标 / 测试响应四件事都在；`translator.selfTest(` 不许出现在页面（测试不耗额度） |
+| 资源 | 删除 `translate_test_ok_detail` / `translate_test_fail_*` / `translate_save_and_test`（不再有真实翻译测试）；新增 `translate_probe_response` / `translate_probe_ok` / `translate_model_current` |
+| 单测 | 探测逻辑仍是 `DeepSeekModelsTest` 7 例；页面行为由源码钉子覆盖 |
 
 ---
 
