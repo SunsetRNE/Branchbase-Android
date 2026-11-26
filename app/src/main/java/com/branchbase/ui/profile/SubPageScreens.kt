@@ -104,7 +104,6 @@ import com.branchbase.core.AuthKind
 import com.branchbase.core.RepoCredentialStore
 import com.branchbase.ui.settings.currentAppLanguageTag
 import com.branchbase.ui.settings.frameWatchEnabled
-import com.branchbase.ui.settings.gitProxy
 import com.branchbase.ui.settings.languagePickerAvailable
 import com.branchbase.ui.settings.languageRowValue
 import com.branchbase.ui.settings.setFrameWatchEnabled
@@ -123,7 +122,6 @@ import com.branchbase.ui.settings.SettingsSection
 import com.branchbase.ui.settings.StatusChip
 import com.branchbase.ui.settings.StatusTone
 import com.branchbase.ui.settings.SwitchRow
-import com.branchbase.ui.settings.displayGitProxy
 import com.branchbase.ui.theme.ThemeMode
 import com.branchbase.ui.theme.ThemeRuntime
 import androidx.compose.material.icons.automirrored.filled.Logout
@@ -132,7 +130,6 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Commit
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Palette
 import com.branchbase.core.LocalRepos
 import com.branchbase.core.RustBridge
@@ -544,7 +541,6 @@ fun SettingsScreen(
     onOpenTranslate: () -> Unit,
     onOpenAccounts: () -> Unit,
     onOpenCommitMode: () -> Unit,
-    onOpenGitProxy: () -> Unit,
     onOpenRepoCredentials: () -> Unit,
     onOpenLanguage: () -> Unit,
     onOpenTheme: () -> Unit,
@@ -553,7 +549,7 @@ fun SettingsScreen(
     LaunchedEffect(Unit) { Logger.ui("进入设置页", "Compose") }
     val context = LocalContext.current
 
-    // 提交模式决定「本地仓库」那一行是导航行还是禁用态（规范 §6.3）
+    // 提交模式决定「本地仓库」那一行**出不出现**（决策 2026-11-27：判定式出现，不是禁用态）。
     // 进 remember：`commitMode` 是读 SharedPreferences 的，裸调会在**每次重组**都读一遍
     // （设置页首帧那一帧里整棵树要重组好几次，见 2026-09-22 的设置页首帧绘制归因）。
     // 本页不进保活（PageSwitcher 每次进入重建），所以 remember 的时效性等价于「每次进入读一次」。
@@ -576,9 +572,6 @@ fun SettingsScreen(
 
     // 错误数只取一次快照：设置页不做高频重组，没必要给「日志」行挂订阅
     val logErrors = remember { LogManager.all().count { it.level == LogLevel.ERROR } }
-    // 网络代理的显示值：同理进 remember —— 它原来写在 item 的组合体里，
-    // 每次这一项被滚回来组合一次就要读一次 prefs
-    val proxyValue = remember { displayGitProxy(gitProxy(context)).ifEmpty { context.getString(R.string.state_not_set) } }
 
     // 语言行的可见性与取值。三条都是系统状态（LocaleConfig / LocaleManager），
     // 同上进 remember —— 设置页组合期读系统服务一律不裸调。
@@ -711,37 +704,23 @@ fun SettingsScreen(
                         onClick = onOpenCommitMode,
                         divider = false,
                     )
+                    // 本地仓库是**判定式出现**（2026-11-27 决策三）：非本地管理模式整行不渲染。
+                    // 关掉本地管理、但仓库仍留在盘上的情况，出口不在这里 —— 在「提交模式」页
+                    // 第三档右侧的「本地仓库」按钮（仓库相关动作的自然落点，也不会让设置主页
+                    // 多出一行「点进去发现是另一件事」的入口）。
                     if (mode == CommitMode.LOCAL_REPO) {
                         NavRow(
                             icon = Icons.Filled.Folder,
                             name = stringResource(R.string.nav_local_repo),
                             onClick = onOpenLocalRepo,
                         )
-                    } else {
-                        // 禁用态**不能只调 alpha**：说明原因 + 给出去开启的路（规范 §6.3）
-                        DisabledNavRow(
-                            icon = Icons.Filled.Folder,
-                            name = stringResource(R.string.nav_local_repo),
-                            reason = stringResource(R.string.note_local_repo_requires_git_mode),
-                            onFix = onOpenCommitMode,
-                        )
                     }
                 }
             }
 
-            // ── ⑥ 网络 ──
-            item {
-                SettingsSection(stringResource(R.string.label_network_group)) {
-                    NavRow(
-                        icon = Icons.Filled.Public,
-                        name = stringResource(R.string.nav_git_proxy),
-                        // 值列只显示 host:port，凭据不进列表（规范 §6.5）
-                        value = proxyValue,
-                        onClick = onOpenGitProxy,
-                        divider = false,
-                    )
-                }
-            }
+            // ⑥ 网络组已下线（2026-11-27 决策四）：Git 代理入口搬进「提交模式」页右上角徽标
+            // 拉起的说明抽屉（`CommitModeSheet`）。主页不再有一行代理 —— 它是低频、易错的
+            // 进阶项，和「提交模式」是同一件事的两半（都只作用于本地仓库的 clone / pull / push）。
 
             // ── ⑦ 关于与诊断：兜底组，位置固定（规范 §3.3） ──
             item {
@@ -946,6 +925,14 @@ internal fun ModeOptionRow(
     drawSelectionBackground: Boolean = true,
     /** 是否画按压反馈（滑动高亮本身就承担了反馈时，行里不必再叠一层）。 */
     pressFeedback: Boolean = true,
+    /**
+     * 行尾的**附加入口**（不是选中态的一部分）。
+     *
+     * 提交模式页把它用来放「本地仓库」快捷按钮：选档是整行点击，进仓库列表是行尾这一小块，
+     * 两件事不共享命中区。包一层 `Box(align(CenterVertically))` 是因为主轴是 Top 对齐
+     * （说明折行时标题要贴顶），按钮若跟着 Top 会往标题上沿飘。
+     */
+    trailing: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
@@ -1011,6 +998,10 @@ internal fun ModeOptionRow(
                     Spacer(Modifier.height(2.dp))
                     Text(desc, fontSize = d.subFontSize, lineHeight = d.subLineHeight, color = Primer.TextTertiary)
                 }
+            }
+            if (trailing != null) {
+                Spacer(Modifier.width(8.dp))
+                Box(Modifier.align(Alignment.CenterVertically)) { trailing() }
             }
         }
     }

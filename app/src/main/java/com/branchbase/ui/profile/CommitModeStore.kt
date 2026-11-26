@@ -51,6 +51,22 @@ internal fun saveCommitMode(context: Context, mode: CommitMode) {
     SettingsKeys.prefs(context).edit().putString(SettingsKeys.COMMIT_MODE, mode.name).apply()
 }
 
+/**
+ * 「本地仓库」快捷入口的出现条件（2026-11-27 决策二）。
+ *
+ * 三条产品口径合成一个判据：**本地管理开着，或者盘上还留着仓库**。
+ *
+ * - 没开本地管理、盘上也没有仓库 → 不出现（此时点进去只有空态「暂无本地仓库」，
+ *   而「先选提交模式」才是当前该做的事，提前给一条空页只是噪音）；
+ * - 本地管理开着 → 出现，哪怕还没拉过仓库 —— 这个入口本身就是「去拉一份」的路；
+ * - 关掉了本地管理、但仓库还在 → 仍然出现：关模式不删仓库，
+ *   没有入口等于把用户已经拉下来的副本藏起来。
+ *
+ * 纯函数（不碰 Context），单测见 `LocalRepoShortcutTest`。
+ */
+internal fun showLocalRepoShortcut(mode: CommitMode?, repoCount: Int): Boolean =
+    mode == CommitMode.LOCAL_REPO || repoCount > 0
+
 /** 可复用「提交模式」选择弹窗（提交时用，跳过后的延迟决定） */
 @Composable
 internal fun CommitModePickerDialog(

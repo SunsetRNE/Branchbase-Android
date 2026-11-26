@@ -14,6 +14,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -32,9 +34,12 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
@@ -65,7 +70,13 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.R
+import com.branchbase.core.AccountStore
+import com.branchbase.core.LocalRepos
 import com.branchbase.ui.log.Logger
+import com.branchbase.ui.settings.NavRow
+import com.branchbase.ui.settings.SettingsSection
+import com.branchbase.ui.settings.displayGitProxy
+import com.branchbase.ui.settings.gitProxy
 import com.branchbase.ui.theme.Primer
 import com.branchbase.ui.theme.revealEnter
 import kotlin.math.roundToInt
@@ -83,16 +94,35 @@ import kotlinx.coroutines.launch
  *    但删掉又会让「切了会怎样」无处可查 —— 所以做成「点徽标 → 抽屉」，抽屉里逐模式讲
  *    「改动去了哪 / 什么时候用」，原文保留为导语。
  *
+ * ## 2026-11-27 的补充
+ *
+ * 3. **「本地仓库」快捷按钮挂在第三档右侧**：选档与进仓库列表是同一行上的两件事，
+ *    后者不再只从设置主页进（设置主页那一行在非本地模式下整行隐藏，见决策三）。
+ *    出现条件收在 `showLocalRepoShortcut(mode, repoCount)`（推 `CommitModeStore.kt`）。
+ * 4. **Git 代理入口搬进说明抽屉**：它只作用于本地仓库的 clone / pull / push，
+ *    与三档是同一件事的两半；设置主页的「网络」组因此下线。
+ *
  * 动效：徽标标签切换走 `AnimatedContent`（淡入 + 纵向滑动），单选圆点在选中时做一次轻弹，
  * 抽屉内容进场走统一的 `revealEnter()`（纵向展开 + 淡入）。
  */
 @Composable
-fun CommitModeScreen(onBack: () -> Unit) {
+fun CommitModeScreen(
+    onBack: () -> Unit,
+    onOpenLocalRepo: () -> Unit,
+    onOpenGitProxy: () -> Unit,
+) {
     LaunchedEffectOnce()
 
     val context = LocalContext.current
     var mode by remember { mutableStateOf(commitMode(context)) }
     var drawerOpen by remember { mutableStateOf(false) }
+    // 仓库数量只在进入本页时数一次（本页不进保活）；数的是**当前账号**的目录，
+    // 与本地仓库页 `LocalRepos.rootFor(context, login)` 同一套隔离规则。
+    val localRepoCount = remember { LocalRepos.count(context, AccountStore.currentLogin(context)) }
+    // 抽屉里那一行代理的值：同样进 remember（读 prefs，组合期不裸调）
+    val proxyValue = remember {
+        displayGitProxy(gitProxy(context)).ifEmpty { context.getString(R.string.state_not_set) }
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().background(Primer.BackgroundPrimary)
@@ -107,7 +137,11 @@ fun CommitModeScreen(onBack: () -> Unit) {
             },
         )
 
-        CommitModeOptions(mode = mode) { m ->
+        CommitModeOptions(
+            mode = mode,
+            showLocalRepo = showLocalRepoShortcut(mode, localRepoCount),
+            onOpenLocalRepo = onOpenLocalRepo,
+        ) { m ->
             mode = m
             saveCommitMode(context, m)
             Logger.ui("提交模式改为 ${m.logLabel}", "Compose")
@@ -119,6 +153,8 @@ fun CommitModeScreen(onBack: () -> Unit) {
     if (drawerOpen) {
         CommitModeSheet(
             current = mode,
+            proxyValue = proxyValue,
+            onOpenGitProxy = onOpenGitProxy,
             onDismiss = { drawerOpen = false },
         )
     }
@@ -197,7 +233,12 @@ private fun CurrentModeBadge(mode: CommitMode?, onClick: () -> Unit) {
  * 位置与高度都从**实际测量**的坐标来，不假设三行等高（字体缩放 / 说明换行都安全）。
  */
 @Composable
-private fun CommitModeOptions(mode: CommitMode?, onPick: (CommitMode) -> Unit) {
+private fun CommitModeOptions(
+    mode: CommitMode?,
+    showLocalRepo: Boolean,
+    onOpenLocalRepo: () -> Unit,
+    onPick: (CommitMode) -> Unit,
+) {
     val modes = CommitMode.entries
     val selectedIndex = modes.indexOf(mode)
     val bounds = remember { mutableStateMapOf<Int, Pair<Float, Float>>() }
@@ -256,6 +297,13 @@ private fun CommitModeOptions(mode: CommitMode?, onPick: (CommitMode) -> Unit) {
                     drawSelectionBackground = false,
                     // 滑动高亮本身就是点击反馈，行里不再叠按压色
                     pressFeedback = false,
+                    // 第三档行尾的「本地仓库」快捷入口（决策一 / 决策二）：条件是
+                    // 「本地管理开着，或盘上还留着仓库」，纯函数在 CommitModeStore.kt
+                    trailing = if (m == CommitMode.LOCAL_REPO && showLocalRepo) {
+                        { LocalRepoShortcut(onClick = onOpenLocalRepo) }
+                    } else {
+                        null
+                    },
                     modifier = Modifier.onGloballyPositioned { c ->
                         val b = c.positionInParent().y to c.size.height.toFloat()
                         if (bounds[index] != b) bounds[index] = b
@@ -268,6 +316,44 @@ private fun CommitModeOptions(mode: CommitMode?, onPick: (CommitMode) -> Unit) {
 }
 
 /**
+ * 第三档行尾的「本地仓库」快捷按钮（2026-11-27 决策一）。
+ *
+ * 为什么做成行尾胶囊、而不是再加一条设置行：它和「选档」是同一行上的两个动作 ——
+ * 选档改的是**提交行为**，这个按钮去的是**仓库列表**。Compose 的嵌套 `clickable`
+ * 会先消费事件，所以点按钮不会顺带把模式切到第三档。
+ *
+ * 视觉：白底 + 控件描边（`BorderControl`，可交互边界要 ≥3:1），压在选中行的
+ * `SuccessSurface` 上仍然读得清；不用 `Modifier.alpha`（那是 graphicsLayer）。
+ */
+@Composable
+private fun LocalRepoShortcut(onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(Primer.BackgroundPrimary)
+            .border(1.dp, Primer.BorderControl, RoundedCornerShape(999.dp))
+            .clickable(onClick = onClick)
+            .heightIn(min = 30.dp)
+            .padding(horizontal = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Filled.Folder,
+            contentDescription = null,
+            tint = Primer.TextSecondary,
+            modifier = Modifier.size(13.dp),
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            stringResource(R.string.nav_local_repo),
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Primer.TextPrimary,
+        )
+    }
+}
+
+/**
  * 内容抽屉：原页首说明 + 逐模式的展开说明。
  *
  * 抽屉本身由 `ModalBottomSheet` 提供滑入 / 滑出；内容再叠一层 `revealEnter()`，
@@ -276,7 +362,12 @@ private fun CommitModeOptions(mode: CommitMode?, onPick: (CommitMode) -> Unit) {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CommitModeSheet(current: CommitMode?, onDismiss: () -> Unit) {
+private fun CommitModeSheet(
+    current: CommitMode?,
+    proxyValue: String,
+    onOpenGitProxy: () -> Unit,
+    onDismiss: () -> Unit,
+) {
     val sheetState = rememberModalBottomSheetState()
     // 首帧 false → true，触发内容进场动画；抽屉关闭时内容随 sheet 一起销毁，下次重来
     var revealed by remember { mutableStateOf(false) }
@@ -288,68 +379,91 @@ private fun CommitModeSheet(current: CommitMode?, onDismiss: () -> Unit) {
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .navigationBarsPadding()
-                .padding(horizontal = 20.dp)
                 .padding(bottom = 12.dp),
         ) {
-            Text(
-                stringResource(R.string.commit_mode_drawer_title),
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                color = Primer.TextPrimary,
-            )
-            Spacer(Modifier.height(6.dp))
+            // 说明正文两侧各留 20dp；下面的「网络」卡片按设置页的卡片边距整宽铺开，
+            // 所以内边距放在这一层，而不是挂在整个滚动列上（卡片再被 20dp 推一下会太窄）
+            Column(Modifier.padding(horizontal = 20.dp)) {
+                Text(
+                    stringResource(R.string.commit_mode_drawer_title),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Primer.TextPrimary,
+                )
+                Spacer(Modifier.height(6.dp))
 
-            AnimatedVisibility(visible = revealed, enter = revealEnter()) {
-                Column {
-                    // 原文保留在抽屉里（导语），没有丢 —— 只是不再常驻页面
-                    Text(
-                        stringResource(R.string.note_commit_mode_explain),
-                        fontSize = 12.5.sp,
-                        color = Primer.TextSecondary,
-                        lineHeight = 19.sp,
-                    )
-                    Spacer(Modifier.height(14.dp))
-                    CommitMode.entries.forEach { m ->
-                        Column(Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    stringResource(m.titleRes),
-                                    fontSize = 13.5.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Primer.TextPrimary,
-                                )
-                                if (m == current) {
-                                    Spacer(Modifier.width(8.dp))
+                AnimatedVisibility(visible = revealed, enter = revealEnter()) {
+                    Column {
+                        // 原文保留在抽屉里（导语），没有丢 —— 只是不再常驻页面
+                        Text(
+                            stringResource(R.string.note_commit_mode_explain),
+                            fontSize = 12.5.sp,
+                            color = Primer.TextSecondary,
+                            lineHeight = 19.sp,
+                        )
+                        Spacer(Modifier.height(14.dp))
+                        CommitMode.entries.forEach { m ->
+                            Column(Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        stringResource(R.string.commit_mode_drawer_current),
-                                        fontSize = 10.5.sp,
+                                        stringResource(m.titleRes),
+                                        fontSize = 13.5.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = Primer.SuccessTextStrong,
+                                        color = Primer.TextPrimary,
                                     )
+                                    if (m == current) {
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            stringResource(R.string.commit_mode_drawer_current),
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Primer.SuccessTextStrong,
+                                        )
+                                    }
                                 }
+                                Spacer(Modifier.height(3.dp))
+                                Text(
+                                    stringResource(m.descRes),
+                                    fontSize = 12.sp,
+                                    color = Primer.TextSecondary,
+                                )
+                                Spacer(Modifier.height(3.dp))
+                                Text(
+                                    stringResource(m.drawerBodyRes),
+                                    fontSize = 12.sp,
+                                    color = Primer.TextTertiary,
+                                    lineHeight = 18.sp,
+                                )
                             }
-                            Spacer(Modifier.height(3.dp))
-                            Text(
-                                stringResource(m.descRes),
-                                fontSize = 12.sp,
-                                color = Primer.TextSecondary,
-                            )
-                            Spacer(Modifier.height(3.dp))
-                            Text(
-                                stringResource(m.drawerBodyRes),
-                                fontSize = 12.sp,
-                                color = Primer.TextTertiary,
-                                lineHeight = 18.sp,
-                            )
                         }
+                        Text(
+                            stringResource(R.string.commit_mode_drawer_footnote),
+                            fontSize = 11.5.sp,
+                            color = Primer.TextTertiary,
+                            lineHeight = 17.sp,
+                        )
                     }
-                    Text(
-                        stringResource(R.string.commit_mode_drawer_footnote),
-                        fontSize = 11.5.sp,
-                        color = Primer.TextTertiary,
-                        lineHeight = 17.sp,
-                    )
                 }
+            }
+
+            // 网络：Git 代理入口（2026-11-27 决策四 —— 从设置主页的「网络」组搬来）。
+            // 与三档同一屏的理由：代理只作用于本地仓库的 clone / pull / push，
+            // 放这里既不占主页一行，也不需要用户记得「代理在另一个二级页」。
+            Spacer(Modifier.height(14.dp))
+            SettingsSection(stringResource(R.string.label_network_group)) {
+                NavRow(
+                    icon = Icons.Filled.Public,
+                    name = stringResource(R.string.nav_git_proxy),
+                    sub = stringResource(R.string.note_proxy_scope_detail),
+                    // 值列只显示 host:port，凭据不进列表（规范 §6.5）
+                    value = proxyValue,
+                    onClick = {
+                        // 先收抽屉再跳页：跳页后本页会随组合销毁，抽屉不会残留
+                        onDismiss()
+                        onOpenGitProxy()
+                    },
+                    divider = false,
+                )
             }
         }
     }

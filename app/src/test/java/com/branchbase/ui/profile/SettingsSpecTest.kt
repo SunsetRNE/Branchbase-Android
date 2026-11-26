@@ -678,16 +678,43 @@ class SettingsSpecTest {
     // ── ⑩ 禁用行给出路（§6.3） ─────────────────────────────────────────
 
     @Test
-    fun `本地仓库禁用时说明原因并给出去开启的路`() {
-        val region = settingsRegion()
-        assertTrue("禁用态要用 DisabledNavRow（规范 §6.3）", region.contains("DisabledNavRow("))
-        // 原因文案已资源化：钉资源值（内容），钉源码只会钉到 `R.string.…` 这个引用
+    fun `本地仓库是判定式出现_非本地模式整行隐藏`() {
+        val region = settingsHomeRegion()
         assertTrue(
-            "禁用行必须写明原因",
-            source("src/main/res/values/strings.xml")
-                .contains("name=\"note_local_repo_requires_git_mode\">开启需先将"),
+            "本地仓库行必须由提交模式判定（2026-11-27 决策三：本地管理模式才渲染）",
+            region.contains("if (mode == CommitMode.LOCAL_REPO)"),
         )
-        assertTrue("禁用行必须给出去开启的路", region.contains("onFix = onOpenCommitMode"))
+        assertTrue("本地管理模式下仍然要能进本地仓库页", region.contains("onOpenLocalRepo"))
+        assertFalse(
+            "非本地管理模式下不许再渲染禁用行或其「去设置」出路（决策三：整行隐藏，不是置灰）",
+            region.contains("DisabledNavRow(") || region.contains("note_local_repo_requires_git_mode"),
+        )
+    }
+
+    @Test
+    fun `本地仓库快捷入口挂在提交模式页第三档行尾`() {
+        val page = source("src/main/java/com/branchbase/ui/profile/CommitModeScreen.kt")
+        assertTrue("第三档行尾要挂 LocalRepoShortcut", page.contains("LocalRepoShortcut("))
+        assertTrue(
+            "出现条件必须走纯函数 showLocalRepoShortcut（决策二的三条口径只在那一处）",
+            page.contains("showLocalRepoShortcut(mode, localRepoCount)"),
+        )
+        assertTrue(
+            "按钮要挂在第三档（LOCAL_REPO）的行尾槽上，不许自己另起一行",
+            page.contains("trailing = if (m == CommitMode.LOCAL_REPO && showLocalRepo)"),
+        )
+        assertTrue("按钮点击要进本地仓库页", page.contains("onOpenLocalRepo"))
+    }
+
+    @Test
+    fun `Git 代理入口搬进提交模式抽屉_设置主页不再有网络组`() {
+        val region = settingsHomeRegion()
+        assertFalse("设置主页不许再有 Git 代理行（2026-11-27 决策四）", region.contains("nav_git_proxy"))
+        assertFalse("主页的「网络」组已下线", region.contains("label_network_group"))
+        val page = source("src/main/java/com/branchbase/ui/profile/CommitModeScreen.kt")
+        assertTrue("Git 代理入口要在提交模式抽屉里", page.contains("nav_git_proxy"))
+        assertTrue("抽屉里的代理值要脱敏后显示", page.contains("displayGitProxy(gitProxy(context))"))
+        assertTrue("代理行要能进二级页", page.contains("onOpenGitProxy()"))
     }
 
     @Test
@@ -775,11 +802,17 @@ class SettingsSpecTest {
         val page = source(settingsPagePath)
         assertTrue("提交模式要进 remember", page.contains("remember { commitMode(context) }"))
         assertFalse("不许裸调 commitMode（每次重组读一次 prefs）", page.contains("val mode = commitMode(context)"))
-        assertTrue("代理值要进 remember", page.contains("remember { displayGitProxy(gitProxy(context))"))
-        assertFalse(
-            "不许把 displayGitProxy(gitProxy(…)) 直接当参数写进 item 的组合体（每次滚回来读一次 prefs）",
-            page.contains("value = displayGitProxy("),
+        // 2026-11-27：Git 代理行搬进「提交模式」抽屉，代理值跟着搬家 —— 仍然要求「一次读盘、进 remember」
+        val commitModePage = source("src/main/java/com/branchbase/ui/profile/CommitModeScreen.kt")
+        assertTrue(
+            "提交模式页的代理值要进 remember",
+            commitModePage.contains("remember {\n        displayGitProxy(gitProxy(context))"),
         )
+        assertFalse(
+            "不许裸调代理值（每次重组读一次 prefs）",
+            commitModePage.contains("val proxyValue = displayGitProxy("),
+        )
+        assertFalse("设置页不再读代理值（网络组已下线）", page.contains("displayGitProxy("))
     }
 
     // ── ⑬ 行尾控件贴右（2026-09-24 真机截图圈选处） ────────────────────────
