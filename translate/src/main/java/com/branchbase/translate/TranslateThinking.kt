@@ -62,10 +62,90 @@ enum class TranslateThinking(val code: String) {
 
     companion object {
 
+        /** Anthropic `thinking.budget_tokens` 的下限（官方要求 ≥1024）。 */
+        const val MIN_BUDGET: Long = 1024
+
+        /** 常见服务商的上限（Gemini 2.5 Pro 为 32768；更大基本会被拒）。 */
+        const val MAX_BUDGET: Long = 32768
+
+        /** 已知的 effort 词（OpenAI 系的枚举；`xhigh` 属较新模型，一并认）。 */
+        val KNOWN_EFFORTS: Set<String> = setOf("minimal", "low", "medium", "high", "xhigh")
+
+        /**
+         * **即时校验**自定义值：它在当前协议下到底会变成什么。
+         *
+         * 这是「自定义」唯一容易静默出错的地方：填了一个当前协议不认的形态（Anthropic 填词、
+         * OpenAI 填数字），`effort` 与 `budgetTokens` 会**同时为空** —— 请求里什么都不加，
+         * 用户以为开了思维深度，其实等同关闭。所以输入框下面必须当场说清。
+         *
+         * 这里只返回**与语言无关**的判定，句子在 app 层拼。
+         */
+        fun checkCustom(custom: String, protocol: TranslateProtocol): CustomValueIssue {
+            val value = custom.trim()
+            if (value.isEmpty()) return CustomValueIssue.EMPTY
+
+            val numeric = value.all(Char::isDigit)
+            val budget = if (numeric) value.toLongOrNull() ?: Long.MAX_VALUE else 0L
+            val budgetOnlyProtocol = protocol == TranslateProtocol.ANTHROPIC_MESSAGES ||
+                protocol == TranslateProtocol.GEMINI
+            val effortOnlyProtocol = !budgetOnlyProtocol
+
+            if (numeric) {
+                // 数字只对「按预算说话」的两档有意义；OpenAI 系会直接忽略它
+                if (effortOnlyProtocol) return CustomValueIssue.DIGITS_IGNORED
+                return when {
+                    // Anthropic 的 thinking 预算最小 1024；低于它会被服务端拒绝
+                    budget < MIN_BUDGET -> CustomValueIssue.BUDGET_TOO_SMALL
+                    // 各家常见上限在 32k 上下；更大只会浪费额度或直接被拒
+                    budget > MAX_BUDGET -> CustomValueIssue.BUDGET_TOO_LARGE
+                    else -> CustomValueIssue.OK_BUDGET
+                }
+            }
+
+            // 词只对 OpenAI 系的 effort 有意义
+            if (budgetOnlyProtocol) return CustomValueIssue.WORD_IGNORED
+            return if (value.lowercase() in KNOWN_EFFORTS) {
+                CustomValueIssue.OK_EFFORT
+            } else {
+                CustomValueIssue.UNKNOWN_EFFORT
+            }
+        }
+
         val default: TranslateThinking = OFF
 
         /** 认不出来的值一律回落到 [OFF]（老配置没有这个键，脏值也不能让翻译发不出去）。 */
         fun byCode(code: String?): TranslateThinking =
             entries.firstOrNull { it.code.equals(code?.trim(), ignoreCase = true) } ?: default
     }
+}
+
+/**
+ * 自定义值在当前协议下的判定（[TranslateThinking.checkCustom] 的返回值）。
+ *
+ * 全部是**与语言无关**的分类：句子由 app 层按资源拼，模块里不出现界面文案。
+ */
+enum class CustomValueIssue {
+    /** 会被当作 token 预算正确发出去（Anthropic / Gemini）。 */
+    OK_BUDGET,
+
+    /** 会被当作 effort 正确发出去（OpenAI 系）。 */
+    OK_EFFORT,
+
+    /** 空值：等同关闭（用户以为自己开了）。 */
+    EMPTY,
+
+    /** 纯数字，但当前协议只认 effort 词 → 数字被忽略，等同关闭。 */
+    DIGITS_IGNORED,
+
+    /** 词，但当前协议只认 token 预算 → 词被忽略，等同关闭。 */
+    WORD_IGNORED,
+
+    /** 预算低于 Anthropic 的下限 1024。 */
+    BUDGET_TOO_SMALL,
+
+    /** 预算超过常见上限 32768。 */
+    BUDGET_TOO_LARGE,
+
+    /** 不是已知的 effort 词（服务商大概率拒绝，但可以点「测试翻译」验证）。 */
+    UNKNOWN_EFFORT,
 }

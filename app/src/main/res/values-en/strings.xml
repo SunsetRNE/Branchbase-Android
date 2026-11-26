@@ -121,6 +121,14 @@
     <string name="translate_thinking_ok_field">Translation works; the provider accepted the thinking field</string>
     <string name="translate_thinking_rejected">Translation works, but the provider rejected the thinking field: %1$s</string>
     <string name="translate_thinking_unavailable">Translation unavailable: %1$s</string>
+    <string name="translate_thinking_custom_ok_budget">Sent as a token budget (Anthropic / Gemini)</string>
+    <string name="translate_thinking_custom_ok_effort">Sent as effort (OpenAI family)</string>
+    <string name="translate_thinking_custom_empty">Custom value is empty; treated as off</string>
+    <string name="translate_thinking_custom_digits_ignored">This protocol only takes effort words; the number is ignored (treated as off)</string>
+    <string name="translate_thinking_custom_word_ignored">This protocol only takes token counts; the word is ignored (treated as off)</string>
+    <string name="translate_thinking_custom_too_small">Below Anthropic\'s 1024 minimum; the provider may reject it</string>
+    <string name="translate_thinking_custom_too_large">Above the common 32768 limit; the provider may reject it</string>
+    <string name="translate_thinking_custom_unknown_effort">Not a common effort value (minimal / low / medium / high); may be rejected</string>
     <string name="translate_thinking_cost">Test translation makes one real request and uses a few tokens</string>
     <string name="translate_warning_title">Before saving</string>
     <string name="translate_warning_body">The API key format must be exact: prefixes and lengths differ per vendor, and pasting usually adds spaces or newlines.\n\nNot every vendor supports the chosen protocol: with the wrong protocol the server answers 401 / 404 / 400 instead of a translation failure.\n\nAfter saving, run “Test response” once to confirm the endpoint answers; if the provider offers no model list, type the model name manually.</string>

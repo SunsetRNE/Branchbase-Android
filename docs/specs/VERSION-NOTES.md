@@ -74,7 +74,23 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.56 → 1.0.22）
+## 二、`versionName` 流水（1.4.57 → 1.0.22）
+
+### 1.4.57
+
+**思维深度自定义值的即时校验。**
+
+① 自定义是唯一会**静默失效**的一档：填的词与协议不匹配（Anthropic 填词 / OpenAI 填数字）时，
+   `effort` 与 `budgetTokens` 同时为空 —— 请求里什么都不加，等同关闭，而用户以为开了。
+   现在输入框下面当场给判定：绿 = 会这样发出去；灰 = 会被忽略（等同关闭）；红 = 可能被拒。
+
+② 规则（`TranslateThinking.checkCustom`，纯函数）：空值 / 数字在 effort 系协议 / 词在预算系协议 /
+   预算 <1024（Anthropic 下限）/ 预算 >32768（常见上限）/ 未知 effort 词（不在 minimal·low·medium·high·xhigh）。
+
+③ 分类与文案分开：模块只返回 `CustomValueIssue`，句子在 app 层资源里 —— 加协议只改表，不改界面。
+
+**验证**：`:translate:test` 166 例 0 失败（新增 `TranslateThinkingCustomCheckTest` 5 例）；
+`:app:testDebugUnitTest` 1186 例 0 失败（1 跳过，钉子加一条）；`:app:assembleDebug` 通过；i18n 100%。
 
 ### 1.4.56
 
@@ -5409,7 +5425,10 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（316 → 129）
+## 三、`versionCode` 流水（317 → 129）
+
+- **317**：思维深度自定义值即时校验（1.4.57）—— 七类判定（空 / 数字被忽略 / 词被忽略 / 预算过小过大 /
+  未知 effort），绿灰红三色当场提示；钉子新增 1、单测新增 5（一次提交，故 +1）。
 
 - **316**：DeepSeek 收进 OpenAI Responses 地址列表（1.4.56）—— 真机实测 `/v1/responses` 与
   `reasoning.effort` 均可用，文档去掉「需自测」注解（一次提交，故 +1）。

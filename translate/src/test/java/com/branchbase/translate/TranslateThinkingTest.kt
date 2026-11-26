@@ -90,3 +90,53 @@ class TranslateThinkingTest {
         )
     }
 }
+
+/**
+ * 自定义值的**即时校验**（[TranslateThinking.checkCustom]）。
+ *
+ * 最要紧的是「填了但会被忽略」这一类：它不会报错、也不会发字段，用户以为开了思维深度。
+ */
+class TranslateThinkingCustomCheckTest {
+
+    private fun check(value: String, protocol: TranslateProtocol) =
+        TranslateThinking.checkCustom(value, protocol)
+
+    @Test
+    fun `空值等同关闭`() {
+        assertEquals(CustomValueIssue.EMPTY, check("", TranslateProtocol.ANTHROPIC_MESSAGES))
+        assertEquals(CustomValueIssue.EMPTY, check("   ", TranslateProtocol.OPENAI_CHAT))
+    }
+
+    @Test
+    fun `数字只在预算系协议下有效`() {
+        assertEquals(CustomValueIssue.OK_BUDGET, check("2048", TranslateProtocol.ANTHROPIC_MESSAGES))
+        assertEquals(CustomValueIssue.OK_BUDGET, check("2048", TranslateProtocol.GEMINI))
+        // OpenAI 系只认 effort 词：数字会被忽略（等同关闭）
+        assertEquals(CustomValueIssue.DIGITS_IGNORED, check("2048", TranslateProtocol.OPENAI_CHAT))
+        assertEquals(CustomValueIssue.DIGITS_IGNORED, check("2048", TranslateProtocol.OPENAI_RESPONSES))
+    }
+
+    @Test
+    fun `预算的下限与上限`() {
+        // Anthropic 要求 ≥1024
+        assertEquals(CustomValueIssue.BUDGET_TOO_SMALL, check("512", TranslateProtocol.ANTHROPIC_MESSAGES))
+        assertEquals(CustomValueIssue.OK_BUDGET, check("1024", TranslateProtocol.ANTHROPIC_MESSAGES))
+        assertEquals(CustomValueIssue.OK_BUDGET, check("32768", TranslateProtocol.GEMINI))
+        assertEquals(CustomValueIssue.BUDGET_TOO_LARGE, check("65536", TranslateProtocol.GEMINI))
+    }
+
+    @Test
+    fun `词只在_effort_系协议下有效`() {
+        assertEquals(CustomValueIssue.OK_EFFORT, check("medium", TranslateProtocol.OPENAI_CHAT))
+        assertEquals(CustomValueIssue.OK_EFFORT, check(" HIGH ", TranslateProtocol.OPENAI_RESPONSES))
+        // Anthropic / Gemini 只认 token 数：词会被忽略（等同关闭）
+        assertEquals(CustomValueIssue.WORD_IGNORED, check("medium", TranslateProtocol.ANTHROPIC_MESSAGES))
+        assertEquals(CustomValueIssue.WORD_IGNORED, check("medium", TranslateProtocol.GEMINI))
+    }
+
+    @Test
+    fun `未知_effort_词给出警告但不算错`() {
+        assertEquals(CustomValueIssue.UNKNOWN_EFFORT, check("疯狂思考", TranslateProtocol.OPENAI_CHAT))
+        assertEquals(CustomValueIssue.UNKNOWN_EFFORT, check("highest", TranslateProtocol.OPENAI_CHAT))
+    }
+}

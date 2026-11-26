@@ -388,6 +388,10 @@ class SettingsSpecTest {
         )
         assertTrue("探测结论要落盘（界面据此标灰）", page.contains("TranslateSettings.setThinkingSupport"))
         assertTrue("保存时档位要落盘", page.contains("TranslateSettings.setThinking("))
+        assertTrue(
+            "自定义值要当场校验（填了但当前协议不认 → 等同关闭，必须当场说清）",
+            page.contains("TranslateThinking.checkCustom("),
+        )
         // 两套探测的结论变量必须分开：混用一个就会「测完端口把翻译结论冲掉」
         assertTrue(page.contains("probeOutcome"))
         assertTrue(page.contains("translationOutcome"))

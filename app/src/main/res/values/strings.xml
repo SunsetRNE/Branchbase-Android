@@ -128,6 +128,14 @@
     <string name="translate_thinking_ok_field">翻译可用，服务商接受了思维深度字段</string>
     <string name="translate_thinking_rejected">翻译可用，但服务商拒绝了思维深度字段：%1$s</string>
     <string name="translate_thinking_unavailable">翻译不可用：%1$s</string>
+    <string name="translate_thinking_custom_ok_budget">将作为 token 预算发给 Anthropic / Gemini</string>
+    <string name="translate_thinking_custom_ok_effort">将作为 effort 发给 OpenAI 系</string>
+    <string name="translate_thinking_custom_empty">自定义值不能为空，当前等同关闭</string>
+    <string name="translate_thinking_custom_digits_ignored">当前协议只认 effort 词，数字会被忽略（等同关闭）</string>
+    <string name="translate_thinking_custom_word_ignored">当前协议只认 token 数，这个词会被忽略（等同关闭）</string>
+    <string name="translate_thinking_custom_too_small">低于 Anthropic 的最小预算 1024，服务商可能拒绝</string>
+    <string name="translate_thinking_custom_too_large">超过常见上限 32768，服务商可能拒绝</string>
+    <string name="translate_thinking_custom_unknown_effort">不是常见 effort 值（minimal / low / medium / high），可能被拒绝</string>
     <string name="translate_thinking_cost">测试翻译会真实请求一次，消耗少量 token</string>
     <string name="translate_warning_title">保存前确认</string>
     <string name="translate_warning_body">API Key 的格式需要准确：不同厂商的 Key 前缀与长度不同，粘贴时不要带空格或换行。\n\n并非所有厂商都兼容所选的协议：协议选错时服务端通常返回 401 / 404 / 400，而不是「翻译失败」。\n\n建议保存后点一次「测试响应」，先确认该服务商的端口响应；如果它不提供模型列表，模型名请手动填写。</string>

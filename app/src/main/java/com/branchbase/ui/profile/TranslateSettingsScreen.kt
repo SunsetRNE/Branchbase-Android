@@ -66,6 +66,7 @@ import com.branchbase.R
 import com.branchbase.core.RustBridge
 import com.branchbase.translate.ModelProbe
 import com.branchbase.translate.PageRules
+import com.branchbase.translate.CustomValueIssue
 import com.branchbase.translate.TranslateConfig
 import com.branchbase.translate.TranslateEngine
 import com.branchbase.translate.TranslateThinking
@@ -615,6 +616,23 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                                         mono = true,
                                         onValueChange = { thinkingCustomDraft = it },
                                     )
+                                    // 即时校验：这一行随输入实时变。「填了但当前协议不认」是最容易
+                                    // 静默失效的情况（请求里什么都不加，等同关闭），必须当场说清。
+                                    val issue = TranslateThinking.checkCustom(thinkingCustomDraft, protocolDraft)
+                                    Text(
+                                        stringResource(issue.messageRes),
+                                        fontSize = 10.sp,
+                                        lineHeight = 14.sp,
+                                        color = when {
+                                            issue == CustomValueIssue.OK_BUDGET ||
+                                                issue == CustomValueIssue.OK_EFFORT -> Primer.SuccessTextStrong
+                                            issue == CustomValueIssue.UNKNOWN_EFFORT ||
+                                                issue == CustomValueIssue.BUDGET_TOO_SMALL ||
+                                                issue == CustomValueIssue.BUDGET_TOO_LARGE -> Primer.DangerText
+                                            else -> Primer.TextTertiary
+                                        },
+                                        modifier = Modifier.padding(bottom = 2.dp),
+                                    )
                                 }
                                 Text(
                                     if (thinkingSupported == false) {
@@ -1055,6 +1073,19 @@ private val TranslateProvider.descRes: Int
     get() = when (this) {
         TranslateProvider.MYMEMORY -> R.string.translate_provider_mymemory_desc
         TranslateProvider.EXTERNAL -> R.string.translate_provider_external_desc
+    }
+
+/** 自定义值的校验结论 → 一句话（模块只给分类，句子在这里）。 */
+private val CustomValueIssue.messageRes: Int
+    get() = when (this) {
+        CustomValueIssue.OK_BUDGET -> R.string.translate_thinking_custom_ok_budget
+        CustomValueIssue.OK_EFFORT -> R.string.translate_thinking_custom_ok_effort
+        CustomValueIssue.EMPTY -> R.string.translate_thinking_custom_empty
+        CustomValueIssue.DIGITS_IGNORED -> R.string.translate_thinking_custom_digits_ignored
+        CustomValueIssue.WORD_IGNORED -> R.string.translate_thinking_custom_word_ignored
+        CustomValueIssue.BUDGET_TOO_SMALL -> R.string.translate_thinking_custom_too_small
+        CustomValueIssue.BUDGET_TOO_LARGE -> R.string.translate_thinking_custom_too_large
+        CustomValueIssue.UNKNOWN_EFFORT -> R.string.translate_thinking_custom_unknown_effort
     }
 
 /** 协议名（短名，进「协议」字段的值位）。 */

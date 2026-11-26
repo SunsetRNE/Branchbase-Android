@@ -1109,6 +1109,25 @@ Max 会让模型思考更深、实际体验丢失更严重」。
 但探测必须看见真实失败，所以 options JSON 里带 `strict` 标记，Rust 在严格模式下不做兜底。
 否则用户点了「测试翻译」、服务商明明拒绝字段，界面却显示「已被接受」。
 
+### 23.5 自定义值的即时校验（1.4.57）
+
+「自定义」是唯一会**静默失效**的一档：填的词与协议不匹配时，`effort` 与 `budgetTokens`
+会同时为空 —— 请求里什么都不加，等于关闭，而用户以为自己开了。所以输入框下面当场显示判定：
+
+| 输入 | 当前协议 | 判定 | 界面 |
+|---|---|---|---|
+| `2048` | Anthropic / Gemini | `OK_BUDGET` | 绿：「将作为 token 预算发给 Anthropic / Gemini」 |
+| `medium` | OpenAI 系 | `OK_EFFORT` | 绿：「将作为 effort 发给 OpenAI 系」 |
+| `2048` | OpenAI 系 | `DIGITS_IGNORED` | 灰：「当前协议只认 effort 词，数字会被忽略（等同关闭）」 |
+| `medium` | Anthropic / Gemini | `WORD_IGNORED` | 灰：「当前协议只认 token 数，这个词会被忽略（等同关闭）」 |
+| 空 | 任意 | `EMPTY` | 灰：「自定义值不能为空，当前等同关闭」 |
+| `512` | Anthropic / Gemini | `BUDGET_TOO_SMALL` | 红：「低于 Anthropic 的最小预算 1024」 |
+| `65536` | Anthropic / Gemini | `BUDGET_TOO_LARGE` | 红：「超过常见上限 32768」 |
+| `highest` | OpenAI 系 | `UNKNOWN_EFFORT` | 红：「不是常见 effort 值…可能被拒绝」 |
+
+判定是纯函数（`TranslateThinking.checkCustom`），句子在 app 层拼；分类与颜色分开，
+以后加协议只改表，不改界面结构。
+
 ### 23.4 边界
 
 - 档位只影响**翻译请求**，不影响已缓存译文（换档位会换缓存变体，见 `cacheVariant`）；
