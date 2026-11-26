@@ -449,12 +449,16 @@ private fun CommitModeSheet(
             // 网络：Git 代理入口（2026-11-27 决策四 —— 从设置主页的「网络」组搬来）。
             // 与三档同一屏的理由：代理只作用于本地仓库的 clone / pull / push，
             // 放这里既不占主页一行，也不需要用户记得「代理在另一个二级页」。
+            //
+            // ⚠️ 行里**不再塞**那句「仅作用于…」的长说明（2026-11-27 真机反馈「感官上奇怪」）：
+            // `NavRow` 的说明列只有半行宽（值列占着另一半），60 来个字会被挤成 10 来个字一行、
+            // 连排十行，图标吊在中间。入口只回答「在哪、现在是什么」；详细释义在 `GitProxyScreen`
+            // 里（同一个 `note_proxy_scope_detail`），点进去就能读到。
             Spacer(Modifier.height(14.dp))
             SettingsSection(stringResource(R.string.label_network_group)) {
                 NavRow(
                     icon = Icons.Filled.Public,
                     name = stringResource(R.string.nav_git_proxy),
-                    sub = stringResource(R.string.note_proxy_scope_detail),
                     // 值列只显示 host:port，凭据不进列表（规范 §6.5）
                     value = proxyValue,
                     onClick = {

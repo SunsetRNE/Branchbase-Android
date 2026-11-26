@@ -715,6 +715,14 @@ class SettingsSpecTest {
         assertTrue("Git 代理入口要在提交模式抽屉里", page.contains("nav_git_proxy"))
         assertTrue("抽屉里的代理值要脱敏后显示", page.contains("displayGitProxy(gitProxy(context))"))
         assertTrue("代理行要能进二级页", page.contains("onOpenGitProxy()"))
+        // 2026-11-27 真机反馈「感官上奇怪」：行内说明列只有半行宽，长说明会被挤成
+        // 十来个字一行、连排十行 —— 释义留在 GitProxyScreen，入口行只放名称与值。
+        // 扫去注释后的源码：这条规则本身写在 CommitModeScreen 的注释里，
+        // 扫原文会把「把坑写下来」判红（假红比没有检查更坏）
+        assertFalse(
+            "抽屉里的代理行不许再塞长说明（半行宽会把 60 来个字挤成十几行）",
+            stripComments(page).contains("note_proxy_scope_detail"),
+        )
     }
 
     @Test
