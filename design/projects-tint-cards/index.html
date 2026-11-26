@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>项目列表 · 卡片面 + 图标牌 · 原型</title>
+<!--
+  一次性草图（不是产品 UI）：项目列表（ProjectsScreen）换成与首页/设置同一套卡片语言。
+  为什么用原型：当前账号没建过项目，实机上只能看到空态，看不到「有项目」时长什么样 ——
+  所以把四种状态画出来，确认后再落代码。
+
+  颜色取自 ui/theme/ThemePalette.kt 的 PrimerPalette（浅 / 深两套）；
+  卡片面与首页一致：白面 + 4dp 阴影、12dp 圆角（ui/CardSurface.kt）；
+  图标牌 22dp / 7dp / 13dp、同色 12% 底（ui/TintChip.kt）。
+-->
+<style>
+  * { box-sizing: border-box; }
+
+  html[data-theme="light"] {
+    color-scheme: light;
+    --canvas: #FFFFFF; --text-1: #050505; --text-2: #41434E; --text-3: #6A6D7C;
+    --icon-2: #9194A1; --border: #BFC1C9; --fill: #F7F7F9; --fill-strong: #EFF0F5;
+    --link: #0969DA; --green: #28A745;
+    --page-bg: #E9EBF0;
+    --c-done: #6F42C1; --t-done: rgba(111, 66, 193, .12);
+    --c-accent: #0969DA; --t-accent: rgba(9, 105, 218, .12);
+    --c-neutral: #000000; --t-neutral: rgba(0, 0, 0, .12);
+    --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 10px 24px rgba(16, 24, 40, .06);
+  }
+  html[data-theme="dark"] {
+    color-scheme: dark;
+    --canvas: #0D1117; --text-1: #E6EDF3; --text-2: #C9D1D9; --text-3: #8B949E;
+    --icon-2: #8B949E; --border: #30363D; --fill: #161B22; --fill-strong: #21262D;
+    --link: #2F81F7; --green: #3FB950;
+    --page-bg: #010409;
+    --c-done: #A371F7; --t-done: rgba(163, 113, 247, .12);
+    --c-accent: #1F6FEB; --t-accent: rgba(31, 111, 235, .12);
+    --c-neutral: #FFFFFF; --t-neutral: rgba(255, 255, 255, .12);
+    --shadow: 0 1px 2px rgba(0, 0, 0, .5);
+  }
+
+  body {
+    margin: 0; padding: 20px 16px 40px;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", system-ui, sans-serif;
+    background: var(--page-bg); color: var(--text-1); -webkit-font-smoothing: antialiased;
+  }
+
+  .toolbar {
+    max-width: 880px; margin: 0 auto 18px; display: flex; flex-wrap: wrap; gap: 10px 20px;
+    align-items: center; padding: 12px 14px; border-radius: 12px;
+    background: var(--canvas); border: 1px solid var(--fill-strong);
+  }
+  .toolbar .group { display: flex; align-items: center; gap: 8px; }
+  .toolbar .label { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+  .seg { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--fill-strong); }
+  .seg button {
+    appearance: none; border: 0; background: transparent; color: var(--text-2);
+    font: inherit; font-size: 12px; padding: 5px 10px; border-radius: 6px; cursor: pointer; white-space: nowrap;
+  }
+  .seg button[aria-pressed="true"] {
+    background: var(--canvas); color: var(--text-1); font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .12);
+  }
+
+  .stage { max-width: 880px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 26px; justify-content: center; align-items: flex-start; }
+  .col { display: flex; flex-direction: column; gap: 10px; width: min(390px, 100%); }
+  .cap { font-size: 11.5px; line-height: 16px; color: var(--text-3); }
+  .cap b { color: var(--text-1); font-size: 13px; display: block; margin-bottom: 3px; }
+
+  .frame { position: relative; width: 100%; height: 844px; }
+  .device {
+    position: absolute; top: 0; left: 0; width: 390px; height: 844px;
+    transform: scale(var(--s, 1)); transform-origin: top left;
+    border-radius: 34px; background: var(--canvas); border: 1px solid var(--fill-strong);
+    box-shadow: 0 18px 46px rgba(0, 0, 0, .16); overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .statusbar { height: 44px; flex: 0 0 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 22px 0 26px; font-size: 13px; font-weight: 600; }
+  .screen { flex: 1; overflow-y: auto; padding-bottom: 24px; scrollbar-width: none; }
+  .screen::-webkit-scrollbar { display: none; }
+
+  /* 顶栏：返回 + 标题 + 刷新 + 新建 */
+  .header { display: flex; align-items: center; gap: 12px; padding: 2px 16px 10px; }
+  .header svg.back { width: 20px; height: 20px; fill: var(--text-1); }
+  .header .title { font-size: 17px; font-weight: 700; }
+  .header .spacer { flex: 1; }
+  .header .act { width: 18px; height: 18px; fill: var(--text-2); }
+  .newbtn {
+    display: inline-flex; align-items: center; gap: 2px; padding: 5px 12px;
+    border-radius: 6px; background: var(--green); color: #fff; font-size: 13px; font-weight: 500;
+  }
+  .newbtn svg { width: 14px; height: 14px; fill: #fff; }
+
+  /* 项目卡：卡面 + 图标牌 */
+  .card {
+    margin: 0 16px 6px; padding: 8px 12px; border-radius: 12px;
+    background: var(--canvas); box-shadow: var(--shadow);
+    display: flex; gap: 10px; align-items: flex-start;
+  }
+  .chip {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; flex: 0 0 22px; border-radius: 7px;
+    background: var(--t-done); color: var(--c-done);
+  }
+  .chip svg { width: 13px; height: 13px; fill: currentColor; }
+  .body { flex: 1; min-width: 0; }
+  .name { font-size: 14px; font-weight: 600; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .desc {
+    margin-top: 2px; font-size: 12px; line-height: 15px; color: var(--text-2);
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .desc.none { color: var(--text-3); font-style: italic; }
+
+  .empty { padding: 120px 16px; text-align: center; font-size: 13px; color: var(--text-3); }
+  .empty .hint { margin-top: 10px; font-size: 11.5px; line-height: 17px; }
+  .skeleton { margin: 0 16px 6px; padding: 8px 12px; border-radius: 12px; background: var(--canvas); box-shadow: var(--shadow); display: flex; gap: 10px; }
+  .sk { background: var(--fill-strong); border-radius: 4px; }
+  .sk.chip { width: 22px; height: 22px; border-radius: 7px; flex: 0 0 22px; }
+  .sk.line { height: 12px; }
+
+  @media (max-width: 860px) {
+    body { padding: 12px 12px 28px; }
+    .toolbar, .stage { max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <div class="group">
+    <span class="label">主题</span>
+    <div class="seg" id="seg-theme">
+      <button data-theme="light" aria-pressed="true">浅色</button>
+      <button data-theme="dark" aria-pressed="false">深色</button>
+    </div>
+  </div>
+  <div class="group">
+    <span class="label">状态</span>
+    <div class="seg" id="seg-state">
+      <button data-state="list" aria-pressed="true">有项目</button>
+      <button data-state="empty" aria-pressed="false">空态</button>
+      <button data-state="loading" aria-pressed="false">加载中</button>
+    </div>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="col">
+    <div class="frame" id="frame"><div class="device" id="device">
+      <div class="statusbar"><span>06:40</span><span style="font-size:12px">100%</span></div>
+      <div class="screen" id="screen"></div>
+    </div></div>
+    <div class="cap"><b>项目列表 · 浅色 / 深色</b>卡片面与首页一致（白面 + 4dp 阴影、12dp 圆角）；左侧一枚 22dp 图标牌（`DONE` 紫，与 More 菜单的「项目」同色）。描述最多 2 行，与仓库卡同一条规则。</div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+const ICONS = {
+  back: "M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z",
+  refresh: "M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z",
+  add: "M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z",
+  dashboard: "M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"
+};
+
+const PROJECTS = [
+  { name: "DSHA 路线图", desc: "免 ROOT 的 Android 运行时、插件市场与工具链的季度计划。" },
+  { name: "Branchbase 1.5", desc: "列表页统一：卡片面 + 图标语义三色；仓库页与设置页共用一套 CardSurface。" },
+  { name: "翻译质量", desc: null },
+  { name: "旧设备兼容", desc: "Android 8–10 上的 WebView 与 Compose 降级路径；这条描述特意写长一点，用来看两行截断与卡片高度是否稳定——描述最多两行，第三行起省略。" }
+];
+
+function icon(name, cls) {
+  return '<svg viewBox="0 0 24 24" class="' + cls + '"><path d="' + ICONS[name] + '"/></svg>';
+}
+
+function header() {
+  return '<div class="header">' + icon("back", "back") +
+    '<span class="title">项目</span><span class="spacer"></span>' +
+    icon("refresh", "act") +
+    '<span class="newbtn">' + icon("add") + '新建</span></div>';
+}
+
+function card(p) {
+  return '<div class="card"><span class="chip">' + icon("dashboard") + '</span>' +
+    '<div class="body"><div class="name">' + p.name + '</div>' +
+    (p.desc ? '<div class="desc">' + p.desc + '</div>'
+            : '<div class="desc none">暂无描述</div>') +
+    '</div></div>';
+}
+
+function skeleton() {
+  let out = "";
+  for (let i = 0; i < 3; i++) {
+    out += '<div class="skeleton"><span class="sk chip"></span><div class="body">' +
+      '<div class="sk line" style="width:45%"></div>' +
+      '<div class="sk line" style="width:85%;margin-top:6px"></div></div></div>';
+  }
+  return out;
+}
+
+function render(state) {
+  const body = state === "list"
+    ? PROJECTS.map(card).join("")
+    : state === "empty"
+      ? '<div class="empty">暂无项目<div class="hint">右上角「新建」会打开 GitHub 的项目创建页</div></div>'
+      : skeleton();
+  document.getElementById("screen").innerHTML = header() + body;
+}
+
+let STATE = "list";
+render(STATE);
+
+function fit() {
+  const frame = document.getElementById("frame");
+  const s = Math.min(1, frame.clientWidth / 390);
+  frame.style.setProperty("--s", String(s));
+  frame.style.height = Math.ceil(844 * s) + "px";
+}
+window.addEventListener("resize", fit);
+fit();
+
+document.querySelectorAll("#seg-theme button").forEach(function (b) {
+  b.addEventListener("click", function () {
+    document.documentElement.dataset.theme = b.dataset.theme;
+    document.querySelectorAll("#seg-theme button").forEach(function (x) {
+      x.setAttribute("aria-pressed", String(x.dataset.theme === b.dataset.theme));
+    });
+  });
+});
+
+document.querySelectorAll("#seg-state button").forEach(function (b) {
+  b.addEventListener("click", function () {
+    STATE = b.dataset.state;
+    render(STATE);
+    document.querySelectorAll("#seg-state button").forEach(function (x) {
+      x.setAttribute("aria-pressed", String(x.dataset.state === STATE));
+    });
+  });
+});
+</script>
+</body>
+</html>
