@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import com.branchbase.core.engineErrorOrRaw
+import com.branchbase.ui.cardSurface
 import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import com.branchbase.ui.resolve
 import androidx.compose.foundation.lazy.items
@@ -360,41 +361,67 @@ fun StarsScreen(sessionJson: String, onBack: () -> Unit, onOpenRepo: (String) ->
     }
 }
 
+/**
+ * 星标页的仓库卡：与首页「常用仓库」/ 个人页「热门仓库」同一套（`ui/CardSurface.kt`）。
+ *
+ * 1.4.65 重构。原版是「32dp 蓝色字母圆 + 不限行数的描述 + 右侧『已星标』胶囊」，三个问题：
+ *
+ * 1. 描述**不限行**，一条长描述能把卡拉到 200dp，一屏只放得下两条半（用户原话「太丑了」）；
+ * 2. 「已星标」在这页是**恒真的** —— 整页都是星标仓库，每行再挂一枚胶囊纯噪声；
+ * 3. 蓝色字母圆是「仓库首字母」，与别处的图标牌不是同一种语言（圆 vs 方、字母 vs 图标），
+ *    而且它占掉了描述本该有的横向空间。
+ *
+ * 现在与另外两处仓库卡逐项对齐：名字 14sp / 描述 12sp·15sp 行高·限 2 行 / 元信息行 12sp /
+ * 卡距 6dp / 内边距 h14·v8。信息一点没少：语言与星数都还在元信息行里。
+ */
 @Composable
 private fun StarredRepoCard(repo: RepoItem, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.Top,
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 3.dp)
+            .cardSurface()
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 8.dp),
     ) {
-        Box(Modifier.size(32.dp).clip(CircleShape).background(Primer.Blue500), contentAlignment = Alignment.Center) {
-            Text(repo.name.take(1).uppercase(), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            repo.name,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Primer.Blue500,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (repo.description != null) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                repo.description,
+                fontSize = 12.sp,
+                lineHeight = 15.sp,
+                color = Primer.TextSecondary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(repo.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
-            if (repo.description != null) {
-                Spacer(Modifier.height(2.dp))
-                Text(repo.description, fontSize = 12.5.sp, color = Primer.TextSecondary, lineHeight = 18.sp)
-            }
-            Spacer(Modifier.height(6.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (repo.language != null) {
+        Spacer(Modifier.height(6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            if (repo.language != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(10.dp).clip(CircleShape).background(LanguageColors.of(repo.language)))
                     Spacer(Modifier.width(4.dp))
-                    Text(repo.language, fontSize = 12.sp, color = Primer.TextTertiary)
-                    Spacer(Modifier.width(8.dp))
+                    Text(repo.language, fontSize = 12.sp, color = Primer.TextSecondary)
                 }
-                Icon(Icons.Filled.Star, contentDescription = null, tint = Primer.TextTertiary, modifier = Modifier.size(12.dp))
-                Spacer(Modifier.width(2.dp))
-                Text("${repo.stars}", fontSize = 12.sp, color = Primer.TextTertiary)
             }
-        }
-        Spacer(Modifier.width(8.dp))
-        Box(
-            Modifier.clip(RoundedCornerShape(6.dp)).background(Primer.WarningSurface).border(1.dp, Primer.Border, RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 3.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(stringResource(R.string.state_starred), fontSize = 12.sp, color = Primer.WarningTextStrong)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.Star,
+                    contentDescription = null,
+                    tint = Primer.IconSecondary,
+                    modifier = Modifier.size(14.dp),
+                )
+                Spacer(Modifier.width(2.dp))
+                Text("${repo.stars}", fontSize = 12.sp, color = Primer.TextSecondary)
+            }
         }
     }
 }
