@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -63,14 +64,23 @@ import com.branchbase.ui.theme.Primer
  */
 
 /**
- * 紧凑输入框（40dp 高，Material 的 `OutlinedTextField` 默认 56dp）。
+ * 紧凑输入框：**标签压在边框上**，整行 34dp（Material `OutlinedTextField` 是 56dp）。
  *
- * 为什么不用 `OutlinedTextField`：决策三要求「凭据块进一步提高密度」，而 Material3 的
- * 输入框高度由内部固定 padding 决定，外部 `height()` 会裁字。这里用 [BasicTextField]
- * 自绘边框与占位符：13sp 文字 + 上下 9dp，命中区仍 ≥40dp；描边走 `BorderControl`
- * （WCAG 1.4.11 的 3:1 控件边界），不是装饰性 `Border`。
+ * ## 为什么标签不单独占一行
  *
- * [headerAction] 放在标签行右侧（模型那一行放「获取模型列表」徽章）。
+ * 2026-11-26 真机反馈「红框那块行高再砍 1/3」。独立标签行是每行 15dp 文字 + 4dp 间距，
+ * 三行就是约 57dp —— 正好是能砍掉的那一截。现在标签坐在输入框上边框上（outlined 字段的
+ * 标准做法），标签底 `Gray100` 正好盖住边框一小段；行高只剩 34dp + 6dp 行距。
+ *
+ * ## 为什么是 34dp 而不是 28dp
+ *
+ * 再往下砍就要压 13sp 的字号或把文字挤到框线上。34dp = 13sp 行高 + 上下 7dp，
+ * 虽然低于 44dp 的推荐命中区，但它是输入框（点进去才聚焦、旁边还有整块卡片的留白），
+ * 不是开关；[ModelListBadge] 与「显示 / 隐藏」仍给足横向空间。真机上若觉得难点，
+ * 只改这一个数即可。
+ *
+ * [trailingContent] 放在框内右侧（「显示 / 隐藏」、模型徽章都属于「贴着这个字段的动作」，
+ * 不该再占一行）。
  */
 @Composable
 internal fun CompactField(
@@ -80,24 +90,9 @@ internal fun CompactField(
     placeholder: String,
     mono: Boolean = false,
     visualTransformation: VisualTransformation = VisualTransformation.None,
-    trailing: String? = null,
-    onTrailingClick: (() -> Unit)? = null,
-    headerAction: (@Composable () -> Unit)? = null,
+    trailingContent: (@Composable () -> Unit)? = null,
 ) {
-    Column(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                label,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Primer.TextSecondary,
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (headerAction != null) headerAction()
-        }
-        Spacer(Modifier.height(4.dp))
+    Box(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
@@ -116,15 +111,15 @@ internal fun CompactField(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
                         .border(1.dp, Primer.BorderControl, RoundedCornerShape(8.dp))
-                        .defaultMinSize(minHeight = 40.dp)
-                        .padding(horizontal = 10.dp, vertical = 9.dp),
+                        .defaultMinSize(minHeight = 34.dp)
+                        .padding(horizontal = 9.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(Modifier.weight(1f)) {
                         if (value.isEmpty()) {
                             Text(
                                 placeholder,
-                                fontSize = 12.5.sp,
+                                fontSize = 12.sp,
                                 color = Primer.TextTertiary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -132,20 +127,27 @@ internal fun CompactField(
                         }
                         innerTextField()
                     }
-                    if (trailing != null && onTrailingClick != null) {
+                    if (trailingContent != null) {
                         Spacer(Modifier.width(8.dp))
-                        Text(
-                            trailing,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Primer.Blue500,
-                            modifier = Modifier
-                                .clickable { onTrailingClick() }
-                                .padding(vertical = 2.dp),
-                        )
+                        trailingContent()
                     }
                 }
             },
+        )
+        // 标签压在边框上：底 `Gray100` 是设置卡片的底色，正好盖掉框线一小段。
+        // 用固定色而不是参数，是因为这个输入只出现在设置卡片里（见 TranslateSettingsScreen）。
+        Text(
+            label,
+            fontSize = 10.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Primer.TextSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .offset(x = 8.dp, y = (-7).dp)
+                .background(Primer.Gray100)
+                .padding(horizontal = 4.dp),
         )
     }
 }
@@ -165,7 +167,7 @@ internal fun ModelListBadge(loading: Boolean, onClick: () -> Unit) {
             .clip(RoundedCornerShape(6.dp))
             .background(background)
             .clickable(enabled = !loading) { onClick() }
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 8.dp, vertical = 3.dp),
     )
 }
 

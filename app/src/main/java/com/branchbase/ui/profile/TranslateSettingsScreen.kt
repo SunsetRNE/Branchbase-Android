@@ -298,7 +298,7 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                         ) {
                             // 决策三：块内再压一档 —— 输入框 40dp（不再是 Material 的 56dp）、
                             // 标签 11sp、行距 8dp、按钮与说明都收一号。
-                            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                            Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)) {
                                 CompactField(
                                     label = "API Key",
                                     value = keyDraft,
@@ -309,9 +309,18 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                                     } else {
                                         PasswordVisualTransformation()
                                     },
-                                    trailing = if (keyVisible) stringResource(R.string.action_hide) else stringResource(R.string.action_show),
-                                    onTrailingClick = { keyVisible = !keyVisible },
                                     onValueChange = { keyDraft = it },
+                                    trailingContent = {
+                                        Text(
+                                            if (keyVisible) stringResource(R.string.action_hide) else stringResource(R.string.action_show),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Primer.Blue500,
+                                            modifier = Modifier
+                                                .clickable { keyVisible = !keyVisible }
+                                                .padding(horizontal = 2.dp, vertical = 2.dp),
+                                        )
+                                    },
                                 )
                                 // 模型行右侧的「获取模型列表」：探测 `{baseUrl}/models`（决策五）。
                                 CompactField(
@@ -320,7 +329,9 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                                     placeholder = TranslateProvider.DEEPSEEK_MODEL,
                                     mono = true,
                                     onValueChange = { modelDraft = it },
-                                    headerAction = {
+                                    // 徽章贴在模型框内右侧（决策五）：不再占一整行标签，
+                                    // 红框那一块的高度就是这么砍下来的
+                                    trailingContent = {
                                         ModelListBadge(loading = fetchingModels) { fetchModels() }
                                     },
                                 )
@@ -341,9 +352,9 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                                     localModels
                                 }
                                 FlowRow(
-                                    Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                    Modifier.fillMaxWidth().padding(bottom = 6.dp),
                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(5.dp),
                                 ) {
                                     chips.forEach { model ->
                                         SuggestionChip(model) { modelDraft = model }
@@ -382,10 +393,9 @@ fun TranslateSettingsScreen(onBack: () -> Unit) {
                                 // OpenAI 兼容 / 可接中转属于「怎么用」，在「!」弹窗里。
                                 Text(
                                     stringResource(R.string.translate_key_note),
-                                    fontSize = 10.5.sp,
+                                    fontSize = 10.sp,
                                     color = Primer.TextTertiary,
-                                    lineHeight = 15.sp,
-                                    modifier = Modifier.padding(bottom = 2.dp),
+                                    lineHeight = 14.sp,
                                 )
                             }
                         }
@@ -725,7 +735,7 @@ private fun SuggestionChip(text: String, onClick: () -> Unit) {
             .clip(RoundedCornerShape(6.dp))
             .background(Primer.Gray100)
             .clickable { onClick() }
-            .padding(horizontal = 7.dp, vertical = 3.dp),
+            .padding(horizontal = 7.dp, vertical = 2.dp),
     )
 }
 
@@ -734,14 +744,14 @@ private fun SuggestionChip(text: String, onClick: () -> Unit) {
 private fun ActionPill(text: String, enabled: Boolean, onClick: () -> Unit) {
     Text(
         text,
-        fontSize = 12.5.sp,
+        fontSize = 12.sp,
         fontWeight = FontWeight.SemiBold,
         color = if (enabled) Color.White else Primer.TextTertiary,
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
             .background(if (enabled) Primer.Blue500 else Primer.Gray100)
             .clickable(enabled = enabled) { onClick() }
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .padding(horizontal = 10.dp, vertical = 5.dp),
     )
 }
 
