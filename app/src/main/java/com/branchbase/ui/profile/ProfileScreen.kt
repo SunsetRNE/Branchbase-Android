@@ -82,6 +82,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import com.branchbase.R
 import com.branchbase.ui.LocalizedText
+import com.branchbase.ui.cardSurface
 import com.branchbase.ui.settings.GitProxyScreen
 import com.branchbase.ui.settings.GlassNavigationRuntime
 import com.branchbase.ui.settings.LanguageScreen
@@ -1828,7 +1829,7 @@ private const val PROFILE_REPO_SKELETON_COUNT = 3
 
 /**
  * 仓库卡骨架：**结构与尺寸都与 [RepoCard] 一一对应**
- * （同 10dp 圆角 / 同 Gray100 底 / 同 无描边 / 同 h14·v8 内边距 / 同 6dp 底距；
+ * （同 12dp 圆角 / 同白面 + 阴影 / 同 h14·v8 内边距 / 同 6dp 底距；
  * 名称行 14dp + 描述行 12dp + 语言行 12dp，行间 2dp / 6dp）。
  *
  * 热门仓库区与「仓库」页共用这一份：两处的真实卡片本来就是同一个 [RepoCard]，
@@ -1837,8 +1838,8 @@ private const val PROFILE_REPO_SKELETON_COUNT = 3
 @Composable
 private fun RepoCardSkeleton() {
     Column(
-        Modifier.fillMaxWidth().padding(bottom = 6.dp).clip(RoundedCornerShape(10.dp))
-            .background(Primer.Gray100).padding(horizontal = 14.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth().padding(bottom = 6.dp).cardSurface()
+            .padding(horizontal = 14.dp, vertical = 8.dp),
     ) {
         // 名称行整行留给仓库名 —— 星数已搬进元信息行（见 RepoCard）
         Box(Modifier.fillMaxWidth(0.45f).height(14.dp).skeletonBlock())
@@ -1862,7 +1863,7 @@ private fun RepoCardSkeleton() {
  * 仓库卡（热门仓库区 / 仓库页共用）。
  *
  * 尺寸与配色对齐首页「常用仓库」卡（见 c77e8fc 与 [com.branchbase.ui.home.HomeScreen] 的 RepoCard）：
- * 底 Gray100 + 10dp 圆角、无描边，内边距 h14·v8，卡距 6dp，名字 14sp，
+ * 白面 + 4dp 阴影、12dp 圆角（`ui/CardSurface.kt`），内边距 h14·v8，卡距 6dp，名字 14sp，
  * 描述 12sp / 行高 15sp / 最多 2 行，名字↔描述 2dp，描述↔元信息 6dp。
  *
  * 描边（原 1dp [Primer.BorderEmphasis]）在这套压缩参数下已经多余：浅色板上它是**一圈黑线**，
@@ -1878,10 +1879,10 @@ private fun RepoCardSkeleton() {
 @Composable
 private fun RepoCard(repo: RepoItem, onClick: () -> Unit) {
     Column(
-        Modifier.fillMaxWidth().padding(bottom = 6.dp).clip(RoundedCornerShape(10.dp))
-            // Gray100 而不是默认无底色：浅色板里页面底就是纯白，卡片没有边界就只剩间距 ——
-            // 内边距一收，卡内留白与卡间间距并成一片白，"紧凑"变成"糊"。
-            .background(Primer.Gray100)
+        Modifier.fillMaxWidth().padding(bottom = 6.dp)
+            // 与首页仓库卡同一套（ui/CardSurface.kt）：白面 + 4dp 阴影、圆角 12dp。
+            // 1.4.64：Gray100 下线 —— 灰底在浅色下靠 5% 明度差硬造分组，深色下又等于 canvasSubtle。
+            .cardSurface()
             .clickable { onClick() }
             // 竖向比横向收得更狠：留白是这张卡最高的成本项，横向再收会让文字贴边
             .padding(horizontal = 14.dp, vertical = 8.dp),
