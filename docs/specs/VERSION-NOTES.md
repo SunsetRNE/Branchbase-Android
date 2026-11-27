@@ -74,7 +74,20 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.79 → 1.0.22）
+## 二、`versionName` 流水（1.4.80 → 1.0.22）
+
+### 1.4.80
+
+**修 CI：设置规范钉子还钉着旧写法（`Gray100` + 黑 40% 分隔线）。**
+
+1.4.67 把设置卡换成 `cardSurface()`、分隔线换成 `Primer.Border`，但 `SettingsSpecTest` 里两条钉子
+还断言旧实现，CI 因此爆红（本地 `:app:testDebugUnitTest` 复现：208 例、1 失败）。
+
+钉子本身是对的（它就是防「悄悄撤回设计改动」），这次改的是断言内容：
+`SettingsSection` 必须用 `.cardSurface()` 且不许退回 `.background(Primer.Gray100)`；
+`SettingsDivider` 必须用 `Primer.Border` 且不许退回 `BorderEmphasis × 40%`。
+
+验证：`:app:testDebugUnitTest --tests SettingsSpecTest` 208 例全绿。
 
 ### 1.4.79
 
@@ -5769,7 +5782,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（339 → 129）
+## 三、`versionCode` 流水（340 → 129）
+
+- **340**：修 CI —— 设置规范钉子从旧写法（Gray100 / 黑 40%）改钉 `cardSurface()` 与
+  `Primer.Border`（一次提交，故 +1）。
+
 
 - **339**：代码列表路径行套卡片（1.4.79）—— `BreadcrumbBar` 裸文字 → `cardSurface()` 包裹，
   与列表行同高同左缘（一次提交，故 +1）。

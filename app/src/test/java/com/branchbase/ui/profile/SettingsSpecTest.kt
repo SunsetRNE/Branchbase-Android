@@ -569,9 +569,17 @@ class SettingsSpecTest {
         // 改回 48/20 等于悄悄撤销这一版的结构性改动
         assertTrue("紧凑档行最小高度应为 44dp", row.contains("rowMinHeight = 44.dp"))
         assertTrue("紧凑档图标应为 18dp", row.contains("iconSize = 18.dp"))
+        // 1.4.67：卡片面统一走 ui/CardSurface.kt（白面 + 4dp 阴影、12dp 圆角）。
+        // 原先钉的是 Gray100 —— 那是「用底色当边界」的上一代写法：浅色下靠 5% 明度差硬造，
+        // 深色下 Gray100 又正好等于 canvasSubtle（等于没换）。边界现在由阴影承担。
+        val sectionBodyAll = row.substring(row.indexOf("fun SettingsSection("))
         assertTrue(
-            "设置卡片必须用可见底色（Gray100）：BackgroundSecondary 在浅色板里等于画布白",
-            row.contains(".background(Primer.Gray100)"),
+            "设置卡片必须用共用的卡片面 cardSurface()（白面 + 4dp 阴影、12dp 圆角）",
+            sectionBodyAll.contains(".cardSurface()"),
+        )
+        assertFalse(
+            "设置卡片又退回 Gray100 了：那是被 1.4.67 换掉的上一代底色边界写法",
+            sectionBodyAll.contains(".background(Primer.Gray100)"),
         )
         // 2026-11 真机反馈「取消掉黑边」：浅色下 BorderEmphasis 是纯黑 1dp，
         // 七张卡一起框出来的是一张线框图。卡片不再描边，分隔线也降成 40% 软线。
@@ -580,9 +588,11 @@ class SettingsSpecTest {
             "设置卡片又画了描边：浅色下 BorderEmphasis 是纯黑，七张卡会读成线框图",
             sectionBody.contains(".border("),
         )
+        // 1.4.67：分隔线从 `BorderEmphasis × 40%` 换成 `Primer.Border` —— 与首页 TodoDivider 同一条
+        // 真机结论：纯黑 40% 压灰底刚好，压到白面上就成了整页对比度最高的东西。
         assertTrue(
-            "组内分隔线要用半透明软线（BorderEmphasis 的 40%，与首页 TodoDivider 同档）",
-            row.contains("Primer.BorderEmphasis.copy(alpha = 0.4f)"),
+            "组内分隔线要用描边色（Primer.Border），不再用纯黑 40%",
+            row.contains("background(Primer.Border)"),
         )
     }
 
