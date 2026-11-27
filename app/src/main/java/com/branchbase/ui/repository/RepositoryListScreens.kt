@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Commit
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.LocalOffer
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -467,7 +468,9 @@ private fun BreadcrumbBar(path: String, onNavigate: (String) -> Unit) {
         onNavigate = onNavigate,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 12.dp),
+            // 1.4.77：左缘 12 → 16dp —— 与下面每张列表卡的左边界同一条线；
+            // 上下留白 12 → 2/4dp —— 根目录只有一枚「/」，却占掉近 40dp，第一屏被白白推下去一截。
+            .padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 4.dp),
     )
 }
 
@@ -967,16 +970,27 @@ fun WorkflowListContent(sessionJson: String, owner: String, repo: String, branch
     }
 }
 
+/**
+ * 工作流行（Actions 的**工作流列表**，不是运行记录 —— 运行记录是 `WorkflowRunRow`）。
+ *
+ * 1.4.77：这一层上一版漏了，真机截图里还是一片裸文本。现在与运行行同一套：
+ * 卡片面 + 22dp 图标牌（启用 `ACCENT` 蓝、禁用 `NEUTRAL`），右侧仍是状态短名。
+ */
 @Composable
-/** 工作流行：点击进运行历史；**长按召唤操作抽屉**（执行/查看文件/浏览器打开）。 */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 private fun WorkflowRow(item: WorkflowItem, onClick: () -> Unit, onLongClick: () -> Unit = {}) {
+    val active = item.state == "active"
     Row(
-        Modifier.fillMaxWidth()
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 3.dp)
+            .cardSurface()
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(12.dp, 16.dp),
+            .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        TintChip(Icons.Filled.PlayArrow, if (active) TintRole.ACCENT else TintRole.NEUTRAL)
+        Spacer(Modifier.width(10.dp))
         Text(item.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, modifier = Modifier.weight(1f))
         Text(stateLabelOf(item.state), fontSize = 11.sp, color = Primer.TextTertiary)
     }
