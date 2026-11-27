@@ -829,7 +829,6 @@
     <string name="label_activity_overview">Activity overview</string>
     <string name="label_activity_totals">%1$s activities in total · busiest day %2$s</string>
     <string name="label_activity_90_days">Public activity in the last 90 days</string>
-    <string name="label_followers">%1$s followers</string>
     <string name="label_popular_repos">Popular repositories</string>
     <string name="label_activity_heatmap">Activity heatmap</string>
     <string name="state_no_pinned_repos">No pinned repositories yet</string>
@@ -837,14 +836,12 @@
     <string name="note_no_contributions_day">No public contributions on this day</string>
     <string name="state_no_contributions">No contributions</string>
     <string name="label_unknown_repo">(unknown repository)</string>
-    <string name="label_following">%1$s following</string>
     <string name="error_refresh_failed_network">Refresh failed (check your network)</string>
     <string name="action_collapse_more_menu">Collapse the more menu</string>
     <string name="error_contributions_unavailable">Contribution data unavailable (the token may be missing the read:user scope)</string>
     <string name="label_past_90_days">Past 90 days</string>
     <string name="label_last_year">Last year</string>
     <string name="error_login_name_missing">Could not get the login name; sign in again</string>
-    <string name="label_repo_count_public">%1$s repositories</string>
     <string name="label_by_contribution_calendar">By contribution calendar</string>
     <string name="label_activity_by_type">Activity by type</string>
     <plurals name="label_contribution_count">
@@ -1302,6 +1299,7 @@
     <string name="label_pr_onestop_with_drafts">Open PR one-stop (new branch + PR) · %1$s files to commit</string>
     <string name="label_stargazers">Stargazers</string>
     <string name="label_followers_list">Followers</string>
+    <string name="label_following_list">Following</string>
     <string name="state_empty_directory">Empty directory</string>
     <string name="action_create_repo_token">Create a token with the repo scope</string>
     <string name="suffix_own_credentials_note">: used for both reads and writes; the acting identity differs from the current account.</string>

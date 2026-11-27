@@ -837,7 +837,6 @@
     <string name="label_activity_overview">动态概览</string>
     <string name="label_activity_totals">共 %1$s 次活动 · 最深 %2$s 次/天</string>
     <string name="label_activity_90_days">近 90 天公开活动</string>
-    <string name="label_followers">%1$s 关注者</string>
     <string name="label_popular_repos">热门仓库</string>
     <string name="label_activity_heatmap">活动热力</string>
     <string name="state_no_pinned_repos">暂无置顶仓库</string>
@@ -845,14 +844,12 @@
     <string name="note_no_contributions_day">这一天没有公开贡献记录</string>
     <string name="state_no_contributions">无贡献</string>
     <string name="label_unknown_repo">（未知仓库）</string>
-    <string name="label_following">%1$s 正在关注</string>
     <string name="error_refresh_failed_network">刷新失败（检查网络）</string>
     <string name="action_collapse_more_menu">收起更多菜单</string>
     <string name="error_contributions_unavailable">贡献数据不可用（可能是令牌缺少 read:user 权限）</string>
     <string name="label_past_90_days">过去 90 天</string>
     <string name="label_last_year">近一年</string>
     <string name="error_login_name_missing">未获取到登录名，请重新登录</string>
-    <string name="label_repo_count_public">%1$s 仓库</string>
     <string name="label_by_contribution_calendar">按贡献日历</string>
     <string name="label_activity_by_type">活动类型分布</string>
     <plurals name="label_contribution_count">
@@ -1308,6 +1305,7 @@
     <string name="label_pr_onestop_with_drafts">开 PR 一条龙（新建分支 + 开 PR）· 待提交 %1$s 个文件</string>
     <string name="label_stargazers">星标者</string>
     <string name="label_followers_list">关注者</string>
+    <string name="label_following_list">正在关注</string>
     <string name="state_empty_directory">空目录</string>
     <string name="action_create_repo_token">建一个带 repo 的令牌</string>
     <string name="suffix_own_credentials_note">：读与写都用它，操作身份与当前账号不同。</string>

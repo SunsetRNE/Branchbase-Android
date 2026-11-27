@@ -707,9 +707,6 @@ libgit2 的 pull 只作用于当前分支，因此同步「$target」需要先�
 设为上游并推送	Set upstream and push	action_set_upstream_and_push
 头像已刷新	Avatar refreshed	toast_avatar_refreshed
 刷新失败（检查网络）	Refresh failed (check your network)	error_refresh_failed_network
-${followers} 关注者	%1$s followers	label_followers
-${following} 正在关注	%1$s following	label_following
-${publicRepos} 仓库	%1$s repositories	label_repo_count_public
 热门仓库	Popular repositories	label_popular_repos
 暂无置顶仓库	No pinned repositories yet	state_no_pinned_repos
 🔍 查找仓库…	🔍 Find a repository…	hint_find_repo

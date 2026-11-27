@@ -179,6 +179,10 @@ enum class SubPage(val label: String) {
     Stars("星标"),
     Projects("项目"),
     EditProfile("编辑资料"),
+    // 个人页概览的三张统计卡里，「关注者 / 正在关注」各开一页（仓库卡只切 Tab，不占子页）。
+    // label 只进日志（界面文案走 R.string），所以这里是固定中文。
+    Followers("关注者"),
+    Following("正在关注"),
     Settings("设置"),
     LocalRepo("本地仓库"),
     About("关于"),

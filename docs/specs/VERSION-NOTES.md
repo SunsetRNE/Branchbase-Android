@@ -74,7 +74,38 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.83 → 1.0.22）
+## 二、`versionName` 流水（1.4.84 → 1.0.22）
+
+### 1.4.84
+
+**个人页概览改浮层卡：编辑资料挪到右上角，关注数拆成三张可点的统计矮卡。**
+
+四处真机反馈收敛出来的形态：
+
+① **编辑资料**从通宽灰底按钮（32dp、`Gray150` + 描边）挪到头部右上角，缩成一行字高的浮层小卡
+   （12sp / 9dp 圆角 / 3dp 阴影）。它只是「改自己」的动作，原文里却占了整行、视觉权重和
+   「热门仓库」小标题相当 —— 读起来像这页的主行动，而不是角落里的编辑入口。
+② **统计行**（`4 关注者 · 0 正在关注 · 14 仓库` 一行灰字）拆成三张 `cardSurface()` 浮层卡，
+   每张一个落点：关注者 / 正在关注各开一页 —— 新增 `UserPeopleScreen`（`/user/followers`、
+   `/user/following`，`per_page=100`；失败文案 `userPeopleErrorText` 单独一份，**不复用**
+   仓库维度的 `peopleListErrorText`，那句 403 写的是「限制为仓库协作者可见」，会把用户引到
+   仓库权限上去排查），仓库卡切到本页「仓库」Tab。卡是**按钮**，三个落点都必须有反应。
+③ **按压反馈**复用全 App 唯一的原语 `rememberPressFeedback`（0.94 / 120ms），且 `graphicsLayer`
+   必须放在 `cardSurface()` **之前**：只有先缩放整张卡（含阴影）才读作「被按下去」，
+   放后面就只缩内容、字往里缩，看起来像内容在抖。
+④ **尺寸四轮实机收敛**：56dp 两行 → 48dp → 42dp → **36dp 单行**（`4 关注者` 一行，数字 16sp
+   SemiBold / 名称 11sp，`alignByBaseline()` 对齐）。42dp 两行版在真机上读作「奇奇怪怪的细长条」：
+   两段字 + 行间空隙要挤进 42dp，留白没有地方去；单行之后卡里只剩一行字的高度，比例才对。
+   基线对齐不是洁癖：16sp 与 11sp 垂直居中时小字视觉重心偏高，名称像「浮」在数字上方。
+
+已知取舍：36dp 低于 Android 的 48dp 触控建议（卡宽约 110dp、间距 6dp，落点仍远大于方形 48dp）。
+再往下压就该换「一张通栏卡切三段」，而不是继续缩这两行字。
+
+其余接线：新增 `SubPage.Followers` / `SubPage.Following`（depth=1，返回回个人主页，
+`profileBackTarget` 未改、`ProfileBackTargetTest` 仍绿）；文案 `label_following_list` 中英同步。
+
+验证：`assembleDebug` 通过；`ProfileBackTargetTest` / `I18nUiTextTest` / `SettingsSpecTest` 全绿（217 例）；
+beta 包覆盖安装后在真机逐轮核对观感（56 / 48 / 42 / 36dp 四版）；`check-i18n.py --min-coverage 100` 通过。
 
 ### 1.4.83
 
@@ -5828,7 +5859,12 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（343 → 129）
+## 三、`versionCode` 流水（344 → 129）
+
+- **344**：个人页概览改浮层卡（1.4.84）—— 编辑资料挪右上角小卡 + 关注者 / 正在关注 / 仓库
+  拆三张可点统计卡（36dp 单行、基线对齐），新增 `UserPeopleScreen` 两页与失败文案；
+  按压反馈复用 `rememberPressFeedback`（一次提交，故 +1）。
+
 
 - **343**：Actions 分段加弹性滑动、状态提到页面级（1.4.83）—— 选中块弹簧位移 +
   文字色过渡；`workflowHistorySegment` 从 Tab 提到仓库页，返回不再掉回默认段（一次提交，故 +1）。

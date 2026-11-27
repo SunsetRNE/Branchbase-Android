@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -68,6 +69,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -82,11 +84,14 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import com.branchbase.R
 import com.branchbase.ui.LocalizedText
+import com.branchbase.ui.CardElevation
+import com.branchbase.ui.CardShape
 import com.branchbase.ui.cardSurface
 import com.branchbase.ui.settings.GitProxyScreen
 import com.branchbase.ui.settings.GlassNavigationRuntime
 import com.branchbase.ui.settings.LanguageScreen
 import com.branchbase.ui.settings.RepoCredentialsScreen
+import com.branchbase.ui.repository.UserPeopleScreen
 import com.branchbase.ui.repository.repoRelationOf
 import com.branchbase.ui.repository.RepoRelation
 import com.branchbase.ui.repository.RepoDeepLink
@@ -329,6 +334,9 @@ fun ProfileScreen(
                         // 与系统返回键同一条规则（规范 §3.1）
                         SubPage.RepoCredentials -> RepoCredentialsScreen(onBack = { subPage = profileBackTarget(subPage) })
                         SubPage.EditProfile -> ProfileEditScreen(sessionJson, onBack = { subPage = null }, onSaved = { subPage = null })
+                        // 关注者 / 正在关注：一级子页，返回回个人主页（profileBackTarget(null) 同一条规则）
+                        SubPage.Followers -> UserPeopleScreen(sessionJson, following = false, onBack = { subPage = null })
+                        SubPage.Following -> UserPeopleScreen(sessionJson, following = true, onBack = { subPage = null })
                     }
 
                     ProfileRoute.Main -> Column(
@@ -358,7 +366,14 @@ fun ProfileScreen(
                                 label = "profile-tab",
                             ) { t ->
                                 when (t) {
-                                    ProfileTab.Overview -> ProfileOverview(login, name, avatarUrl, bio, followers, following, publicRepos, repos, reposLoading, onOpenRepo, onEdit = { subPage = SubPage.EditProfile })
+                                    ProfileTab.Overview -> ProfileOverview(
+                                        login, name, avatarUrl, bio, followers, following, publicRepos, repos, reposLoading, onOpenRepo,
+                                        onEdit = { subPage = SubPage.EditProfile },
+                                        onOpenFollowers = { subPage = SubPage.Followers },
+                                        onOpenFollowing = { subPage = SubPage.Following },
+                                        // 仓库卡只切 Tab，不新开页：同一份仓库列表已经在下一页里了
+                                        onOpenRepositories = { tab = ProfileTab.Repositories },
+                                    )
                                     ProfileTab.Repositories -> ProfileRepositories(repos, reposLoading, onOpenRepo)
                                     ProfileTab.Activity -> ProfileActivity(host, token, login, onOpenRepo)
                                 }
@@ -462,6 +477,16 @@ private fun ProfileOverview(
     loading: Boolean,
     onOpenRepo: (String) -> Unit,
     onEdit: () -> Unit,
+    /**
+     * 三张统计卡的落点。
+     *
+     * 决策：卡片是**按钮**，不是装饰 —— 点下去必须有目的地，否则三个「能按但没反应」的
+     * 卡比一行纯文字更糟（按下去有涟漪、松手什么也没发生，读作 App 卡了）。
+     * 关注者 / 正在关注各开一页列表（`UserPeopleScreen`），仓库卡切到本页的「仓库」Tab。
+     */
+    onOpenFollowers: () -> Unit,
+    onOpenFollowing: () -> Unit,
+    onOpenRepositories: () -> Unit,
 ) {
     val pinnedRepos = repos.sortedByDescending { it.stars }.take(4)
     val context = LocalContext.current
@@ -472,7 +497,7 @@ private fun ProfileOverview(
     BranchbaseLazyColumn(modifier = Modifier.fillMaxSize()) {
         // 用户信息
         item {
-            Column(Modifier.fillMaxWidth().padding(16.dp, 16.dp, 16.dp, 12.dp)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp, 16.dp, 16.dp, 8.dp)) {
                 Row(verticalAlignment = Alignment.Top) {
                     Avatar(
                         url = avatarUrl,
@@ -497,31 +522,34 @@ private fun ProfileOverview(
                         ),
                     )
                     Spacer(Modifier.width(14.dp))
-                    Column {
+                    // weight(1f)：名字列吃掉「头像与编辑卡之间」的全部宽度 ——
+                    // 不写的话，长名字会把右上角的小卡挤出屏幕（Row 里定长元素先占位、剩余才给可伸缩的）。
+                    Column(Modifier.weight(1f)) {
                         Text(name ?: login, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
                         Spacer(Modifier.height(2.dp))
                         Text("@$login", fontSize = 16.sp, fontWeight = FontWeight.Light, color = Primer.TextSecondary)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    // 编辑资料：右上角的小号浮层卡（决策②：从通宽按钮挪到头部右侧，缩到一行字的高度）
+                    FloatingCardButton(
+                        onClick = onEdit,
+                        shape = EditProfileCardShape,
+                        elevation = 3.dp,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    ) {
+                        Text(stringResource(R.string.action_edit_profile), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Primer.TextPrimary)
                     }
                 }
                 if (bio != null) {
                     Spacer(Modifier.height(12.dp))
                     Text(bio, fontSize = 14.sp, color = Primer.TextSecondary, lineHeight = 20.sp)
                 }
-                Spacer(Modifier.height(14.dp))
-                Box(
-                    Modifier.fillMaxWidth().height(32.dp).clip(RoundedCornerShape(6.dp)).background(Primer.Gray150)
-                        .border(1.dp, Primer.BorderEmphasis, RoundedCornerShape(6.dp)).clickable { onEdit() },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(stringResource(R.string.action_edit_profile), fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Primer.TextPrimary)
-                }
                 Spacer(Modifier.height(10.dp))
-                Row {
-                    Text(stringResource(R.string.label_followers, followers), fontSize = 14.sp, color = Primer.TextSecondary)
-                    Text(" · ", fontSize = 14.sp, color = Primer.TextSecondary)
-                    Text(stringResource(R.string.label_following, following), fontSize = 14.sp, color = Primer.TextSecondary)
-                    Text(" · ", fontSize = 14.sp, color = Primer.TextSecondary)
-                    Text(stringResource(R.string.label_repo_count_public, publicRepos), fontSize = 14.sp, color = Primer.TextSecondary)
+                // 三张统计卡：一项一张浮层卡（决策③），各自点开自己的落点（决策①：不留死按钮）
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    StatCard(followers, stringResource(R.string.label_followers_list), onOpenFollowers, Modifier.weight(1f))
+                    StatCard(following, stringResource(R.string.label_following_list), onOpenFollowing, Modifier.weight(1f))
+                    StatCard(publicRepos, stringResource(R.string.profile_tab_repositories), onOpenRepositories, Modifier.weight(1f))
                 }
             }
         }
@@ -542,6 +570,96 @@ private fun ProfileOverview(
                     pinnedRepos.forEach { repo -> RepoCard(repo, onClick = { onOpenRepo(repo.fullName) }) }
                 }
             }
+        }
+    }
+}
+
+/** 编辑资料卡的圆角：比统计卡的 12dp 小一档 —— 它只有一行字高，同半径会读成「胶囊」。 */
+private val EditProfileCardShape: Shape = RoundedCornerShape(9.dp)
+
+/**
+ * 浮层卡片按钮：卡面（[cardSurface]：圆角 + 阴影 + 卡底）+ 按下缩放。
+ *
+ * 为什么不用 `Card(onClick = …)`：那要自己再接一遍 `interactionSource`，而按压缩放
+ * 必须复用全 App 唯一的按压原语 [rememberPressFeedback]（0.94 / 120ms）——
+ * 另写一份 tween 迟早会和图标、导航项、按钮的反馈分家（同 `docs/specs` 的动效约定）。
+ *
+ * 顺序有讲究：`graphicsLayer` 必须在 [cardSurface] **之前**。
+ * 放后面就只缩内容：按下时卡片保持原大、字往里缩，读作「内容在抖」而不是「卡被按下去」；
+ * 而 [cardSurface] 已经把自己的 shadow/clip/background 串好，插不进 `background`，所以只能前置缩放。
+ */
+@Composable
+private fun FloatingCardButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    shape: Shape = CardShape,
+    elevation: Dp = CardElevation,
+    contentPadding: PaddingValues,
+    content: @Composable () -> Unit,
+) {
+    val press = rememberPressFeedback()
+    Box(
+        modifier
+            .graphicsLayer {
+                scaleX = press.scale.value
+                scaleY = press.scale.value
+            }
+            .cardSurface(shape = shape, elevation = elevation)
+            // indication 跟随 clickable 的节点：卡面已 clip，水波纹不会溢出圆角
+            .clickable(
+                interactionSource = press.interaction,
+                indication = LocalIndication.current,
+                onClick = onClick,
+            )
+            .padding(contentPadding),
+        contentAlignment = Alignment.Center,
+    ) { content() }
+}
+
+/**
+ * 一张统计卡：**数字与名称同一行**的矮卡（`4 关注者`），整张卡是点击目标。
+ *
+ * 为什么换形态：两行版（数字在上、名称在下）无论怎么压，卡里始终有「上下两段 +
+ * 行间空隙」三截，压到 42dp 后两截字挤在一起、留白又没地方去，读起来就是那条
+ * 「奇奇怪怪」的细长条。同一行之后卡片只剩一行字的高度（36dp），比例恢复正常：
+ * 数字是被扫视的一层，名称跟在后面当注释，中间不再有第二段基线。
+ *
+ * 基线对齐（[alignByBaseline]）而不是 `CenterVertically`：16sp 与 11sp 居中对齐时，
+ * 小字的视觉重心会偏高（字面底部对不上），一行里看起来像名称「浮」在数字上面。
+ *
+ * 36dp 低于 Android 的 48dp 触控建议，这里接受：卡宽约 110dp，落点远大于方形 48dp，
+ * 三张卡之间还留了 6dp 间距。再小就只剩「3 个数字一行」——那不值得做成按钮。
+ */
+@Composable
+private fun StatCard(
+    count: Long,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    FloatingCardButton(
+        onClick = onClick,
+        modifier = modifier.height(36.dp),
+        // 左右 8dp：同一行放两段字，不再需要上下留白（上面只剩一行字的高度）
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                count.toString(),
+                modifier = Modifier.alignByBaseline(),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Primer.TextPrimary,
+                maxLines = 1,
+            )
+            Text(
+                label,
+                modifier = Modifier.alignByBaseline(),
+                fontSize = 11.sp,
+                color = Primer.TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

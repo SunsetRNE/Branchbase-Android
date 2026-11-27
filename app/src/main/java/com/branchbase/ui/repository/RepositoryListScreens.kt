@@ -1337,6 +1337,93 @@ fun PeopleListScreen(
     }
 }
 
+// ── 当前用户的关注者 / 正在关注（全屏） ──
+
+/**
+ * 关注者 / 正在关注列表（`/user/followers`、`/user/following`）。
+ *
+ * 为什么开整页而不是弹层：这两批人可能上千，弹层没有分页、没有搜索，长列表在浮层里滚
+ * 是「看不见底」的；而个人页概览本来就该只放概览。
+ *
+ * 与 [PeopleListScreen] 的分工：那个是**仓库**维度的星标者 / 关注者（`/repos/{o}/{r}/…`，
+ * 2026-07 起被限制为协作者可见）；这里是**当前登录用户**自己被谁关注、自己在关注谁。
+ * 取数路径与标题不同，行样式与失败卡共用。
+ *
+ * `per_page=100`：GitHub 默认只给 30 条，而这一页没有翻页入口 —— 不写就是
+ * 「第 31 个人永远看不到」且界面毫无提示（与 `/user/starred` 同一处理）。
+ */
+@Composable
+internal fun UserPeopleScreen(
+    sessionJson: String,
+    following: Boolean,
+    onBack: () -> Unit,
+) {
+    val context = LocalContext.current
+    val (host, token, _) = sessionInfo(sessionJson)
+    var users by remember { mutableStateOf<List<UserItem>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var tick by remember { mutableStateOf(0) }
+
+    val title = stringResource(if (following) R.string.label_following_list else R.string.label_followers_list)
+    val path = if (following) "/user/following?per_page=100" else "/user/followers?per_page=100"
+
+    LaunchedEffect(following, tick) {
+        loading = true
+        error = null
+        val raw = RustBridge.getJson(host, token, path)
+        when {
+            raw == null -> error = context.getString(R.string.state_no_data_retry)
+            raw.startsWith("ERROR:") -> error = userPeopleErrorText(following, raw).resolve(context)
+            else -> users = parseUsers(raw)
+        }
+        loading = false
+    }
+
+    Column(
+        Modifier.fillMaxSize().background(Primer.BackgroundPrimary).statusBarsPadding().navigationBarsPadding(),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowBack,
+                stringResource(R.string.action_back),
+                tint = Primer.IconPrimary,
+                modifier = Modifier.size(24.dp).iconTap { onBack() },
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
+        }
+        when {
+            loading -> ListLoading()
+            error != null -> ListError(error!!, onRetry = { tick++ })
+            users.isEmpty() -> ListEmpty(stringResource(R.string.state_no_content))
+            else -> BranchbaseLazyColumn(Modifier.fillMaxSize()) { items(users) { UserRow(it) } }
+        }
+    }
+}
+
+/**
+ * 关注者 / 正在关注加载失败的文案（纯函数，便于单测）。
+ *
+ * 为什么不复用仓库维度的 [peopleListErrorText]：那个的 403 分支写的是「GitHub 已把列表
+ * 限制为仓库协作者可见」—— 自己的关注列表被拒只可能是令牌问题，套那句会把用户引到
+ * 仓库权限上去排查。
+ */
+internal fun userPeopleErrorText(following: Boolean, rawError: String): LocalizedText {
+    val subject = LocalizedText(if (following) R.string.label_following_list else R.string.label_followers_list)
+    return when {
+        engineErrorStatus(rawError) == 429 || rawError.contains("rate limit", ignoreCase = true) ->
+            LocalizedText(R.string.error_rate_limited)
+        else -> LocalizedText(
+            R.string.error_people_list_load_failed,
+            listOf(subject, rawError.removePrefix("ERROR:").take(120)),
+        )
+    }
+}
+
 /**
  * 星标者 / 关注者 / 复刻列表的失败文案（纯函数，便于单测）。
  *
