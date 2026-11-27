@@ -55,7 +55,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Check
@@ -67,7 +66,6 @@ import androidx.compose.material.icons.filled.DataObject
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Merge
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
@@ -89,9 +87,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -480,7 +481,7 @@ fun SearchScreen(
                 }
             } else {
                 Column {
-                    Text(resultCountText(total, codeResults.size, R.string.label_code_results).resolve(), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    ResultCountBar(codeResults.size, total, R.string.label_code_results, searchTypeRole(type))
                     BranchbaseLazyColumn {
                         items(codeResults) { code -> CodeResultCard(code) { openTarget(code.target) } }
                         pagingFooter(codeResults.size)
@@ -494,7 +495,7 @@ fun SearchScreen(
                 }
             } else {
                 Column {
-                    Text(resultCountText(total, pullResults.size, R.string.label_pull_results).resolve(), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    ResultCountBar(pullResults.size, total, R.string.label_pull_results, searchTypeRole(type))
                     BranchbaseLazyColumn {
                         items(pullResults) { pull -> PullCard(pull) { openTarget(pull.target) } }
                         pagingFooter(pullResults.size)
@@ -508,7 +509,7 @@ fun SearchScreen(
                 }
             } else {
                 Column {
-                    Text(resultCountText(total, commitResults.size, R.string.label_commit_results).resolve(), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    ResultCountBar(commitResults.size, total, R.string.label_commit_results, searchTypeRole(type))
                     BranchbaseLazyColumn {
                         items(commitResults) { commit -> CommitCard(commit) { openTarget(commit.target) } }
                         pagingFooter(commitResults.size)
@@ -522,7 +523,7 @@ fun SearchScreen(
                 }
             } else {
                 Column {
-                    Text(resultCountText(total, topicResults.size, R.string.label_topic_results).resolve(), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    ResultCountBar(topicResults.size, total, R.string.label_topic_results, searchTypeRole(type))
                     BranchbaseLazyColumn {
                         item { TopicCard(topicResults) { openTarget(it.target) } }
                         pagingFooter(topicResults.size)
@@ -535,9 +536,9 @@ fun SearchScreen(
             }
         } else {
             Column {
-                Text(resultCountText(total, results.size, R.string.label_results).resolve(), fontSize = 12.sp, color = Primer.TextTertiary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                ResultCountBar(results.size, total, R.string.label_results, searchTypeRole(type))
                 BranchbaseLazyColumn {
-                    items(results) { item -> SearchItemCard(item) { openTarget(item.target) } }
+                    items(results) { item -> SearchItemCard(item, type) { openTarget(item.target) } }
                     pagingFooter(results.size)
                 }
             }
@@ -827,6 +828,89 @@ private fun OptionBadge(label: String, role: TintRole) {
     )
 }
 
+/**
+ * 每种搜索结果的语义色：左侧图标牌与顶部计数条**同源**，一屏只出现蓝 / 绿 / 紫 / 中性四档。
+ *
+ * 绿 / 紫 / 中性不是随手挑的，而是沿用通知列表里同一类对象早就定下的角色
+ * （`NotificationModels` 的 `TypeMeta`）：issue = `SUCCESS` 绿、PR = `DONE` 紫、
+ * commit = `NEUTRAL` 中性；仓库 / 代码 / 用户 / 主题属于「去哪」的主干，统一 `ACCENT` 蓝。
+ * 同一个 issue 在通知页与搜索页因此是同一个颜色，两处不会各说各的。
+ */
+internal fun searchTypeRole(type: SearchType): TintRole = when (type) {
+    SearchType.REPOS, SearchType.CODE, SearchType.USERS -> TintRole.ACCENT
+    SearchType.ISSUES -> TintRole.SUCCESS
+    SearchType.PULLS -> TintRole.DONE
+    SearchType.COMMITS -> TintRole.NEUTRAL
+    SearchType.TOPICS -> TintRole.ACCENT
+}
+
+/**
+ * 结果计数条（决策一）：**3dp 极细横条 + 语义色底**，替掉原来那行 12sp 灰字。
+ *
+ * 原来那行字的位置很尴尬：12sp 灰字夹在 32dp 搜索卡与结果卡之间，既不是标题也不是说明，
+ * 每换一种类型还要重排一次高度。现在收成一条与页面同宽的细线：底色是该类结果的语义色
+ * （与左侧图标牌同源，见 [searchTypeRole]），透明度沿用 `TintChip` 那条「同色 12%」的规则 ——
+ * 于是它既是分隔线、也一眼看出「现在这屏是仓库还是代码」，还省下一条结果的高度。
+ *
+ * 数字没有消失：读屏仍念原来的整句（文案照旧由 `resultCountText` 生成，不另写一套），
+ * 需要看的时候页脚还有「加载更多（已显示 30 / 共 196）」。
+ */
+@Composable
+private fun ResultCountBar(shown: Int, total: Long, unitRes: Int, role: TintRole) {
+    val label = resultCountText(total, shown, unitRes).resolve()
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 5.dp)
+            .height(3.dp)
+            .clip(RoundedCornerShape(2.dp))
+            .background(role.color().copy(alpha = 0.12f))
+            .semantics { contentDescription = label },
+    )
+}
+
+/**
+ * 列表左端的图标位：**有头像就放头像**（仓库 = 开发者头像、用户 = 本人头像），
+ * 没有头像或其它类型才退回语义图标牌。
+ *
+ * 形状与尺寸跟着图标牌走（26dp / 7dp 圆角），不另起一套圆形头像语言 ——
+ * 同一列里一行圆一行方，行高会看起来不齐。宽度固定，标题因此从同一条竖线起排。
+ */
+@Composable
+private fun SearchLeadingIcon(avatarUrl: String?, icon: ImageVector, role: TintRole) {
+    if (avatarUrl != null) {
+        AsyncImage(
+            model = avatarUrl,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(26.dp)
+                .clip(RoundedCornerShape(7.dp))
+                .background(Primer.Gray150),
+        )
+    } else {
+        TintChip(icon, role, size = 26.dp, corner = 7.dp, iconSize = 15.dp)
+    }
+}
+
+/**
+ * 「我的」徽章：搜索接口不返回 permissions，只能判定「是不是我自己的仓库」，
+ * 所以搜索列表里只给这一种关系上标记（协作 / 只读要在仓库详情页才准）。
+ */
+@Composable
+private fun MineBadge() {
+    Text(
+        stringResource(R.string.label_mine),
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Bold,
+        color = Primer.SuccessText,
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(Primer.SuccessSurface)
+            .padding(horizontal = 5.dp, vertical = 1.dp),
+    )
+}
+
 /** 搜索加载骨架屏（shimmer 呼吸） */
 @Composable
 private fun SearchSkeleton() {
@@ -836,165 +920,260 @@ private fun SearchSkeleton() {
     // 等于把 15 个占位块都挂到动画的每一帧上，加载时每帧重组一遍。
     ProvideShimmer {
         Column {
-            repeat(5) {
-                Column(
+            // 骨架与结果卡同构：26dp 图标位 + 两行（标题 / 说明），卡距与内边距也照抄，
+            // 数据到达时是「同尺寸换内容」，不会整屏跳一下
+            repeat(6) {
+                Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Primer.BackgroundSecondary)
-                        .padding(14.dp),
+                        .padding(horizontal = 16.dp, vertical = 3.dp)
+                        .cardSurface()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(
                         Modifier
-                            .fillMaxWidth(0.55f)
-                            .height(16.dp)
+                            .size(26.dp)
+                            .clip(RoundedCornerShape(7.dp))
                             .skeletonBlock(),
                     )
-                    Spacer(Modifier.height(10.dp))
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(12.dp)
-                            .skeletonBlock(),
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Box(
-                        Modifier
-                            .fillMaxWidth(0.7f)
-                            .height(12.dp)
-                            .skeletonBlock(),
-                    )
+                    Spacer(Modifier.width(9.dp))
+                    Column(Modifier.weight(1f)) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth(0.5f)
+                                .height(11.dp)
+                                .skeletonBlock(),
+                        )
+                        Spacer(Modifier.height(5.dp))
+                        Box(
+                            Modifier
+                                .fillMaxWidth(0.85f)
+                                .height(9.dp)
+                                .skeletonBlock(),
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-/** 搜索结果卡片 */
+/**
+ * 搜索结果行卡（仓库 / 用户 / issue 共用，决策二）：**浮层白面 + 语义图标牌 + 高密度两行**。
+ *
+ * 容器与首页仓库卡同一套（`cardSurface()`：白面 + 4dp 阴影、12dp 圆角），力度再压一档：
+ * 卡距 3dp（相邻两卡共 6dp，与首页一致）、内边距 h12·v8、标题 14sp、说明限 1 行 ——
+ * 同屏可见条数从 3 条上下变成 5 条上下，这才是「列表」该有的密度。
+ *
+ * 左端图标位：仓库 / 用户放头像（仓库 = 开发者 `owner.avatar_url`，用户 = `avatar_url`），
+ * 其余类型走 `TintChip` 语义色（issue 绿 / commit 中性 …，见 [searchTypeRole]）；
+ * 说明行右侧挂 meta（仓库的「语言 · N 星」、issue 的 open/closed），不再单独占一行。
+ */
 @Composable
-private fun SearchItemCard(item: SearchItem, onClick: () -> Unit) {
-    Column(
+private fun SearchItemCard(item: SearchItem, type: SearchType, onClick: () -> Unit) {
+    Row(
         modifier = Modifier
-            .padding(start = 16.dp, end = 16.dp, bottom = 10.dp)
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(Primer.BackgroundSecondary)
+            .padding(horizontal = 16.dp, vertical = 3.dp)
+            .cardSurface()
             .clickable(onClick = onClick)
-            .padding(14.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(item.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
-            // 「我的」徽章：搜索结果里一眼分出账号仓库与别人的仓库（搜索接口不返回 permissions，
-            // 所以只判定「是不是我自己的」，协作/只读关系在仓库详情页才准）
-            if (item.relation == RepoRelation.OWN) {
-                Spacer(Modifier.width(6.dp))
+        SearchLeadingIcon(item.avatarUrl, typeIcon(type), searchTypeRole(type))
+        Spacer(Modifier.width(9.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    stringResource(R.string.label_mine),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Primer.SuccessText,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Primer.SuccessSurface)
-                        .padding(horizontal = 5.dp, vertical = 1.dp),
+                    item.title,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Primer.Blue500,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
+                if (item.relation == RepoRelation.OWN) {
+                    Spacer(Modifier.width(6.dp))
+                    MineBadge()
+                }
+            }
+            val meta = item.meta?.resolve()
+            if (item.subtitle.isNotBlank() || meta != null) {
+                Spacer(Modifier.height(2.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (item.subtitle.isNotBlank()) {
+                        Text(
+                            item.subtitle,
+                            fontSize = 11.5.sp,
+                            lineHeight = 15.sp,
+                            color = Primer.TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                    } else {
+                        Spacer(Modifier.weight(1f))
+                    }
+                    if (meta != null) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(meta, fontSize = 11.sp, color = Primer.TextTertiary, maxLines = 1)
+                    }
+                }
             }
         }
-        if (item.subtitle.isNotBlank()) {
-            Spacer(Modifier.height(4.dp))
-            Text(item.subtitle, fontSize = 13.sp, color = Primer.TextSecondary)
-        }
-        if (item.meta != null) {
-            Spacer(Modifier.height(8.dp))
-            Text(item.meta.resolve(), fontSize = 12.sp, color = Primer.TextTertiary)
-        }
+        Spacer(Modifier.width(6.dp))
+        Text("›", fontSize = 15.sp, color = Primer.TextTertiary)
     }
 }
 
-/** 代码搜索结果卡片（对标 GitHub 网页：仓库路径 + 文件路径胶囊 + 代码片段 + 次级路径 + 折叠提示） */
+/**
+ * 代码搜索结果卡（决策三）：**浮层白面 + 两行头 + 贴底代码块**。
+ *
+ * 重新设计的三处：
+ * 1. 卡面统一成 `cardSurface()`（原来是 8dp 圆角 + 1dp 描边、卡里再套一块描边代码区），
+ *    与仓库 / 用户卡同一种「浮起来」的语言；
+ * 2. 头部压成两行 —— 仓库行（头像 + `owner/repo` + ›）与文件行（文件类型图标 + 文件名 +
+ *    语言 / 匹配数胶囊），并去掉原来「▾ / ▸」两个点了没反应的假箭头：这张卡不能折叠，
+ *    箭头是空承诺，点下去只会跳到文件页；
+ * 3. 代码块贴着卡底（不再另起一遍内边距），行号列 24dp、11.5sp / 15sp 行高；同 sha 的其它
+ *    路径与截断提示收进同一块底色，不再一段换一次背景。
+ */
 @Composable
 private fun CodeResultCard(code: CodeResult, onClick: () -> Unit) {
     Column(
         modifier = Modifier
-            .padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .border(1.dp, CodeSyntax.CardBorder, RoundedCornerShape(8.dp))
+            .padding(horizontal = 16.dp, vertical = 3.dp)
+            .cardSurface()
             .clickable(onClick = onClick),
     ) {
-        // ① 仓库路径行：头像（Coil 加载，无则首字母兜底）+ owner/repo + 下拉箭头
+        // ① 仓库行：头像（无则首字母兜底）+ owner/repo + 右侧 ›
         Row(
-            modifier = Modifier.fillMaxWidth().background(CodeSyntax.CodeBg).padding(horizontal = 12.dp, vertical = 8.dp),
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 12.dp, end = 10.dp, top = 7.dp, bottom = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (code.avatarUrl != null) {
                 AsyncImage(
                     model = code.avatarUrl,
-                    contentDescription = code.owner,
-                    modifier = Modifier.size(20.dp).clip(CircleShape),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(18.dp)
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(Primer.Gray150),
                 )
             } else {
-                Box(Modifier.size(20.dp).clip(CircleShape).background(Primer.Border), contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier
+                        .size(18.dp)
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(Primer.Gray150),
+                    contentAlignment = Alignment.Center,
+                ) {
                     Text(code.owner.take(1).uppercase(), fontSize = 9.sp, color = Primer.IconPrimary)
                 }
             }
-            Spacer(Modifier.width(8.dp))
-            Text(code.repository, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
-            Spacer(Modifier.weight(1f))
-            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = Primer.IconSecondary, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                code.repository,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Primer.TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(4.dp))
+            Text("›", fontSize = 14.sp, color = Primer.TextTertiary)
         }
-        // ② 文件路径行：展开箭头 + 文件名 + 语言胶囊 + Matches 胶囊
+        // ② 文件行：文件类型图标 + 文件名 + 语言 / 匹配数胶囊
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 12.dp, end = 12.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = Primer.IconSecondary, modifier = Modifier.size(14.dp))
-            Spacer(Modifier.width(4.dp))
-            Text(code.fileName, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
-            Spacer(Modifier.weight(1f))
+            Icon(
+                fileIcon(code.path),
+                contentDescription = null,
+                tint = Primer.IconSecondary,
+                modifier = Modifier.size(13.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                code.fileName,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Primer.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
             if (code.language != null) {
-                LanguagePill(code.language)
                 Spacer(Modifier.width(6.dp))
+                LanguagePill(code.language)
             }
+            Spacer(Modifier.width(6.dp))
             MatchCountPill(code.matchCount)
         }
-        // ③ 代码片段块（片段相对行号 + 语法高亮 + 匹配词黄底）
-        CodeBlock(code.fragment, code.matches)
-        // ④ 次级文件路径（同 sha 分组）
-        if (code.subPaths.isNotEmpty()) {
-            Column(Modifier.fillMaxWidth()) {
+        // ③ 代码块 + 同 sha 的其它路径：整段压在 CodeBg 上，最后一行贴着卡底
+        if (code.fragment.isNotBlank() || code.subPaths.isNotEmpty()) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .background(CodeSyntax.CodeBg)
+                    .padding(vertical = 5.dp),
+            ) {
+                if (code.fragment.isNotBlank()) CodeBlock(code.fragment, code.matches)
                 code.subPaths.forEach { sub ->
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(start = 40.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(fileIcon(sub), contentDescription = null, tint = Primer.Blue500, modifier = Modifier.size(14.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(sub, fontSize = 12.sp, color = Primer.TextSecondary)
+                        Icon(fileIcon(sub), contentDescription = null, tint = Primer.Blue500, modifier = Modifier.size(12.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            sub,
+                            fontSize = 11.sp,
+                            color = Primer.TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
-            }
-        }
-        // ⑤ 折叠提示
-        if (code.subPaths.size > 3) {
-            Row(
-                Modifier.fillMaxWidth().background(CodeSyntax.CodeBg).padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.Top,
-            ) {
-                Text("⚠", fontSize = 11.sp, color = Primer.TextTertiary)
-                Spacer(Modifier.width(6.dp))
-                Text(stringResource(R.string.note_paths_truncated), fontSize = 11.sp, color = CodeSyntax.Comment)
+                if (code.subPaths.size > 3) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Text("⚠", fontSize = 10.sp, color = Primer.TextTertiary)
+                        Spacer(Modifier.width(5.dp))
+                        Text(stringResource(R.string.note_paths_truncated), fontSize = 10.5.sp, color = CodeSyntax.Comment)
+                    }
+                }
             }
         }
     }
 }
 
-/** 代码片段块：片段相对行号 + 语法高亮 + 匹配词黄底 */
+/**
+ * 代码片段块：片段相对行号 + 语法高亮 + 匹配词黄底。
+ *
+ * 底色由外层卡统一铺（`CodeBg`），这里只排版：行号列 24dp、11.5sp / 15sp 行高 ——
+ * 同一段 7 行片段从约 150dp 压到约 120dp，且长行折行后行距仍然稳定。
+ */
 @Composable
 private fun CodeBlock(fragment: String, matches: List<MatchRange>) {
     val lines = fragment.split('\n')
-    Column(Modifier.fillMaxWidth().background(CodeSyntax.CodeBg).padding(vertical = 6.dp)) {
+    Column(Modifier.fillMaxWidth()) {
         var offset = 0
         lines.forEachIndexed { idx, line ->
             // 把落在本行的匹配词转成相对本行的偏移
@@ -1003,20 +1182,22 @@ private fun CodeBlock(fragment: String, matches: List<MatchRange>) {
                 val end = m.end - offset
                 if (start >= 0 && end <= line.length && start < end) MatchRange(m.text, start, end) else null
             }
-            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp)) {
                 Text(
                     (idx + 1).toString(),
                     color = CodeSyntax.LineNo,
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
                     fontFamily = FontFamily.Monospace,
                     textAlign = TextAlign.End,
-                    modifier = Modifier.width(34.dp),
+                    modifier = Modifier.width(24.dp),
                 )
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(8.dp))
                 Text(
                     buildCodeText(line, local),
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
+                    fontSize = 11.5.sp,
+                    lineHeight = 15.sp,
                     color = Primer.TextPrimary,
                 )
             }
@@ -1025,51 +1206,94 @@ private fun CodeBlock(fragment: String, matches: List<MatchRange>) {
     }
 }
 
-/** 语言胶囊（语言色点 + 语言名） */
+/**
+ * 语言胶囊（语言品牌色点 + 语言名）。
+ *
+ * 底色用中性填充（`Gray150`）而不是一圈描边：卡面本身已经是浮层，
+ * 再叠一圈 1dp 线会显脏；胶囊只负责「这一格是数据」，不抢卡片的轮廓。
+ */
 @Composable
 private fun LanguagePill(language: String) {
     Row(
-        modifier = Modifier.clip(RoundedCornerShape(12.dp)).border(1.dp, CodeSyntax.CardBorder, RoundedCornerShape(12.dp)).padding(horizontal = 8.dp, vertical = 3.dp),
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(Primer.Gray150)
+            .padding(horizontal = 6.dp, vertical = 1.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(8.dp).clip(CircleShape).background(langColor(language)))
-        Spacer(Modifier.width(5.dp))
-        Text(language, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
+        Box(Modifier.size(7.dp).clip(CircleShape).background(langColor(language)))
+        Spacer(Modifier.width(4.dp))
+        Text(language, fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary, maxLines = 1)
     }
 }
 
-/** 匹配数胶囊 */
+/** 匹配数胶囊（与语言胶囊同形同密度）。 */
 @Composable
 private fun MatchCountPill(count: Int) {
     Row(
-        modifier = Modifier.clip(RoundedCornerShape(12.dp)).border(1.dp, CodeSyntax.CardBorder, RoundedCornerShape(12.dp)).padding(horizontal = 8.dp, vertical = 3.dp),
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(Primer.Gray150)
+            .padding(horizontal = 6.dp, vertical = 1.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(8.dp).clip(CircleShape).background(Primer.Border))
-        Spacer(Modifier.width(5.dp))
-        Text(stringResource(R.string.label_match_count, count), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextSecondary)
+        // 中性填充色而不是描边色：`Primer.Border` 按 Color.kt 的约定只做 stroke
+        Box(Modifier.size(7.dp).clip(CircleShape).background(Primer.Gray300))
+        Spacer(Modifier.width(4.dp))
+        Text(
+            stringResource(R.string.label_match_count, count),
+            fontSize = 10.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Primer.TextSecondary,
+            maxLines = 1,
+        )
     }
 }
 
-/** 拉取请求结果卡片（状态徽章 + 标题 + 编号 + 仓库） */
+/**
+ * 拉取请求结果卡（决策二：与仓库 / 用户卡同一套浮层行卡 + 语义图标牌）。
+ *
+ * 状态（open / merged / closed）用小徽章挂在标题前，颜色只取既有角色
+ * （`DONE` 紫 / `SuccessText` 绿 / `DANGER` 红），点进去先看到状态再看标题。
+ */
 @Composable
 private fun PullCard(pull: PullResult, onClick: () -> Unit) {
-    Column(
+    Row(
         modifier = Modifier
-            .padding(start = 16.dp, end = 16.dp, bottom = 10.dp)
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(Primer.BackgroundSecondary)
+            .padding(horizontal = 16.dp, vertical = 3.dp)
+            .cardSurface()
             .clickable(onClick = onClick)
-            .padding(14.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            StatusBadge(pull)
-            Spacer(Modifier.width(8.dp))
-            Text(pull.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
+        TintChip(typeIcon(SearchType.PULLS), searchTypeRole(SearchType.PULLS), size = 26.dp, corner = 7.dp, iconSize = 15.dp)
+        Spacer(Modifier.width(9.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                StatusBadge(pull)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    pull.title,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Primer.Blue500,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "#${pull.number} · ${pull.repository}",
+                fontSize = 11.sp,
+                color = Primer.TextTertiary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
-        Spacer(Modifier.height(8.dp))
-        Text("#${pull.number} · ${pull.repository}", fontSize = 12.sp, color = Primer.TextTertiary)
+        Spacer(Modifier.width(6.dp))
+        Text("›", fontSize = 15.sp, color = Primer.TextTertiary)
     }
 }
 
@@ -1077,7 +1301,7 @@ private fun PullCard(pull: PullResult, onClick: () -> Unit) {
  * 状态徽章（open/merged/closed）。
  *
  * `Open` 早就用了主题角色（`SuccessText`），只有 merged / closed 还写死浅色取值 ——
- * 现在三者都走角色（`Purple500` = `done`、`Red500` = `danger`）。
+ * 现在三者都走角色（`Purple500` = `done`、`Red500` = `danger`）。高密度下一并压到 10sp / h6·v1。
  */
 @Composable
 private fun StatusBadge(pull: PullResult) {
@@ -1088,63 +1312,102 @@ private fun StatusBadge(pull: PullResult) {
     }
     Text(
         text,
-        fontSize = 11.sp,
+        fontSize = 10.sp,
         fontWeight = FontWeight.SemiBold,
         color = Color.White,
-        modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(color).padding(horizontal = 8.dp, vertical = 2.dp),
+        maxLines = 1,
+        modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(color).padding(horizontal = 6.dp, vertical = 1.dp),
     )
 }
 
-/** 提交结果卡片（提交信息 + sha + 作者 + 仓库） */
+/**
+ * 提交结果卡（决策二复用）：浮层行卡 + 中性图标牌 + 提交信息首行 + 「sha · 作者 · 仓库」一行。
+ *
+ * 提交正文可能是多行：列表里只取**首行**。原来整段直接塞进卡里，一条带正文的提交
+ * 能把卡撑到三四行高，列表节奏全断；点进去在详情页能看全，列表不必替它展开。
+ */
 @Composable
 private fun CommitCard(commit: CommitResult, onClick: () -> Unit) {
-    Column(
+    val authorRepo = listOf(commit.author, commit.repository)
+        .filter { it.isNotBlank() }
+        .joinToString(" · ")
+    Row(
         modifier = Modifier
-            .padding(start = 16.dp, end = 16.dp, bottom = 10.dp)
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(Primer.BackgroundSecondary)
+            .padding(horizontal = 16.dp, vertical = 3.dp)
+            .cardSurface()
             .clickable(onClick = onClick)
-            .padding(14.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(commit.message, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
-        Spacer(Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.clip(RoundedCornerShape(4.dp)).background(Primer.Gray150).padding(horizontal = 6.dp, vertical = 1.dp)) {
-                Text(commit.sha.take(7), fontSize = 12.sp, color = Primer.TextSecondary, fontFamily = FontFamily.Monospace)
+        TintChip(typeIcon(SearchType.COMMITS), searchTypeRole(SearchType.COMMITS), size = 26.dp, corner = 7.dp, iconSize = 15.dp)
+        Spacer(Modifier.width(9.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                commit.message.substringBefore('\n'),
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Primer.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(2.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    commit.sha.take(7),
+                    fontSize = 10.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = Primer.TextSecondary,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Primer.Gray150)
+                        .padding(horizontal = 5.dp, vertical = 1.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    authorRepo,
+                    fontSize = 11.sp,
+                    color = Primer.TextTertiary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
-            Spacer(Modifier.width(8.dp))
-            Text(commit.author, fontSize = 12.sp, color = Primer.TextTertiary)
-            Spacer(Modifier.width(8.dp))
-            Text(commit.repository, fontSize = 12.sp, color = Primer.TextTertiary)
         }
+        Spacer(Modifier.width(6.dp))
+        Text("›", fontSize = 15.sp, color = Primer.TextTertiary)
     }
 }
 
-/** 主题结果卡片（chip 网格） */
+/**
+ * 主题结果卡（决策二复用）：整组主题一张浮层卡，内部 FlowRow 按 6dp 间距铺满。
+ *
+ * 主题本身就是一个词，卡片粒度仍是「一组」而不是「一条」—— 每个主题一张卡会把
+ * 一屏切成十几个小方块，反而更难扫。
+ */
 @Composable
 private fun TopicCard(topics: List<TopicResult>, onTopicClick: (TopicResult) -> Unit) {
     Column(
         modifier = Modifier
-            .padding(start = 16.dp, end = 16.dp, bottom = 10.dp)
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(Primer.BackgroundSecondary)
-            .padding(14.dp),
+            .padding(horizontal = 16.dp, vertical = 3.dp)
+            .cardSurface()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             topics.forEach { topic ->
                 Text(
                     topic.name,
-                    fontSize = 13.sp,
+                    fontSize = 12.5.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Primer.Blue500,
+                    maxLines = 1,
                     // clip 在 clickable 之前：点击反馈跟随圆角；点一下去官方主题页
                     modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(14.dp))
                         .background(Primer.Gray150)
                         .clickable { onTopicClick(topic) }
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
                 )
             }
         }
@@ -1628,6 +1891,8 @@ private fun parseResults(json: String, type: SearchType, me: String): Pair<List<
                         relation = pair?.let { (o, _): Pair<String, String> ->
                             repoRelationOf(o, me, isPrivate = it.optBoolean("private", false))
                         },
+                        // 仓库卡左端放开发者头像（搜索接口的 owner 对象里就有，不用再打一次 API）
+                        avatarUrl = it.optJSONObject("owner")?.optString("avatar_url")?.takeIf { u -> u.isNotBlank() },
                     )
                 }
                 SearchType.USERS -> SearchItem(
@@ -1635,6 +1900,7 @@ private fun parseResults(json: String, type: SearchType, me: String): Pair<List<
                     subtitle = it.optString("html_url").orEmpty(),
                     // 站内没有他人主页，交给浏览器
                     target = SearchTarget.Web(it.optString("html_url")),
+                    avatarUrl = it.optString("avatar_url").takeIf { u -> u.isNotBlank() },
                 )
                 SearchType.ISSUES -> {
                     // repository_url（API 地址）+ number 才是跳转所需信息；html_url 只用于展示
@@ -1642,7 +1908,9 @@ private fun parseResults(json: String, type: SearchType, me: String): Pair<List<
                     val number = it.optLong("number")
                     SearchItem(
                         title = it.optString("title"),
-                        subtitle = it.optString("html_url").orEmpty(),
+                        // 副标题放「owner/repo」而不是整条 html_url：URL 一行永远被截在
+                        // 「https://github.com/ow…」，同一行里换来的仓库名反而读不到
+                        subtitle = pair?.let { (o, r) -> "$o/$r" } ?: it.optString("html_url").orEmpty(),
                         // state 是 GitHub 的判别值（open / closed），没有对应资源就原样透出
                         meta = LocalizedText(raw = it.optString("state")),
                         target = pair?.takeIf { _ -> number > 0 }
@@ -1815,6 +2083,11 @@ private data class SearchItem(
     val target: SearchTarget? = null,
     /** 仓库结果专用：与当前账号的关系（我的 / 协作 / 他人）。 */
     val relation: RepoRelation? = null,
+    /**
+     * 左端图标位用的头像：仓库取 `owner.avatar_url`（开发者头像），用户取 `avatar_url`。
+     * 其它类型为 null —— issue / PR / commit / topic 没有「属于这条结果的开发者」这回事。
+     */
+    val avatarUrl: String? = null,
 )
 
 private data class CodeResult(
