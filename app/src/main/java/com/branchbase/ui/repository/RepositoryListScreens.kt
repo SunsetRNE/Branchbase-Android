@@ -464,16 +464,18 @@ private fun ParentFolderRow(onClick: () -> Unit) {
 private fun BreadcrumbBar(path: String, onNavigate: (String) -> Unit) {
     // 仓库名不进面包屑：顶栏已经写着 `owner/repo`，路径这一行只画目录链（根 = `/`）
     val layers = remember(path) { breadcrumbLayers(path) }
-    CrumbFlow(
-        layers = layers,
-        onNavigate = onNavigate,
-        modifier = Modifier
+    // 1.4.79：路径行本身也做成卡片（与下面每一行同形：16dp 外距 + 12dp 内边距 + 12dp 圆角 + 4dp 阴影），
+    // 于是「我在哪」与「这里有什么」读成同一列，而不是一行飘在列表上方的裸文字。
+    // 竖向 7dp 让它的高度与 22dp 图标牌的行对齐（约 32dp）。
+    Box(
+        Modifier
             .fillMaxWidth()
-            // 1.4.78：左缘对齐列表卡的**内容**左缘（16 卡片外距 + 12 卡内边距 = 28dp），
-            // 而不是卡边 16dp —— 1.4.77 只对到卡边，路径文字仍比图标列缩进 12dp，看着还是歪的。
-            // 上下留白 2/4dp：根目录只有一枚「/」，不给它单独留一行的高度。
-            .padding(start = 28.dp, end = 16.dp, top = 2.dp, bottom = 2.dp),
-    )
+            .padding(horizontal = 16.dp, vertical = 2.dp)
+            .cardSurface()
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+    ) {
+        CrumbFlow(layers = layers, onNavigate = onNavigate, modifier = Modifier.fillMaxWidth())
+    }
 }
 
 /** 折行处那枚「…」：它不是文案（不进资源表、不翻译），也不会和任何一段目录名重名 */
