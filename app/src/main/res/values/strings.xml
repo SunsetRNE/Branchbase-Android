@@ -1387,6 +1387,13 @@
     <string name="error_website_scheme">个人网站需以 http:// 或 https:// 开头</string>
     <string name="hint_bio">一句话介绍自己（最多 160 字）</string>
     <string name="hint_twitter_username">X / Twitter 用户名（不含 @）</string>
+    <string name="label_profile_section_basic">基本资料</string>
+    <string name="label_profile_section_work">工作与位置</string>
+    <string name="label_profile_section_links">链接</string>
+    <string name="confirm_unsaved_profile_title">未保存的修改</string>
+    <string name="note_unsaved_profile_body">资料有改动但还没保存，离开后这些改动会丢失。</string>
+    <string name="action_discard_changes">放弃修改</string>
+    <string name="action_keep_editing">继续编辑</string>
     <string name="action_locate">定位</string>
     <string name="state_job_running">该作业正在运行</string>
     <string name="action_copy_step_log">复制当前步骤日志</string>

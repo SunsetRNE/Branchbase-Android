@@ -1026,6 +1026,13 @@ ${result.files.size} 个文件变更	%1$s files changed	label_files_changed
 个人网站	Website	label_website
 社交账号	Social accounts	label_social_accounts
 X / Twitter 用户名（不含 @）	X / Twitter username (without @)	hint_twitter_username
+基本资料	Basic info	label_profile_section_basic
+工作与位置	Work & location	label_profile_section_work
+链接	Links	label_profile_section_links
+未保存的修改	Unsaved changes	confirm_unsaved_profile_title
+资料有改动但还没保存，离开后这些改动会丢失。	Your profile has unsaved edits. They will be lost if you leave.	note_unsaved_profile_body
+放弃修改	Discard changes	action_discard_changes
+继续编辑	Keep editing	action_keep_editing
 保存后立即对所有人可见。仅提交有变化的字段，未改动的资料不会被覆盖。	Visible to everyone immediately after saving. Only changed fields are submitted; untouched profile fields are not overwritten.	note_profile_visibility
 全部检查	Check all	action_check_all
 还没有账号	No accounts yet	state_no_accounts

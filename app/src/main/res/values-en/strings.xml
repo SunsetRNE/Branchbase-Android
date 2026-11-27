@@ -1381,6 +1381,13 @@
     <string name="error_website_scheme">The website must start with http:// or https://</string>
     <string name="hint_bio">Introduce yourself in one line (up to 160 characters)</string>
     <string name="hint_twitter_username">X / Twitter username (without @)</string>
+    <string name="label_profile_section_basic">Basic info</string>
+    <string name="label_profile_section_work">Work &amp; location</string>
+    <string name="label_profile_section_links">Links</string>
+    <string name="confirm_unsaved_profile_title">Unsaved changes</string>
+    <string name="note_unsaved_profile_body">Your profile has unsaved edits. They will be lost if you leave.</string>
+    <string name="action_discard_changes">Discard changes</string>
+    <string name="action_keep_editing">Keep editing</string>
     <string name="action_locate">Locate</string>
     <string name="state_job_running">This job is still running</string>
     <string name="action_copy_step_log">Copy the current step\'s log</string>
