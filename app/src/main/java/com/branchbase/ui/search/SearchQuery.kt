@@ -41,6 +41,13 @@ internal fun buildSearchQuery(
 /**
  * 搜索缓存键。
  *
+ * ## 键里放的是「生效查询串」，不是用户敲的原文
+ *
+ * 语言与高级筛选会被 [buildSearchQuery] 拼成 `language:` / `stars:` 这类限定符。1.4.92 及更早
+ * 只用**原文**做键：改语言、改高级筛选算出来的键一模一样 —— 抽屉里拨完一整套条件点「完成」，
+ * `SearchScreen` 确实重新发起了搜索，但 `SearchCacheManager.get` 命中同一条旧行、直出旧结果，
+ * 用户读到的就是「根本没重搜」。现在把四维条件一起喂进键：任有一维变化就换一条键。
+ *
  * ## 必须带账号（这是修掉的一个真实缺陷）
  *
  * 搜索结果**受当前账号权限影响**：私有仓库、私有代码、仅自己可见的 issue 都会出现在结果里。
@@ -53,12 +60,22 @@ internal fun buildSearchQuery(
  * 键里用 [SearchType.cacheKey]（稳定英文）而不是展示文案 —— 缓存是**落库**的，
  * 切一次界面语言不该让整张缓存表变成读不到的孤儿。
  */
-internal fun searchCacheKey(type: SearchType, query: String, sortKey: String, login: String): String =
-    if (type == SearchType.REPOS) {
-        "search:$login:${type.cacheKey}|$query|$sortKey"
+internal fun searchCacheKey(
+    type: SearchType,
+    query: String,
+    language: String?,
+    advanced: Map<String, String>,
+    advancedFilters: List<Pair<String, String>>,
+    sortKey: String,
+    login: String,
+): String {
+    val effective = buildSearchQuery(query, type, language, advanced, advancedFilters)
+    return if (type == SearchType.REPOS) {
+        "search:$login:${type.cacheKey}|$effective|$sortKey"
     } else {
-        "search:$login:${type.cacheKey}|$query"
+        "search:$login:${type.cacheKey}|$effective"
     }
+}
 
 /**
  * 把后端错误翻成**用户能据此行动**的一句话。

@@ -2,6 +2,9 @@ package com.branchbase.ui.search
 
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 
 /**
  * 搜索页的**保留状态**（跨「进入结果 → 返回搜索页」存活）。
@@ -20,14 +23,19 @@ import androidx.lifecycle.ViewModel
  * 同页还负责 [`nextSeq`] / [`isCurrent`]：快速连点搜索、或改类型/排序后立刻再搜时，
  * 旧请求可能后到并覆盖新结果（还会提前把 loading 置回 false）。
  * 每次发起请求领一个序号，**回来时不是最新序号就丢弃**。
+ *
+ * ## 选项记忆
+ *
+ * 类型 / 排序 / 语言 / 高级筛选由 [SearchOptionStore] 落盘，构造函数在**首次创建时**读一次：
+ * 这样首帧画出来就是上次的矩阵，不会先闪一帧默认值再跳成记忆值（在组合期写状态做恢复会）。
  */
-class SearchViewModel : ViewModel() {
+class SearchViewModel internal constructor(restored: SearchOptions? = null) : ViewModel() {
 
     val queryState = mutableStateOf("")
-    val typeState = mutableStateOf(SearchType.REPOS)
-    val sortKeyState = mutableStateOf("")
-    val languageState = mutableStateOf<String?>(null)
-    val advancedState = mutableStateOf<Map<String, String>>(emptyMap())
+    val typeState = mutableStateOf(restored?.type ?: SearchType.REPOS)
+    val sortKeyState = mutableStateOf(restored?.sortKey ?: "")
+    val languageState = mutableStateOf<String?>(restored?.language)
+    val advancedState = mutableStateOf<Map<String, String>>(restored?.advanced ?: emptyMap())
 
     /** 是否已经搜过（决定空态显示「未找到结果」还是「输入关键词开始搜索」）。 */
     val searchedState = mutableStateOf(false)
@@ -45,4 +53,14 @@ class SearchViewModel : ViewModel() {
 
     /** 返回页面时是否需要自动重搜（有搜索词且搜过）。 */
     fun hasPendingSession(): Boolean = searchedState.value && queryState.value.isNotBlank()
+
+    companion object {
+        /**
+         * 带记忆的工厂。`viewModel(factory = …)` 只在**没有现成实例**时用这个工厂，
+         * 所以恢复只会发生一次；之后改选项走 [typeState] 等状态，不会被记忆覆盖回去。
+         */
+        internal fun factory(restored: SearchOptions?): ViewModelProvider.Factory = viewModelFactory {
+            initializer { SearchViewModel(restored) }
+        }
+    }
 }

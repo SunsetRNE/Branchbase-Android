@@ -84,8 +84,13 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import com.branchbase.R
 import com.branchbase.ui.LocalizedText
+import com.branchbase.ui.CardDrawer
 import com.branchbase.ui.CardElevation
+import com.branchbase.ui.CardSegments
 import com.branchbase.ui.CardShape
+import com.branchbase.ui.FloatCardRowHeight
+import com.branchbase.ui.FloatCardShape
+import com.branchbase.ui.FloatingCardButton
 import com.branchbase.ui.cardSurface
 import com.branchbase.ui.settings.GitProxyScreen
 import com.branchbase.ui.settings.GlassNavigationRuntime
@@ -612,45 +617,6 @@ private fun ProfileOverview(
 private val EditProfileCardShape: Shape = RoundedCornerShape(9.dp)
 
 /**
- * 浮层卡片按钮：卡面（[cardSurface]：圆角 + 阴影 + 卡底）+ 按下缩放。
- *
- * 为什么不用 `Card(onClick = …)`：那要自己再接一遍 `interactionSource`，而按压缩放
- * 必须复用全 App 唯一的按压原语 [rememberPressFeedback]（0.94 / 120ms）——
- * 另写一份 tween 迟早会和图标、导航项、按钮的反馈分家（同 `docs/specs` 的动效约定）。
- *
- * 顺序有讲究：`graphicsLayer` 必须在 [cardSurface] **之前**。
- * 放后面就只缩内容：按下时卡片保持原大、字往里缩，读作「内容在抖」而不是「卡被按下去」；
- * 而 [cardSurface] 已经把自己的 shadow/clip/background 串好，插不进 `background`，所以只能前置缩放。
- */
-@Composable
-private fun FloatingCardButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    shape: Shape = CardShape,
-    elevation: Dp = CardElevation,
-    contentPadding: PaddingValues,
-    content: @Composable () -> Unit,
-) {
-    val press = rememberPressFeedback()
-    Box(
-        modifier
-            .graphicsLayer {
-                scaleX = press.scale.value
-                scaleY = press.scale.value
-            }
-            .cardSurface(shape = shape, elevation = elevation)
-            // indication 跟随 clickable 的节点：卡面已 clip，水波纹不会溢出圆角
-            .clickable(
-                interactionSource = press.interaction,
-                indication = LocalIndication.current,
-                onClick = onClick,
-            )
-            .padding(contentPadding),
-        contentAlignment = Alignment.Center,
-    ) { content() }
-}
-
-/**
  * 一张统计卡：**数字与名称同一行**的矮卡（`4 关注者`），整张卡是点击目标。
  *
  * 为什么换形态：两行版（数字在上、名称在下）无论怎么压，卡里始终有「上下两段 +
@@ -721,7 +687,7 @@ private fun SectionTitle(title: String, sub: String? = null) {
  * 阴影与圆角已经承担了「这是一块可操作的面」，高度就能再收 4dp，横向内边距从 12dp 收到 9dp。
  * 这一行省下的高度与留白全给下面的仓库列表 —— 一屏能多看见一张卡。
  */
-private val RepoFilterRowHeight = 32.dp
+private val RepoFilterRowHeight = FloatCardRowHeight
 
 /** 头部浮层的上边呼吸：与列表卡的卡距同为 6dp。 */
 private val RepoHeaderTopGap = 6.dp
@@ -748,7 +714,7 @@ private val RepoHeaderContentPadding =
  * 另外 3dp 与 4dp 的光晕半径差约 2dp，列表看起来比头部宽一点点，左右各出现一道台阶。
  * 现在两枚小卡走 [CardElevation]，卡距也收到与列表卡一致（6dp）：接缝的读法与「卡与卡之间」同构。
  */
-private val RepoMiniCardShape: Shape = RoundedCornerShape(9.dp)
+private val RepoMiniCardShape: Shape = FloatCardShape
 
 /**
  * 「仓库」Tab：**搜索是浮层卡、语言筛选收进抽屉**。
@@ -994,25 +960,6 @@ private fun RepoFilterSheet(
     onSelect: (String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    // 首帧就把目标置 true：面板从屏幕下沿之外滑上来。之后不再写它 ——
-    // 否则「收起到一半又被置回 true」会把退场打断。
-    val state = remember { MutableTransitionState(false).apply { targetState = true } }
-    // 退场真的播完（isIdle 且目标为 false）才让上层摘掉对话框。提前摘 = 位移被切掉，就是「闪一下」。
-    LaunchedEffect(state.isIdle) {
-        if (state.isIdle && !state.targetState) onDismiss()
-    }
-    val close: () -> Unit = { state.targetState = false }
-    // 行：先落筛选，再收起 —— 滑下去的 240ms 里后面的列表已经是新结果
-    val pick: (String?) -> Unit = { language ->
-        onSelect(language)
-        close()
-    }
-    // 遮罩只有「有/无」两态，但跟着面板一起走 240ms，不然面板还在升、背景已经定了
-    val scrim by animateFloatAsState(
-        targetValue = if (state.targetState) 1f else 0f,
-        animationSpec = tween(ElementMotion.SHEET_MS),
-        label = "repo-filter-scrim",
-    )
     // 「全部」永远是第 0 段：它的内容 = 所有语言（含未归类的）
     val segments: List<RepoLangClass?> = remember(languages) {
         listOf<RepoLangClass?>(null) + RepoLangClass.entries.filter { cls -> languages.any { it in cls.languages } }
@@ -1025,86 +972,49 @@ private fun RepoFilterSheet(
         )
     }
 
-    Dialog(
-        onDismissRequest = close,
-        // 默认宽度的对话框只有中间一条；这里要通屏的遮罩与贴底的面板
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    ) {
-        Box(Modifier.fillMaxSize()) {
-            // 遮罩：只负责「点一下收起」。用 pointerInput 而不是 clickable ——
-            // 它没有文字，不该在无障碍树里多出一个「没有一个字的按钮」。
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.32f * scrim))
-                    .pointerInput(Unit) { detectTapGestures { close() } },
-            )
-            AnimatedVisibility(
-                visibleState = state,
-                // 行程 = 面板自身高度：退场时整块落到屏幕下沿之外，读作「滑下去」而不是「淡掉」
-                enter = slideInVertically(tween(ElementMotion.SHEET_MS)) { it } +
-                    fadeIn(tween(ElementMotion.PANEL_FADE_IN_MS)),
-                exit = slideOutVertically(tween(ElementMotion.SHEET_MS)) { it } +
-                    fadeOut(tween(ElementMotion.SHEET_MS)),
-                modifier = Modifier.align(Alignment.BottomCenter),
-            ) {
-                val panelShape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .shadow(elevation = 16.dp, shape = panelShape, clip = false)
-                        .background(Primer.BackgroundPrimary, panelShape)
-                        // 面板本体的空白处（标题与列表之间的内边距）**吞掉**点击：
-                        // 只有点在遮罩上才收起，点在面板里不该关掉它
-                        .pointerInput(Unit) { detectTapGestures { } }
-                        .navigationBarsPadding()
-                        .padding(horizontal = 14.dp)
-                        .padding(top = 14.dp, bottom = 12.dp),
-                ) {
-                    Text(
-                        stringResource(R.string.title_repo_lang_filter),
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Primer.TextPrimary,
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    RepoLangSegments(segments = segments, segment = segment, onSelect = { segment = it })
-                    Spacer(Modifier.height(8.dp))
-                    // 兜底滚动：语言全集最多可能到十几行，面板不能长到顶掉标题与分段控件
-                    Box(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
-                        Column(Modifier.fillMaxWidth()) {
+    CardDrawer(
+        title = stringResource(R.string.title_repo_lang_filter),
+        onDismiss = onDismiss,
+    ) { close ->
+        // 行：先落筛选，再收起 —— 滑下去的 240ms 里后面的列表已经是新结果
+        val pick: (String?) -> Unit = { language ->
+            onSelect(language)
+            close()
+        }
+        RepoLangSegments(segments = segments, segment = segment, onSelect = { segment = it })
+        Spacer(Modifier.height(8.dp))
+        // 兜底滚动：语言全集最多可能到十几行，面板不能长到顶掉标题与分段控件
+        Box(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+            Column(Modifier.fillMaxWidth()) {
+                RepoLangRow(
+                    label = stringResource(R.string.label_all_languages),
+                    icon = Icons.Filled.Clear,
+                    role = TintRole.NEUTRAL,
+                    count = null,
+                    selected = selected == null,
+                    onClick = { pick(null) },
+                )
+                AnimatedContent(
+                    targetState = segment,
+                    // 分段之间是「同一张清单换了内容」，不是翻页：只做淡入 + 极短的纵向位移，
+                    // 与滑动的胶囊一起读成「换了一格」，而不是「列表被整块替换」
+                    transitionSpec = {
+                        (fadeIn(tween(160)) + slideInVertically { it / 10 }) togetherWith fadeOut(tween(120))
+                    },
+                    label = "repo-lang-rows",
+                ) { cls ->
+                    Column(Modifier.fillMaxWidth()) {
+                        val rows = if (cls == null) languages else languages.filter { it in cls.languages }
+                        rows.forEach { language ->
+                            val rowClass = langClassOf(language)
                             RepoLangRow(
-                                label = stringResource(R.string.label_all_languages),
-                                icon = Icons.Filled.Clear,
-                                role = TintRole.NEUTRAL,
-                                count = null,
-                                selected = selected == null,
-                                onClick = { pick(null) },
+                                label = language,
+                                icon = rowClass?.icon ?: Icons.Filled.Circle,
+                                role = rowClass?.role ?: TintRole.NEUTRAL,
+                                count = counts[language] ?: 0,
+                                selected = language == selected,
+                                onClick = { pick(language) },
                             )
-                            AnimatedContent(
-                                targetState = segment,
-                                // 分段之间是「同一张清单换了内容」，不是翻页：只做淡入 + 极短的纵向位移，
-                                // 与滑动的胶囊一起读成「换了一格」，而不是「列表被整块替换」
-                                transitionSpec = {
-                                    (fadeIn(tween(160)) + slideInVertically { it / 10 }) togetherWith fadeOut(tween(120))
-                                },
-                                label = "repo-lang-rows",
-                            ) { cls ->
-                                Column(Modifier.fillMaxWidth()) {
-                                    val rows = if (cls == null) languages else languages.filter { it in cls.languages }
-                                    rows.forEach { language ->
-                                        val rowClass = langClassOf(language)
-                                        RepoLangRow(
-                                            label = language,
-                                            icon = rowClass?.icon ?: Icons.Filled.Circle,
-                                            role = rowClass?.role ?: TintRole.NEUTRAL,
-                                            count = counts[language] ?: 0,
-                                            selected = language == selected,
-                                            onClick = { pick(language) },
-                                        )
-                                    }
-                                }
-                            }
                         }
                     }
                 }
@@ -1128,57 +1038,11 @@ private fun RepoLangSegments(
     segment: RepoLangClass?,
     onSelect: (RepoLangClass?) -> Unit,
 ) {
-    BoxWithConstraints(
-        Modifier
-            .fillMaxWidth()
-            .cardSurface(shape = RoundedCornerShape(10.dp), elevation = 2.dp)
-            .padding(3.dp),
-    ) {
-        val gap = 3.dp
-        val count = segments.size.toFloat()
-        val segWidth = (maxWidth - gap * (count - 1f)) / count
-        val index = segments.indexOf(segment).coerceAtLeast(0)
-        val offset by animateDpAsState(
-            targetValue = (segWidth + gap) * index.toFloat(),
-            animationSpec = spring(dampingRatio = 0.72f, stiffness = 420f),
-            label = "repo-lang-segment",
-        )
-        Box(
-            Modifier
-                .offset(x = offset)
-                .width(segWidth)
-                .height(30.dp)
-                .clip(RoundedCornerShape(999.dp))
-                .background(Primer.Blue500),
-        )
-        Row(Modifier.height(30.dp)) {
-            segments.forEachIndexed { i, cls ->
-                if (i > 0) Spacer(Modifier.width(gap))
-                val on = cls == segment
-                val color by animateColorAsState(
-                    targetValue = if (on) Color.White else Primer.TextSecondary,
-                    animationSpec = tween(ElementMotion.COLOR_MS),
-                    label = "repo-lang-segment-text",
-                )
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .clip(RoundedCornerShape(999.dp))
-                        .clickable { onSelect(cls) },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        stringResource(cls?.labelRes ?: R.string.filter_all),
-                        fontSize = 12.sp,
-                        fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium,
-                        color = color,
-                        maxLines = 1,
-                    )
-                }
-            }
-        }
-    }
+    CardSegments(
+        labels = segments.map { cls -> stringResource(cls?.labelRes ?: R.string.filter_all) },
+        selectedIndex = segments.indexOf(segment).coerceAtLeast(0),
+        onSelect = { index -> onSelect(segments[index]) },
+    )
 }
 
 /**

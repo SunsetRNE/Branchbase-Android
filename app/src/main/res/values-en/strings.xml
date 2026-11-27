@@ -1353,6 +1353,15 @@
     <string name="label_topic_results">topic results</string>
     <string name="state_no_code_results">No matching code</string>
     <string name="label_filter">Filter</string>
+    <string name="label_search_options">Options</string>
+    <string name="title_search_options">Search options</string>
+    <string name="search_options_target">Target</string>
+    <string name="search_options_sort">Sort</string>
+    <string name="search_options_more">More</string>
+    <string name="search_badge_advanced">Advanced %1$d</string>
+    <string name="search_sort_repos_only">Sorting applies to repository search only</string>
+    <string name="action_clear_advanced">Clear advanced</string>
+    <string name="action_done">Done</string>
     <string name="note_delete_account_keeps_data">Local repositories (%1$s) and task records under this account are kept and reappear when you sign in to the same account again; other accounts cannot see this data.</string>
     <string name="note_delete_account_only_this">The same account has %1$s other sign-in records (each its own row in the list); only this one is deleted.</string>
     <string name="action_switch_to_account">Switch to this account</string>

@@ -30,14 +30,26 @@ class MorphWiringTest {
     }
 
     @Test
-    fun `检索页的按钮接了形变组件`() {
+    fun `检索页的选项按钮接了形变台账`() {
         val text = source(searchScreen)
-        val calls = Regex("AnimatedMorphIcon\\(").findAll(text).count()
-        assertTrue("检索页应至少有 4 处按钮/图标接了形变（类型、排序、过滤、高级筛选），实际 $calls", calls >= 4)
-
-        assertEquals("类型下拉箭头", 2, Regex("MorphIcons\\.ChevronDownUp").findAll(text).count())
+        // 类型 / 排序下拉与过滤按钮已收进抽屉：选中态由 CardSegments 的滑动胶囊表达，
+        // 搜索页里只剩高级筛选这一对 +/− 还需要形变（展开 ⇄ 收起）。
         assertEquals("高级筛选的 +/−", 1, Regex("MorphIcons\\.PlusMinus").findAll(text).count())
-        assertEquals("过滤按钮（走降级）", 1, Regex("MorphIcons\\.FilterOpen").findAll(text).count())
+        assertTrue(
+            "高级筛选行必须真的渲染形变组件",
+            Regex("AnimatedMorphIcon\\(").findAll(text).count() >= 1,
+        )
+        assertFalse(
+            "类型/排序下拉箭头已随下拉收进抽屉，分段控件负责选中态",
+            text.contains("MorphIcons.ChevronDownUp"),
+        )
+        assertFalse(
+            "过滤按钮已收进抽屉入口卡，不再自己用 Tune/FilterOpen 表达展开",
+            text.contains("MorphIcons.FilterOpen"),
+        )
+        // 抽屉与分段必须是共享件（个人页抽屉同源），不能在搜索页再抄一套
+        assertTrue("搜索页应复用 CardDrawer", text.contains("CardDrawer("))
+        assertTrue("搜索页应复用 CardSegments", text.contains("CardSegments("))
     }
 
     @Test
@@ -52,15 +64,25 @@ class MorphWiringTest {
 
     @Test
     fun `按钮按下反馈接在点击源上`() {
-        val text = source(searchScreen)
-        val feedback = Regex("rememberPressFeedback\\(\\)").findAll(text).count()
-        assertTrue("按下反馈应覆盖工具栏三个按钮与加载更多，实际 $feedback", feedback >= 4)
+        // 搜索页的选项入口与搜索卡改走共享 FloatingCardButton：按压原语与 interactionSource
+        // 的接线收在那一份实现里，任何调用点都不会再自己写一份 tween 把反馈分家
+        val shared = source(File(appRoot, "ui/FloatingCard.kt"))
+        assertTrue(
+            "浮层卡必须复用全 App 唯一的按压原语",
+            shared.contains("rememberPressFeedback()"),
+        )
         // 反馈必须把 interactionSource 交给 clickable，否则 collectIsPressedAsState 永远收不到事件
         assertTrue(
-            "按下反馈没有接到 clickable 的 interactionSource 上",
-            text.contains("interactionSource = press.interaction") &&
-                text.contains("interactionSource = sortPress.interaction") &&
-                text.contains("interactionSource = filterPress.interaction"),
+            "浮层卡的按下反馈没有接到 clickable 的 interactionSource 上",
+            shared.contains("interactionSource = press.interaction"),
+        )
+        val text = source(searchScreen)
+        assertTrue("搜索页的选项入口应走 FloatingCardButton", text.contains("FloatingCardButton("))
+        // 分页「加载更多」仍在本文件里自己接按压反馈
+        assertTrue(
+            "加载更多仍要有按下反馈",
+            Regex("rememberPressFeedback\\(\\)").findAll(text).count() >= 1 &&
+                text.contains("interactionSource = press.interaction"),
         )
     }
 

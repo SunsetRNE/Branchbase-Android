@@ -9,14 +9,27 @@ import com.branchbase.ui.repository.RepoDeepLink
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -24,33 +37,43 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Commit
 import androidx.compose.material.icons.filled.DataObject
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Merge
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.BottomSheetDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -63,31 +86,44 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.branchbase.ui.CardDrawer
+import com.branchbase.ui.CardElevation
+import com.branchbase.ui.CardSegments
+import com.branchbase.ui.FloatCardRowHeight
+import com.branchbase.ui.FloatCardShape
+import com.branchbase.ui.FloatingCardButton
 import com.branchbase.ui.LocalizedText
+import com.branchbase.ui.TintChip
+import com.branchbase.ui.cardSurface
 import com.branchbase.ui.repository.RepoRelation
 import com.branchbase.ui.repository.repoRelationOf
 import com.branchbase.ui.resolve
+import com.branchbase.ui.theme.ElementMotion
 import com.branchbase.ui.theme.ProvideShimmer
 import com.branchbase.ui.theme.skeletonBlock
 import com.branchbase.ui.theme.morph.AnimatedMorphIcon
 import com.branchbase.ui.theme.morph.MorphIcons
 import com.branchbase.ui.theme.rememberPressFeedback
-import com.branchbase.ui.theme.selectionColor
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
@@ -95,6 +131,9 @@ import com.branchbase.ui.log.Logger
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.theme.CodeSyntax
 import com.branchbase.ui.theme.Primer
+import com.branchbase.ui.theme.TintRole
+import com.branchbase.ui.theme.color
+import com.branchbase.ui.theme.textColor
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
@@ -131,7 +170,17 @@ fun SearchScreen(
      * 搜索词 / 类型 / 排序 / 筛选存在 ViewModel 里（不是 `remember`）：
      * 点进某个结果再返回时，搜索页会被销毁重建，放 `remember` 会全部归零。
      */
-    val vm: SearchViewModel = viewModel()
+    // 选项记忆按账号落盘：结果受账号权限影响，检索条件也不该跟着账号串（同 searchCacheKey 的理由）
+    val login = remember(sessionJson, context) {
+        runCatching { JSONObject(sessionJson).getJSONObject("user").optString("login") }
+            .getOrNull()?.takeIf { it.isNotBlank() && it != "null" }
+            ?: com.branchbase.core.AccountStore.currentLogin(context)
+    }
+    val optionStore = remember(login) { SearchOptionStore(context, login) }
+    // 工厂只在**首次创建**时读记忆：首帧就是上次的矩阵，不闪一帧默认值
+    val vm: SearchViewModel = viewModel(
+        factory = remember(optionStore) { SearchViewModel.factory(optionStore.load()) },
+    )
     var query by vm.queryState
     var selectedLanguage by vm.languageState
     var advancedValues by vm.advancedState
@@ -139,11 +188,8 @@ fun SearchScreen(
     var sortKey by vm.sortKeyState
     var searched by vm.searchedState
 
-    // 纯界面态（气泡/面板是否展开）留在这里即可
-    var expandedFilter by remember { mutableStateOf<String?>(null) }
-    var typeMenu by remember { mutableStateOf(false) }
-    var sortMenu by remember { mutableStateOf(false) }
-    var showFilter by remember { mutableStateOf(false) }
+    // 纯界面态（抽屉是否展开）留在这里即可；抽屉里的分段选中/展开行是瞬时态，跟着抽屉生灭
+    var drawerOpen by remember { mutableStateOf(false) }
 
     // 结果本身不进 ViewModel：返回时按缓存直出（命中即瞬时），避免在内存里留一份大对象
     var results by remember { mutableStateOf<List<SearchItem>>(emptyList()) }
@@ -159,14 +205,19 @@ fun SearchScreen(
     var loading by remember { mutableStateOf(vm.hasPendingSession()) }
     var searchError by remember { mutableStateOf<String?>(null) }
 
-    // 缓存键要绑账号：搜索结果含私有仓库/私有代码，跨账号命中既是错误结果也是权限泄漏
-    val login = remember(sessionJson, context) {
-        runCatching { JSONObject(sessionJson).getJSONObject("user").optString("login") }
-            .getOrNull()?.takeIf { it.isNotBlank() && it != "null" }
-            ?: com.branchbase.core.AccountStore.currentLogin(context)
+    /** 把当前四维矩阵写回记忆：抽屉里每改一项就落一次，进程随时被杀也不会丢。 */
+    fun persistOptions() {
+        optionStore.save(SearchOptions(type, sortKey, selectedLanguage, advancedValues))
     }
 
-    fun doSearch() {
+    /**
+     * 发起一次搜索。
+     *
+     * [forceRefresh] = true 表示**用户显式按了搜索**（放大镜 / 键盘回车）：跳过缓存直接回源。
+     * 缓存是给「返回页面 / 切回前台时直出」用的；显式动作若也吃缓存，用户只会看到界面原地不动，
+     * 读起来就是「点了没反应」。抽屉关掉时的重搜走缓存（矩阵没变时没必要再打一次 GitHub）。
+     */
+    fun doSearch(forceRefresh: Boolean = false) {
         // ① 请求发起时把条件**快照**下来：协程恢复时用户可能已经改了类型/排序，
         //    那时再读 type/results 会把 A 类型的结果按 B 类型解析、写进 B 的状态桶
         val query0 = query
@@ -174,7 +225,9 @@ fun SearchScreen(
         val type0 = type
         val sortKey0 = sortKey
         val q = buildSearchQuery(query0, type0, selectedLanguage, advancedValues, advancedFilters)
-        val cacheKey = searchCacheKey(type0, query0, sortKey0, login)
+        // 键必须含语言 / 高级筛选：用原文当键的话，只改这两维会命中同一条旧缓存，
+        // 看起来就是「点完成没反应」
+        val cacheKey = searchCacheKey(type0, query0, selectedLanguage, advancedValues, advancedFilters, sortKey0, login)
 
         // ② 统一解析并写入对应类型状态（按快照里的类型）
         fun parseAndSet(json: String) {
@@ -207,8 +260,8 @@ fun SearchScreen(
         loading = true
         searchError = null
         scope.launch {
-            // 命中缓存：读本地数据库
-            val cached = cacheManager.get(cacheKey, type0.cacheKey)
+            // 命中缓存：读本地数据库（显式搜索不回源缓存，见 doSearch 的 forceRefresh）
+            val cached = if (forceRefresh) null else cacheManager.get(cacheKey, type0.cacheKey)
             if (cached != null) {
                 if (!vm.isCurrent(token0)) return@launch
                 parseAndSet(cached)
@@ -390,130 +443,24 @@ fun SearchScreen(
             .background(Primer.BackgroundPrimary)
             .statusBarsPadding(),
     ) {
-        // 搜索框
-        SearchTopBar(query = query, onQueryChange = { query = it }, onSearch = { doSearch() }, onBack = onBack)
-
-        // 工具栏
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            // 类型下拉
-            Box(Modifier.weight(1f)) {
-                // 按钮动效补帧：展开态底色过渡（180ms）+ 按压缩放（120ms）+
-                // 箭头 ↓⇄↑ 的**路径插值形变**（中间帧由顶点对应关系算出来，而不是两帧硬切）。
-                // 三者都是既有规格里的原语，参数不在这里定，见 ui/theme/Motion.kt 与 ui/theme/morph/。
-                val press = rememberPressFeedback()
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth().height(40.dp)
-                        // graphicsLayer 必须在 clip/background **之前**，否则只缩内容不缩底
-                        .graphicsLayer {
-                            scaleX = press.scale.value
-                            scaleY = press.scale.value
-                        }
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(selectionColor(typeMenu, on = Primer.Gray150, off = Primer.BackgroundSecondary))
-                        .clickable(interactionSource = press.interaction, indication = LocalIndication.current) { typeMenu = true }
-                        .padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(stringResource(type.labelRes), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary, modifier = Modifier.weight(1f))
-                    AnimatedMorphIcon(
-                        pair = MorphIcons.ChevronDownUp,
-                        target = typeMenu,
-                        tint = Primer.IconSecondary,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-                // 白底 + Primer 描边：主题已把容器角色统一成标准白底，
-                // 这里再补一道描边，与 App 其它弹层（气泡 / 手板）的「白底 + 描边 + 阴影」一致
-                DropdownMenu(
-                    expanded = typeMenu,
-                    onDismissRequest = { typeMenu = false },
-                    containerColor = Primer.BackgroundPrimary,
-                    border = BorderStroke(1.dp, Primer.Border.copy(alpha = 0.5f)),
-                ) {
-                    SearchType.entries.forEach { t ->
-                        DropdownMenuItem(
-                            text = { Text(stringResource(t.labelRes), fontSize = 13.sp, color = Primer.TextPrimary) },
-                            onClick = { type = t; typeMenu = false },
-                        )
-                    }
-                }
-            }
-            // 排序下拉（仅仓库搜索支持排序，其余类型隐藏）
-            if (type == SearchType.REPOS) {
-                Box {
-                    val sortPress = rememberPressFeedback()
-                    Row(
-                        modifier = Modifier
-                            .height(40.dp)
-                            .graphicsLayer {
-                                scaleX = sortPress.scale.value
-                                scaleY = sortPress.scale.value
-                            }
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(selectionColor(sortMenu, on = Primer.Gray150, off = Primer.BackgroundSecondary))
-                            .clickable(interactionSource = sortPress.interaction, indication = LocalIndication.current) { sortMenu = true }
-                            .padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(stringResource(sortLabelRes(sortKey)), fontSize = 12.sp, color = Primer.TextSecondary)
-                        Spacer(Modifier.width(2.dp))
-                        AnimatedMorphIcon(
-                            pair = MorphIcons.ChevronDownUp,
-                            target = sortMenu,
-                            tint = Primer.IconSecondary,
-                            modifier = Modifier.size(16.dp),
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = sortMenu,
-                        onDismissRequest = { sortMenu = false },
-                        containerColor = Primer.BackgroundPrimary,
-                        border = BorderStroke(1.dp, Primer.Border.copy(alpha = 0.5f)),
-                    ) {
-                        sortOptions.forEach { (key, labelRes) ->
-                            DropdownMenuItem(
-                                text = { Text(stringResource(labelRes), fontSize = 13.sp, color = Primer.TextPrimary) },
-                                onClick = {
-                                    sortKey = key; sortMenu = false
-                                    if (searched) doSearch()
-                                },
-                            )
-                        }
-                    }
-                }
-            }
-            // 过滤按钮
-            val filterPress = rememberPressFeedback()
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .graphicsLayer {
-                        scaleX = filterPress.scale.value
-                        scaleY = filterPress.scale.value
-                    }
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(selectionColor(showFilter, on = Primer.Gray150, off = Primer.BackgroundSecondary))
-                    .clickable(interactionSource = filterPress.interaction, indication = LocalIndication.current) { showFilter = true },
-                contentAlignment = Alignment.Center,
-            ) {
-                // Tune ⇄ Close **结构差异大**（6 条子路径 vs 1 条），门控判它不做形变、
-                // 就地降级成 200ms 交叉过渡 —— 这是「极端组合清单」在真实调用处的落点：
-                // 调用方不需要知道能不能形变，照常写 `target = ...` 即可。
-                // 说明：手板是模态的，按钮在遮罩之下，这个状态主要在遮罩进退时可见。
-                AnimatedMorphIcon(
-                    pair = MorphIcons.FilterOpen,
-                    target = showFilter,
-                    tint = Primer.IconPrimary,
-                    contentDescription = stringResource(R.string.action_filter),
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-        }
+        // 搜索框 + 选项入口：两枚同为 32dp 的浮层卡（与「仓库」Tab 的搜索/筛选一排同密度），
+        // 三个语义图标分别落在「搜索（蓝）/ 筛选（紫）/ 清除（中性）」上
+        SearchHeader(
+            query = query,
+            onQueryChange = { query = it },
+            // 显式搜索（放大镜 / 回车）跳过缓存：用户按了就要一次真实请求，而不是原地不动
+            onSearch = { doSearch(forceRefresh = true) },
+            onBack = onBack,
+            // 徽标只在**搜过一次之后**才跟着关键词出现：没搜过的选项只是草稿，不该先占位置
+            badges = if (searched) {
+                optionBadges(context, type, sortKey, selectedLanguage, advancedValues)
+            } else {
+                emptyList()
+            },
+            optionsActive = sortKey.isNotBlank() || selectedLanguage != null ||
+                advancedValues.any { it.value.isNotBlank() },
+            onOpenOptions = { drawerOpen = true },
+        )
 
         // 结果
         if (loading) {
@@ -597,61 +544,287 @@ fun SearchScreen(
         }
     }
 
-    if (showFilter) {
-        FilterSheet(
-            selectedLanguage = selectedLanguage,
-            onSelectLanguage = { lang ->
-                selectedLanguage = lang
-                showFilter = false
-                doSearch()
+    if (drawerOpen) {
+        SearchOptionsSheet(
+            type = type,
+            onTypeChange = { type = it; persistOptions() },
+            sortKey = sortKey,
+            onSortChange = { sortKey = it; persistOptions() },
+            language = selectedLanguage,
+            onLanguageChange = { selectedLanguage = it; persistOptions() },
+            advanced = advancedValues,
+            onAdvancedChange = { name, value ->
+                // 空值 = 这条高级筛选没用上，直接删键；留着空串会让徽标计数虚高
+                advancedValues = if (value.isBlank()) advancedValues - name else advancedValues + (name to value)
+                persistOptions()
             },
-            advancedValues = advancedValues,
-            expandedFilter = expandedFilter,
-            onToggleFilter = { name -> expandedFilter = if (expandedFilter == name) null else name },
-            onApplyFilter = { name, value ->
-                advancedValues = advancedValues + (name to value)
-                expandedFilter = null
+            onClearAdvanced = { advancedValues = emptyMap(); persistOptions() },
+            onDismiss = {
+                drawerOpen = false
+                persistOptions()
+                // 矩阵变了就按新条件重搜（缓存命中时是瞬时的）；没搜过就等用户自己按搜索
+                if (searched && query.isNotBlank()) doSearch()
             },
-            onDismiss = { showFilter = false },
         )
     }
 }
 
-/** 搜索框 */
+/**
+ * 顶部一行：返回箭头 + 搜索卡 + 选项入口卡。
+ *
+ * 与「仓库」Tab 的头部（搜索卡 + 筛选入口）同构：两枚 32dp 的浮层小卡并排，
+ * 左缘各有一枚 `TintChip`——裸图标夹在卡里会显得这张卡少了点什么。
+ *
+ * 三枚语义图标的落点：搜索（[TintRole.ACCENT] 蓝）、选项入口（[TintRole.DONE] 紫）、
+ * 清除（[TintRole.NEUTRAL] 中性灰）。它们把「查找 / 收窄 / 退回去」三件事分开，
+ * 不靠位置让用户猜。
+ */
 @Composable
-private fun SearchTopBar(
+private fun SearchHeader(
     query: String,
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,
     onBack: () -> Unit,
+    badges: List<SearchBadge>,
+    optionsActive: Boolean,
+    onOpenOptions: () -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back), tint = Primer.IconPrimary, modifier = Modifier.size(24.dp).iconTap { onBack() })
-        Spacer(Modifier.width(4.dp))
-        Box(
-            modifier = Modifier.weight(1f).height(40.dp).clip(RoundedCornerShape(8.dp)).background(Primer.BackgroundSecondary).padding(horizontal = 12.dp),
-            contentAlignment = Alignment.CenterStart,
-        ) {
+        Icon(
+            Icons.AutoMirrored.Filled.ArrowBack,
+            contentDescription = stringResource(R.string.action_back),
+            tint = Primer.IconPrimary,
+            modifier = Modifier.size(24.dp).iconTap { onBack() },
+        )
+        SearchCard(
+            query = query,
+            onQueryChange = onQueryChange,
+            onSearch = onSearch,
+            badges = badges,
+            modifier = Modifier.weight(1f),
+        )
+        OptionsEntry(active = optionsActive, onClick = onOpenOptions)
+    }
+}
+
+/**
+ * 搜索卡：**浮层卡 + 语义搜索图标牌 + 真输入框 + 选项徽标**。
+ *
+ * 徽标跟在用户输入的原文**后面**：只显示这套矩阵里真正设了值的维度，没设的不占位置
+ * （「仓库」目标永远有值，所以搜过一次之后至少有一枚；排序 / 语言 / 高级筛选按需出现）。
+ * 颜色按维度分（目标蓝 / 倾向紫 / 语言绿 / 高级橙），底色都取该色的 12% —— 与 [TintChip]
+ * 同一条规则：底色永远跟着语义色走，不另配一套不透明的浅色。
+ *
+ * 徽标**与输入内容同一行**、钉在右侧图标（清除 / 搜索）前：卡高恒为 32dp，搜过一次也不会把
+ * 头部撑高一层。徽标条最多占卡宽的一半、超出就横滑；某一维被清掉时它用
+ * spring（ζ=0.72 / stiffness=420）收缩，剩下的徽标跟着往右滑到图标旁边 ——
+ * 不在「最后一名徽标 ↔ 放大镜」之间留一条空带。关键词本身单行内滚动，同样不换行、不撑高。
+ */
+@Composable
+private fun SearchCard(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onSearch: () -> Unit,
+    badges: List<SearchBadge>,
+    modifier: Modifier = Modifier,
+) {
+    val keyboard = LocalSoftwareKeyboardController.current
+    // 卡高恒为 32dp：关键词单行内滚动，徽标条最多占卡宽一半（超出自己横滑）。
+    BoxWithConstraints(
+        modifier
+            .cardSurface(shape = FloatCardShape, elevation = CardElevation)
+            .padding(horizontal = 9.dp),
+    ) {
+        val badgeMaxWidth = maxWidth * 0.5f
+        Row(Modifier.height(FloatCardRowHeight), verticalAlignment = Alignment.CenterVertically) {
+            TintChip(Icons.Filled.Search, role = TintRole.ACCENT, size = 20.dp, corner = 6.dp, iconSize = 12.dp)
+            Spacer(Modifier.width(7.dp))
             BasicTextField(
                 value = query,
                 onValueChange = onQueryChange,
                 singleLine = true,
-                textStyle = TextStyle(fontSize = 14.sp, color = Primer.TextPrimary),
-                modifier = Modifier.fillMaxWidth(),
+                textStyle = TextStyle(fontSize = 13.sp, color = Primer.TextPrimary),
+                cursorBrush = SolidColor(Primer.Blue500),
+                // 与「仓库」Tab 一致：本地没有「提交」概念，回车只收键盘
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = {
+                    keyboard?.hide()
+                    onSearch()
+                }),
+                // 输入框吃满剩余宽度：它本身就是「点一下进输入态」的落点，
+                // 徽标因此被顶到右侧图标旁边 —— 徽标不在位时不会在中间留下一条空白带。
+                modifier = Modifier.weight(1f),
                 decorationBox = { inner ->
-                    if (query.isEmpty()) {
-                        Text(stringResource(R.string.hint_search_or_jump), fontSize = 14.sp, color = Primer.TextTertiary)
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (query.isEmpty()) {
+                            Text(
+                                stringResource(R.string.hint_search_or_jump),
+                                fontSize = 13.sp,
+                                color = Primer.TextTertiary,
+                                maxLines = 1,
+                            )
+                        }
+                        inner()
                     }
-                    inner()
                 },
             )
+            BadgeStrip(badges = badges, maxWidth = badgeMaxWidth)
+            if (query.isNotEmpty()) {
+                Spacer(Modifier.width(4.dp))
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = stringResource(R.string.action_clear_search),
+                    tint = Primer.IconSecondary,
+                    modifier = Modifier.size(15.dp).iconTap { onQueryChange("") },
+                )
+            }
+            Spacer(Modifier.width(4.dp))
+            Icon(
+                Icons.Filled.Search,
+                contentDescription = stringResource(R.string.action_search),
+                tint = Primer.Blue500,
+                modifier = Modifier.size(18.dp).iconTap { onSearch() },
+            )
         }
-        Spacer(Modifier.width(8.dp))
-        Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.action_search), tint = Primer.Blue500, modifier = Modifier.size(22.dp).iconTap { onSearch() })
     }
+}
+
+/** 选项入口卡：图标牌用 [TintRole.DONE] 紫，与「挑选 / 归纳」那族同色。 */
+@Composable
+private fun OptionsEntry(active: Boolean, onClick: () -> Unit) {
+    FloatingCardButton(
+        onClick = onClick,
+        shape = FloatCardShape,
+        elevation = CardElevation,
+        modifier = Modifier.height(FloatCardRowHeight),
+        contentPadding = PaddingValues(horizontal = 8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TintChip(Icons.Filled.FilterList, role = TintRole.DONE, size = 20.dp, corner = 6.dp, iconSize = 12.dp)
+            Spacer(Modifier.width(5.dp))
+            Text(
+                stringResource(R.string.label_search_options),
+                fontSize = 12.sp,
+                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                color = if (active) Primer.Blue500 else Primer.TextSecondary,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+/** 记忆里的一条维度值：徽标文案 + 语义色角色（底色 = 角色色 × 12%）。 */
+private data class SearchBadge(val label: String, val role: TintRole)
+
+/**
+ * 把四维矩阵折成徽标：**只列真正生效的维度**。
+ *
+ * - 目标永远有值（不存在「不指定类型」的搜索），所以它总在；
+ * - 倾向只在仓库搜索里生效（GitHub 只给仓库接口排序），别的类型不显示——留着会骗人；
+ * - 语言、高级筛选按有没有值出现，高级筛选合并成一枚「高级 N」而不是把十来个键都铺开。
+ */
+private fun optionBadges(
+    context: Context,
+    type: SearchType,
+    sortKey: String,
+    language: String?,
+    advanced: Map<String, String>,
+): List<SearchBadge> = buildList {
+    add(SearchBadge(context.getString(type.labelRes), TintRole.ACCENT))
+    if (type == SearchType.REPOS && sortKey.isNotBlank()) {
+        add(SearchBadge(context.getString(sortLabelRes(sortKey)), TintRole.DONE))
+    }
+    language?.takeIf { it.isNotBlank() }?.let { add(SearchBadge(it, TintRole.SUCCESS)) }
+    val advancedCount = advanced.count { it.value.isNotBlank() }
+    if (advancedCount > 0) {
+        add(SearchBadge(context.getString(R.string.search_badge_advanced, advancedCount), TintRole.WARNING))
+    }
+}
+
+/**
+ * 徽标条：**每个语义维度一个固定槽位**（目标 / 倾向 / 语言 / 高级），空槽宽度为 0。
+ *
+ * 为什么不用「遍历当前 badges 列表」：列表一删，组合树当帧就被摘掉，`AnimatedVisibility`
+ * 根本没机会播退场。槽位常驻、只切 `visible`，正在消失的那一枚才能缩完再让位。
+ * 槽位按 [TintRole] 定位（一个维度最多一枚徽标），语义色顺序即显示顺序。
+ *
+ * 槽位自带前导 4dp：间距跟着卡片一起收窄/展开，不会在「上一枚 ↔ 下一枚」之间留下固定空隙。
+ * 条子本身最多占卡宽一半、超出横滑（[maxWidth] 由卡片宽度算出来）。
+ */
+@Composable
+private fun BadgeStrip(badges: List<SearchBadge>, maxWidth: Dp) {
+    val byRole = badges.associateBy { it.role }
+    Row(
+        Modifier
+            .widthIn(max = maxWidth)
+            // 标签多了就横滑：关键词与标签始终在同一行，卡不跟着长高
+            .horizontalScroll(rememberScrollState()),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BadgeSlot(byRole[TintRole.ACCENT])
+        BadgeSlot(byRole[TintRole.DONE])
+        BadgeSlot(byRole[TintRole.SUCCESS])
+        BadgeSlot(byRole[TintRole.WARNING])
+    }
+}
+
+/**
+ * 单个维度槽位：展开时 `expandHorizontally` + `fadeIn`，收起时 `shrinkHorizontally` + `fadeOut`，
+ * 尺寸与抽屉分段同一套弹簧（ζ=0.72 / stiffness=420）。
+ *
+ * 退场时调用方传进来的 [badge] 已经是 `null`，而 `AnimatedVisibility` 的出口内容还在组合里 ——
+ * 用普通字段（**不是** Snapshot 状态）留住最后一次非空值：写它不会触发重组，
+ * 动画首帧也不会因为「组合期写状态」多抖一轮；正在收窄的那一枚仍有内容可画。
+ *
+ * 从右侧锚定（`expandFrom` / `shrinkTowards` = [Alignment.End]）：整条徽标条靠右钉在
+ * 图标前，收起时应当朝右边收，剩下的徽标同时被输入框的扩张推向右。
+ */
+@Composable
+private fun BadgeSlot(badge: SearchBadge?) {
+    val retained = remember { BadgeRetainer() }
+    if (badge != null) retained.value = badge
+    AnimatedVisibility(
+        visible = badge != null,
+        enter = fadeIn(tween(ElementMotion.PANEL_FADE_IN_MS)) + expandHorizontally(
+            animationSpec = spring(dampingRatio = 0.72f, stiffness = 420f),
+            expandFrom = Alignment.End,
+        ),
+        exit = fadeOut(tween(ElementMotion.PANEL_FADE_IN_MS)) + shrinkHorizontally(
+            animationSpec = spring(dampingRatio = 0.72f, stiffness = 420f),
+            shrinkTowards = Alignment.End,
+        ),
+    ) {
+        val shown = retained.value ?: return@AnimatedVisibility
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Spacer(Modifier.width(4.dp))
+            OptionBadge(shown.label, shown.role)
+        }
+    }
+}
+
+/** [BadgeSlot] 的「最后一次非空值」盒子：故意不是 Snapshot 状态，见其注释。 */
+private class BadgeRetainer {
+    var value: SearchBadge? = null
+}
+
+/** 一枚选项徽标：语义色文字压在同色 12% 的圆角底上（与 [TintChip] 的底色规则同一个常量思路）。 */
+@Composable
+private fun OptionBadge(label: String, role: TintRole) {
+    Text(
+        label,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = role.textColor(),
+        maxLines = 1,
+        modifier = Modifier
+            .clip(RoundedCornerShape(5.dp))
+            .background(role.color().copy(alpha = 0.12f))
+            .padding(horizontal = 5.dp, vertical = 1.dp),
+    )
 }
 
 /** 搜索加载骨架屏（shimmer 呼吸） */
@@ -1083,133 +1256,349 @@ private val codeKeywords = setOf(
     "struct", "impl", "fn", "pub", "use", "type", "interface", "enum", "case", "switch", "break", "continue",
 )
 
-/** 过滤面板 */
-@OptIn(ExperimentalMaterial3Api::class)
+/** 抽屉里的四个分段：目标 / 倾向 / 语言 / 更多。声明顺序即分段顺序。 */
+private enum class SearchOptionsTab { TARGET, SORT, LANGUAGE, MORE }
+
+/**
+ * 搜索选项抽屉：**四维矩阵集中在一处**。
+ *
+ * ## 为什么把三个下拉/按钮收进抽屉
+ *
+ * 改前是「类型下拉 + 排序下拉 + 过滤按钮」三件并排：排序只在仓库类型下出现，
+ * 语言与高级筛选又藏在另一个手板里，用户要凑一套条件得先开 A 再开 B；
+ * 而且每次改一项都整排按钮重新排版（排序那格忽隐忽现）。
+ *
+ * 现在顶部只留一枚「选项」入口卡，四维条件全在抽屉里按分段归类：
+ * 改哪一维就切哪一段，改了不关抽屉（可以连着拨几项），关抽屉时一次性按新矩阵重搜。
+ * 抽屉容器、分段控件与行卡都复用「仓库」Tab 的那一套（[CardDrawer] / [CardSegments]）。
+ */
 @Composable
-private fun FilterSheet(
-    selectedLanguage: String?,
-    onSelectLanguage: (String) -> Unit,
-    advancedValues: Map<String, String>,
-    expandedFilter: String?,
-    onToggleFilter: (String) -> Unit,
-    onApplyFilter: (String, String) -> Unit,
+private fun SearchOptionsSheet(
+    type: SearchType,
+    onTypeChange: (SearchType) -> Unit,
+    sortKey: String,
+    onSortChange: (String) -> Unit,
+    language: String?,
+    onLanguageChange: (String?) -> Unit,
+    advanced: Map<String, String>,
+    onAdvancedChange: (String, String) -> Unit,
+    onClearAdvanced: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    // 显式写白底（主题里也已统一）：手板内部的输入框/加减按钮会跟着换成灰底，
-    // 否则「白底套白底」这两个元素会直接看不见
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = Primer.BackgroundPrimary,
-        dragHandle = { BottomSheetDefaults.DragHandle(color = Primer.Gray300) },
-    ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .navigationBarsPadding()
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 24.dp),
-        ) {
-            Text(stringResource(R.string.label_filter), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
-            Spacer(Modifier.height(12.dp))
-            Text(stringResource(R.string.label_language), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
-            Spacer(Modifier.height(6.dp))
-            languages.forEach { (lang, color) ->
-                val selected = selectedLanguage == lang
-                Row(
-                    Modifier.fillMaxWidth().clickable { onSelectLanguage(lang) }.padding(vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(Modifier.size(12.dp).clip(CircleShape).background(color))
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        lang,
-                        fontSize = 14.sp,
-                        color = if (selected) Primer.Blue500 else Primer.TextPrimary,
-                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                    )
-                    Spacer(Modifier.weight(1f))
-                    if (selected) {
-                        Text("✓", color = Primer.Blue500, fontSize = 14.sp)
-                    }
-                }
+    var tab by remember { mutableStateOf(SearchOptionsTab.TARGET) }
+    var expandedFilter by remember { mutableStateOf<String?>(null) }
+
+    CardDrawer(
+        title = stringResource(R.string.title_search_options),
+        onDismiss = onDismiss,
+        trailing = { close ->
+            FloatingCardButton(
+                onClick = close,
+                shape = FloatCardShape,
+                elevation = 2.dp,
+                modifier = Modifier.height(28.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp),
+            ) {
+                Text(
+                    stringResource(R.string.action_done),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Primer.Blue500,
+                )
             }
-            Spacer(Modifier.height(8.dp))
-            Text(stringResource(R.string.label_advanced), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
-            advancedFilters.forEach { (name, syntax) ->
-                val expanded = expandedFilter == name
-                val value = advancedValues[name]
-                // name 是稳定 key（存值 / 展开态用），显示名单独解析 —— 翻译不会改查询串
-                val label = stringResource(advancedFilterLabelRes(name))
-                Column {
-                    Row(
-                        Modifier.fillMaxWidth().clickable { onToggleFilter(name) }.padding(vertical = 9.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        // 手板是白底 → 这个 +/− 圆点要用中性灰垫底才看得见（原来是白色，靠 Material 的
-                        // 淡紫容器衬出来；容器改白之后就「消失」了）
-                        Box(
-                            Modifier
-                                .size(20.dp)
-                                .clip(CircleShape)
-                                .background(Primer.Gray150),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            // 原来是「+ / −」两个字符硬切：字形不同、基线也略有差异，切换时是「跳一下」。
-                            // 换成加号⇄减号的路径插值形变：竖杠逐帧收短，横杠始终在，是同一支笔写出来的感觉。
-                            AnimatedMorphIcon(
-                                pair = MorphIcons.PlusMinus,
-                                target = expanded,
-                                tint = Primer.IconSecondary,
-                                modifier = Modifier.size(16.dp),
+        },
+    ) { _ ->
+        // 打开时停在「目标」段：这是每次搜索都绕不开的一维，其余三维是按需的
+        CardSegments(
+            labels = listOf(
+                stringResource(R.string.search_options_target),
+                stringResource(R.string.search_options_sort),
+                stringResource(R.string.label_language),
+                stringResource(R.string.search_options_more),
+            ),
+            selectedIndex = tab.ordinal,
+            onSelect = { index ->
+                tab = SearchOptionsTab.entries[index]
+                expandedFilter = null
+            },
+        )
+        Spacer(Modifier.height(8.dp))
+        // 兜底滚动：高级筛选展开后可能超过一屏，面板不能长到顶掉标题与分段控件
+        Box(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+            AnimatedContent(
+                targetState = tab,
+                // 分段之间是「同一张清单换了内容」，不是翻页：只做淡入 + 极短的纵向位移，
+                // 与滑动的胶囊一起读成「换了一格」，而不是「列表被整块替换」
+                transitionSpec = {
+                    (fadeIn(tween(160)) + slideInVertically { it / 10 }) togetherWith fadeOut(tween(120))
+                },
+                label = "search-options-rows",
+            ) { current ->
+                Column(Modifier.fillMaxWidth()) {
+                    when (current) {
+                        SearchOptionsTab.TARGET -> SearchType.entries.forEach { option ->
+                            OptionRow(
+                                label = stringResource(option.labelRes),
+                                selected = option == type,
+                                onClick = { onTypeChange(option) },
+                                leading = {
+                                    TintChip(
+                                        typeIcon(option),
+                                        role = if (option == type) TintRole.ACCENT else TintRole.NEUTRAL_SUBTLE,
+                                        size = 22.dp,
+                                        corner = 7.dp,
+                                        iconSize = 13.dp,
+                                    )
+                                },
                             )
                         }
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            if (value != null) stringResource(R.string.label_name_value, label, value) else stringResource(R.string.label_name_syntax, label, syntax),
-                            fontSize = 13.sp,
-                            color = if (value != null) Primer.Blue500 else Primer.TextSecondary,
-                        )
-                    }
-                    if (expanded) {
-                        var input by remember(name) { mutableStateOf(value ?: "") }
-                        Row(
-                            Modifier.fillMaxWidth().padding(start = 28.dp, bottom = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            // 同上：输入框在白底手板上要靠灰底 + 描边才成立
-                            Box(
-                                Modifier
-                                    .weight(1f)
-                                    .height(36.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Primer.Gray150)
-                                    .border(1.dp, Primer.Border.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                                    .padding(horizontal = 10.dp),
-                                contentAlignment = Alignment.CenterStart,
-                            ) {
-                                BasicTextField(
-                                    value = input,
-                                    onValueChange = { input = it },
-                                    singleLine = true,
-                                    textStyle = TextStyle(fontSize = 13.sp, color = Primer.TextPrimary),
-                                    modifier = Modifier.fillMaxWidth(),
+
+                        SearchOptionsTab.SORT -> {
+                            if (type != SearchType.REPOS) {
+                                // 说清「为什么现在改了也不生效」，而不是把分段藏起来 —— 藏起来用户会以为排序丢了
+                                Text(
+                                    stringResource(R.string.search_sort_repos_only),
+                                    fontSize = 12.sp,
+                                    color = Primer.TextTertiary,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
                                 )
                             }
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                stringResource(R.string.action_apply),
-                                fontSize = 13.sp,
-                                color = Primer.Blue500,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.clickable { onApplyFilter(name, input) },
+                            sortOptions.forEach { (key, labelRes) ->
+                                OptionRow(
+                                    label = stringResource(labelRes),
+                                    selected = key == sortKey,
+                                    onClick = { onSortChange(key) },
+                                    leading = {
+                                        TintChip(
+                                            Icons.AutoMirrored.Filled.Sort,
+                                            role = if (key == sortKey) TintRole.ACCENT else TintRole.NEUTRAL_SUBTLE,
+                                            size = 22.dp,
+                                            corner = 7.dp,
+                                            iconSize = 13.dp,
+                                        )
+                                    },
+                                )
+                            }
+                        }
+
+                        SearchOptionsTab.LANGUAGE -> {
+                            OptionRow(
+                                label = stringResource(R.string.label_all_languages),
+                                selected = language == null,
+                                onClick = { onLanguageChange(null) },
+                                leading = {
+                                    TintChip(
+                                        Icons.Filled.Clear,
+                                        role = if (language == null) TintRole.ACCENT else TintRole.NEUTRAL_SUBTLE,
+                                        size = 22.dp,
+                                        corner = 7.dp,
+                                        iconSize = 13.dp,
+                                    )
+                                },
                             )
+                            languages.forEach { (lang, langColor) ->
+                                OptionRow(
+                                    label = lang,
+                                    selected = language == lang,
+                                    onClick = { onLanguageChange(lang) },
+                                    leading = { LanguageDot(langColor) },
+                                )
+                            }
+                        }
+
+                        SearchOptionsTab.MORE -> {
+                            if (advanced.any { it.value.isNotBlank() }) {
+                                OptionRow(
+                                    label = stringResource(R.string.action_clear_advanced),
+                                    selected = false,
+                                    onClick = onClearAdvanced,
+                                    leading = {
+                                        TintChip(
+                                            Icons.Filled.Clear,
+                                            role = TintRole.NEUTRAL_SUBTLE,
+                                            size = 22.dp,
+                                            corner = 7.dp,
+                                            iconSize = 13.dp,
+                                        )
+                                    },
+                                )
+                            }
+                            advancedFilters.forEach { (name, syntax) ->
+                                AdvancedOptionRow(
+                                    label = stringResource(advancedFilterLabelRes(name)),
+                                    syntax = syntax,
+                                    value = advanced[name]?.takeIf { it.isNotBlank() },
+                                    expanded = expandedFilter == name,
+                                    onToggle = { expandedFilter = if (expandedFilter == name) null else name },
+                                    onApply = { value ->
+                                        onAdvancedChange(name, value)
+                                        expandedFilter = null
+                                    },
+                                )
+                            }
                         }
                     }
                 }
             }
         }
     }
+}
+
+/** 抽屉里的一行：浮层卡 + 图标牌 + 名称 + 选中勾。 */
+@Composable
+private fun OptionRow(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    leading: @Composable () -> Unit,
+    secondary: String? = null,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp)
+            .cardSurface(shape = RoundedCornerShape(10.dp), elevation = 2.dp)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        leading()
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                label,
+                fontSize = 13.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                color = if (selected) Primer.Blue500 else Primer.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (secondary != null) {
+                Text(secondary, fontSize = 11.sp, color = Primer.TextTertiary, maxLines = 1)
+            }
+        }
+        if (selected) {
+            Icon(Icons.Filled.Check, contentDescription = null, tint = Primer.Blue500, modifier = Modifier.size(16.dp))
+        }
+    }
+}
+
+/**
+ * 语言色点：**与 [TintChip] 同构** —— 同色 12% 的 22dp 圆角底 + 中间一颗实心点。
+ *
+ * 语言色是数据（每种语言一个色值），不属于 [TintRole]，所以不能走 TintChip；
+ * 但底色 / 圆角 / 尺寸都照它的规则来，抽屉里看起来仍是同一种「图标牌」。
+ */
+@Composable
+private fun LanguageDot(color: Color) {
+    Box(
+        Modifier.size(22.dp).clip(RoundedCornerShape(7.dp)).background(color.copy(alpha = 0.12f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.size(9.dp).clip(CircleShape).background(color))
+    }
+}
+
+/**
+ * 高级筛选一行：卡片本体点一下展开/收起输入框（加号⇄减号路径插值形变），
+ * 展开后在卡下方补一条输入行 —— 与旧过滤手板同一套交互，只是外面换成了抽屉里的行卡。
+ */
+@Composable
+private fun AdvancedOptionRow(
+    label: String,
+    syntax: String,
+    value: String?,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onApply: (String) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .cardSurface(shape = RoundedCornerShape(10.dp), elevation = 2.dp)
+                .clickable(onClick = onToggle)
+                .padding(horizontal = 10.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier.size(22.dp).clip(RoundedCornerShape(7.dp)).background(Primer.Gray150),
+                contentAlignment = Alignment.Center,
+            ) {
+                AnimatedMorphIcon(
+                    pair = MorphIcons.PlusMinus,
+                    target = expanded,
+                    tint = if (value != null) Primer.Blue500 else Primer.IconSecondary,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = if (value != null) {
+                    stringResource(R.string.label_name_value, label, value)
+                } else {
+                    stringResource(R.string.label_name_syntax, label, syntax)
+                },
+                fontSize = 13.sp,
+                color = if (value != null) Primer.Blue500 else Primer.TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (value != null) {
+                Icon(Icons.Filled.Check, contentDescription = null, tint = Primer.Blue500, modifier = Modifier.size(16.dp))
+            }
+        }
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(tween(160)),
+            exit = shrinkVertically(tween(120)),
+        ) {
+            var input by remember(label, expanded) { mutableStateOf(value ?: "") }
+            Row(
+                Modifier.fillMaxWidth().padding(start = 28.dp, top = 6.dp, bottom = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .height(34.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Primer.Gray150)
+                        .border(1.dp, Primer.Border.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    BasicTextField(
+                        value = input,
+                        onValueChange = { input = it },
+                        singleLine = true,
+                        textStyle = TextStyle(fontSize = 13.sp, color = Primer.TextPrimary),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    stringResource(R.string.action_apply),
+                    fontSize = 13.sp,
+                    color = Primer.Blue500,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.clickable { onApply(input) },
+                )
+            }
+        }
+    }
+}
+
+/** 搜索目标 → 图标（抽屉里每行左缘的图标牌）。 */
+private fun typeIcon(type: SearchType): ImageVector = when (type) {
+    SearchType.CODE -> Icons.Filled.Code
+    SearchType.REPOS -> Icons.Filled.Folder
+    SearchType.ISSUES -> Icons.Filled.BugReport
+    SearchType.PULLS -> Icons.Filled.Merge
+    SearchType.USERS -> Icons.Filled.Person
+    SearchType.COMMITS -> Icons.Filled.Commit
+    SearchType.TOPICS -> Icons.Filled.Tag
 }
 
 private fun parseResults(json: String, type: SearchType, me: String): Pair<List<SearchItem>, Long> {

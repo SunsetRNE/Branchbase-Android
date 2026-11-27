@@ -1359,6 +1359,15 @@
     <string name="label_topic_results">主题结果</string>
     <string name="state_no_code_results">未找到匹配的代码</string>
     <string name="label_filter">筛选</string>
+    <string name="label_search_options">选项</string>
+    <string name="title_search_options">搜索选项</string>
+    <string name="search_options_target">目标</string>
+    <string name="search_options_sort">倾向</string>
+    <string name="search_options_more">更多</string>
+    <string name="search_badge_advanced">高级 %1$d</string>
+    <string name="search_sort_repos_only">排序仅对仓库搜索生效</string>
+    <string name="action_clear_advanced">清除高级选项</string>
+    <string name="action_done">完成</string>
     <string name="note_delete_account_keeps_data">该账号名下的本地仓库（%1$s 个）与任务记录会保留，重新登录同一账号后即可再次看到；其他账号看不到这些数据。</string>
     <string name="note_delete_account_only_this">同一账号还有 %1$s 条其它登录方式的记录（账号列表里单独一行），这次只删这一条。</string>
     <string name="action_switch_to_account">切换到此账号</string>

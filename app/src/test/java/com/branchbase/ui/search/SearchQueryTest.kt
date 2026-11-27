@@ -5,6 +5,7 @@ import com.branchbase.ui.LocalizedText
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -17,6 +18,16 @@ import org.junit.Test
 class SearchQueryTest {
 
     private val filters = listOf("星标数" to "stars:", "主题" to "topic:")
+
+    /** 测试里的默认矩阵：类型 + 原文 + 无语言 / 无高级 / 无排序。 */
+    private fun key(
+        type: SearchType,
+        query: String,
+        sortKey: String = "",
+        login: String = "alice",
+        language: String? = null,
+        advanced: Map<String, String> = emptyMap(),
+    ) = searchCacheKey(type, query, language, advanced, filters, sortKey, login)
 
     @Test
     fun `查询串拼上语言_高级筛选与类型限定`() {
@@ -53,25 +64,41 @@ class SearchQueryTest {
 
     @Test
     fun `缓存键必须绑定账号`() {
-        val a = searchCacheKey(SearchType.REPOS, "foo", "", login = "alice")
-        val b = searchCacheKey(SearchType.REPOS, "foo", "", login = "bob")
+        val a = key(SearchType.REPOS, "foo", login = "alice")
+        val b = key(SearchType.REPOS, "foo", login = "bob")
         // 搜索结果含私有仓库/私有代码：同一查询在不同账号下必须各存一份
-        assertFalse(a == b)
+        assertNotEquals(a, b)
         assertTrue(a.contains("alice"))
     }
 
     @Test
     fun `只有仓库类型带排序键`() {
-        assertTrue(searchCacheKey(SearchType.REPOS, "foo", "stars", "alice").endsWith("stars"))
+        assertTrue(key(SearchType.REPOS, "foo", "stars").endsWith("stars"))
         // 其余类型不支持排序：带上会让 sortKey 残留污染缓存键
-        assertFalse(searchCacheKey(SearchType.USERS, "foo", "stars", "alice").contains("stars"))
+        assertFalse(key(SearchType.USERS, "foo", "stars").contains("stars"))
+    }
+
+    @Test
+    fun `改语言或高级筛选必须换一条缓存键`() {
+        // 1.4.92 的真机缺陷：键里只有用户原文，改语言/筛选后算出来还是同一条键，
+        // SearchCacheManager 命中旧行直出旧结果 —— 表现就是「点完成没重搜」。
+        val base = key(SearchType.REPOS, "foo")
+        val lang = key(SearchType.REPOS, "foo", language = "kotlin")
+        val advanced = key(SearchType.REPOS, "foo", advanced = mapOf("星标数" to ">100"))
+        assertNotEquals(base, lang)
+        assertNotEquals(base, advanced)
+        assertNotEquals(lang, advanced)
+        // 生效查询串进键：语言限定符必须能在键里看到（否则只是换了个随机种子）
+        assertTrue(lang.contains("language:kotlin"))
+        // 类型限定符同样在生效查询串里：议题 / PR 共用接口但不能互相命中
+        assertNotEquals(key(SearchType.ISSUES, "foo"), key(SearchType.PULLS, "foo"))
     }
 
     @Test
     fun `缓存键用稳定英文键而不是展示文案`() {
         // 缓存是落库的：键里若混进展示文案，切一次界面语言就等于换了一套键，
         // 旧行全成孤儿（读不到、也不会被 TTL 之外的逻辑清掉）。
-        val key = searchCacheKey(SearchType.PULLS, "foo", "", login = "alice")
+        val key = key(SearchType.PULLS, "foo")
         assertTrue("缓存键里出现了展示文案", key.contains(SearchType.PULLS.cacheKey))
         SearchType.entries.forEach { t ->
             assertFalse(
