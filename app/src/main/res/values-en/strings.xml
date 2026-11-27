@@ -1455,6 +1455,8 @@
     <string name="label_languages">Languages</string>
     <string name="state_loading_readme">Loading the README…</string>
     <string name="label_contributors">Contributors</string>
+    <string name="label_contributors_total">%1$s total</string>
+    <string name="action_view_all">View all</string>
     <string name="state_no_language_data">No language data yet</string>
     <string name="action_watch">Watch</string>
     <string name="label_license">License</string>

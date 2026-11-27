@@ -1460,6 +1460,8 @@
     <string name="label_languages">项目语言 Languages</string>
     <string name="state_loading_readme">正在加载自述文件…</string>
     <string name="label_contributors">贡献者 Contributors</string>
+    <string name="label_contributors_total">共 %1$s 位</string>
+    <string name="action_view_all">查看全部</string>
     <string name="state_no_language_data">暂无语言数据</string>
     <string name="action_watch">关注</string>
     <string name="label_license">许可证 License</string>

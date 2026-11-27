@@ -50,6 +50,15 @@ data class RepoInfo(
      * 但推不上去、也开不了新 PR。字段缺失（老缓存）按未归档处理。
      */
     val archived: Boolean = false,
+    /**
+     * owner 的头像地址（`owner.avatar_url`）。
+     *
+     * 1.4.95 仓库概览页改成浮层卡之后，身份卡左侧要与搜索页的仓库行卡同一形状
+     * （26dp 头像 / 7dp 圆角，见 `SearchResultRow`）；这份 JSON 本来就在响应里，
+     * 多解一个字段即可，**不要为此另发一次 `/users/{login}`**。
+     * 字段缺失（老缓存）时为 null，`Avatar` 会退回首字母底色。
+     */
+    val ownerAvatarUrl: String? = null,
 )
 
 // ── 链接跳转目标（对齐 matcher 输出） ──
@@ -114,6 +123,9 @@ fun parseRepoInfo(json: String): RepoInfo? = runCatching {
             ?.optString("full_name")
             ?.takeIf { it.isNotBlank() },
         archived = o.optBoolean("archived", false),
+        ownerAvatarUrl = o.optJSONObject("owner")
+            ?.optString("avatar_url")
+            ?.takeIf { it.isNotBlank() },
     )
 }.getOrNull()
 

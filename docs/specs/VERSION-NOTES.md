@@ -74,7 +74,44 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.94 → 1.0.22）
+## 二、`versionName` 流水（1.4.95 → 1.0.22）
+
+### 1.4.95
+
+**仓库概览页换成「三语义图标 + 浮层卡」：身份卡 / 三张动作卡 / 三张区块卡；README 只给标题、正文留在画布上；贡献者卡封顶 8 位 + 独立完整列表页。**
+
+① **身份卡（决策一）**：`SunsetRNE` / `Branchbase-Android` / 描述原先是一段裸文字，靠字号与颜色
+分层；现在收进 `cardSurface()`（白面 + 4dp 阴影 + 12dp 圆角），左端放 owner 头像 26dp
+（`RepoInfo` 多解一个 `owner.avatar_url`，与搜索页仓库行卡同一形状，不额外请求 `/users/{login}`）。
+顶栏仍保留 `owner/repo` 标题 —— 滚到页尾后那是唯一的定位信息。
+
+② **三语义图标（决策二）**：星标 / 复刻 / 关注从 `Gray150` 胶囊换成三张并排 36dp 浮层卡，
+每张一枚 `TintChip`；语义色直接对齐动态流的 `EVENT_VISUALS`：星标 `WARNING`
+（= `WatchEvent`）、复刻 `DONE`（= `ForkEvent`）、关注 `SUCCESS`。于是这页点的星与首页
+「某人 star 了这个仓库」是同一种橙，不另立色板。**颜色只表类别，状态靠图标变体 + 文案**
+（实心/空心星、眼睛/划掉、已星标/星标）；只有「已忽略」与「复刻被禁用」把牌降成
+`NEUTRAL_SUBTLE`（绿底配「已忽略」自相矛盾）。`FloatingCardButton` 为此补了可选
+`onLongClick`（`combinedClickable`），点击做动作 / 长按看列表的两层交互原样保留。
+
+③ **区块卡（决策三）**：许可证 / 贡献者 / 项目语言各一张 `SectionCard`（卡头一枚
+`NEUTRAL_SUBTLE` 图标牌 + 13sp 粗体标题）。内容区四张卡都用中性牌 —— 一屏的彩色块
+只留给动作区那三枚，守住 `TintChip` 的「≤3 才读得成目录」。
+
+④ **README 刻意不上卡**：它是 LazyColumn 里一项 4~6 万 dp 高的文档。卡边的 4dp 阴影会沿整页
+拉出两条长竖边，而卡内边距会让正文可用宽度少 28dp —— 每一段换行都会重排。所以它只有
+一个区块标题（`Article` + `NEUTRAL_SUBTLE`），正文留在画布上：**文档面 ≠ 元数据卡面**。
+
+⑤ **贡献者封顶 8 位**：卡是一个 LazyColumn item，100 位会在同一帧排完（改造前是一行一个懒 item）。
+现在卡内只列前 8 位，多出来的由卡底「共 N 位 · 查看全部 ›」进入新的全屏页 `ContributorsScreen`
+（`RepoRoute.Contributors`），行同样是浮层卡；失败文案单独一份 `contributorsErrorText`
+（`/contributors` 是公开端点，不套「限制为仓库协作者可见」那句）。
+
+顺带：顶栏分支胶囊从灰底胶囊改为 28dp 浮层小卡（9dp / 3dp，与编辑资料页那颗同源 ——
+灰底只解决浅色，深色下与卡面同色、读不出边界）。新增两条字符串（`label_contributors_total` /
+`action_view_all`），`values` / `values-en` / `tools/i18n/strings.tsv` 同步，`check-i18n.py` 100%。
+
+验证：`assembleDebug` 通过；`testDebugUnitTest`（`RepoOverviewLoadTest` / `RepoOverviewMemoryTest` /
+`RepoViewerRelationTest` / `UpstreamRelationTest` 等）全绿。
 
 ### 1.4.94
 
@@ -6165,7 +6202,13 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（354 → 129）
+## 三、`versionCode` 流水（355 → 129）
+
+- **355**：仓库概览页「三语义图标 + 浮层卡」（1.4.95）—— 身份卡（头像 26dp + 名称 20sp + 描述）、
+  三张 36dp 动作卡（`WARNING` / `DONE` / `SUCCESS`，状态靠图标与文案）、三张 `SectionCard`
+  （许可证 / 贡献者 / 语言，中性图标牌）；README 保持文档面、只加区块标题；贡献者卡封顶 8 位 +
+  新的全屏列表页（行卡）；`FloatingCardButton` 补 `onLongClick`；`RepoInfo` 多解 `owner.avatar_url`
+  （一次提交，故 +1）。
 
 - **354**：搜索列表三处决策（1.4.94）—— 计数行 → 3dp 语义色细条（类型语义色 12%，
   读屏文案不变）；仓库 / 用户 / issue 行卡换 `cardSurface()`

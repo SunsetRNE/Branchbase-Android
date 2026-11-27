@@ -1,7 +1,9 @@
 package com.branchbase.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
@@ -53,7 +55,15 @@ val FloatCardRowHeight: Dp = 32.dp
  *
  * 调用点（「仓库」Tab 的搜索卡 / 语言入口、个人页统计卡、搜索页的选项入口）共用同一份实现，
  * 不再各写一份缩放 tween。
+ *
+ * ## 长按是可选项（1.4.95）
+ *
+ * 仓库页的三枚动作卡（星标 / 复刻 / 关注）沿用**点击做动作、长按看列表**的两层交互，
+ * 所以这里多接一层 `combinedClickable`：只在调用方给了 [onLongClick] 时才换，
+ * 没给的卡仍走 `clickable` —— 两种都复用同一个 `interactionSource`，
+ * 按压缩放不会因为换手势而分家。
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FloatingCardButton(
     onClick: () -> Unit,
@@ -61,9 +71,28 @@ fun FloatingCardButton(
     shape: Shape = CardShape,
     elevation: Dp = CardElevation,
     contentPadding: PaddingValues,
+    /** 长按回调：给了才启用长按（读屏会念 [onLongClickLabel]）。 */
+    onLongClick: (() -> Unit)? = null,
+    onLongClickLabel: String? = null,
     content: @Composable () -> Unit,
 ) {
     val press = rememberPressFeedback()
+    // indication 跟随手势的节点：卡面已 clip，水波纹不会溢出圆角
+    val gestures = if (onLongClick != null) {
+        Modifier.combinedClickable(
+            interactionSource = press.interaction,
+            indication = LocalIndication.current,
+            onLongClickLabel = onLongClickLabel,
+            onLongClick = onLongClick,
+            onClick = onClick,
+        )
+    } else {
+        Modifier.clickable(
+            interactionSource = press.interaction,
+            indication = LocalIndication.current,
+            onClick = onClick,
+        )
+    }
     Box(
         modifier
             .graphicsLayer {
@@ -71,12 +100,7 @@ fun FloatingCardButton(
                 scaleY = press.scale.value
             }
             .cardSurface(shape = shape, elevation = elevation)
-            // indication 跟随 clickable 的节点：卡面已 clip，水波纹不会溢出圆角
-            .clickable(
-                interactionSource = press.interaction,
-                indication = LocalIndication.current,
-                onClick = onClick,
-            )
+            .then(gestures)
             .padding(contentPadding),
         contentAlignment = Alignment.Center,
     ) { content() }

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -105,6 +106,8 @@ import com.branchbase.ui.navigation.MoreBubbleItem
 import com.branchbase.ui.navigation.GlassBarItem
 import com.branchbase.ui.navigation.NavigationShell
 import com.branchbase.ui.navigation.PageBackHandler
+import com.branchbase.ui.FloatingCardButton
+import com.branchbase.ui.FloatCardShape
 import com.branchbase.ui.LoadState
 import com.branchbase.ui.loadStateOf
 import com.branchbase.ui.theme.SkeletonRows
@@ -231,6 +234,8 @@ fun RepositoryScreen(
     }
     var page by remember { mutableStateOf(initialRepoPage(initial?.openGitPanel == true, initial?.page)) }
     var peoplePage by remember { mutableStateOf<String?>(null) } // "star"/"fork"/"watch"
+    // 贡献者完整列表（概览卡只列前 8 位）：独立全屏页，行是浮层卡
+    var contributorsPage by remember { mutableStateOf(false) }
     // (文件路径, 高亮行号)；代码搜索结果会带 path 直达文件页
     var filePage by remember { mutableStateOf<Pair<String, String?>?>(initial?.path?.let { it to null }) }
     var issuePage by remember { mutableStateOf(initial?.issueNumber) }
@@ -668,6 +673,7 @@ fun RepositoryScreen(
         showOutletUpstream -> RepoRoute.OutletUpstream
         showOutletRollback -> RepoRoute.OutletRollback
         peoplePage != null -> RepoRoute.People(peoplePage!!)
+        contributorsPage -> RepoRoute.Contributors
         filePage != null -> RepoRoute.File(filePage!!)
         issuePage != null -> RepoRoute.Issue(issuePage!!)
         pullPage != null -> RepoRoute.Pull(pullPage!!)
@@ -835,6 +841,7 @@ fun RepositoryScreen(
                     is RepoRoute.ReleaseDetail -> releaseDetail = null
                     is RepoRoute.ReleaseEdit -> showReleaseEdit = false
                     is RepoRoute.People -> peoplePage = null
+                    RepoRoute.Contributors -> contributorsPage = false
                     is RepoRoute.File -> filePage = null
                     is RepoRoute.Issue -> issuePage = null
                     is RepoRoute.Pull -> pullPage = null
@@ -1151,6 +1158,16 @@ fun RepositoryScreen(
                         )
                     }
 
+                    // 贡献者完整列表（概览卡只列前 8 位，其余的人在这里）
+                    is RepoRoute.Contributors -> {
+                        ContributorsScreen(
+                            sessionJson = session,
+                            owner = owner,
+                            repo = repo,
+                            onBack = { contributorsPage = false },
+                        )
+                    }
+
                     // 私有仓库「用访问令牌打开」：输入的 token 只在本次会话内覆盖，不落盘、不进日志
                     RepoRoute.PatInput -> {
                         PatInputScreen(
@@ -1389,6 +1406,7 @@ fun RepositoryScreen(
                                                 onWatchClick = { showWatchPanel = true },
                                                 onWatchLongClick = { peoplePage = "watch" },
                                                 onForkClick = { onForkClick() },
+                                                onOpenContributors = { contributorsPage = true },
                                                 // 分支同步入口在底部栏 ⋮ 气泡里（见 bubbleEntries）
                                             )
                                             // 目录状态在页面级（codePath）：进/退目录都走这里，
@@ -1758,6 +1776,11 @@ private sealed interface RepoRoute : PageLevel {
         override val depth: Int get() = 1
     }
 
+    /** 贡献者完整列表（从概览卡底部的「查看全部」进入）。 */
+    data object Contributors : RepoRoute {
+        override val depth: Int get() = 1
+    }
+
     data class File(val page: Pair<String, String?>) : RepoRoute {
         override val depth: Int get() = 1
     }
@@ -2052,32 +2075,36 @@ private fun RepoHeaderRow(
  */
 @Composable
 private fun BranchChip(branch: String?, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(Primer.Gray150)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 9.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    // 1.4.95：`Gray150` 灰底胶囊 → 28dp 浮层小卡（9dp 圆角 / 3dp 阴影）。
+    // 「这是一块可点的面」由阴影与圆角表达，与编辑资料页右上角那颗小卡同一形状；
+    // 灰底只解决浅色，深色下它与卡面同色，读不出边界。
+    FloatingCardButton(
+        onClick = onClick,
+        modifier = Modifier.height(28.dp),
+        shape = FloatCardShape,
+        elevation = 3.dp,
+        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp),
     ) {
-        Icon(
-            Icons.AutoMirrored.Filled.CallSplit,
-            contentDescription = null,
-            tint = Primer.IconSecondary,
-            modifier = Modifier.size(13.dp),
-        )
-        Spacer(Modifier.width(5.dp))
-        Text(
-            branch?.takeIf { it.isNotBlank() } ?: stringResource(R.string.label_default_branch),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = Primer.TextPrimary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.widthIn(max = 96.dp),
-        )
-        Spacer(Modifier.width(3.dp))
-        Text("\u2304", fontSize = 11.sp, color = Primer.TextTertiary)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.AutoMirrored.Filled.CallSplit,
+                contentDescription = null,
+                tint = Primer.IconSecondary,
+                modifier = Modifier.size(13.dp),
+            )
+            Spacer(Modifier.width(5.dp))
+            Text(
+                branch?.takeIf { it.isNotBlank() } ?: stringResource(R.string.label_default_branch),
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Primer.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 96.dp),
+            )
+            Spacer(Modifier.width(3.dp))
+            Text("\u2304", fontSize = 11.sp, color = Primer.TextTertiary)
+        }
     }
 }
 

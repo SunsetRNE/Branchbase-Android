@@ -1069,6 +1069,8 @@ $lines 行	%1$s lines	label_lines_count_alt
 暂无自述文件	No README yet	state_no_readme
 许可证 License	License	label_license
 贡献者 Contributors	Contributors	label_contributors
+共 %1$s 位	%1$s total	label_contributors_total
+查看全部	View all	action_view_all
 正在加载贡献者…	Loading contributors…	state_loading_contributors
 暂无贡献者	No contributors yet	state_no_contributors
 项目语言 Languages	Languages	label_languages

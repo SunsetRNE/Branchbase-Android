@@ -108,14 +108,14 @@ internal fun sessionInfo(sessionJson: String): Triple<String, String, String> {
 }
 
 @Composable
-private fun ListLoading() {
+internal fun ListLoading() {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         CircularProgressIndicator(color = Primer.Blue500)
     }
 }
 
 @Composable
-private fun ListEmpty(text: String) {
+internal fun ListEmpty(text: String) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text(text, fontSize = 13.sp, color = Primer.TextTertiary)
     }

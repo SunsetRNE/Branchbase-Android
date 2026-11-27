@@ -6,6 +6,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -16,16 +17,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import com.branchbase.ui.navigation.BranchbaseLazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.CallSplit
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.outlined.Balance
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.People
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -41,9 +45,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.R
@@ -52,9 +57,13 @@ import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.cache.defaultBranchOf
 import com.branchbase.core.RustBridge
-import com.branchbase.ui.theme.LanguageColors
+import com.branchbase.ui.FloatingCardButton
+import com.branchbase.ui.TintChip
+import com.branchbase.ui.cardSurface
 import com.branchbase.ui.theme.Avatar
+import com.branchbase.ui.theme.LanguageColors
 import com.branchbase.ui.theme.Primer
+import com.branchbase.ui.theme.TintRole
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import org.json.JSONObject
@@ -95,6 +104,8 @@ fun RepositoryOverviewContent(
     onWatchClick: () -> Unit = {},
     onWatchLongClick: () -> Unit = {},
     onForkClick: () -> Unit = {},
+    /** 贡献者卡的「查看全部」：卡里只放前 8 位，完整列表在独立全屏页。 */
+    onOpenContributors: () -> Unit = {},
 ) {
     val session = remember(sessionJson) { runCatching { JSONObject(sessionJson) }.getOrNull() }
     val host = session?.optString("host", "github.com") ?: "github.com"
@@ -294,7 +305,7 @@ fun RepositoryOverviewContent(
                 }
             error != null && repoInfo == null -> ErrorState(error!!)
             else -> BranchbaseLazyColumn(Modifier.fillMaxSize()) {
-                item { RepoHeader(repoInfo) }
+                item { RepoIdentityCard(repoInfo) }
                 item {
                     ActionRow(
                         stars = starCount ?: repoInfo?.stars,
@@ -313,7 +324,11 @@ fun RepositoryOverviewContent(
                 // 分支同步入口不在这里：它是写操作、又占掉首屏一整行，已收进底部栏 ⋮ 气泡
                 // （见 RepositoryScreen 的 bubbleEntries，按 canPush 门控）。
 
-                item { SectionTitle(stringResource(R.string.label_readme)) }
+                // README **刻意不上卡**：它是 LazyColumn 里一项 4~6 万 dp 高的文档。
+                // 卡边的 4dp 阴影会沿整页拉出两条长竖边（读成「页面被夹在两条带子里」），
+                // 而卡内边距会让正文可用宽度少 28dp —— 每一段换行都会重排。
+                // 所以它只要一个区块标题，正文留在画布上（文档面 ≠ 元数据卡面）。
+                item { SectionHeader(Icons.AutoMirrored.Filled.Article, stringResource(R.string.label_readme)) }
                 when {
                     readmeLoading -> item { SectionLoading(stringResource(R.string.state_loading_readme)) }
                     readmeHtml == null -> item { EmptyHint(stringResource(R.string.state_no_readme)) }
@@ -333,22 +348,17 @@ fun RepositoryOverviewContent(
                     }
                 }
 
-                item { SectionTitle(stringResource(R.string.label_license)) }
-                item { LicenseRow(repoInfo?.license) }
+                item { LicenseCard(repoInfo?.license) }
 
-                item { SectionTitle(stringResource(R.string.label_contributors)) }
-                when {
-                    contribLoading -> item { SectionLoading(stringResource(R.string.state_loading_contributors)) }
-                    contributors.isEmpty() -> item { EmptyHint(stringResource(R.string.state_no_contributors)) }
-                    else -> items(contributors, key = { it.login }) { ContributorRow(it) }
+                item {
+                    ContributorsCard(
+                        contributors = contributors,
+                        loading = contribLoading,
+                        onOpenAll = onOpenContributors,
+                    )
                 }
 
-                item { SectionTitle(stringResource(R.string.label_languages)) }
-                if (langLoading) {
-                    item { SectionLoading(stringResource(R.string.state_loading_languages)) }
-                } else {
-                    item { LanguageSection(languages) }
-                }
+                item { LanguagesCard(languages, langLoading) }
             }
         }
     }
@@ -356,34 +366,73 @@ fun RepositoryOverviewContent(
 
 // ── 组件 ──
 
+/**
+ * 仓库身份卡：**浮层卡 + owner 头像 + 名称 + 描述**。
+ *
+ * 改造前这段是裸文字（owner 小字 / 蓝色大字 / 描述），靠字号与颜色分层；1.4.95 起收进
+ * `cardSurface()`，与搜索页的仓库行卡同一形状：头像 26dp（[Avatar] 首帧同步直出）、
+ * owner 11sp 弱化、名称 20sp、描述 12.5sp。
+ *
+ * 顶栏仍然保留 `owner/repo` 标题 —— 滚到页尾之后，那是唯一的定位信息。
+ */
 @Composable
-private fun RepoHeader(info: RepoInfo?) {
-    Column(Modifier.fillMaxWidth().padding(14.dp, 16.dp)) {
-        info?.ownerLogin?.let {
-            Text(it, fontSize = 12.sp, color = Primer.TextTertiary)
+private fun RepoIdentityCard(info: RepoInfo?) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 3.dp)
+            .cardSurface()
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Avatar(
+                url = info?.ownerAvatarUrl,
+                login = info?.ownerLogin.orEmpty(),
+                size = 26.dp,
+            )
+            Spacer(Modifier.width(9.dp))
+            Column(Modifier.weight(1f)) {
+                info?.ownerLogin?.takeIf { it.isNotBlank() }?.let {
+                    Text(it, fontSize = 11.sp, color = Primer.TextTertiary, maxLines = 1)
+                }
+                Text(
+                    text = info?.name ?: "",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Primer.Blue500,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
-        Text(
-            text = info?.name ?: "",
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Bold,
-            color = Primer.Blue500,
-        )
-        if (!info?.description.isNullOrBlank()) {
-            Spacer(Modifier.height(4.dp))
-            Text(info.description, fontSize = 13.sp, color = Primer.TextSecondary, lineHeight = 20.sp)
+        val description = info?.description
+        if (!description.isNullOrBlank()) {
+            Spacer(Modifier.height(7.dp))
+            Text(
+                description,
+                fontSize = 12.5.sp,
+                color = Primer.TextSecondary,
+                lineHeight = 18.sp,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
 
 /**
- * 星标 / 复刻 / 关注三连按钮。
+ * 星标 / 复刻 / 关注三连：**三张并排的浮层小卡，每张一枚语义图标**（「三语义图标」）。
  *
- * 三个按钮的**形态**都由判定结果决定，而不是固定文案：
- * - 星标：`relation.starred` 决定实心/空心与文案（收藏 ↔ 取消收藏的双向态）；
- * - 关注：`relation.subscription == IGNORE` 时换成「已忽略」的图标，避免看着像在关注；
- * - 复刻：`forkDecision.mode == DISABLED` 才置灰 —— 自己的仓库不是禁用，是「只能看复刻列表」。
+ * 语义色沿用动态流的 `EVENT_VISUALS`（`ui/profile/ProfileScreen.kt`）：
+ * 星标 `WARNING`（= WatchEvent）、复刻 `DONE`（= ForkEvent）、关注 `SUCCESS`。
+ * 于是在这页点的星，与首页「某人 star 了这个仓库」是同一种橙 —— 不另立一套色板。
  *
- * 长按与点击分开（网页版也有这两层）：长按看列表，点击做动作。
+ * 状态只靠**图标变体 + 文案**表达（实心/空心星、眼睛/眼睛划掉），牌色不随状态换：
+ * 颜色一旦同时表「类别」与「状态」，两种语义会互相污染。
+ * 唯一的例外是「已忽略」与「复刻被禁用」：这两枚的牌降成 `NEUTRAL_SUBTLE`，
+ * 免得「已忽略」顶着一块绿色。
+ *
+ * 长按与点击分开（与网页版的两层交互一致）：长按看列表，点击做动作。
  */
 @Composable
 private fun ActionRow(
@@ -404,132 +453,242 @@ private fun ActionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(horizontal = 16.dp, vertical = 3.dp),
+        // 卡距 6dp：相邻两卡共 6dp 空白，与首页/搜索列表的卡距同一个数
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        ActionButton(
+        ActionCard(
             icon = if (starred) Icons.Filled.Star else Icons.Filled.StarBorder,
+            role = TintRole.WARNING,
             label = if (starred) stringResource(R.string.state_starred) else stringResource(R.string.action_star),
             count = stars,
-            selected = starred,
             enabled = !busy,
             onClick = onStarClick,
             onLongClick = onStarLongClick,
         )
-        ActionButton(
+        ActionCard(
             icon = Icons.AutoMirrored.Filled.CallSplit,
+            role = TintRole.DONE,
             label = stringResource(R.string.action_fork),
             count = forks,
             enabled = forkDecision.mode != ForkMode.DISABLED,
             onClick = onForkClick,
         )
-        ActionButton(
+        ActionCard(
             icon = if (ignoring) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+            role = if (ignoring) TintRole.NEUTRAL_SUBTLE else TintRole.SUCCESS,
             label = if (ignoring) stringResource(R.string.state_ignored) else stringResource(R.string.action_watch),
             count = watchers,
-            selected = ignoring,
             onClick = onWatchClick,
             onLongClick = onWatchLongClick,
         )
     }
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+/**
+ * 一枚动作卡：`cardSurface()` + 语义图标牌 + 文案 + 计数，整张卡是点击目标。
+ *
+ * 36dp 高、内边距只留左右 8dp：卡片高度由「一枚 18dp 的牌 + 一行 10~12sp 的字」决定，
+ * 不需要上下留白（与个人页统计卡同一结论）。窄屏（320dp）下三张卡各约 92dp、
+ * 卡内可用 76dp，牌 18 + 间距 5 + 3 字 10sp + 计数 12sp 正好放得下。
+ */
 @Composable
-private fun RowScope.ActionButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+private fun RowScope.ActionCard(
+    icon: ImageVector,
+    role: TintRole,
     label: String,
     count: Long?,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
-    selected: Boolean = false,
     enabled: Boolean = true,
 ) {
-    Row(
-        modifier = Modifier
-            .weight(1f)
-            .clip(RoundedCornerShape(6.dp))
-            .background(if (selected) Primer.SelectedRow else Primer.Gray150)
-            // clip 必须在点击节点之前：否则水波纹是方的（与 iconTap 同一约定）
-            .combinedClickable(
-                enabled = enabled,
-                onClick = onClick,
-                onLongClick = onLongClick,
-            )
-            .padding(vertical = 6.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
+    FloatingCardButton(
+        onClick = onClick,
+        onLongClick = onLongClick,
+        modifier = Modifier.weight(1f).height(36.dp),
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
     ) {
-        Icon(
-            icon,
-            contentDescription = label,
-            tint = when {
-                !enabled -> Primer.TextTertiary
-                selected -> Primer.Blue500
-                else -> Primer.IconPrimary
-            },
-            modifier = Modifier.size(14.dp),
-        )
-        Spacer(Modifier.width(5.dp))
-        Text(
-            label,
-            fontSize = 12.sp,
-            color = if (selected) Primer.Blue500 else Primer.TextSecondary,
-        )
-        count?.let {
-            Spacer(Modifier.width(4.dp))
-            Text(formatCount(it), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TintChip(
+                icon = icon,
+                role = if (enabled) role else TintRole.NEUTRAL_SUBTLE,
+                size = 18.dp,
+                corner = 6.dp,
+                iconSize = 11.dp,
+            )
+            Spacer(Modifier.width(5.dp))
+            Text(
+                label,
+                fontSize = 10.sp,
+                color = if (enabled) Primer.TextSecondary else Primer.TextTertiary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            count?.let {
+                Spacer(Modifier.width(3.dp))
+                Text(
+                    formatCount(it),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (enabled) Primer.TextPrimary else Primer.TextTertiary,
+                    maxLines = 1,
+                )
+            }
         }
     }
 }
 
+/**
+ * 区块标题（**不上卡**的那一块用）：语义图标牌 + 13sp 粗体。
+ *
+ * 目前只有 README 用它 —— 文档区只要一个标题，正文留在画布上（理由见 item 列表处的注释）。
+ * 图标牌取 `NEUTRAL_SUBTLE`：一屏的彩色块只留给动作区那三枚。
+ */
 @Composable
-private fun SectionTitle(title: String) {
-    Text(
-        text = title,
-        fontSize = 14.sp,
-        fontWeight = FontWeight.SemiBold,
-        color = Primer.TextPrimary,
-        modifier = Modifier.padding(start = 16.dp, top = 14.dp, bottom = 6.dp),
-    )
-}
-
-@Composable
-private fun LicenseRow(license: String?) {
+private fun SectionHeader(icon: ImageVector, title: String) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .background(Primer.Gray150)
-            .padding(10.dp, 12.dp),
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        TintChip(icon, TintRole.NEUTRAL_SUBTLE)
+        Spacer(Modifier.width(8.dp))
+        Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
+    }
+}
+
+/**
+ * 一张区块卡：**卡面 + 语义图标 + 标题**，内容由调用方给。
+ *
+ * 与 README 的分工就是「元数据 vs 文档」：许可证 / 贡献者 / 语言是一眼扫完的几行，
+ * 上卡之后整页的层次从「标题 + 灰底行」变成「一叠白卡」，与首页、搜索页同一套。
+ */
+@Composable
+private fun SectionCard(
+    icon: ImageVector,
+    title: String,
+    trailing: (@Composable () -> Unit)? = null,
+    content: @Composable () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 3.dp)
+            .cardSurface()
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            TintChip(icon, TintRole.NEUTRAL_SUBTLE)
+            Spacer(Modifier.width(8.dp))
+            Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
+            Spacer(Modifier.weight(1f))
+            trailing?.invoke()
+        }
+        Spacer(Modifier.height(8.dp))
+        content()
+    }
+}
+
+/** 许可证卡：一行 SPDX 标识（`MIT`）；没有许可证时显示「无」。 */
+@Composable
+private fun LicenseCard(license: String?) {
+    SectionCard(Icons.Outlined.Balance, stringResource(R.string.label_license)) {
         Text(
             text = license ?: stringResource(R.string.label_none_value),
             fontSize = 13.sp,
-            color = if (license != null) Primer.Blue500 else Primer.TextTertiary,
             fontWeight = FontWeight.Medium,
+            color = if (license != null) Primer.Blue500 else Primer.TextTertiary,
         )
+    }
+}
+
+/**
+ * 贡献者卡里**最多列几个**。
+ *
+ * 卡是一次性组合的（一个 LazyColumn item），不像改造前那样一行一个懒 item ——
+ * 100 个贡献者会在一帧里排完。取 8 是「一屏能看见的数量」，多出来的走卡底的「查看全部」，
+ * 那个入口开的是独立全屏页（[ContributorsScreen]，同样是浮层卡列表）。
+ */
+private const val CONTRIBUTORS_PREVIEW = 8
+
+/** 贡献者卡：前 8 位 + 卡底「共 N 位 · 查看全部」，整行可点。 */
+@Composable
+private fun ContributorsCard(
+    contributors: List<Contributor>,
+    loading: Boolean,
+    onOpenAll: () -> Unit,
+) {
+    SectionCard(Icons.Outlined.People, stringResource(R.string.label_contributors)) {
+        when {
+            loading -> SectionLoading(stringResource(R.string.state_loading_contributors))
+            contributors.isEmpty() -> EmptyHint(stringResource(R.string.state_no_contributors))
+            else -> {
+                contributors.take(CONTRIBUTORS_PREVIEW).forEach { ContributorRow(it) }
+                if (contributors.size > CONTRIBUTORS_PREVIEW) {
+                    Spacer(Modifier.height(2.dp))
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable(onClick = onOpenAll)
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            stringResource(R.string.label_contributors_total, contributors.size.toString()),
+                            fontSize = 11.5.sp,
+                            color = Primer.TextTertiary,
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            stringResource(R.string.action_view_all),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Primer.Blue500,
+                        )
+                        Text("›", fontSize = 13.sp, color = Primer.Blue500)
+                    }
+                }
+            }
+        }
     }
 }
 
 @Composable
 private fun ContributorRow(c: Contributor) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+        Modifier.fillMaxWidth().padding(vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // 用统一的 [Avatar] 而不是 Coil 的 AsyncImage：前者**首帧同步直出**进程内已解码的位图
         // （24 条 LRU），后者每次重建都要重放一遍「蓝底 → 真图」。贡献者一屏十来个，
         // 那串 pop-in 正是「参与者列表渲染有点慢」的观感来源；顺带 Avatar 的落盘还有 200 文件上限
         // （见 core/AvatarCache 的 evictionVictims）。
-        Avatar(url = c.avatarUrl, login = c.login, size = 26.dp)
-        Spacer(Modifier.width(10.dp))
-        Text(c.login, fontSize = 13.sp, color = Primer.Blue500, modifier = Modifier.weight(1f))
-        Text(pluralStringResource(R.plurals.label_commit_count, c.commits.toInt(), c.commits), fontSize = 12.sp, color = Primer.TextTertiary)
+        Avatar(url = c.avatarUrl, login = c.login, size = 24.dp)
+        Spacer(Modifier.width(9.dp))
+        Text(
+            c.login,
+            fontSize = 13.sp,
+            color = Primer.Blue500,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            pluralStringResource(R.plurals.label_commit_count, c.commits.toInt(), c.commits),
+            fontSize = 11.5.sp,
+            color = Primer.TextTertiary,
+        )
+    }
+}
+
+/** 语言卡：比例条 + 图例（数据到位之前显示分区加载态）。 */
+@Composable
+private fun LanguagesCard(langs: List<LanguageStat>, loading: Boolean) {
+    SectionCard(Icons.Outlined.Code, stringResource(R.string.label_languages)) {
+        when {
+            loading -> SectionLoading(stringResource(R.string.state_loading_languages))
+            else -> LanguageSection(langs)
+        }
     }
 }
 
@@ -539,7 +698,7 @@ private fun LanguageSection(langs: List<LanguageStat>) {
         EmptyHint(stringResource(R.string.state_no_language_data))
         return
     }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+    Column(Modifier.fillMaxWidth()) {
         // 比例条（占比 >= 0.5% 的语言才显示色块）
         Row(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp))) {
             langs.filter { it.percent >= 0.5 }.forEach { lang ->
@@ -573,8 +732,8 @@ private fun LanguageSection(langs: List<LanguageStat>) {
 
 @Composable
 private fun EmptyHint(text: String) {
-    Box(Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
-        Text(text, fontSize = 13.sp, color = Primer.TextTertiary)
+    Box(Modifier.fillMaxWidth().padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+        Text(text, fontSize = 12.5.sp, color = Primer.TextTertiary)
     }
 }
 
@@ -582,7 +741,7 @@ private fun EmptyHint(text: String) {
 @Composable
 private fun SectionLoading(text: String) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CircularProgressIndicator(
