@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Notifications
@@ -191,6 +192,7 @@ enum class SubPage(val label: String) {
     RepoCredentials("仓库凭据"),
     Language("语言"),
     Theme("主题"),
+    DefaultBehavior("默认行为"),
 }
 
 // ───────────────────────── 缓存机制（内存缓存 + TTL 过期） ─────────────────────────
@@ -610,6 +612,7 @@ fun SettingsScreen(
     onOpenNotificationSettings: () -> Unit,
     onOpenTranslate: () -> Unit,
     onOpenAccounts: () -> Unit,
+    onOpenDefaultBehavior: () -> Unit,
     onOpenCommitMode: () -> Unit,
     onOpenRepoCredentials: () -> Unit,
     onOpenLanguage: () -> Unit,
@@ -703,6 +706,19 @@ fun SettingsScreen(
                             onClick = onOpenRepoCredentials,
                         )
                     }
+                }
+            }
+
+            // ── ①.5 默认行为：**单独一张卡**（用户明确「这一点上不省」）──
+            item {
+                SettingsSection {
+                    NavRow(
+                        icon = Icons.Filled.History,
+                        tint = TintRole.NEUTRAL,
+                        name = stringResource(R.string.settings_default_behavior),
+                        onClick = onOpenDefaultBehavior,
+                        divider = false,
+                    )
                 }
             }
 

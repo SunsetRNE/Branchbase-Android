@@ -74,7 +74,24 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.80 → 1.0.22）
+## 二、`versionName` 流水（1.4.81 → 1.0.22）
+
+### 1.4.81
+
+**设置页新增「默认行为管理」（第一项：工作流页默认打开运行历史）。**
+
+决策：用户要一个「进某个列表先落在哪一档」的集中开关。第一项是 Actions 页的默认段 ——
+默认**开**（落在运行历史，GitHub 原生 `created_at desc`），关掉才默认落「工作流列表」。
+
+- 入口：设置主页在账户卡与外观卡之间**单独一张卡**（用户明确「这一点上不省」），
+  行图标 `History` + `NEUTRAL` 牌；
+- 页面：新 `DefaultBehaviorScreen`，复用 `SettingsSection` + `SwitchRow`，与其它设置页同形；
+- 落盘：`SettingsKeys.WORKFLOW_DEFAULT_HISTORY`，缺失 = `true`；
+- 文案三处同步（`values` / `values-en` / `tools/i18n/strings.tsv`），`check-i18n.py --min-coverage 100` 通过。
+
+下一步（1.4.82）：Actions 页的「历史 / 工作流」浮层卡分段控件读这个偏好。
+
+验证：`assembleDebug` 通过；`SettingsSpecTest` 全绿；i18n 100%。
 
 ### 1.4.80
 
@@ -5782,7 +5799,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（340 → 129）
+## 三、`versionCode` 流水（341 → 129）
+
+- **341**：设置页新增「默认行为管理」（1.4.81）—— 独立卡片入口 + `DefaultBehaviorScreen`
+  （工作流页默认打开运行历史，默认开）+ 落盘键 + 中英文案（一次提交，故 +1）。
+
 
 - **340**：修 CI —— 设置规范钉子从旧写法（Gray100 / 黑 40%）改钉 `cardSurface()` 与
   `Primer.Border`（一次提交，故 +1）。

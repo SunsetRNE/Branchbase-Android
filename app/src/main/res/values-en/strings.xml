@@ -2078,4 +2078,7 @@
 
     <string name="engine_error_auth_github">GitHub returned an error during sign-in: try again later; if it keeps failing, check the OAuth App configuration (see the log).</string>
     <string name="engine_error_auth_refresh">Your sign-in has expired; please sign in again.</string>
+    <string name="settings_default_behavior">Default behavior</string>
+    <string name="label_workflow_default_history">Open run history by default on the Actions page</string>
+    <string name="note_workflow_default_history">When off, the Actions page opens the workflow list instead of run history.</string>
 </resources>

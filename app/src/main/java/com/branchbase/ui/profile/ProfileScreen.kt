@@ -305,7 +305,7 @@ fun ProfileScreen(
                     is ProfileRoute.Sub -> when (r.page) {
                         SubPage.Stars -> StarsScreen(sessionJson, onBack = { subPage = null }, onOpenRepo = onOpenRepo)
                         SubPage.Projects -> ProjectsScreen(sessionJson, onBack = { subPage = null })
-                        SubPage.Settings -> SettingsScreen(onBack = { subPage = null }, onOpenLocalRepo = { subPage = SubPage.LocalRepo }, onOpenAbout = { subPage = SubPage.About }, onOpenLog = { subPage = SubPage.Log }, onOpenNotificationSettings = { subPage = SubPage.NotificationSettings }, onOpenTranslate = { subPage = SubPage.Translate }, onOpenAccounts = { subPage = SubPage.Accounts }, onOpenCommitMode = { subPage = SubPage.CommitMode }, onOpenRepoCredentials = { subPage = SubPage.RepoCredentials }, onOpenLanguage = { subPage = SubPage.Language }, onOpenTheme = { subPage = SubPage.Theme }, onLogout = onLogout)
+                        SubPage.Settings -> SettingsScreen(onBack = { subPage = null }, onOpenLocalRepo = { subPage = SubPage.LocalRepo }, onOpenAbout = { subPage = SubPage.About }, onOpenLog = { subPage = SubPage.Log }, onOpenNotificationSettings = { subPage = SubPage.NotificationSettings }, onOpenTranslate = { subPage = SubPage.Translate }, onOpenAccounts = { subPage = SubPage.Accounts }, onOpenDefaultBehavior = { subPage = SubPage.DefaultBehavior }, onOpenCommitMode = { subPage = SubPage.CommitMode }, onOpenRepoCredentials = { subPage = SubPage.RepoCredentials }, onOpenLanguage = { subPage = SubPage.Language }, onOpenTheme = { subPage = SubPage.Theme }, onLogout = onLogout)
                         // 返回目标必须与其它二级页一致（`SettingsSpecTest` 逐行钉着这一条）——
                         // 所以这句调用保持单行：拆行会让那条源码级钉子假红
                         SubPage.LocalRepo -> LocalRepoScreen(sessionJson, onBack = { subPage = SubPage.Settings }, onOpenInApp = onOpenRepoDeepLink)
@@ -319,6 +319,7 @@ fun ProfileScreen(
                         // 这里的 onAdd 只留给宿主做别的钩子。
                         // ⚠️ 必须写成**单行**：SettingsSpecTest 会断言「二级页的返回目标与路由同一行」，
                         //    那是防止返回目标与路由走散的既有约定，别为了排版拆行。
+                        SubPage.DefaultBehavior -> DefaultBehaviorScreen(onBack = { subPage = SubPage.Settings })
                         SubPage.Accounts -> AccountsScreen(onBack = { subPage = SubPage.Settings }, onAdd = {})
                         SubPage.CommitMode -> CommitModeScreen(onBack = { subPage = SubPage.Settings }, onOpenLocalRepo = { subPage = SubPage.LocalRepo }, onOpenGitProxy = { subPage = SubPage.GitProxy })
                         SubPage.GitProxy -> GitProxyScreen(onBack = { subPage = SubPage.Settings })

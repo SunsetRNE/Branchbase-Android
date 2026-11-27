@@ -62,6 +62,9 @@ object SettingsKeys {
     /** 是否启用主界面的悬浮玻璃导航栏；缺失时保持传统底部导航栏。 */
     const val GLASS_NAVIGATION = "glass_navigation"
 
+    /** 工作流页（Actions）默认落在「运行历史」而不是「工作流列表」；缺失 = true（用户拍板默认开）。 */
+    const val WORKFLOW_DEFAULT_HISTORY = "workflow_default_history"
+
     /**
      * 慢帧日志开关（`FrameWatch`）。
      *
@@ -101,6 +104,15 @@ object SettingsKeys {
      */
     fun prefs(context: Context): SharedPreferences =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+}
+
+/** 工作流页是否默认打开运行历史；缺失 = true。 */
+fun workflowDefaultHistory(context: Context): Boolean =
+    SettingsKeys.prefs(context).getBoolean(SettingsKeys.WORKFLOW_DEFAULT_HISTORY, true)
+
+/** 写入「工作流页默认打开运行历史」。 */
+fun setWorkflowDefaultHistory(context: Context, enabled: Boolean) {
+    SettingsKeys.prefs(context).edit().putBoolean(SettingsKeys.WORKFLOW_DEFAULT_HISTORY, enabled).apply()
 }
 
 /** 读取是否启用悬浮玻璃导航栏；默认关闭，保持旧版行为。 */
