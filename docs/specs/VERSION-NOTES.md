@@ -74,7 +74,28 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.95 → 1.0.22）
+## 二、`versionName` 流水（1.4.96 → 1.0.22）
+
+### 1.4.96
+
+**修「仓库页滚到底再往上滚，自述文件整块白屏」：WebView 重新挂回窗口后主动重绘一次。**
+
+现场（真机 2026-11-28，1.4.95）：滚到页面底部（许可证 / 贡献者 / 语言）再往回滚，
+README 区域**持久白屏**，不自己恢复；返回上一页再进来反而正常。日志里同一页只有一次
+`WebView 首次创建` —— 说明不是重建，是**同一个实例画不出来**。
+
+机制：`ReadmeViewHolder` 让 WebView 活过 LazyColumn 回收（1.0.65 修「重建 + 跳顶」时引入），
+但 Chromium HWUI 路径在 **detach** 时 `ReleaseHardware()` 会把「已渲染过帧」置 false，
+并把一帧 `drawColor(WHITE)` 塞进 DisplayList；**re-attach 后 compositor 即使交还了新帧，
+也没有新的 `OnDrawHardware` 被触发**，那帧白色就一直重放。WebView 内部的修法是在
+`ReturnUsedResources` 里 PostInvalidate（openwebview bugfix 114），应用侧只能补一个等价动作。
+
+修法：给复用的 WebView 挂 `OnAttachStateChangeListener`，attach 回调里 `post { invalidate() }`
++ 120ms 后再 invalidate 一次（第一次可能仍早于 compositor 交还资源，白底会被再画一遍）。
+新增 `ReadmeReattachTest`（源码级）钉住「必须监听 attach」与「必须 post 到下一帧」。
+
+**没做的**：不改成「重新挂回就 reload」—— 那是把 1.0.65 修掉的「重建 + 跳顶 + 翻译从头来」
+再买回来；也不给 WebView 加硬件层（高度可到 20 万 dp，超出 GPU 纹理上限，见 1.2.3 的记账）。
 
 ### 1.4.95
 
@@ -6202,7 +6223,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（355 → 129）
+## 三、`versionCode` 流水（356 → 129）
+
+- **356**：修「自述文件滚到底再往上滚白屏」（1.4.96）—— 复用 WebView 重新挂回窗口时
+  `post { invalidate() }` + 120ms 补一次（Chromium HWUI 在 detach 时塞入的白色 DisplayList
+  不会被重放之外的东西清掉）；新增 `ReadmeReattachTest` 源码级钉子（一次提交，故 +1）。
 
 - **355**：仓库概览页「三语义图标 + 浮层卡」（1.4.95）—— 身份卡（头像 26dp + 名称 20sp + 描述）、
   三张 36dp 动作卡（`WARNING` / `DONE` / `SUCCESS`，状态靠图标与文案）、三张 `SectionCard`

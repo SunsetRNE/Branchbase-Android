@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -240,6 +241,36 @@ fun ReadmeWebView(
             if (holder != null) holder.webView = created
             created
         }
+    }
+
+    // ── 重新挂回窗口时主动触发一次重绘（1.4.96，真机 2026-11-28）──
+    //
+    // 现象：滚到页面底部（README 那 4~6 万 dp 的 item 离开视口被回收）再往回滚，
+    // README 区域**整块持久白屏**，不会自己恢复 —— 用户反馈「滑到底再往上滑就空白了」。
+    //
+    // 机制（Chromium HWUI 渲染路径）：WebView detach 时 `ReleaseHardware()` 把「已渲染过帧」置 false，
+    // 并把一帧 `drawColor(WHITE)` 塞进 DisplayList；re-attach 后 compositor 即使交还了新帧，
+    // 也**没有新的 OnDrawHardware 被触发** —— DisplayList 里那帧白色就一直重放。
+    // WebView 内部的修法是在 `ReturnUsedResources` 里 PostInvalidate（见 openwebview bugfix 114），
+    // 应用侧能做的等价动作只有一个：挂回窗口后自己 invalidate 一次，让 OnDrawHardware 重跑。
+    //
+    // 为什么两次：Chromium 交还资源的时刻可能晚于第一次 invalidate（第一次可能又画成白底）；
+    // 第二次落在 120ms 后，是一次空 invalidate 的代价。
+    DisposableEffect(webView) {
+        val listener = object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) {
+                Logger.local(
+                    if (holder != null) "WebView 挂回窗口 → 触发重绘" else "WebView 挂载 → 触发重绘",
+                    "正文",
+                )
+                v.post { v.invalidate() }
+                v.postDelayed({ if (v.isAttachedToWindow) v.invalidate() }, 120L)
+            }
+
+            override fun onViewDetachedFromWindow(v: View) = Unit
+        }
+        webView.addOnAttachStateChangeListener(listener)
+        onDispose { webView.removeOnAttachStateChangeListener(listener) }
     }
 
     // 本视图在屏期间把「有 interop 正文」登记给玻璃栏的安全阀（见 LiveBackdropGate）：
