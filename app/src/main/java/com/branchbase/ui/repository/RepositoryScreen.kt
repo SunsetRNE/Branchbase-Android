@@ -120,6 +120,7 @@ import com.branchbase.ui.settings.GlassNavigationRuntime
 import com.branchbase.ui.theme.iconTap
 import com.branchbase.ui.adaptive.AdaptiveLayoutPolicy
 import com.branchbase.ui.adaptive.LocalLayoutPlan
+import com.branchbase.ui.settings.workflowDefaultHistory
 import com.branchbase.ui.theme.Primer
 import com.branchbase.ui.theme.TintRole
 import com.branchbase.ui.theme.rememberPressFeedback
@@ -241,6 +242,12 @@ fun RepositoryScreen(
     var workflowAction by remember { mutableStateOf<WorkflowItem?>(null) }
     var dispatchTarget by remember { mutableStateOf<WorkflowItem?>(null) }
     var runDetailPage by remember { mutableStateOf(initial?.runId) }
+    // Actions 页的分段（历史 / 工作流）住在页面级：进运行详情或工作流历史再返回时，
+    // 内容会被重组，状态留在 Tab 里就会掉回默认段。初值取设置「默认行为管理」，
+    // 仓页一进来是「历史」，离开仓库页才重置。
+    val segmentContext = LocalContext.current
+    val workflowHistoryDefault = remember(segmentContext) { workflowDefaultHistory(segmentContext) }
+    var workflowHistorySegment by remember(owner, repo) { mutableStateOf(workflowHistoryDefault) }
     var jobDetailPage by remember { mutableStateOf<Long?>(null) }
     // 从运行详情点某一步进来时带上步骤号，日志页据此落在对应分段
     var jobDetailStep by remember { mutableStateOf<Long?>(null) }
@@ -1404,6 +1411,8 @@ fun RepositoryScreen(
                                                 repo = repo,
                                                 branch = branch,
                                                 refreshTick = refreshTick,
+                                                history = workflowHistorySegment,
+                                                onSelectHistory = { workflowHistorySegment = it },
                                                 onOpenRun = { runDetailPage = it },
                                                 onOpenWorkflow = { runsWorkflow = it; workflowRunsPage = it.id to it.name },
                                                 onLongPressWorkflow = { workflowAction = it },

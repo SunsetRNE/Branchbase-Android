@@ -2,6 +2,10 @@ package com.branchbase.ui.repository
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.fillMaxHeight
+import com.branchbase.ui.theme.ElementMotion
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -425,15 +429,14 @@ fun WorkflowTabContent(
     repo: String,
     branch: String?,
     refreshTick: Int,
+    history: Boolean,
+    onSelectHistory: (Boolean) -> Unit,
     onOpenRun: (Long) -> Unit,
     onOpenWorkflow: (WorkflowItem) -> Unit,
     onLongPressWorkflow: (WorkflowItem) -> Unit,
 ) {
-    val context = LocalContext.current
-    var history by remember { mutableStateOf(workflowDefaultHistory(context)) }
-
     Column(Modifier.fillMaxSize()) {
-        WorkflowTabSwitch(history) { history = it }
+        WorkflowTabSwitch(history, onSelectHistory)
         if (history) {
             WorkflowAllRunsContent(sessionJson, owner, repo, branch, refreshTick, onOpenRun)
         } else {
@@ -446,34 +449,64 @@ fun WorkflowTabContent(
     }
 }
 
-/** 两段浮层卡：与列表行同一张面（16dp 外距 + 12dp 圆角 + 4dp 阴影），内嵌两枚等宽胶囊。 */
+/**
+ * 两段浮层卡：与列表行同一张面（16dp 外距 + 12dp 圆角 + 4dp 阴影），内嵌一枚**会滑动的选中块**。
+ *
+ * 选中块用 `animateDpAsState` + `spring(ζ=0.72, stiffness=420)` 位移，不是"换哪段就给哪段描边"——
+ * 后者切换时两块同时变色、没有方向感，读起来像"跳了一下"（用户原话「没有弹性动画，体感怪」）。
+ * 文字颜色同步做 180ms 过渡（`ElementMotion.COLOR_MS` 同档），避免滑块到了而字还没过来。
+ */
 @Composable
 private fun WorkflowTabSwitch(history: Boolean, onSelect: (Boolean) -> Unit) {
-    Row(
+    BoxWithConstraints(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 3.dp)
             .cardSurface()
             .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        listOf(R.string.label_run_history to true, R.string.label_workflows to false).forEach { (res, isHistory) ->
-            val on = isHistory == history
-            Box(
-                Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(if (on) Primer.Blue500 else Color.Transparent)
-                    .clickable { onSelect(isHistory) }
-                    .padding(vertical = 7.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    stringResource(res),
-                    fontSize = 13.sp,
-                    fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium,
-                    color = if (on) Color.White else Primer.TextSecondary,
+        val gap = 3.dp
+        val segWidth = (maxWidth - gap) / 2
+        val offset by androidx.compose.animation.core.animateDpAsState(
+            targetValue = if (history) 0.dp else segWidth + gap,
+            animationSpec = androidx.compose.animation.core.spring(
+                dampingRatio = 0.72f,
+                stiffness = 420f,
+            ),
+            label = "workflow-segment",
+        )
+        Box(
+            Modifier
+                .offset(x = offset)
+                .width(segWidth)
+                .height(34.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(Primer.Blue500),
+        )
+        Row(Modifier.height(34.dp)) {
+            listOf(R.string.label_run_history to true, R.string.label_workflows to false).forEachIndexed { index, (res, isHistory) ->
+                if (index > 0) Spacer(Modifier.width(gap))
+                val on = isHistory == history
+                val color by androidx.compose.animation.animateColorAsState(
+                    targetValue = if (on) Color.White else Primer.TextSecondary,
+                    animationSpec = androidx.compose.animation.core.tween(ElementMotion.COLOR_MS),
+                    label = "workflow-segment-text",
                 )
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(999.dp))
+                        .clickable { onSelect(isHistory) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        stringResource(res),
+                        fontSize = 13.sp,
+                        fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium,
+                        color = color,
+                    )
+                }
             }
         }
     }
