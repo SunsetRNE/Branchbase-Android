@@ -823,7 +823,16 @@
     <string name="label_less">Less</string>
     <string name="label_more">More</string>
     <string name="error_activity_unavailable">Cannot load the activity feed (network or permission restricted)</string>
-    <string name="hint_find_repo">🔍 Find a repository…</string>
+    <string name="hint_find_repo">Find a repository…</string>
+    <string name="action_clear_search">Clear search</string>
+    <string name="title_repo_lang_filter">Filter by language</string>
+    <string name="label_all_languages">Any language</string>
+    <string name="label_lang_class_app">Apps</string>
+    <string name="label_lang_class_script">Scripts</string>
+    <string name="label_lang_class_system">Systems</string>
+    <string name="state_no_repo_match">No matching repositories</string>
+    <string name="note_no_repo_match_hint">Try another keyword, or switch the language back to All.</string>
+    <string name="action_clear_filters">Clear filters</string>
     <string name="error_activity_load_failed">Failed to load the activity feed</string>
     <string name="label_last_30_days">Last 30 days</string>
     <string name="label_activity_overview">Activity overview</string>

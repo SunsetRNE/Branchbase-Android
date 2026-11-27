@@ -140,6 +140,17 @@ object ElementMotion {
     /** More 面板退场时长（**不过冲**：收回不该再弹一下）。 */
     const val PANEL_EXIT_MS = 160
 
+    /**
+     * **自绘**底部抽屉的升降时长（仓库页的语言筛选抽屉，见 `RepoFilterSheet`）。
+     *
+     * 比 [REVEAL_MS] 略长：抽屉的行程是**一整块面板的高度**（常常 300dp 以上），
+     * 220ms 读完还剩位移没落定，观感是「面板被拽下去」；240ms 才有「滑下去」的过程感。
+     *
+     * 为什么是 tween 而不是 More 面板那条 ζ=0.40 的弹簧：回弹是「低频、锚点明确」的显式例外
+     * （见 [PANEL_SPRING_ZETA]）；选择型抽屉要的是「落定」，回弹会被读成「没停稳」。
+     */
+    const val SHEET_MS = 240
+
     /** 按下反馈：缩到多少。 */
     const val PRESS_SCALE = 0.94f
 

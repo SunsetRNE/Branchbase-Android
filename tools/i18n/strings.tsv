@@ -709,7 +709,7 @@ libgit2 的 pull 只作用于当前分支，因此同步「$target」需要先�
 刷新失败（检查网络）	Refresh failed (check your network)	error_refresh_failed_network
 热门仓库	Popular repositories	label_popular_repos
 暂无置顶仓库	No pinned repositories yet	state_no_pinned_repos
-🔍 查找仓库…	🔍 Find a repository…	hint_find_repo
+查找仓库…	Find a repository…	hint_find_repo
 未获取到登录名，请重新登录	Could not get the login name; sign in again	error_login_name_missing
 无法加载动态（网络或权限受限）	Cannot load the activity feed (network or permission restricted)	error_activity_unavailable
 近 90 天公开活动	Public activity in the last 90 days	label_activity_90_days

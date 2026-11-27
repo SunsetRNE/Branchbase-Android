@@ -134,6 +134,40 @@ import com.branchbase.ui.theme.skeletonBlock
 import com.branchbase.ui.theme.ProfileColors
 import org.json.JSONArray
 import org.json.JSONObject
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Circle
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
+import com.branchbase.ui.TintChip
 
 /**
  * 个人主页 Profile（对标 GitHub Profile 信息架构）。
@@ -680,58 +714,565 @@ private fun SectionTitle(title: String, sub: String? = null) {
 
 // ───────────────────────── Repositories 页 ─────────────────────────
 
+/**
+ * 仓库页顶部两枚**浮层小卡**共用的一行高度：32dp。
+ *
+ * 旧搜索框是 36dp 的灰底（`Gray150` + 纯黑描边），没有卡片、也没有落点；换成浮层卡后
+ * 阴影与圆角已经承担了「这是一块可操作的面」，高度就能再收 4dp，横向内边距从 12dp 收到 9dp。
+ * 这一行省下的高度与留白全给下面的仓库列表 —— 一屏能多看见一张卡。
+ */
+private val RepoFilterRowHeight = 32.dp
+
+/** 头部浮层的上边呼吸：与列表卡的卡距同为 6dp。 */
+private val RepoHeaderTopGap = 6.dp
+
+/**
+ * 头部浮层让掉的竖向高度 = 上边 6dp + 搜索卡 32dp + 下边 6dp。
+ *
+ * 列表拿它做 `contentPadding.top`：**第一次进来**第一张卡正好落在浮层下面、一张都不被遮；
+ * **滚动起来**则从浮层底下穿过去（见 [ProfileRepositories] 的「头部是浮层」）。
+ */
+private val RepoHeaderContentPadding =
+    PaddingValues(top = RepoHeaderTopGap + RepoFilterRowHeight + 6.dp)
+
+/**
+ * 单行浮层小卡的圆角：**9dp**，比页面卡片的 12dp 小一档。
+ *
+ * 沿用 1.4.84「编辑资料」那颗小卡的结论：只有一行字高的卡用 12dp 会读成胶囊，9dp 才还是「一张卡」。
+ *
+ * ## 阴影必须与列表卡同层（[CardElevation]）
+ *
+ * 1.4.88 第一版给这两枚小卡用了 3dp。真机上「头部 ↔ 列表」的交界处立刻读出一条**悬空灰带**：
+ * 3dp 的阴影尾（约 5.5dp）够不到 8dp 外的第一张仓库卡，于是阴影整条摊在空白上、下面还剩 2dp 纯白，
+ * 而每张卡自己的顶边又是白压白（看不见）—— 全页只有这一处接缝「没有接住者」，读作断层。
+ * 另外 3dp 与 4dp 的光晕半径差约 2dp，列表看起来比头部宽一点点，左右各出现一道台阶。
+ * 现在两枚小卡走 [CardElevation]，卡距也收到与列表卡一致（6dp）：接缝的读法与「卡与卡之间」同构。
+ */
+private val RepoMiniCardShape: Shape = RoundedCornerShape(9.dp)
+
+/**
+ * 「仓库」Tab：**搜索是浮层卡、语言筛选收进抽屉**。
+ *
+ * ## 这一版改了什么（1.4.88）
+ *
+ * | 原状 | 现在 | 为什么 |
+ * |---|---|---|
+ * | 36dp 灰底搜索框，里面只有一行占位文字（点了没反应） | 32dp 浮层卡 + 真输入框（名称 / 全名 / 描述，大小写不敏感） | 搜索框占着这页最显眼的位置却不能搜，是唯一「看着能用、其实不能用」的东西 |
+ * | 五个语言胶囊平铺在搜索框下面，恒定占一整行 | 收进抽屉：浮层卡分段控件（全部 / 应用 / 脚本 / 底层）+ 浮层卡语言列表 | 语言只是**一个**筛选维度，不该和搜索框平级吃一整行；抽屉还能容纳更多语言 |
+ * | 搜索框↔筛选条 10dp、筛选条↔列表 12dp | 8dp / 8dp | 同一屏只保留一处节奏，列表因此多出一行的高度 |
+ *
+ * ## 头部是浮层，不是「列表上方另起一段」（1.4.90）
+ *
+ * 1.4.89 用的是 `Column { 头部; 列表 }`：列表在头部**下面另起一段**，于是滚动时第一张卡
+ * 正好在搜索卡下面 6dp 处被 `LazyColumn` 的视口上沿**硬切一刀** —— 切线上方一整片白（头部区），
+ * 下方是半行被切掉的描述。真机读作「搜索框有一层硬白底，内容从它下面漏出来」
+ * （用户原话「搜索框有一层硬白底」，圈的就是那条切线）。
+ *
+ * 现在反过来：`Box { 列表（铺满）; 头部（最后画） }`，列表用 [RepoHeaderContentPadding] 让出头部高度。
+ * 好处是**分层是真的**：滚动的卡从搜索卡（带 4dp 阴影）底下穿过去，而不是在它下面被裁掉；
+ * 那条「白底」的下沿回到标题行的下沿（标题行在 `ProfileScreen` 里，本来就带页面底色、
+ * 且把内容裁在自己下沿）—— 也就是用户要的「白底只到返回那一行的下面」。
+ *
+ * 为什么不干脆把白底继续往上抬：再往上就是标题行本身，滚动内容会从「← 用户名」下面直接穿过，
+ * 那才是真的怪（用户原话已经预判了这一点）。
+ *
+ * ## 状态
+ *
+ * [filter] 是 `String?` 而不是哨兵字符串「全部」：展示文案抽成资源并翻译后，
+ * `filter == "全部"` 在英文界面下永不成立，筛选会**静默失效**（不崩溃，只是点了没反应）。
+ * [query] / [filter] 都用 `rememberSaveable`：Tab 保活之外，进程被杀后重建也能回到原样
+ * （[com.branchbase.ui.navigation.TabSwitcher] 的 `rememberSaveableStateHolder`）。
+ */
 @Composable
 private fun ProfileRepositories(repos: List<RepoItem>, loading: Boolean, onOpenRepo: (String) -> Unit) {
-    // null = 不筛选。拿哨兵字符串「全部」当"不筛选"的话，展示文案一旦抽成资源并翻译，
-    // `filter == "全部"` 在英文界面下永不成立 —— 筛选会直接失效（不崩溃，只是点了没反应）。
-    var filter by remember { mutableStateOf<String?>(null) }
+    var filter by rememberSaveable { mutableStateOf<String?>(null) }
+    var query by rememberSaveable { mutableStateOf("") }
+    // 抽屉是瞬时浮层，不进 Saveable：重建后自动弹出一个半屏面板不是「恢复」，是打扰
+    var drawerOpen by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        // 搜索框
-        Box(Modifier.fillMaxWidth().height(36.dp).clip(RoundedCornerShape(6.dp)).background(Primer.Gray150).border(1.dp, Primer.BorderEmphasis, RoundedCornerShape(6.dp)).padding(horizontal = 12.dp), contentAlignment = Alignment.CenterStart) {
-            Text(stringResource(R.string.hint_find_repo), fontSize = 13.sp, color = Primer.TextTertiary)
-        }
-        Spacer(Modifier.height(10.dp))
-        // 语言筛选
-        val langs = listOf<String?>(null, "Kotlin", "Shell", "Python", "C++")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            langs.forEach { lang ->
-                FilterChip(lang ?: stringResource(R.string.filter_all), selected = filter == lang) { filter = lang }
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-        if (loading) {
-            // 骨架屏：搜索框与语言筛选是**不依赖数据**的静态结构，照常渲染（用户能先看清这页有什么）；
-            // 只把下面的列表换成与 [RepoCard] 同构的占位卡，数据到达时列表在原位长出来。
-            ProvideShimmer {
-                BranchbaseLazyColumn {
-                    items(PROFILE_REPO_SKELETON_COUNT) { RepoCardSkeleton() }
+    // 语言清单 / 条数 / 过滤结果都只在数据或条件变化时重算 —— 一次组合里三处都读它们
+    val languages = remember(repos) { filterableLanguages(repos) }
+    val counts = remember(repos) { repoLanguageCounts(repos) }
+    val shown = remember(repos, query, filter) { filterRepos(repos, query, filter) }
+
+    Box(Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
+        // 列表**铺满整块内容区**（头部高度由 contentPadding 让出来），头部最后画、压在列表之上：
+        // 滚动的卡从搜索卡底下穿过去，而不是在搜索卡下方 6dp 处被硬切一刀。
+        when {
+            loading -> {
+                // 骨架屏：搜索卡与筛选入口是**不依赖数据**的静态结构，照常渲染（用户能先看清这页有什么）；
+                // 只把下面的列表换成与 [RepoCard] 同构的占位卡，数据到达时列表在原位长出来。
+                ProvideShimmer {
+                    BranchbaseLazyColumn(contentPadding = RepoHeaderContentPadding) {
+                        items(PROFILE_REPO_SKELETON_COUNT) { RepoCardSkeleton() }
+                    }
                 }
             }
-        } else {
-            BranchbaseLazyColumn {
-                items(repos.filter { filter == null || it.language == filter }) { repo ->
+            // 空结果只在**有筛选条件**时才是「没匹配到」：仓库本来就是空的时候，
+            // 画一句「没有匹配的仓库」等于指向一个用户没做过的动作
+            shown.isEmpty() && (query.isNotBlank() || filter != null) -> RepoNoMatch(
+                onClear = {
+                    query = ""
+                    filter = null
+                },
+            )
+            else -> BranchbaseLazyColumn(contentPadding = RepoHeaderContentPadding) {
+                items(shown) { repo ->
                     RepoCard(repo, onClick = { onOpenRepo(repo.fullName) })
+                }
+            }
+        }
+        // 头部浮层：上边 6dp 呼吸 + 32dp 卡 + 下边 6dp 缝（高度见 [RepoHeaderContentPadding]）。
+        // 不透明的那层「白底」到这里为止 —— 再往上就是标题行本身，滚动的卡会从「← 用户名」
+        // 下面直接穿过，那才是真的怪。
+        Row(
+            Modifier.fillMaxWidth().padding(top = RepoHeaderTopGap),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            RepoSearchCard(query = query, onQueryChange = { query = it }, modifier = Modifier.weight(1f))
+            // 入口只说「现在筛的是什么」（未筛选时是「语言」二字），把全集留给点开的抽屉：
+            // 页面顶部不再预告一行胶囊
+            RepoFilterEntry(selected = filter, onClick = { drawerOpen = true })
+        }
+    }
+
+    if (drawerOpen) {
+        RepoFilterSheet(
+            languages = languages,
+            counts = counts,
+            selected = filter,
+            // 只落筛选；收起动画由 sheet 自己播（它播完才回调 onDismiss）
+            onSelect = { filter = it },
+            onDismiss = { drawerOpen = false },
+        )
+    }
+}
+
+/**
+ * 搜索卡：左侧一枚语义色图标牌（[TintRole.ACCENT]，与「最近活动」同一个蓝）、中间真输入框、右侧清除。
+ *
+ * 为什么是 `TintChip` 而不是裸图标：这一行有两枚卡并排，两边左缘各有一枚 20dp 图标牌才读得成
+ * 「同一种部件」；裸图标夹在两张卡里会显得左边那张少了点什么。
+ *
+ * 字号 13sp / 单行：这一行的职责是「快速收窄列表」，不是编辑器。占位文案也换成不带 🔍 的那一句 ——
+ * 图标已经说过「这是搜索」，旧文案把 emoji 画进了文本框，真图标出现后就变成两个放大镜。
+ */
+@Composable
+private fun RepoSearchCard(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val keyboard = LocalSoftwareKeyboardController.current
+    Row(
+        modifier = modifier
+            .height(RepoFilterRowHeight)
+            .cardSurface(shape = RepoMiniCardShape, elevation = CardElevation)
+            .padding(horizontal = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TintChip(Icons.Filled.Search, role = TintRole.ACCENT, size = 20.dp, corner = 6.dp, iconSize = 12.dp)
+        Spacer(Modifier.width(7.dp))
+        BasicTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            singleLine = true,
+            textStyle = TextStyle(fontSize = 13.sp, color = Primer.TextPrimary),
+            cursorBrush = SolidColor(Primer.Blue500),
+            // 本地过滤没有「提交」这一步：回车只收键盘，不给它一个看起来要发请求的动作
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+            modifier = Modifier.weight(1f),
+            decorationBox = { inner ->
+                Box(contentAlignment = Alignment.CenterStart) {
+                    if (query.isEmpty()) {
+                        Text(
+                            stringResource(R.string.hint_find_repo),
+                            fontSize = 13.sp,
+                            color = Primer.TextTertiary,
+                            maxLines = 1,
+                        )
+                    }
+                    inner()
+                }
+            },
+        )
+        if (query.isNotEmpty()) {
+            Spacer(Modifier.width(6.dp))
+            Icon(
+                Icons.Filled.Close,
+                contentDescription = stringResource(R.string.action_clear_search),
+                tint = Primer.IconSecondary,
+                modifier = Modifier.size(15.dp).iconTap { onQueryChange("") },
+            )
+        }
+    }
+}
+
+/**
+ * 筛选入口卡：图标牌 [TintRole.DONE] 紫，与「常用仓库」同色（都是「挑选 / 归纳」那一族）。
+ *
+ * 宽度只随「有没有筛选」变：未筛选时固定显示「语言」两个字，选了语言才换成语言名。
+ * 语言名长短差得很多（`C++` / `TypeScript`），不做截断上限的话，搜索框会被这枚卡
+ * 按当前语言名一挤一挤地改宽度。
+ */
+@Composable
+private fun RepoFilterEntry(selected: String?, onClick: () -> Unit) {
+    val press = rememberPressFeedback()
+    Row(
+        modifier = Modifier
+            .height(RepoFilterRowHeight)
+            // 缩放放在 cardSurface **之前**：缩的是整张卡（含阴影），见 [FloatingCardButton] 的注释
+            .graphicsLayer {
+                scaleX = press.scale.value
+                scaleY = press.scale.value
+            }
+            .cardSurface(shape = RepoMiniCardShape, elevation = CardElevation)
+            .clickable(
+                interactionSource = press.interaction,
+                indication = LocalIndication.current,
+                onClick = onClick,
+            )
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TintChip(Icons.Filled.FilterList, role = TintRole.DONE, size = 20.dp, corner = 6.dp, iconSize = 12.dp)
+        Spacer(Modifier.width(5.dp))
+        Text(
+            selected ?: stringResource(R.string.label_language),
+            fontSize = 12.sp,
+            fontWeight = if (selected == null) FontWeight.Medium else FontWeight.SemiBold,
+            color = if (selected == null) Primer.TextSecondary else Primer.Blue500,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 76.dp),
+        )
+    }
+}
+
+/**
+ * 语言筛选抽屉：**自绘**，不再用 Material3 的 `ModalBottomSheet`（1.4.92）。
+ *
+ * ## 为什么把 M3 的 sheet 换掉
+ *
+ * 1.4.89 / 1.4.90 两版都在调「收起」：先是直接 `drawerOpen = false`（当帧消失），
+ * 再是 `hide()` + 等 `currentValue == Hidden` 才摘（能看到了，但**快到读不出来**）。
+ * 根因在 M3 1.4 的实现：`ModalBottomSheet` 是 **Dialog**，`targetValue` 一变 Hidden 就回调
+ * `onDismissRequest`，对话框的生死不归调用方管 —— 收起的时长与曲线也就调不动。
+ *
+ * 现在整个面板换成自绘：`Dialog(usePlatformDefaultWidth = false)` 只做**全屏容器**
+ * （这样才盖得住状态栏与底栏），里面只有两样东西 —— 遮罩 + 一块 `AnimatedVisibility` 面板，
+ * 升降都是 [ElementMotion.SHEET_MS]（240ms）的 tween，时长、曲线、何时摘对话框全在我们手里。
+ *
+ * 为什么不用 More 面板那条 ζ=0.40 的弹簧：那条回弹是「低频、锚点明确」的显式例外；
+ * 这里是从底部升起的一个选择面板，回弹会读成「面板没停稳」，tween 的收尾更干净。
+ *
+ * ## 结构
+ *
+ * 1. 标题一行；
+ * 2. **浮层卡分段控件**：`全部 / 应用 / 脚本 / 底层`，选中段是一枚**会滑动的蓝胶囊**
+ *    （`animateDpAsState` + `spring(ζ=0.72, stiffness=420)`，与仓库页「历史 / 工作流」同一套曲线）。
+ *    不做成「换哪段就给哪段描边」：那样切换时两段同时变色、没有方向感，读起来是「跳了一下」；
+ * 3. **不限语言**一行常驻在分段控件下面：它是「取消筛选」的出口。放进「全部」段里的话，
+ *    选了 Kotlin 之后出口就藏起来了 —— 用户得先学会这套分类，才找得到「不用分类」；
+ * 4. 该大类下的语言，**每行一张浮层卡**：圆角 10dp / 阴影 2dp，比页面卡降两档 ——
+ *    抽屉里行距只有 3dp，用 12dp + 4dp 会让相邻阴影糊成一片，反而看不出「一行一行」；
+ * 5. 行尾数字是该语言的仓库条数。0 条也列：它说明「这一类下面没有仓库」，比隐藏起来更有信息。
+ *
+ * ## 怎么收
+ *
+ * 三条路径（选语言 / 点遮罩 / 返回键）都只做一件事：把过渡态的目标设为 `false`。
+ * `Dialog` 一直挂到 `state.isIdle`（退场真的播完）才由上层摘掉 —— 选语言时**先落筛选**再收，
+ * 滑下去的 240ms 里后面的列表已经是新结果，收完不会再跳一下。
+ */
+@Composable
+private fun RepoFilterSheet(
+    languages: List<String>,
+    counts: Map<String, Int>,
+    selected: String?,
+    onSelect: (String?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    // 首帧就把目标置 true：面板从屏幕下沿之外滑上来。之后不再写它 ——
+    // 否则「收起到一半又被置回 true」会把退场打断。
+    val state = remember { MutableTransitionState(false).apply { targetState = true } }
+    // 退场真的播完（isIdle 且目标为 false）才让上层摘掉对话框。提前摘 = 位移被切掉，就是「闪一下」。
+    LaunchedEffect(state.isIdle) {
+        if (state.isIdle && !state.targetState) onDismiss()
+    }
+    val close: () -> Unit = { state.targetState = false }
+    // 行：先落筛选，再收起 —— 滑下去的 240ms 里后面的列表已经是新结果
+    val pick: (String?) -> Unit = { language ->
+        onSelect(language)
+        close()
+    }
+    // 遮罩只有「有/无」两态，但跟着面板一起走 240ms，不然面板还在升、背景已经定了
+    val scrim by animateFloatAsState(
+        targetValue = if (state.targetState) 1f else 0f,
+        animationSpec = tween(ElementMotion.SHEET_MS),
+        label = "repo-filter-scrim",
+    )
+    // 「全部」永远是第 0 段：它的内容 = 所有语言（含未归类的）
+    val segments: List<RepoLangClass?> = remember(languages) {
+        listOf<RepoLangClass?>(null) + RepoLangClass.entries.filter { cls -> languages.any { it in cls.languages } }
+    }
+    // 打开时停在「当前筛选所属的大类」：选了 Kotlin 却停在「全部」段的话，用户还得自己再找一次
+    var segment by remember(segments) {
+        mutableStateOf(
+            segments.firstOrNull { cls -> cls != null && selected != null && selected in cls.languages }
+                ?: segments.first(),
+        )
+    }
+
+    Dialog(
+        onDismissRequest = close,
+        // 默认宽度的对话框只有中间一条；这里要通屏的遮罩与贴底的面板
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        Box(Modifier.fillMaxSize()) {
+            // 遮罩：只负责「点一下收起」。用 pointerInput 而不是 clickable ——
+            // 它没有文字，不该在无障碍树里多出一个「没有一个字的按钮」。
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.32f * scrim))
+                    .pointerInput(Unit) { detectTapGestures { close() } },
+            )
+            AnimatedVisibility(
+                visibleState = state,
+                // 行程 = 面板自身高度：退场时整块落到屏幕下沿之外，读作「滑下去」而不是「淡掉」
+                enter = slideInVertically(tween(ElementMotion.SHEET_MS)) { it } +
+                    fadeIn(tween(ElementMotion.PANEL_FADE_IN_MS)),
+                exit = slideOutVertically(tween(ElementMotion.SHEET_MS)) { it } +
+                    fadeOut(tween(ElementMotion.SHEET_MS)),
+                modifier = Modifier.align(Alignment.BottomCenter),
+            ) {
+                val panelShape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .shadow(elevation = 16.dp, shape = panelShape, clip = false)
+                        .background(Primer.BackgroundPrimary, panelShape)
+                        // 面板本体的空白处（标题与列表之间的内边距）**吞掉**点击：
+                        // 只有点在遮罩上才收起，点在面板里不该关掉它
+                        .pointerInput(Unit) { detectTapGestures { } }
+                        .navigationBarsPadding()
+                        .padding(horizontal = 14.dp)
+                        .padding(top = 14.dp, bottom = 12.dp),
+                ) {
+                    Text(
+                        stringResource(R.string.title_repo_lang_filter),
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Primer.TextPrimary,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    RepoLangSegments(segments = segments, segment = segment, onSelect = { segment = it })
+                    Spacer(Modifier.height(8.dp))
+                    // 兜底滚动：语言全集最多可能到十几行，面板不能长到顶掉标题与分段控件
+                    Box(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+                        Column(Modifier.fillMaxWidth()) {
+                            RepoLangRow(
+                                label = stringResource(R.string.label_all_languages),
+                                icon = Icons.Filled.Clear,
+                                role = TintRole.NEUTRAL,
+                                count = null,
+                                selected = selected == null,
+                                onClick = { pick(null) },
+                            )
+                            AnimatedContent(
+                                targetState = segment,
+                                // 分段之间是「同一张清单换了内容」，不是翻页：只做淡入 + 极短的纵向位移，
+                                // 与滑动的胶囊一起读成「换了一格」，而不是「列表被整块替换」
+                                transitionSpec = {
+                                    (fadeIn(tween(160)) + slideInVertically { it / 10 }) togetherWith fadeOut(tween(120))
+                                },
+                                label = "repo-lang-rows",
+                            ) { cls ->
+                                Column(Modifier.fillMaxWidth()) {
+                                    val rows = if (cls == null) languages else languages.filter { it in cls.languages }
+                                    rows.forEach { language ->
+                                        val rowClass = langClassOf(language)
+                                        RepoLangRow(
+                                            label = language,
+                                            icon = rowClass?.icon ?: Icons.Filled.Circle,
+                                            role = rowClass?.role ?: TintRole.NEUTRAL,
+                                            count = counts[language] ?: 0,
+                                            selected = language == selected,
+                                            onClick = { pick(language) },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 }
 
+/**
+ * 浮层卡分段控件：**等分**的 2~4 段 + 一枚会滑动的选中胶囊。
+ *
+ * 选中块用 `animateDpAsState` + `spring(ζ=0.72, stiffness=420)` 位移；文字色同步 180ms
+ * （[ElementMotion.COLOR_MS]）—— 否则胶囊到了、字还是旧颜色，切换读起来是「两件事在动」。
+ *
+ * 段数不是写死的 2：抽屉里是「全部 + 有语言落进去的大类」，数据里没有脚本类仓库时就不出现
+ * 「脚本」这一段（给一个点了必然空的分段，比少一段更糟）。
+ */
 @Composable
-private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier.clip(RoundedCornerShape(14.dp))
-            .background(selectionColor(selected, on = Primer.Blue500, off = Primer.Gray150))
-            .border(
-                1.dp,
-                selectionColor(selected, on = Primer.Blue500, off = Primer.BorderEmphasis),
-                RoundedCornerShape(14.dp),
-            )
-            .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 5.dp),
+private fun RepoLangSegments(
+    segments: List<RepoLangClass?>,
+    segment: RepoLangClass?,
+    onSelect: (RepoLangClass?) -> Unit,
+) {
+    BoxWithConstraints(
+        Modifier
+            .fillMaxWidth()
+            .cardSurface(shape = RoundedCornerShape(10.dp), elevation = 2.dp)
+            .padding(3.dp),
     ) {
-        Text(label, fontSize = 12.sp, color = selectionColor(selected, on = Color.White, off = Primer.TextSecondary))
+        val gap = 3.dp
+        val count = segments.size.toFloat()
+        val segWidth = (maxWidth - gap * (count - 1f)) / count
+        val index = segments.indexOf(segment).coerceAtLeast(0)
+        val offset by animateDpAsState(
+            targetValue = (segWidth + gap) * index.toFloat(),
+            animationSpec = spring(dampingRatio = 0.72f, stiffness = 420f),
+            label = "repo-lang-segment",
+        )
+        Box(
+            Modifier
+                .offset(x = offset)
+                .width(segWidth)
+                .height(30.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(Primer.Blue500),
+        )
+        Row(Modifier.height(30.dp)) {
+            segments.forEachIndexed { i, cls ->
+                if (i > 0) Spacer(Modifier.width(gap))
+                val on = cls == segment
+                val color by animateColorAsState(
+                    targetValue = if (on) Color.White else Primer.TextSecondary,
+                    animationSpec = tween(ElementMotion.COLOR_MS),
+                    label = "repo-lang-segment-text",
+                )
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(999.dp))
+                        .clickable { onSelect(cls) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        stringResource(cls?.labelRes ?: R.string.filter_all),
+                        fontSize = 12.sp,
+                        fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium,
+                        color = color,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 抽屉里的一行语言：图标牌 + 语言名 + 条数 + 选中勾，整行是一张浮层卡。
+ *
+ * 颜色只从 [RepoLangClass] 取，调用处不传色值 —— 语义色板的唯一真源在 `TintRole`；
+ * 未归类的语言走 [TintRole.NEUTRAL]（它没有「哪一类」可说，硬染色反而是假信息）。
+ */
+@Composable
+private fun RepoLangRow(
+    label: String,
+    icon: ImageVector,
+    role: TintRole,
+    count: Int?,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp)
+            .cardSurface(shape = RoundedCornerShape(10.dp), elevation = 2.dp)
+            .clickable { onClick() }
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // 图标牌读屏名为 null：右边的语言名已经把这行说完了，装饰不给读屏添噪
+        TintChip(icon, role = role, size = 22.dp, corner = 7.dp, iconSize = 13.dp)
+        Spacer(Modifier.width(8.dp))
+        Text(
+            label,
+            fontSize = 13.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            color = if (selected) Primer.Blue500 else Primer.TextPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (count != null) {
+            Text("$count", fontSize = 11.sp, color = Primer.TextTertiary)
+            Spacer(Modifier.width(6.dp))
+        }
+        if (selected) {
+            Icon(
+                Icons.Filled.Check,
+                contentDescription = null,
+                tint = Primer.Blue500,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+    }
+}
+
+/**
+ * 「有筛选条件但一条都没匹配上」的空态。
+ *
+ * 不写成纯灰字：用户刚在搜索框里敲了字，需要一条**能退回去**的路 ——
+ * 「清除筛选」是一枚浮层小卡按钮，点一下**同时**清掉关键词与语言。
+ * 只清一个的话列表还是空的，用户会以为按钮坏了。
+ */
+@Composable
+private fun RepoNoMatch(onClear: () -> Unit) {
+    Column(
+        // 让开头部浮层：空态是「列表的替身」，落点必须和第一张卡一致
+        Modifier.fillMaxWidth().padding(top = RepoHeaderContentPadding.calculateTopPadding() + 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            stringResource(R.string.state_no_repo_match),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = Primer.TextSecondary,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            stringResource(R.string.note_no_repo_match_hint),
+            fontSize = 12.sp,
+            color = Primer.TextTertiary,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(10.dp))
+        FloatingCardButton(
+            onClick = onClear,
+            shape = RepoMiniCardShape,
+            elevation = 3.dp,
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+        ) {
+            Text(
+                stringResource(R.string.action_clear_filters),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = Primer.Blue500,
+            )
+        }
     }
 }
 

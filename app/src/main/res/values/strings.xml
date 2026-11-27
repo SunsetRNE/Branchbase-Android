@@ -831,7 +831,16 @@
     <string name="label_less">少</string>
     <string name="label_more">多</string>
     <string name="error_activity_unavailable">无法加载动态（网络或权限受限）</string>
-    <string name="hint_find_repo">🔍 查找仓库…</string>
+    <string name="hint_find_repo">查找仓库…</string>
+    <string name="action_clear_search">清除搜索</string>
+    <string name="title_repo_lang_filter">按语言筛选</string>
+    <string name="label_all_languages">不限语言</string>
+    <string name="label_lang_class_app">应用</string>
+    <string name="label_lang_class_script">脚本</string>
+    <string name="label_lang_class_system">底层</string>
+    <string name="state_no_repo_match">没有匹配的仓库</string>
+    <string name="note_no_repo_match_hint">换一个关键词，或把语言切回「全部」。</string>
+    <string name="action_clear_filters">清除筛选</string>
     <string name="error_activity_load_failed">动态加载失败</string>
     <string name="label_last_30_days">近 30 天</string>
     <string name="label_activity_overview">动态概览</string>
