@@ -74,7 +74,22 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ---
 
-## 二、`versionName` 流水（1.4.81 → 1.0.22）
+## 二、`versionName` 流水（1.4.82 → 1.0.22）
+
+### 1.4.82
+
+**Actions 页加「历史 / 工作流」浮层卡分段。**
+
+1.4.81 的设置项在这里生效。三段改动：
+
+① `WorkflowAllRunsContent`：仓库级「全部运行」，走 `GET /repos/{o}/{r}/actions/runs`
+   （GitHub 原生 `created_at desc`），带 `?branch=` 与 `per_page=50`；缓存键用 `runsKey(..., -1L, ...)`
+   作「仓库级」哨兵（与真实 workflowId 不撞）。列表复用 `WorkflowRunRow`，点进运行详情。
+② `WorkflowTabContent`：顶部一张 `cardSurface()` 分段卡（16dp 外距 + 12dp 圆角 + 4dp 阴影 +
+   两枚等宽胶囊），初始段读 `workflowDefaultHistory(context)`（缺失 = 历史）。
+③ 页内切换**不写盘**：它只管这一次进入；改默认值要去设置「默认行为管理」。
+
+验证：`assembleDebug` 通过；`:app:testDebugUnitTest` 全绿；i18n 100%。
 
 ### 1.4.81
 
@@ -5799,7 +5814,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 
 ---
 
-## 三、`versionCode` 流水（341 → 129）
+## 三、`versionCode` 流水（342 → 129）
+
+- **342**：Actions 页「历史 / 工作流」浮层卡分段（1.4.82）—— 新增仓库级全部运行列表
+  （`/actions/runs`）、`cardSurface()` 分段卡、初始段读设置项（一次提交，故 +1）。
+
 
 - **341**：设置页新增「默认行为管理」（1.4.81）—— 独立卡片入口 + `DefaultBehaviorScreen`
   （工作流页默认打开运行历史，默认开）+ 落盘键 + 中英文案（一次提交，故 +1）。

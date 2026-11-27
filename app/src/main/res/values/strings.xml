@@ -2127,4 +2127,5 @@
     <string name="settings_default_behavior">默认行为管理</string>
     <string name="label_workflow_default_history">工作流页默认打开运行历史</string>
     <string name="note_workflow_default_history">关闭后，进入工作流页会落在「工作流」列表而不是运行记录。</string>
+    <string name="label_run_history">历史</string>
 </resources>

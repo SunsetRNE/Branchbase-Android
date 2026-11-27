@@ -2081,4 +2081,5 @@
     <string name="settings_default_behavior">Default behavior</string>
     <string name="label_workflow_default_history">Open run history by default on the Actions page</string>
     <string name="note_workflow_default_history">When off, the Actions page opens the workflow list instead of run history.</string>
+    <string name="label_run_history">History</string>
 </resources>

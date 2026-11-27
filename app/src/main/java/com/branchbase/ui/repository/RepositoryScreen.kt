@@ -1397,10 +1397,16 @@ fun RepositoryScreen(
                                                 onOpenFile = { filePage = it to null },
                                             )
                                             RepoPage.Issues -> IssueListContent(session, owner, repo, refreshTick, onItemClick = { issuePage = it.number })
-                                            RepoPage.Workflows -> WorkflowListContent(
-                                                session, owner, repo, branch, refreshTick,
-                                                onItemClick = { runsWorkflow = it; workflowRunsPage = it.id to it.name },
-                                                onLongPress = { workflowAction = it },
+                                            // Actions：历史（全部运行）/ 工作流 两段，控件是浮层卡分段
+                                            RepoPage.Workflows -> WorkflowTabContent(
+                                                sessionJson = session,
+                                                owner = owner,
+                                                repo = repo,
+                                                branch = branch,
+                                                refreshTick = refreshTick,
+                                                onOpenRun = { runDetailPage = it },
+                                                onOpenWorkflow = { runsWorkflow = it; workflowRunsPage = it.id to it.name },
+                                                onLongPressWorkflow = { workflowAction = it },
                                             )
                                             RepoPage.Releases -> ReleaseListContent(
                                                 sessionJson = session, owner = owner, repo = repo, refreshTick = refreshTick,

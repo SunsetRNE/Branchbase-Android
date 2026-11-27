@@ -2,6 +2,7 @@ package com.branchbase.ui.repository
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -61,6 +63,7 @@ import com.branchbase.ui.theme.CodeSyntax
 import com.branchbase.ui.TintChip
 import com.branchbase.ui.cardSurface
 import com.branchbase.ui.theme.Primer
+import com.branchbase.ui.settings.workflowDefaultHistory
 import com.branchbase.ui.theme.TintRole
 
 /**
@@ -339,5 +342,139 @@ private fun CenterLoading() {
 private fun CenterText(text: String) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text(text, fontSize = 13.sp, color = Primer.TextTertiary)
+    }
+}
+/**
+ * Actions 页的「全部运行」列表（决策：历史 / 工作流 两段切换的默认段）。
+ *
+ * 与 [WorkflowRunsContent] 的区别只有一个：那个按 `workflowId` 取某条工作流的运行，
+ * 这个走 `GET /actions/runs`（仓库级，GitHub 原生按 `created_at desc`），
+ * 也就是「最近这个仓库跑了什么」。
+ *
+ * 没有自带的顶栏与返回键 —— 它挂在 Tab 里，顶栏由仓库页给。
+ */
+@Composable
+fun WorkflowAllRunsContent(
+    sessionJson: String,
+    owner: String,
+    repo: String,
+    branch: String?,
+    refreshTick: Int,
+    onOpenRun: (Long) -> Unit,
+) {
+    val (host, token, _) = sessionInfo(sessionJson)
+    val context = LocalContext.current
+    // workflowId 是 Long（runsKey 的签名）；用 -1 作为「仓库级全部运行」的哨兵，
+    // 与任何真实 workflowId（正整数）都不撞。
+    val cacheKey = PageCache.runsKey(owner, repo, -1L, branch.orEmpty())
+    var runs by remember(cacheKey) { mutableStateOf<List<WorkflowRun>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var retryTick by remember { mutableStateOf(0) }
+
+    LaunchedEffect(owner, repo, branch, refreshTick, retryTick) {
+        loading = true
+        error = null
+        val force = refreshTick > 0 || retryTick > 0
+        val manager = SearchCacheManager(SearchCacheDatabase.getInstance(context).searchCacheDao())
+        val br = branch?.takeIf { it.isNotBlank() }?.let { "?branch=${encodeRef(it)}&per_page=50" } ?: "?per_page=50"
+        var shown = false
+
+        PageCache.cachedFirst(manager, cacheKey, PageCache.TYPE_DETAIL, force)?.let { cached ->
+            parseWorkflowRuns(cached).takeIf { it.isNotEmpty() }?.let {
+                runs = it
+                shown = true
+                loading = false
+            }
+        }
+
+        val json = PageCache.refresh(manager, cacheKey, PageCache.TYPE_DETAIL, force) {
+            RustBridge.getJson(host, token, "/repos/$owner/$repo/actions/runs$br")
+        }
+        if (json == null) {
+            if (!shown && runs.isEmpty()) error = context.getString(R.string.error_load_failed)
+        } else {
+            runs = parseWorkflowRuns(json)
+        }
+        loading = false
+    }
+
+    when {
+        loading -> CenterLoading()
+        error != null -> ListError(error!!) { retryTick++ }
+        runs.isEmpty() -> CenterText(stringResource(R.string.state_no_runs))
+        else -> BranchbaseLazyColumn(Modifier.fillMaxSize()) {
+            items(runs) { run -> WorkflowRunRow(run) { onOpenRun(run.id) } }
+        }
+    }
+}
+
+/**
+ * Actions 页：顶部一张**浮层卡分段**（历史 / 工作流），下面挂对应的列表。
+ *
+ * 为什么是卡片而不是裸胶囊：这一屏其余部分全是卡片行，裸胶囊会变成第三种顶部样式
+ * （任务页的分段是胶囊行，但那一页本身没有卡片列表，两者不冲突）。
+ *
+ * 初始段读设置「默认行为管理」的 `workflowDefaultHistory`（缺失 = 历史）；
+ * 页内切换**不写盘** —— 它只管这一次进入，改默认值要去设置页。
+ */
+@Composable
+fun WorkflowTabContent(
+    sessionJson: String,
+    owner: String,
+    repo: String,
+    branch: String?,
+    refreshTick: Int,
+    onOpenRun: (Long) -> Unit,
+    onOpenWorkflow: (WorkflowItem) -> Unit,
+    onLongPressWorkflow: (WorkflowItem) -> Unit,
+) {
+    val context = LocalContext.current
+    var history by remember { mutableStateOf(workflowDefaultHistory(context)) }
+
+    Column(Modifier.fillMaxSize()) {
+        WorkflowTabSwitch(history) { history = it }
+        if (history) {
+            WorkflowAllRunsContent(sessionJson, owner, repo, branch, refreshTick, onOpenRun)
+        } else {
+            WorkflowListContent(
+                sessionJson, owner, repo, branch, refreshTick,
+                onItemClick = onOpenWorkflow,
+                onLongPress = onLongPressWorkflow,
+            )
+        }
+    }
+}
+
+/** 两段浮层卡：与列表行同一张面（16dp 外距 + 12dp 圆角 + 4dp 阴影），内嵌两枚等宽胶囊。 */
+@Composable
+private fun WorkflowTabSwitch(history: Boolean, onSelect: (Boolean) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 3.dp)
+            .cardSurface()
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        listOf(R.string.label_run_history to true, R.string.label_workflows to false).forEach { (res, isHistory) ->
+            val on = isHistory == history
+            Box(
+                Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(if (on) Primer.Blue500 else Color.Transparent)
+                    .clickable { onSelect(isHistory) }
+                    .padding(vertical = 7.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    stringResource(res),
+                    fontSize = 13.sp,
+                    fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium,
+                    color = if (on) Color.White else Primer.TextSecondary,
+                )
+            }
+        }
     }
 }

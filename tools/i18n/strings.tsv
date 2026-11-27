@@ -1377,3 +1377,4 @@ $count 个只在远端	%1$s remote-only	label_refs_remote_only_count
 默认行为管理	Default behavior	settings_default_behavior
 工作流页默认打开运行历史	Open run history by default on the Actions page	label_workflow_default_history
 关闭后，进入工作流页会落在「工作流」列表而不是运行记录。	When off, the Actions page opens the workflow list instead of run history.	note_workflow_default_history
+历史	History	label_run_history
