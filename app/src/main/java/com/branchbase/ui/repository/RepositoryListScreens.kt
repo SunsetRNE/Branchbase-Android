@@ -439,15 +439,16 @@ private fun ParentFolderRow(onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 2.dp)
+            .cardSurface()
             .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 9.dp),
+            .padding(horizontal = 12.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
+        TintChip(
             Icons.Filled.Folder,
+            TintRole.NEUTRAL,
             contentDescription = stringResource(R.string.nav_up_one_level),
-            tint = Primer.IconSecondary,
-            modifier = Modifier.size(16.dp),
         )
         Spacer(Modifier.width(10.dp))
         Text(
@@ -468,9 +469,10 @@ private fun BreadcrumbBar(path: String, onNavigate: (String) -> Unit) {
         onNavigate = onNavigate,
         modifier = Modifier
             .fillMaxWidth()
-            // 1.4.77：左缘 12 → 16dp —— 与下面每张列表卡的左边界同一条线；
-            // 上下留白 12 → 2/4dp —— 根目录只有一枚「/」，却占掉近 40dp，第一屏被白白推下去一截。
-            .padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 4.dp),
+            // 1.4.78：左缘对齐列表卡的**内容**左缘（16 卡片外距 + 12 卡内边距 = 28dp），
+            // 而不是卡边 16dp —— 1.4.77 只对到卡边，路径文字仍比图标列缩进 12dp，看着还是歪的。
+            // 上下留白 2/4dp：根目录只有一枚「/」，不给它单独留一行的高度。
+            .padding(start = 28.dp, end = 16.dp, top = 2.dp, bottom = 2.dp),
     )
 }
 
