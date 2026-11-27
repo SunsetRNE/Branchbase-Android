@@ -155,6 +155,7 @@ README.zh.md                       ← 项目门面（中文原文；**中文内
 | [`specs/prototypes/settings-redesign.md`](specs/prototypes/settings-redesign.md) | 设置页重设计原型：8 套行组件 → 6 种行型、主题去循环化、禁用行给出路、3 个对比度修正 | `specs/settings-design.md` §一 / §十四 |
 | [`specs/prototypes/settings-compact.html`](specs/prototypes/settings-compact.html) | **设置主页压密可交互原型（单文件，直接打开）**：压前/压后双机实时对比、5 个尺寸旋钮 + 4 预设、高度实测、Compose 片段、其他页排单板（A/B/C，可导出 Markdown） | `specs/settings-compact-redesign.md`、`ui/settings/SettingsRow.kt` |
 | [`specs/prototypes/theme-neutral-preview.md`](specs/prototypes/theme-neutral-preview.md) | 中性色「去灰」三个方案的取值与结论 | `specs/settings-design.md` §九（令牌取舍）、`ui/theme/ThemePalette.kt`（消费方） |
+| [`specs/prototypes/branch-pages-redesign.md`](specs/prototypes/branch-pages-redesign.md) | 分支管理 / 分支对比重绘：浮层卡 / 压密 / 三语义图标（已落地 1.4.97） | `BranchManageScreen.kt`、`BranchCompareScreen.kt`、`TintTag.kt`、`DiffLines.kt` |
 | [`specs/prototypes/home-todo-empty.md`](specs/prototypes/home-todo-empty.md) | 首页「待处理」：无框分组 + 可折叠（已落地 1.4.31）：44dp 折叠头 / 摘要承担四态 / 空态即折叠态 / 0 行去箭头 | `ui/home/HomeScreen.kt`（`TodoGroup` / `TodoState`）、`design/home-todo-empty/`（草图本体） |
 | [`../design/README.md`](../design/README.md) | **原型草图目录（入库）**：放什么 / 命名 / 与 specs/prototypes 的分工 / 现有清单 | 各原型的说明文档按约定抽进 `specs/prototypes/` |
 | [`../review/README.md`](../review/README.md) | **审计与评审件（入库）**：过程材料放什么 / 与 specs 的分工 / 索引 | 结论仍以 `docs/specs/` 为准 |

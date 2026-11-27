@@ -1,0 +1,1632 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>分支管理 × 分支对比 · 浮层卡 / 压密 / 三语义图标 · 原型</title>
+<!--
+  一次性草图（不是产品 UI）。
+
+  目标：把「分支管理」和「分支对比」两页从扁平列表改成与仓库概览 / 搜索页同一套
+  「浮层卡 + 三语义图标」语言，同时把内容密度压下来。
+
+  颜色直接取 ui/theme/ThemePalette.kt 的浅 / 深两套 PrimerPalette：
+    浅色：canvas #FFFFFF / text-1 #050505 / text-2 #41434E / text-3 #6A6D7C
+          accent #0969DA / success #28A745 / danger #D73A49 / warning #F66A0A / done #6F42C1
+          code bg #F6F8FA / successSurface #F0FFF4 / dangerSurface #FFEBEC
+    深色：canvas #0D1117 / canvasSubtle #161B22 / text-1 #E6EDF3 / text-2 #C9D1D9 / text-3 #8B949E
+          accent #1F6FEB / success #3FB950 / danger #F85149 / warning #D29922 / done #A371F7
+          successSurface #12261E / dangerSurface #2D1418
+  卡片面走全 App 唯一的 cardSurface()：12dp 圆角 + 4dp 阴影（本原型所有列表卡同此）。
+  图标牌走 TintChip：牌 = 图标色 × 12%，图标 = 语义填充色。
+
+  重要：彩色牌一屏只留给「需要一眼分类」的地方（TintChip 的 ≤3 规则）。
+  普通分支、区块头保持 NEUTRAL_SUBTLE，不给每一行都染色。
+-->
+<style>
+  :root {
+    --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+    --mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
+    --page-bg: #E9EBF0;
+    --page-ink: #050505;
+    --page-ink-2: #41434E;
+    --page-ink-3: #6A6D7C;
+    --page-line: #DFE1E7;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    padding: 30px 18px 56px;
+    background: var(--page-bg);
+    color: var(--page-ink);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; color: inherit; }
+  a { color: inherit; }
+  button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid var(--accent, #0969DA);
+    outline-offset: 2px;
+  }
+
+  /* ───────── 页面头（原型工具，不是产品 UI） ───────── */
+  .masthead {
+    max-width: 900px;
+    margin: 0 auto 18px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+  }
+  .eyebrow {
+    margin: 0 0 7px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--page-ink-3);
+  }
+  .masthead h1 {
+    margin: 0 0 8px;
+    font-size: 27px;
+    line-height: 1.16;
+    letter-spacing: -.02em;
+  }
+  .lede {
+    margin: 0;
+    max-width: 620px;
+    font-size: 12.5px;
+    line-height: 19px;
+    color: var(--page-ink-2);
+  }
+  .lede code {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, .055);
+  }
+  .jump { display: flex; flex-wrap: wrap; gap: 6px; }
+  .jump a {
+    display: inline-flex;
+    align-items: center;
+    height: 30px;
+    padding: 0 11px;
+    border-radius: 999px;
+    border: 1px solid var(--page-line);
+    background: #fff;
+    color: var(--page-ink-2);
+    font-size: 11px;
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .jump a:hover { color: var(--page-ink); border-color: #C9CCD4; }
+
+  .legend {
+    max-width: 900px;
+    margin: 14px auto 24px;
+    padding: 10px 14px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px 16px;
+    background: #fff;
+    border: 1px solid var(--page-line);
+    border-radius: 12px;
+    font-size: 10.5px;
+    color: var(--page-ink-2);
+  }
+  .legend .lt {
+    font-size: 9.5px;
+    font-weight: 800;
+    letter-spacing: .12em;
+    color: var(--page-ink-3);
+    margin-right: 2px;
+  }
+  .lg { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .dot { width: 8px; height: 8px; border-radius: 3px; }
+  .dot.accent { background: #0969DA; }
+  .dot.warning { background: #F66A0A; }
+  .dot.neutral { background: #9194A1; }
+  .dot.success { background: #28A745; }
+  .dot.danger { background: #D73A49; }
+  .dot.done { background: #6F42C1; }
+
+  /* ───────── 双页 × 双主题 ───────── */
+  .stage {
+    max-width: 900px;
+    margin: 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 32px 28px;
+  }
+  .col { width: min(390px, 100%); display: flex; flex-direction: column; gap: 10px; }
+  .cap { padding: 0 2px; }
+  .cap h2 {
+    margin: 0 0 4px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: -.01em;
+  }
+  .cap .theme {
+    display: inline-flex;
+    align-items: center;
+    height: 17px;
+    padding: 0 6px;
+    border-radius: 5px;
+    background: #fff;
+    border: 1px solid var(--page-line);
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--page-ink-3);
+    letter-spacing: .02em;
+  }
+  .cap p { margin: 0; font-size: 11px; line-height: 16px; color: var(--page-ink-3); }
+  .cap p b { color: var(--page-ink-2); font-weight: 700; }
+
+  .frame {
+    position: relative;
+    width: 100%;
+    height: 844px;
+    scroll-margin-top: 18px;
+  }
+  .device {
+    position: absolute;
+    top: 0; left: 0;
+    width: 390px;
+    height: 844px;
+    transform: scale(var(--s, 1));
+    transform-origin: top left;
+    border-radius: 32px;
+    overflow: hidden;
+    background: var(--canvas);
+    color: var(--text-1);
+    box-shadow: 0 22px 54px rgba(16, 24, 40, .18);
+    border: 1px solid rgba(0, 0, 0, .10);
+    display: flex;
+    flex-direction: column;
+  }
+  .frame.flash .device {
+    animation: frame-flash 1.1s ease;
+  }
+  @keyframes frame-flash {
+    0%, 100% { box-shadow: 0 22px 54px rgba(16, 24, 40, .18); }
+    30% { box-shadow: 0 0 0 4px rgba(9, 105, 218, .38), 0 22px 54px rgba(16, 24, 40, .18); }
+  }
+
+  /* ───────── 主题令牌（与 PrimerPalette 对齐） ───────── */
+  .device[data-theme="light"] {
+    color-scheme: light;
+    --canvas: #FFFFFF;
+    --surface: #FFFFFF;
+    --fill: #F7F7F9;
+    --fill-strong: #EFF0F5;
+    --text-1: #050505;
+    --text-2: #41434E;
+    --text-3: #6A6D7C;
+    --icon-1: #000000;
+    --icon-2: #9194A1;
+    --border: #BFC1C9;
+    --hairline: #E3E4E8;
+    --accent: #0969DA;
+    --link: #0969DA;
+    --success: #28A745;
+    --danger: #D73A49;
+    --warning: #F66A0A;
+    --done: #6F42C1;
+    --accent-text: #0550AE;
+    --success-text: #1A7F37;
+    --danger-text: #9E1C24;
+    --warning-text: #7D4C00;
+    --done-text: #6F42C1;
+    --accent-tint: rgba(9, 105, 218, .12);
+    --success-tint: rgba(40, 167, 69, .12);
+    --danger-tint: rgba(215, 58, 73, .12);
+    --warning-tint: rgba(246, 106, 10, .12);
+    --done-tint: rgba(111, 66, 193, .12);
+    --neutral-tint: rgba(0, 0, 0, .06);
+    --add-bg: #F0FFF4;
+    --del-bg: #FFEBEC;
+    --code-bg: #F6F8FA;
+    --hunk-bg: #EFF0F5;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 10px 24px rgba(16, 24, 40, .06);
+    --shadow-pop: 0 10px 30px rgba(16, 24, 40, .20);
+    --press: rgba(0, 0, 0, .05);
+    --toast-bg: #17181C;
+    --toast-ink: #FFFFFF;
+  }
+  .device[data-theme="dark"] {
+    color-scheme: dark;
+    --canvas: #0D1117;
+    --surface: #161B22;
+    --fill: #161B22;
+    --fill-strong: #21262D;
+    --text-1: #E6EDF3;
+    --text-2: #C9D1D9;
+    --text-3: #8B949E;
+    --icon-1: #FFFFFF;
+    --icon-2: #8B949E;
+    --border: #30363D;
+    --hairline: #21262D;
+    --accent: #1F6FEB;
+    --link: #2F81F7;
+    --success: #3FB950;
+    --danger: #F85149;
+    --warning: #D29922;
+    --done: #A371F7;
+    --accent-text: #79C0FF;
+    --success-text: #3FB950;
+    --danger-text: #F85149;
+    --warning-text: #D29922;
+    --done-text: #A371F7;
+    --accent-tint: rgba(31, 111, 235, .16);
+    --success-tint: rgba(63, 185, 80, .14);
+    --danger-tint: rgba(248, 81, 73, .14);
+    --warning-tint: rgba(210, 153, 34, .14);
+    --done-tint: rgba(163, 113, 247, .14);
+    --neutral-tint: rgba(255, 255, 255, .07);
+    --add-bg: #12261E;
+    --del-bg: #2D1418;
+    --code-bg: #161B22;
+    --hunk-bg: #21262D;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .62), 0 10px 24px rgba(0, 0, 0, .38);
+    --shadow-pop: 0 14px 36px rgba(0, 0, 0, .66);
+    --press: rgba(255, 255, 255, .07);
+    --toast-bg: #E6EDF3;
+    --toast-ink: #0D1117;
+  }
+
+  /* ───────── 手机壳内部 ───────── */
+  .statusbar {
+    flex: 0 0 44px;
+    height: 44px;
+    padding: 0 22px 0 26px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12.5px;
+    font-weight: 650;
+    letter-spacing: .01em;
+  }
+  .statusbar .sb-right { display: flex; align-items: center; gap: 5px; }
+  .sb-ic { width: 13px; height: 13px; fill: var(--icon-1); }
+  .sb-battery { width: 18px; height: 10px; border: 1px solid var(--icon-1); border-radius: 2.5px; padding: 1.5px; }
+  .sb-battery i { display: block; width: 72%; height: 100%; border-radius: 1px; background: var(--icon-1); }
+
+  .appbar {
+    flex: 0 0 48px;
+    height: 48px;
+    padding: 0 12px 0 10px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .iconbtn {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    display: inline-grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    color: var(--icon-1);
+    cursor: pointer;
+    flex: 0 0 30px;
+    padding: 0;
+  }
+  .iconbtn:hover { background: var(--press); }
+  .iconbtn:active { background: var(--press); }
+  .iconbtn .ic { width: 20px; height: 20px; }
+  .iconbtn .ic.spinning { animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .text-act {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--link);
+    font-size: 12px;
+    line-height: 16px;
+    padding: 6px 5px;
+    border-radius: 7px;
+    cursor: pointer;
+    flex: 0 0 auto;
+  }
+  .text-act:hover { background: var(--press); }
+
+  .titles { flex: 1; min-width: 0; }
+  .titles h3 {
+    margin: 0;
+    font-size: 15.5px;
+    line-height: 19px;
+    font-weight: 750;
+    letter-spacing: -.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .titles .sub {
+    margin-top: 1px;
+    font-size: 10px;
+    line-height: 12px;
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .screen {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 2px 16px 28px;
+    scrollbar-width: none;
+  }
+  .screen::-webkit-scrollbar { display: none; }
+
+  .home-indicator {
+    position: absolute;
+    left: 50%;
+    bottom: 6px;
+    width: 118px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--text-1);
+    opacity: .22;
+    transform: translateX(-50%);
+    pointer-events: none;
+  }
+
+  /* ───────── 基础卡片 ───────── */
+  .card {
+    background: var(--surface);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+  }
+  .stack { display: flex; flex-direction: column; gap: 4px; }
+  .tap { cursor: pointer; }
+  .tap:active { transform: scale(.988); }
+  .tap { transition: transform .12s ease; }
+
+  .ic { display: block; width: 1em; height: 1em; fill: currentColor; flex: 0 0 auto; }
+
+  /* 语义图标牌：牌 = 图标色 12%，图标 = 语义色（TintChip 的规则） */
+  .chip {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+    display: grid;
+    place-items: center;
+    border-radius: 6px;
+    background: var(--neutral-tint);
+    color: var(--icon-2);
+  }
+  .chip .ic { width: 12px; height: 12px; }
+  .t-accent { background: var(--accent-tint); color: var(--accent); }
+  .t-warning { background: var(--warning-tint); color: var(--warning); }
+  .t-neutral { background: var(--neutral-tint); color: var(--icon-2); }
+  .t-success { background: var(--success-tint); color: var(--success); }
+  .t-danger { background: var(--danger-tint); color: var(--danger); }
+  .t-done { background: var(--done-tint); color: var(--done); }
+
+  /* 小标签：只染文字/小底，不把整行染色 */
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    height: 15px;
+    padding: 0 4px;
+    border-radius: 5px;
+    font-size: 9px;
+    font-weight: 750;
+    line-height: 1;
+    white-space: nowrap;
+    background: var(--fill-strong);
+    color: var(--text-2);
+  }
+  .tag .ic { width: 9px; height: 9px; }
+  .tag.accent { background: var(--accent-tint); color: var(--accent-text); }
+  .tag.warning { background: var(--warning-tint); color: var(--warning-text); }
+  .tag.success { background: var(--success-tint); color: var(--success-text); }
+  .tag.danger { background: var(--danger-tint); color: var(--danger-text); }
+  .tag.done { background: var(--done-tint); color: var(--done-text); }
+  .tag.mute { background: var(--fill-strong); color: var(--text-2); }
+
+  /* ───────── 分支管理 ───────── */
+  .entry {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 48px;
+    padding: 8px 11px;
+    margin-bottom: 0;
+  }
+  .entry-text { flex: 1; min-width: 0; }
+  .entry-title {
+    display: block;
+    font-size: 12.5px;
+    line-height: 16px;
+    font-weight: 750;
+  }
+  .entry-desc {
+    display: block;
+    margin-top: 1px;
+    font-size: 10.5px;
+    line-height: 14px;
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .entry .chev { color: var(--text-3); }
+  .entry .chev .ic { width: 14px; height: 14px; }
+
+  .section-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 4px 5px;
+  }
+  .section-head .s-title { font-size: 11.5px; font-weight: 750; }
+  .section-head .count {
+    display: inline-flex;
+    align-items: center;
+    height: 15px;
+    padding: 0 5px;
+    border-radius: 5px;
+    background: var(--fill-strong);
+    color: var(--text-3);
+    font-size: 9.5px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .section-head .s-spacer { flex: 1; }
+  .section-head .s-note { font-size: 9.5px; color: var(--text-3); }
+
+  .branch {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 38px;
+    padding: 5px 8px 5px 9px;
+  }
+  .branch .name-line {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .branch .name {
+    min-width: 0;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 15px;
+    color: var(--text-1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .branch.is-default .name { font-weight: 700; }
+  .branch .tag { flex: 0 0 auto; }
+  .branch .actions {
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    flex: 0 0 auto;
+  }
+  .branch .compare {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    padding: 5px 3px;
+    font-size: 11px;
+    line-height: 14px;
+    color: var(--link);
+    cursor: pointer;
+    border-radius: 6px;
+  }
+  .branch .compare:hover { background: var(--press); }
+  .branch .more {
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+    border-radius: 8px;
+    color: var(--text-3);
+  }
+  .branch .more .ic { width: 16px; height: 16px; }
+  .branch.menu-open { z-index: 20; }
+
+  .popmenu {
+    position: absolute;
+    top: 33px;
+    right: 7px;
+    z-index: 30;
+    width: 150px;
+    padding: 4px;
+    display: none;
+    background: var(--surface);
+    border-radius: 10px;
+    box-shadow: var(--shadow-pop);
+    border: 1px solid var(--hairline);
+  }
+  .branch.menu-open .popmenu { display: block; }
+  .popmenu .mi {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    border-radius: 7px;
+    color: var(--text-1);
+    font-size: 11.5px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .popmenu .mi:hover { background: var(--fill); }
+  .popmenu .mi .ic { width: 14px; height: 14px; color: var(--icon-2); }
+  .popmenu .mi.danger { color: var(--danger-text); }
+  .popmenu .mi.danger .ic { color: var(--danger-text); }
+
+  .new-branch {
+    appearance: none;
+    border: 0;
+    width: 100%;
+    min-height: 38px;
+    margin-top: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    color: var(--link);
+    font-size: 11.5px;
+    font-weight: 750;
+    cursor: pointer;
+  }
+  .new-branch .ic { width: 14px; height: 14px; }
+  .new-branch:active { transform: scale(.99); }
+
+  .footnote {
+    margin: 12px 0 0;
+    font-size: 9.5px;
+    line-height: 14px;
+    text-align: center;
+    color: var(--text-3);
+  }
+
+  /* ───────── 分支对比：选择器 ───────── */
+  .selectors {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    min-height: 48px;
+    margin-bottom: 5px;
+  }
+  .sel { flex: 1; min-width: 0; }
+  .sel .lbl {
+    font-size: 9px;
+    line-height: 11px;
+    color: var(--text-3);
+    margin-bottom: 2px;
+  }
+  .sel .val {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 16px;
+    color: var(--text-1);
+  }
+  .sel .val .txt {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sel .val .ic { width: 10px; height: 10px; color: var(--text-3); }
+  .swap {
+    flex: 0 0 28px;
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--fill-strong);
+    color: var(--icon-1);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    padding: 0;
+  }
+  .swap .ic { width: 14px; height: 14px; }
+  .swap:hover { filter: brightness(.97); }
+  .swap:active { transform: scale(.94); }
+
+  /* ───────── 分支对比：摘要 ───────── */
+  .summary { padding: 8px 11px 9px; margin-bottom: 5px; }
+  .sum-line { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .sum-line .tag { flex: 0 0 auto; }
+  .sum-line .arrow {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 15px;
+    color: var(--text-1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .stats {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--hairline);
+  }
+  .stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 9.5px;
+    line-height: 14px;
+    color: var(--text-3);
+    white-space: nowrap;
+  }
+  .stat .ic { width: 12px; height: 12px; }
+  .stat b {
+    font-size: 12.5px;
+    line-height: 14px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat.ahead, .stat.ahead b { color: var(--success-text); }
+  .stat.behind, .stat.behind b { color: var(--danger-text); }
+  .stat.files, .stat.files b { color: var(--accent-text); }
+  .stat.files { margin-left: auto; }
+
+  /* ───────── 分支对比：提交 ───────── */
+  .commits-card { overflow: visible; }
+  .commits-head {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    width: 100%;
+    min-height: 36px;
+    padding: 6px 9px 6px 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .commits-head .c-title { font-size: 11.5px; font-weight: 750; }
+  .commits-head .c-right {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: var(--link);
+    font-size: 10.5px;
+  }
+  .commits-head .c-right .ic {
+    width: 12px;
+    height: 12px;
+    transition: transform .16s ease;
+  }
+  .commits-card.open .c-right .ic { transform: rotate(90deg); }
+  .commit-list {
+    display: none;
+    border-top: 1px solid var(--hairline);
+    padding: 3px 0 4px;
+  }
+  .commits-card.open .commit-list { display: block; }
+  .commit {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 11px;
+    min-width: 0;
+  }
+  .commit .sha {
+    flex: 0 0 48px;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: var(--link);
+  }
+  .commit .subj {
+    flex: 1;
+    min-width: 0;
+    font-size: 10.5px;
+    color: var(--text-1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .commit .date { font-size: 9px; color: var(--text-3); }
+  .commit-more {
+    padding: 2px 11px 3px;
+    font-size: 9px;
+    color: var(--text-3);
+  }
+
+  /* ───────── 分支对比：文件差异卡 ───────── */
+  .files { gap: 5px; margin-top: 5px; }
+  .file { overflow: hidden; }
+  .file-head {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    width: 100%;
+    min-height: 36px;
+    padding: 5px 9px 5px 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .file-head .caret {
+    flex: 0 0 11px;
+    width: 11px;
+    display: grid;
+    place-items: center;
+    color: var(--text-3);
+    transition: transform .16s ease;
+  }
+  .file-head .caret .ic { width: 11px; height: 11px; }
+  .file.open .file-head .caret { transform: rotate(90deg); }
+  .file-head .fname-wrap { flex: 1; min-width: 0; display: block; }
+  .file-head .fname {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    line-height: 15px;
+    color: var(--text-1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .file-head .fdir {
+    display: block;
+    margin-top: 1px;
+    font-size: 9px;
+    line-height: 11px;
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .file-head .counts {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    font-weight: 750;
+    font-variant-numeric: tabular-nums;
+  }
+  .file-head .plus { color: var(--success-text); }
+  .file-head .minus { color: var(--danger-text); }
+  .file-head .tag { flex: 0 0 auto; }
+
+  .diff {
+    display: none;
+    border-top: 1px solid var(--hairline);
+    background: var(--code-bg);
+  }
+  .file.open .diff { display: block; }
+  .hunk {
+    padding: 3px 10px;
+    background: var(--hunk-bg);
+    font-family: var(--mono);
+    font-size: 9px;
+    line-height: 13px;
+    color: var(--text-3);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .dl {
+    display: flex;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    line-height: 17px;
+    color: var(--text-1);
+  }
+  .dl .ln {
+    flex: 0 0 25px;
+    width: 25px;
+    padding-right: 4px;
+    text-align: right;
+    font-size: 9px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .dl .px {
+    flex: 0 0 10px;
+    width: 10px;
+    color: var(--text-3);
+  }
+  .dl .code {
+    flex: 1;
+    min-width: 0;
+    padding-right: 8px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .dl.add { background: var(--add-bg); }
+  .dl.del { background: var(--del-bg); }
+  .dl.add .px { color: var(--success-text); }
+  .dl.del .px { color: var(--danger-text); }
+  .diff-foot {
+    display: flex;
+    justify-content: flex-end;
+    padding: 3px 10px 6px;
+    background: var(--code-bg);
+  }
+  .diff-foot a {
+    font-size: 10px;
+    color: var(--link);
+    text-decoration: none;
+  }
+  .diff-foot a:hover { text-decoration: underline; }
+
+  /* ───────── 原型反馈 ───────── */
+  .toast {
+    position: absolute;
+    left: 50%;
+    bottom: 26px;
+    transform: translate(-50%, 8px);
+    max-width: 310px;
+    padding: 7px 12px;
+    border-radius: 9px;
+    background: var(--toast-bg);
+    color: var(--toast-ink);
+    font-size: 10.5px;
+    line-height: 14px;
+    text-align: center;
+    box-shadow: var(--shadow-pop);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .16s ease, transform .16s ease;
+    z-index: 60;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  /* ───────── 说明区 ───────── */
+  .notes {
+    max-width: 900px;
+    margin: 42px auto 0;
+    padding: 22px 24px 24px;
+    background: #fff;
+    border: 1px solid var(--page-line);
+    border-radius: 16px;
+  }
+  .notes h2 {
+    margin: 0 0 10px;
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: -.01em;
+  }
+  .notes h2:not(:first-child) { margin-top: 24px; }
+  .note-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 18px;
+  }
+  .note {
+    padding-left: 10px;
+    border-left: 2px solid var(--page-line);
+    font-size: 11.5px;
+    line-height: 17px;
+    color: var(--page-ink-2);
+  }
+  .note b { display: block; margin-bottom: 2px; font-size: 12px; color: var(--page-ink); }
+  .note code {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 0 3px;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, .055);
+  }
+
+  .metrics {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    line-height: 16px;
+  }
+  .metrics th, .metrics td {
+    text-align: left;
+    vertical-align: top;
+    padding: 6px 8px;
+    border-bottom: 1px solid #EDEEF2;
+  }
+  .metrics th {
+    font-size: 9.5px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--page-ink-3);
+    font-weight: 800;
+  }
+  .metrics td:first-child { font-weight: 700; color: var(--page-ink); white-space: nowrap; }
+  .metrics td { color: var(--page-ink-2); }
+  .metrics td:last-child { color: var(--page-ink); }
+
+  .src { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+  .src li { font-size: 11.5px; line-height: 17px; color: var(--page-ink-2); }
+  .src b { color: var(--page-ink); }
+  .src code {
+    display: inline-block;
+    margin: 1px 0;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    line-height: 15px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: #F7F7F9;
+    border: 1px solid #E3E4E8;
+    color: var(--page-ink);
+    overflow-wrap: anywhere;
+  }
+  .src .where { color: var(--page-ink-3); }
+
+  .questions { margin: 0; padding: 0 0 0 18px; }
+  .questions li { margin: 0 0 5px; font-size: 11.5px; line-height: 17px; color: var(--page-ink-2); }
+
+  .pagefoot {
+    max-width: 900px;
+    margin: 14px auto 0;
+    font-size: 10px;
+    color: var(--page-ink-3);
+    text-align: center;
+  }
+
+  @media (max-width: 860px) {
+    body { padding: 20px 12px 40px; }
+    .masthead { flex-direction: column; align-items: flex-start; gap: 14px; }
+    .masthead h1 { font-size: 23px; }
+    .stage { gap: 30px; }
+    .note-grid { grid-template-columns: 1fr; }
+    .notes { padding: 18px 16px 20px; border-radius: 14px; }
+    .legend { font-size: 10px; gap: 6px 12px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 8 8h-2a6 6 0 1 1-6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></symbol>
+    <symbol id="i-compare" viewBox="0 0 24 24"><path d="M9.01 14H2v2h7.01v3L13 15l-3.99-4v3zM14.99 10H22V8h-7.01V5L11 9l3.99 4v-3z"/></symbol>
+    <symbol id="i-branch" viewBox="0 0 24 24"><path d="M14 4l2.29 2.29-2.88 2.88 1.42 1.42 2.88-2.88L20 10V4h-6zm-4 0H4v6l2.29-2.29 4.71 4.7V20h2v-7.59l-5.29-5.3L10 4z"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9.7 6.7a1 1 0 0 0 0 1.4l3.9 3.9-3.9 3.9a1 1 0 1 0 1.4 1.4l4.6-4.6a1 1 0 0 0 0-1.4L11.1 6.7a1 1 0 0 0-1.4 0z"/></symbol>
+    <symbol id="i-swap" viewBox="0 0 24 24"><path d="M16 17.01V10h-2v7.01h-3L15 21l4-3.99h-3zM9 3L5 6.99h3V14h2V6.99h3L9 3z"/></symbol>
+    <symbol id="i-commit" viewBox="0 0 24 24"><path d="M16.9 11a5 5 0 0 0-9.8 0H2v2h5.1a5 5 0 0 0 9.8 0H22v-2h-5.1zM12 15a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></symbol>
+    <symbol id="i-pen" viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><path d="M19 13H5v-2h14v2z"/></symbol>
+    <symbol id="i-rename" viewBox="0 0 24 24"><path d="M6.99 11L3 15l3.99 4v-3H14v-2H6.99v-3zM21 9l-3.99-4v3H10v2h7.01v3L21 9z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 4l-7 7h4v9h6v-9h4l-7-7z"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 20l7-7h-4V4h-6v9H5l7 7z"/></symbol>
+    <symbol id="i-files" viewBox="0 0 24 24"><path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><path d="M18 8h-1V6a5 5 0 0 0-10 0v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zm-6 9a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm3.1-9H8.9V6a3.1 3.1 0 0 1 6.2 0v2z"/></symbol>
+    <symbol id="i-signal" viewBox="0 0 24 24"><path d="M2 22h4V10H2v12zM8 22h4V6H8v16zM14 22h4V2h-4v20z"/></symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3a4.24 4.24 0 0 0-6 0zm-4-4l2 2a7.07 7.07 0 0 1 10 0l2-2C15.14 8.14 8.87 8.14 5 13z"/></symbol>
+  </defs>
+</svg>
+
+<header class="masthead">
+  <div>
+    <p class="eyebrow">BRANCH PAGES · REDESIGN 01</p>
+    <h1>分支管理 × 分支对比</h1>
+    <p class="lede">
+      两页重绘：内容收进 <code>cardSurface()</code> 浮层卡；同屏塞下更多行（分支行、文件头、摘要、diff 逐项压密）；
+      状态与差异改用项目已有的 <code>TintChip</code> / <code>TintRole</code> 语义色。四块屏 = 两页 × 浅色 / 深色。
+    </p>
+  </div>
+  <nav class="jump" aria-label="跳到">
+    <a href="#manage-light">分支管理</a>
+    <a href="#compare-light">分支对比</a>
+    <a href="#notes">说明 / 源码</a>
+  </nav>
+</header>
+
+<div class="legend" aria-label="语义图例">
+  <span class="lt">语义图例</span>
+  <span class="lg"><i class="dot accent"></i>默认分支 · ACCENT</span>
+  <span class="lg"><i class="dot warning"></i>受保护 · WARNING</span>
+  <span class="lg"><i class="dot neutral"></i>普通 / 区块头 · NEUTRAL</span>
+  <span class="lg"><i class="dot success"></i>领先 / 新增 · SUCCESS</span>
+  <span class="lg"><i class="dot danger"></i>落后 / 删除 · DANGER</span>
+  <span class="lg"><i class="dot done"></i>分叉 / 重命名 · DONE</span>
+</div>
+
+<main class="stage">
+
+  <figure class="col">
+    <figcaption class="cap">
+      <h2>分支管理 <span class="theme">浅色</span></h2>
+      <p>对比入口一张卡；分支行 <b>38dp</b> 浮层卡；默认 / 受保护 / 普通三档语义牌（release 的「受保护」为示意状态）；设为默认与删除收进 <b>⋯</b>，行长不再被三个文字动作挤占。</p>
+    </figcaption>
+    <div class="frame" id="manage-light">
+      <div class="device" data-theme="light">
+        <div class="statusbar">
+          <span>05:28</span>
+          <span class="sb-right">
+            <svg class="sb-ic" aria-hidden="true"><use href="#i-signal"/></svg>
+            <svg class="sb-ic" aria-hidden="true"><use href="#i-wifi"/></svg>
+            <span class="sb-battery" aria-hidden="true"><i></i></span>
+          </span>
+        </div>
+        <header class="appbar">
+          <button class="iconbtn" aria-label="返回" type="button"><svg class="ic" aria-hidden="true"><use href="#i-back"/></svg></button>
+          <div class="titles">
+            <h3>分支管理</h3>
+            <div class="sub">SunsetRNE/Branchbase-Android</div>
+          </div>
+          <button class="iconbtn" aria-label="刷新" data-refresh type="button"><svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg></button>
+        </header>
+        <div class="screen" id="screen-manage-light"></div>
+        <div class="home-indicator"></div>
+        <div class="toast" role="status" aria-live="polite"></div>
+      </div>
+    </div>
+  </figure>
+
+  <figure class="col">
+    <figcaption class="cap">
+      <h2>分支管理 <span class="theme">深色</span></h2>
+      <p>同一结构，卡面 <b>#161B22</b> 浮在 <b>#0D1117</b> 上；语义色换成深色板 —— 不是把浅色卡直接反相。</p>
+    </figcaption>
+    <div class="frame" id="manage-dark">
+      <div class="device" data-theme="dark">
+        <div class="statusbar">
+          <span>05:28</span>
+          <span class="sb-right">
+            <svg class="sb-ic" aria-hidden="true"><use href="#i-signal"/></svg>
+            <svg class="sb-ic" aria-hidden="true"><use href="#i-wifi"/></svg>
+            <span class="sb-battery" aria-hidden="true"><i></i></span>
+          </span>
+        </div>
+        <header class="appbar">
+          <button class="iconbtn" aria-label="返回" type="button"><svg class="ic" aria-hidden="true"><use href="#i-back"/></svg></button>
+          <div class="titles">
+            <h3>分支管理</h3>
+            <div class="sub">SunsetRNE/Branchbase-Android</div>
+          </div>
+          <button class="iconbtn" aria-label="刷新" data-refresh type="button"><svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg></button>
+        </header>
+        <div class="screen" id="screen-manage-dark"></div>
+        <div class="home-indicator"></div>
+        <div class="toast" role="status" aria-live="polite"></div>
+      </div>
+    </div>
+  </figure>
+
+  <figure class="col">
+    <figcaption class="cap">
+      <h2>分支对比 <span class="theme">浅色</span></h2>
+      <p>选择器合进一张 <b>48dp</b> 卡；摘要卡用三枚语义统计（领先 / 落后 / 文件）；提交折叠；文件差异上卡，文件头 <b>36dp</b>，diff 行号列 25dp。</p>
+    </figcaption>
+    <div class="frame" id="compare-light">
+      <div class="device" data-theme="light">
+        <div class="statusbar">
+          <span>05:28</span>
+          <span class="sb-right">
+            <svg class="sb-ic" aria-hidden="true"><use href="#i-signal"/></svg>
+            <svg class="sb-ic" aria-hidden="true"><use href="#i-wifi"/></svg>
+            <span class="sb-battery" aria-hidden="true"><i></i></span>
+          </span>
+        </div>
+        <header class="appbar">
+          <button class="iconbtn" aria-label="返回" type="button"><svg class="ic" aria-hidden="true"><use href="#i-back"/></svg></button>
+          <div class="titles">
+            <h3>分支对比</h3>
+            <div class="sub">SunsetRNE/Branchbase-Android</div>
+          </div>
+          <button class="text-act" data-refresh type="button">刷新</button>
+        </header>
+        <div class="screen" id="screen-compare-light"></div>
+        <div class="home-indicator"></div>
+        <div class="toast" role="status" aria-live="polite"></div>
+      </div>
+    </div>
+  </figure>
+
+  <figure class="col">
+    <figcaption class="cap">
+      <h2>分支对比 <span class="theme">深色</span></h2>
+      <p>增 / 删底色用深色板的 <b>successSurface / dangerSurface</b>；摘要统计、状态标签、牌色全部取深色角色，保持同一套语义。</p>
+    </figcaption>
+    <div class="frame" id="compare-dark">
+      <div class="device" data-theme="dark">
+        <div class="statusbar">
+          <span>05:28</span>
+          <span class="sb-right">
+            <svg class="sb-ic" aria-hidden="true"><use href="#i-signal"/></svg>
+            <svg class="sb-ic" aria-hidden="true"><use href="#i-wifi"/></svg>
+            <span class="sb-battery" aria-hidden="true"><i></i></span>
+          </span>
+        </div>
+        <header class="appbar">
+          <button class="iconbtn" aria-label="返回" type="button"><svg class="ic" aria-hidden="true"><use href="#i-back"/></svg></button>
+          <div class="titles">
+            <h3>分支对比</h3>
+            <div class="sub">SunsetRNE/Branchbase-Android</div>
+          </div>
+          <button class="text-act" data-refresh type="button">刷新</button>
+        </header>
+        <div class="screen" id="screen-compare-dark"></div>
+        <div class="home-indicator"></div>
+        <div class="toast" role="status" aria-live="polite"></div>
+      </div>
+    </div>
+  </figure>
+
+</main>
+
+<section class="notes" id="notes">
+  <h2>这一版做了什么</h2>
+  <div class="note-grid">
+    <div class="note">
+      <b>① 浮层卡</b>
+      分支行、对比入口、选择器、摘要、提交、每个文件差异全部套 <code>cardSurface()</code>（12dp 圆角 + 4dp 阴影）。
+      卡与卡之间 4–5dp，不再用 <code>Gray150</code> 灰底块分隔。
+    </div>
+    <div class="note">
+      <b>② 压缩密度</b>
+      分支行 38dp；文件头 36dp（目录降为次行）；选择器合成一张 48dp 卡；摘要 58dp。
+      分支行的「设为默认 / 删除」收进 <code>⋯</code>，把横向空间还给 33 字符的长分支名（写操作仍按 <code>canPush</code> 门控）。
+    </div>
+    <div class="note">
+      <b>③ 三语义图标</b>
+      默认 <code>ACCENT</code>、受保护 <code>WARNING</code>、普通 <code>NEUTRAL_SUBTLE</code>；
+      领先 <code>SUCCESS</code>、落后 <code>DANGER</code>、文件数 <code>ACCENT</code>。
+      只给需要一眼分类的地方上色，普通行与区块头保持中性（TintChip 的 ≤3 规则）。
+    </div>
+    <div class="note">
+      <b>④ 深色不是反相</b>
+      浅 / 深各自取 PrimerPalette 的对应角色：卡面 <code>#161B22</code>、页面 <code>#0D1117</code>、
+      增行 <code>#12261E</code>、删行 <code>#2D1418</code>；文字色与标签底色随主题切换。
+    </div>
+  </div>
+
+  <h2>逐项对照（目标值）</h2>
+  <table class="metrics">
+    <thead>
+      <tr><th>位置</th><th>现状</th><th>这版</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>分支行</td><td>38dp 无卡；三枚文字动作同排</td><td>38dp 浮层卡；对比 + ⋯；卡距 4dp</td></tr>
+      <tr><td>对比入口</td><td>灰底块，上下 12dp</td><td>48dp 浮层卡，语义牌 + 说明 + 箭头</td></tr>
+      <tr><td>选择器</td><td>两列字段，标签在字段外</td><td>一张 48dp 卡，标签收进字段上方 9sp</td></tr>
+      <tr><td>对比摘要</td><td>≈77dp 灰底块，三行文字</td><td>58dp 浮层卡，一行主标识 + 一行三语义统计</td></tr>
+      <tr><td>文件头</td><td>≈50dp（状态标签 + 名称 + 目录 + 计数）</td><td>36dp 起，名称与目录两行；状态标签带图标</td></tr>
+      <tr><td>diff</td><td>行号列 30 + 30dp，字号 11.5sp</td><td>行号列 25 + 25dp，字号 10.5sp / 行高 17px</td></tr>
+    </tbody>
+  </table>
+
+  <h2>对应源码</h2>
+  <ul class="src">
+    <li>
+      <b>编辑页（第一张图）</b><br />
+      <code>app/src/main/java/com/branchbase/ui/repository/RepositoryFileViewer.kt</code>
+      <span class="where">— <code>FileViewerScreen</code>；编辑态与蓝球动作清单在 L626–L800（commit / draft / cancel / edit / mode / workspace / branch / sync）</span>
+      <br /><code>editor/src/main/java/com/branchbase/editor/BranchbaseCodeEditor.kt</code>
+      <span class="where">— 实际代码编辑控件 <code>BranchbaseCodeEditor</code>（L54）</span>
+    </li>
+    <li>
+      <b>蓝色球 + 浮窗（第二张图）</b><br />
+      <code>app/src/main/java/com/branchbase/ui/repository/GitBubblePanel.kt</code>
+      <span class="where">— 52dp 圆手柄 <code>BubbleHandle</code>（L239）、动作行 <code>BubbleActionRow</code>（L301）、三档 <code>GitPanelStage</code></span>
+    </li>
+    <li>
+      <b>分支管理（第三张图）</b><br />
+      <code>app/src/main/java/com/branchbase/ui/repository/BranchManageScreen.kt</code>
+      <span class="where">— 列表 <code>BranchManageRow</code>（L418）、对比入口（L253）、新建 / 删除 / 设为默认（L163–L227）</span>
+    </li>
+    <li>
+      <b>分支对比（第四张图）</b><br />
+      <code>app/src/main/java/com/branchbase/ui/repository/BranchCompareScreen.kt</code>
+      <span class="where">— 选择器 <code>BranchChip</code>（L452）、摘要（L255）、文件块 <code>FileDiffBlock</code>（L352）、状态标签 <code>StatusTag</code>（L436）</span>
+    </li>
+    <li>
+      <b>共用原语</b><br />
+      <code>app/src/main/java/com/branchbase/ui/FloatingCard.kt</code> ·
+      <code>app/src/main/java/com/branchbase/ui/TintChip.kt</code> ·
+      <code>app/src/main/java/com/branchbase/ui/CardSurface.kt</code> ·
+      <code>app/src/main/java/com/branchbase/ui/theme/TintRole.kt</code> ·
+      <code>app/src/main/java/com/branchbase/ui/repository/DiffLines.kt</code>
+      <span class="where">— 卡片 / 图标牌 / 语义角色 / diff 行渲染；本原型直接照这套尺寸与色值画</span>
+    </li>
+  </ul>
+
+  <h2>等你拍板</h2>
+  <ul class="questions">
+    <li><b>分支行的主操作</b>：整行点击直接进对比（目标最容易点），还是保留右侧「对比」文字，整行只作展示？原型现在是后者。</li>
+    <li><b>长分支名</b>：<code>backup/pre-squash-20260923-064302</code> 正好卡在单行边界。单行省略 + 长按 / 点击看全名，还是允许两行（每条多 15dp）？</li>
+    <li><b>diff 折行</b>：现在长注释折行、行号只在首行；要不要改成横向滚动（每条固定 17px 高，密度更高，但要看全得横滑）？</li>
+    <li><b>摘要与提交是否合并</b>：合成一张卡还能再省约 40dp；代价是「摘要 / 提交列表」两个层级挤在同一张卡里。</li>
+  </ul>
+</section>
+
+<footer class="pagefoot">草图 · 2026-11-28 · 对应实现 1.4.96 / versionCode 356 · 不是现状，落地后以代码为准</footer>
+
+<script>
+  "use strict";
+
+  /* ───────── 图标 ───────── */
+  function svg(id, cls) {
+    return '<svg class="ic ' + (cls || '') + '" aria-hidden="true"><use href="#i-' + id + '"></use></svg>';
+  }
+
+  /* ───────── 数据（照第四张图的真实分支与计数） ───────── */
+  var BRANCHES = [
+    { name: "backup/pre-squash-20260923-064302", role: "neutral", tags: [], canDefault: true, canDelete: true },
+    { name: "beta", role: "neutral", tags: [], canDefault: true, canDelete: true },
+    { name: "main", role: "accent", tags: [{ kind: "accent", label: "默认" }], canDefault: false, canDelete: false },
+    { name: "release", role: "warning", tags: [{ kind: "warning", label: "受保护", icon: "lock" }], canDefault: true, canDelete: false }
+  ];
+
+  function tagHtml(t) {
+    return '<span class="tag ' + t.kind + '">' + (t.icon ? svg(t.icon) : '') + t.label + '</span>';
+  }
+
+  function popmenu(b) {
+    if (b.name === "main") return "";
+    return (
+      '<div class="popmenu" role="menu">' +
+        (b.canDefault
+          ? '<button class="mi" type="button" role="menuitem" data-toast="原型：把「' + b.name + '」设为默认分支">' + svg("check") + '<span>设为默认</span></button>'
+          : "") +
+        (b.canDelete
+          ? '<button class="mi danger" type="button" role="menuitem" data-toast="原型：删除「' + b.name + '」">' + svg("trash") + '<span>删除分支</span></button>'
+          : "") +
+      "</div>"
+    );
+  }
+
+  function branchRow(b) {
+    var actions = b.name === "main" ? "" : (
+      '<div class="actions">' +
+        '<button class="compare" type="button" data-goto="compare" title="跳到分支对比">对比</button>' +
+        '<button class="iconbtn more" type="button" aria-label="更多操作" aria-expanded="false">' + svg("more") + "</button>" +
+        popmenu(b) +
+      "</div>"
+    );
+    return (
+      '<div class="branch card' + (b.name === "main" ? " is-default" : "") + '" data-branch="' + b.name + '">' +
+        '<span class="chip t-' + b.role + '">' + svg("branch") + "</span>" +
+        '<span class="name-line">' +
+          '<span class="name" title="' + b.name + '">' + b.name + "</span>" +
+          b.tags.map(tagHtml).join("") +
+        "</span>" +
+        actions +
+      "</div>"
+    );
+  }
+
+  function branchPage() {
+    return (
+      '<div class="entry card tap" data-goto="compare" role="button" tabindex="0" aria-label="对比分支">' +
+        '<span class="chip t-accent">' + svg("compare") + "</span>" +
+        '<span class="entry-text">' +
+          '<span class="entry-title">对比分支</span>' +
+          '<span class="entry-desc">查看两个分支的提交与代码片段差异</span>' +
+        "</span>" +
+        '<span class="chev">' + svg("chev") + "</span>" +
+      "</div>" +
+      '<div class="section-head">' +
+        '<span class="s-title">分支</span><span class="count">' + BRANCHES.length + "</span>" +
+        '<span class="s-spacer"></span><span class="s-note">远端</span>' +
+      "</div>" +
+      '<div class="stack">' + BRANCHES.map(branchRow).join("") + "</div>" +
+      '<button class="new-branch card" type="button" data-new-branch>' + svg("plus") + "<span>新建分支</span></button>" +
+      '<p class="footnote">列表先直出缓存，再回源刷新 · 原型数据</p>'
+    );
+  }
+
+  /* ───────── 分支对比 ───────── */
+  function diffLine(kind, oldNo, newNo, text) {
+    return (
+      '<div class="dl' + (kind ? " " + kind : "") + '">' +
+        '<span class="ln">' + (oldNo || "") + "</span>" +
+        '<span class="ln">' + (newNo || "") + "</span>" +
+        '<span class="px">' + (kind === "add" ? "+" : kind === "del" ? "-" : " ") + "</span>" +
+        '<span class="code">' + text + "</span>" +
+      "</div>"
+    );
+  }
+
+  function gitignoreDiff() {
+    return (
+      '<div class="hunk">@@ -58,6 +58,11 @@ __pycache__/</div>' +
+      diffLine("", 58, 58, "# /docs/specs/prototypes/ 入库 —— 草图与结论的寿命不一样，见 /docs/README.md") +
+      diffLine("", 59, 59, "/design/") +
+      diffLine("", 60, 60, "") +
+      diffLine("add", "", 61, "# 审计 / 评审件（一次性的调查记录：契约审计、文档体检、落地记录）") +
+      diffLine("add", "", 62, "# 它们的**结论**已经落进 /docs/specs/ 与代码，这里只是过程材料 ——") +
+      diffLine("add", "", 63, "# 本地留着方便复查，不入库、也不进版本历史；看完可整目录删除。") +
+      diffLine("add", "", 64, "/review/") +
+      diffLine("add", "", 65, "") +
+      diffLine("", 61, 66, "# 注意：/docs/ **不再**整体忽略。") +
+      diffLine("", 62, 67, "# 历史上来过一版「/docs/ 也忽略」的写法，代价是") +
+      diffLine("", 63, 68, "# core/src/html/mod.rs 长年引用一份") +
+      '<div class="diff-foot"><a href="#" data-open-file>打开文件</a></div>'
+    );
+  }
+
+  function fileCard(o) {
+    return (
+      '<article class="file card' + (o.open ? " open" : "") + '">' +
+        '<button class="file-head" type="button" aria-expanded="' + !!o.open + '">' +
+          '<span class="caret">' + svg("chev") + "</span>" +
+          '<span class="tag ' + o.tagKind + '">' + svg(o.tagIcon) + o.tagLabel + "</span>" +
+          '<span class="fname-wrap">' +
+            '<span class="fname" title="' + o.dir + (o.dir ? "/" : "") + o.name + '">' + o.name + "</span>" +
+            (o.dir ? '<span class="fdir">' + o.dir + "</span>" : "") +
+          "</span>" +
+          '<span class="counts"><span class="plus">+' + o.add + '</span><span class="minus">-' + o.del + "</span></span>" +
+        "</button>" +
+        (o.diff ? '<div class="diff">' + o.diff + "</div>" : "") +
+      "</article>"
+    );
+  }
+
+  function comparePage() {
+    return (
+      '<div class="selectors card">' +
+        '<div class="sel">' +
+          '<div class="lbl">比较基准</div>' +
+          '<div class="val" title="main"><span class="txt">main</span>' + svg("chev") + "</div>" +
+        "</div>" +
+        '<button class="swap" type="button" aria-label="互换" title="原型：互换基准与对比" data-toast="原型：互换比较基准与对比分支">' + svg("swap") + "</button>" +
+        '<div class="sel">' +
+          '<div class="lbl">对比分支</div>' +
+          '<div class="val" title="backup/pre-squash-20260923-064302"><span class="txt">backup/pre-squash-20260923-064302</span>' + svg("chev") + "</div>" +
+        "</div>" +
+      "</div>" +
+
+      '<div class="summary card">' +
+        '<div class="sum-line">' +
+          '<span class="arrow" title="main ← backup/pre-squash-20260923-064302">main ← backup/pre-squash-20260923-064302</span>' +
+          '<span class="tag done">分叉</span>' +
+        "</div>" +
+        '<div class="stats">' +
+          '<span class="stat ahead">' + svg("up") + "<span>领先</span><b>8</b></span>" +
+          '<span class="stat behind">' + svg("down") + "<span>落后</span><b>174</b></span>" +
+          '<span class="stat files">' + svg("files") + "<b>101</b><span>个文件</span></span>" +
+        "</div>" +
+      "</div>" +
+
+      '<div class="commits-card card">' +
+        '<button class="commits-head" type="button" aria-expanded="false">' +
+          '<span class="chip t-neutral">' + svg("commit") + "</span>" +
+          '<span class="c-title">8 个提交</span>' +
+          '<span class="c-right"><span class="toggle-text">展开</span>' + svg("chev") + "</span>" +
+        "</button>" +
+        '<div class="commit-list">' +
+          '<div class="commit"><span class="sha">a1b2c3d</span><span class="subj">chore: 本地仓库浅克隆加深与错误归一</span><span class="date">11-27</span></div>' +
+          '<div class="commit"><span class="sha">9f2e8a1</span><span class="subj">fix(ui): 分支页对比入口重复请求</span><span class="date">11-27</span></div>' +
+          '<div class="commit"><span class="sha">77c0d4e</span><span class="subj">docs: 补齐 git-mode 决策台账</span><span class="date">11-26</span></div>' +
+          '<div class="commit"><span class="sha">2b9f0aa</span><span class="subj">feat(ui): 三语义图标 + 浮层卡</span><span class="date">11-26</span></div>' +
+          '<div class="commit"><span class="sha">5d1c7e2</span><span class="subj">fix(core): 浅克隆边界与 fetch_deepen</span><span class="date">11-25</span></div>' +
+          '<div class="commit-more">还有 3 个提交</div>' +
+        "</div>" +
+      "</div>" +
+
+      '<div class="stack files">' +
+        fileCard({ tagKind: "mute", tagIcon: "pen", tagLabel: "修改", name: ".gitignore", dir: "", add: 5, del: 0, open: true, diff: gitignoreDiff() }) +
+        fileCard({ tagKind: "mute", tagIcon: "pen", tagLabel: "修改", name: "mod.rs", dir: "core/src/html", add: 3, del: 3, open: false }) +
+        fileCard({ tagKind: "success", tagIcon: "plus", tagLabel: "新增", name: "branch-pages.md", dir: "docs/specs/prototypes", add: 29, del: 0, open: false }) +
+        fileCard({ tagKind: "mute", tagIcon: "pen", tagLabel: "修改", name: "BranchManageScreen.kt", dir: "app/src/main/java/com/branchbase/ui/repository", add: 40, del: 18, open: false }) +
+        fileCard({ tagKind: "done", tagIcon: "rename", tagLabel: "重命名", name: "BranchPages.kt", dir: "app/src/main/java/com/branchbase/ui/repository", add: 0, del: 0, open: false }) +
+      "</div>"
+    );
+  }
+
+  /* ───────── 渲染 ───────── */
+  function render() {
+    var pairs = [
+      ["screen-manage-light", "screen-manage-dark", branchPage],
+      ["screen-compare-light", "screen-compare-dark", comparePage]
+    ];
+    pairs.forEach(function (p) {
+      [p[0], p[1]].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.innerHTML = p[2]();
+      });
+    });
+    wire();
+  }
+
+  /* ───────── 交互 ───────── */
+  function closeMenus(root) {
+    (root || document).querySelectorAll(".branch.menu-open").forEach(function (row) {
+      row.classList.remove("menu-open");
+      var btn = row.querySelector(".more");
+      if (btn) btn.setAttribute("aria-expanded", "false");
+    });
+  }
+
+  function toast(device, text) {
+    if (!device || !text) return;
+    var el = device.querySelector(".toast");
+    if (!el) return;
+    el.textContent = text;
+    el.classList.add("show");
+    clearTimeout(el._timer);
+    el._timer = setTimeout(function () { el.classList.remove("show"); }, 1700);
+  }
+
+  function jumpToCompare(fromEl) {
+    var device = fromEl.closest(".device");
+    var theme = device ? device.dataset.theme : "light";
+    var target = document.getElementById(theme === "dark" ? "compare-dark" : "compare-light");
+    if (!target) return;
+    var col = target.closest(".col") || target;
+    col.scrollIntoView({ behavior: "smooth", block: "start" });
+    target.classList.remove("flash");
+    // 强制重启动画
+    void target.offsetWidth;
+    target.classList.add("flash");
+    setTimeout(function () { target.classList.remove("flash"); }, 1200);
+    toast(device, "跳到「分支对比」");
+  }
+
+  function wire() {
+    // 刷新：转一圈 + 一条示意反馈
+    document.querySelectorAll("[data-refresh]").forEach(function (btn) {
+      if (btn._wired) return;
+      btn._wired = true;
+      btn.addEventListener("click", function () {
+        var icon = btn.querySelector("svg");
+        if (icon) {
+          icon.classList.remove("spinning");
+          void icon.offsetWidth;
+          icon.classList.add("spinning");
+          setTimeout(function () { icon.classList.remove("spinning"); }, 700);
+        }
+        toast(btn.closest(".device"), "已请求刷新（示意）");
+      });
+    });
+
+    // 更多菜单
+    document.querySelectorAll(".more").forEach(function (btn) {
+      if (btn._wired) return;
+      btn._wired = true;
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var row = btn.closest(".branch");
+        var wasOpen = row.classList.contains("menu-open");
+        closeMenus(row.closest(".screen"));
+        if (!wasOpen) {
+          row.classList.add("menu-open");
+          btn.setAttribute("aria-expanded", "true");
+        }
+      });
+    });
+
+    document.querySelectorAll(".popmenu .mi").forEach(function (item) {
+      if (item._wired) return;
+      item._wired = true;
+      item.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var row = item.closest(".branch");
+        closeMenus(row.closest(".screen"));
+        toast(item.closest(".device"), item.dataset.toast || "原型动作");
+      });
+    });
+
+    // 文件展开 / 收起
+    document.querySelectorAll(".file-head").forEach(function (head) {
+      if (head._wired) return;
+      head._wired = true;
+      head.addEventListener("click", function () {
+        var card = head.closest(".file");
+        var open = card.classList.toggle("open");
+        head.setAttribute("aria-expanded", String(open));
+      });
+    });
+
+    // 提交列表展开 / 收起
+    document.querySelectorAll(".commits-head").forEach(function (head) {
+      if (head._wired) return;
+      head._wired = true;
+      head.addEventListener("click", function () {
+        var card = head.closest(".commits-card");
+        var open = card.classList.toggle("open");
+        head.setAttribute("aria-expanded", String(open));
+        var label = head.querySelector(".toggle-text");
+        if (label) label.textContent = open ? "收起" : "展开";
+      });
+    });
+
+    // 打开文件
+    document.querySelectorAll("[data-open-file]").forEach(function (link) {
+      if (link._wired) return;
+      link._wired = true;
+      link.addEventListener("click", function (e) {
+        e.preventDefault();
+        toast(link.closest(".device"), "原型：打开文件");
+      });
+    });
+
+    // 新建分支
+    document.querySelectorAll("[data-new-branch]").forEach(function (btn) {
+      if (btn._wired) return;
+      btn._wired = true;
+      btn.addEventListener("click", function () {
+        toast(btn.closest(".device"), "原型：打开「新建分支」");
+      });
+    });
+
+    // 互换选择器
+    document.querySelectorAll(".swap").forEach(function (btn) {
+      if (btn._wired) return;
+      btn._wired = true;
+      btn.addEventListener("click", function () {
+        toast(btn.closest(".device"), btn.dataset.toast || "原型动作");
+      });
+    });
+
+    // 跳到对比
+    document.querySelectorAll("[data-goto='compare']").forEach(function (el) {
+      if (el._wired) return;
+      el._wired = true;
+      el.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        jumpToCompare(el);
+      });
+      el.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          jumpToCompare(el);
+        }
+      });
+    });
+  }
+
+  document.addEventListener("click", function () { closeMenus(document); });
+
+  /* ───────── 手机框按可用宽等比缩放 ───────── */
+  function fitFrames() {
+    document.querySelectorAll(".frame").forEach(function (frame) {
+      var s = Math.min(1, frame.clientWidth / 390);
+      frame.style.setProperty("--s", String(s));
+      frame.style.height = Math.ceil(844 * s) + "px";
+    });
+  }
+  window.addEventListener("resize", fitFrames);
+
+  render();
+  fitFrames();
+</script>
+</body>
+</html>

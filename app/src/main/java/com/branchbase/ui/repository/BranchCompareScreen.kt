@@ -1,8 +1,16 @@
 package com.branchbase.ui.repository
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,24 +19,32 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import com.branchbase.ui.navigation.BranchbaseLazyColumn
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.automirrored.filled.CallSplit
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Commit
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -38,21 +54,34 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.R
-import com.branchbase.ui.resolve
 import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
-import com.branchbase.ui.theme.iconTap
+import com.branchbase.ui.CardDrawer
+import com.branchbase.ui.CardSegments
+import com.branchbase.ui.TintChip
+import com.branchbase.ui.TintTag
+import com.branchbase.ui.cardSurface
+import com.branchbase.ui.resolve
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
+import com.branchbase.ui.theme.CodeSyntax
+import com.branchbase.ui.theme.ElementMotion
 import com.branchbase.ui.theme.Primer
+import com.branchbase.ui.theme.TintRole
+import com.branchbase.ui.theme.iconTap
+import com.branchbase.ui.theme.textColor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -63,10 +92,10 @@ private const val SNIPPET_PREVIEW_LINES = 120
  * 分支对比页：显示两个分支的**代码片段差异**。
  *
  * 文件对比（Compare branches）：
- * - 对比头：`比较 base ← head` + 领先/落后 + 文件数
- * - 文件行：状态标签 + 路径 + `+N -M`
- * - 代码片段：unified diff 逐行渲染，增行 `#E6FFEC` / 删行 `#FFEBE9`、
- *   行号列 + 前缀列、11.5sp 等宽（与网页端一致）
+ * - 选择器：一张 48dp 浮层卡（基准 / 互换 / 对比），不再是两个描边字段；
+ * - 摘要：`比较 base ← head` + 三语义统计（领先 / 落后 / 文件数）；
+ * - 提交：一张折叠卡，展开后逐行列出，不再占一整段无卡列表；
+ * - 文件：每个差异一张浮层卡，文件头 36dp、diff 用共享的 [DiffLineRow] 紧凑档。
  *
  * GitHub 边界：单次最多 300 个文件；超大 diff 不返回 `patch`（显示「无代码片段」提示）。
  */
@@ -77,6 +106,10 @@ fun BranchCompareScreen(
     repo: String,
     initialBase: String,
     initialHead: String,
+    /** 当前是否本地仓库模式：只用来决定 0 文件卡片右侧那个入口是「提交模式」还是「本地仓库」。 */
+    localCommitMode: Boolean,
+    onOpenCommitMode: () -> Unit,
+    onOpenLocalRepo: () -> Unit,
     onBack: () -> Unit,
     onOpenFile: (path: String) -> Unit,
 ) {
@@ -92,8 +125,8 @@ fun BranchCompareScreen(
     var branches by remember { mutableStateOf<List<String>>(emptyList()) }
     var base by remember(initialBase) { mutableStateOf(initialBase) }
     var head by remember(initialHead) { mutableStateOf(initialHead) }
-    var baseMenu by remember { mutableStateOf(false) }
-    var headMenu by remember { mutableStateOf(false) }
+    // 选择分支的抽屉目标（null = 抽屉关着）。两个选择器共用同一份抽屉，不再各挂一个 DropdownMenu。
+    var picker by remember { mutableStateOf<BranchPickerTarget?>(null) }
 
     var result by remember { mutableStateOf<CompareResult?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -190,35 +223,47 @@ fun BranchCompareScreen(
             }
             Text(
                 stringResource(R.string.action_refresh), fontSize = 12.5.sp, color = Primer.Blue500,
-                modifier = Modifier.clickable(enabled = !loading) { reloadKey++ },
+                modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(enabled = !loading) { reloadKey++ }
+                    .padding(horizontal = 4.dp, vertical = 5.dp),
             )
         }
 
-        // 选择器：base ← head（可一键互换）
+        // 选择器：一张 48dp 浮层卡（比较基准 ⇄ 对比分支）
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            Modifier.fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 2.dp)
+                .heightIn(min = 48.dp)
+                .cardSurface()
+                .padding(horizontal = 10.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BranchChip(stringResource(R.string.label_compare_base), base, branches, baseMenu, { baseMenu = !baseMenu }, { base = it; baseMenu = false }, Modifier.weight(1f))
-            Box(Modifier.padding(horizontal = 6.dp)) {
-                Icon(
-                    Icons.Filled.SwapVert, stringResource(R.string.action_swap), tint = Primer.IconPrimary,
-                    modifier = Modifier.size(20.dp).iconTap {
-                        val t = base; base = head; head = t
-                    },
-                )
+            BranchChip(
+                label = stringResource(R.string.label_compare_base),
+                value = base,
+                onClick = { picker = BranchPickerTarget.Base },
+                modifier = Modifier.weight(1f),
+            )
+            Box(Modifier.padding(horizontal = 6.dp), contentAlignment = Alignment.Center) {
+                BranchSwitchButton {
+                    val t = base; base = head; head = t
+                }
             }
-            BranchChip(stringResource(R.string.action_compare_branches), head, branches, headMenu, { headMenu = !headMenu }, { head = it; headMenu = false }, Modifier.weight(1f))
+            BranchChip(
+                label = stringResource(R.string.action_compare_branches),
+                value = head,
+                onClick = { picker = BranchPickerTarget.Head },
+                modifier = Modifier.weight(1f),
+            )
         }
 
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(4.dp))
 
         when {
             loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Primer.Blue500)
             }
             error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(error!!, fontSize = 13.sp, color = Primer.TextTertiary, textAlign = TextAlign.Center)
+                Text(error!!, fontSize = 13.sp, color = Primer.TextTertiary, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 24.dp))
             }
             result != null -> CompareBody(
                 result = result!!,
@@ -232,11 +277,33 @@ fun BranchCompareScreen(
                 onShowAll = { name -> showAllLines = showAllLines + name },
                 showCommits = showCommits,
                 onToggleCommits = { showCommits = !showCommits },
+                localCommitMode = localCommitMode,
+                onOpenCommitMode = onOpenCommitMode,
+                onOpenLocalRepo = onOpenLocalRepo,
                 onOpenFile = onOpenFile,
             )
         }
     }
+
+    // 分支选择抽屉：两个按钮拉起**同一个**抽屉；默认分段不同，列表内容相同。
+    // 抽屉里的 CardSegments 负责切换「正在改比较基准还是对比分支」。
+    picker?.let { target ->
+        BranchPickerDrawer(
+            segment = target,
+            onSegmentChange = { picker = it },
+            branches = branches,
+            base = base,
+            head = head,
+            onPick = { name ->
+                if (picker == BranchPickerTarget.Base) base = name else head = name
+            },
+            onDismiss = { picker = null },
+        )
+    }
 }
+
+/** 对比页的分支选择目标：基准 / 对比。 */
+private enum class BranchPickerTarget { Base, Head }
 
 @Composable
 private fun CompareBody(
@@ -249,91 +316,47 @@ private fun CompareBody(
     onShowAll: (String) -> Unit,
     showCommits: Boolean,
     onToggleCommits: () -> Unit,
+    localCommitMode: Boolean,
+    onOpenCommitMode: () -> Unit,
+    onOpenLocalRepo: () -> Unit,
     onOpenFile: (String) -> Unit,
 ) {
     BranchbaseLazyColumn(Modifier.fillMaxSize()) {
-        // 对比头
-        item {
-            Column(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                    .clip(RoundedCornerShape(8.dp)).background(Primer.Gray150).padding(12.dp),
-            ) {
-                Text(
-                    stringResource(R.string.label_compare_arrow, base, head),
-                    fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold,
-                    fontFamily = FontFamily.Monospace, color = Primer.TextPrimary,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    when {
-                        result.identical -> stringResource(R.string.state_no_differences_branches)
-                        result.diverged -> stringResource(R.string.state_compare_diverged, result.aheadBy, result.behindBy)
-                        result.aheadBy > 0 -> stringResource(R.string.state_compare_ahead, result.aheadBy)
-                        else -> stringResource(R.string.state_compare_behind, result.behindBy)
-                    },
-                    fontSize = 11.sp, color = Primer.TextSecondary,
-                )
-                if (result.files.isNotEmpty()) {
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        stringResource(R.string.label_files_changed, result.files.size),
-                        fontSize = 11.sp, color = Primer.TextTertiary,
-                    )
-                }
-            }
-        }
+        item { CompareSummaryCard(result, base, head) }
 
-        // 提交列表（默认折叠）
+        // 提交列表（默认折叠）：一张卡，展开后卡内逐行
         if (result.commits.isNotEmpty()) {
             item {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
-                        .clickable { onToggleCommits() },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        stringResource(R.string.label_commits_count, result.commits.size),
-                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(if (showCommits) stringResource(R.string.action_collapse) else stringResource(R.string.action_expand), fontSize = 12.sp, color = Primer.Blue500)
-                }
-            }
-            if (showCommits) {
-                // key + animateItem：点「展开」时提交逐条淡入，而不是整块突然出现
-                items(result.commits, key = { it.sha }) { c ->
-                    Row(
-                        Modifier.fillMaxWidth().animateItem().padding(horizontal = 16.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            c.shortSha, fontSize = 11.sp, fontFamily = FontFamily.Monospace,
-                            color = Primer.Blue500, modifier = Modifier.width(62.dp),
-                        )
-                        Text(
-                            c.subject.ifBlank { stringResource(R.string.state_no_commit_message) },
-                            fontSize = 12.5.sp, color = Primer.TextPrimary,
-                            maxLines = 1, modifier = Modifier.weight(1f),
-                        )
-                        Text(c.date, fontSize = 10.5.sp, color = Primer.TextTertiary)
-                    }
-                }
+                CompareCommitsCard(
+                    commits = result.commits,
+                    showCommits = showCommits,
+                    onToggle = onToggleCommits,
+                )
             }
         }
 
         // 文件差异
         if (result.files.isEmpty()) {
             item {
-                Box(Modifier.fillMaxWidth().padding(vertical = 28.dp), contentAlignment = Alignment.Center) {
-                    Text(
-                        if (result.identical) stringResource(R.string.state_no_file_differences) else stringResource(R.string.note_compare_file_limit),
-                        fontSize = 12.5.sp, color = Primer.TextTertiary,
+                if (result.identical) {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 28.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            stringResource(R.string.state_no_file_differences),
+                            fontSize = 12.5.sp, color = Primer.TextTertiary, textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 24.dp),
+                        )
+                    }
+                } else {
+                    CompareNoFilesCard(
+                        localCommitMode = localCommitMode,
+                        onOpenCommitMode = onOpenCommitMode,
+                        onOpenLocalRepo = onOpenLocalRepo,
                     )
                 }
             }
         } else {
             items(result.files, key = { it.filename }) { file ->
-                FileDiffBlock(
+                CompareFileCard(
                     file = file,
                     expanded = file.filename in expanded,
                     showAll = file.filename in showAllLines,
@@ -348,8 +371,170 @@ private fun CompareBody(
     }
 }
 
+/**
+ * 对比摘要卡：`比较 base ← head` + 三语义统计。
+ *
+ * 颜色只表类别：领先 `SUCCESS`、落后 `DANGER`、文件数 `ACCENT`；分叉用 `DONE` 小标签。
+ * 两个分支内容一致时只给一句结论，不摆一排 0。
+ */
 @Composable
-private fun FileDiffBlock(
+private fun CompareSummaryCard(result: CompareResult, base: String, head: String) {
+    Column(
+        Modifier.fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 2.dp)
+            .cardSurface()
+            .padding(horizontal = 11.dp, vertical = 8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                stringResource(R.string.label_compare_arrow, base, head),
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                color = Primer.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (result.diverged) {
+                Spacer(Modifier.width(7.dp))
+                TintTag(stringResource(R.string.state_diverged), TintRole.DONE)
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Gray200))
+        Spacer(Modifier.height(6.dp))
+        if (result.identical) {
+            Text(
+                stringResource(R.string.state_no_differences_branches),
+                fontSize = 11.sp, color = Primer.TextSecondary,
+            )
+        } else {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                CompareStat(
+                    icon = Icons.Filled.ArrowUpward,
+                    label = stringResource(R.string.label_compare_ahead),
+                    value = result.aheadBy,
+                    role = TintRole.SUCCESS,
+                )
+                Spacer(Modifier.width(13.dp))
+                CompareStat(
+                    icon = Icons.Filled.ArrowDownward,
+                    label = stringResource(R.string.label_compare_behind),
+                    value = result.behindBy,
+                    role = TintRole.DANGER,
+                )
+                Spacer(Modifier.weight(1f))
+                CompareStat(
+                    icon = Icons.Filled.Description,
+                    label = stringResource(R.string.label_compare_files_unit),
+                    value = result.files.size,
+                    role = TintRole.ACCENT,
+                    valueFirst = true,
+                )
+            }
+        }
+    }
+}
+
+/** 一枚摘要统计：图标 + 文案 + 数字，全部取同一 `TintRole` 的文字色。 */
+@Composable
+private fun CompareStat(
+    icon: ImageVector,
+    label: String,
+    value: Int,
+    role: TintRole,
+    valueFirst: Boolean = false,
+) {
+    val ink = role.textColor()
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Icon(icon, contentDescription = null, tint = ink, modifier = Modifier.size(12.dp))
+        if (valueFirst) {
+            Text(value.toString(), fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = ink, maxLines = 1)
+            Text(label, fontSize = 9.5.sp, color = ink, maxLines = 1)
+        } else {
+            Text(label, fontSize = 9.5.sp, color = ink, maxLines = 1)
+            Text(value.toString(), fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = ink, maxLines = 1)
+        }
+    }
+}
+
+/** 提交卡：折叠时一行 36dp，展开后卡内逐行；换分支时由调用方的 `showCommits` 保留。 */
+@Composable
+private fun CompareCommitsCard(
+    commits: List<CompareCommit>,
+    showCommits: Boolean,
+    onToggle: () -> Unit,
+) {
+    Column(
+        Modifier.fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 2.dp)
+            .cardSurface(),
+    ) {
+        Row(
+            Modifier.fillMaxWidth()
+                .heightIn(min = 36.dp)
+                .clickable { onToggle() }
+                .padding(horizontal = 9.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TintChip(Icons.Filled.Commit, TintRole.NEUTRAL_SUBTLE, size = 20.dp, corner = 6.dp, iconSize = 12.dp)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                stringResource(R.string.label_compare_commits, commits.size),
+                fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                if (showCommits) stringResource(R.string.action_collapse) else stringResource(R.string.action_expand),
+                fontSize = 10.5.sp, color = Primer.Blue500,
+            )
+            Spacer(Modifier.width(3.dp))
+            Icon(
+                Icons.Filled.ChevronRight, null, tint = Primer.Blue500,
+                modifier = Modifier.size(12.dp).rotate(if (showCommits) 90f else 0f),
+            )
+        }
+        AnimatedVisibility(
+            visible = showCommits,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            Column {
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Gray200))
+                commits.forEach { c -> CompareCommitRow(c) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompareCommitRow(c: CompareCommit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            c.shortSha, fontSize = 9.5.sp, fontFamily = FontFamily.Monospace,
+            color = Primer.Blue500, modifier = Modifier.width(50.dp),
+        )
+        Text(
+            c.subject.ifBlank { stringResource(R.string.state_no_commit_message) },
+            fontSize = 10.5.sp, color = Primer.TextPrimary,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(c.date, fontSize = 9.sp, color = Primer.TextTertiary)
+    }
+}
+
+/**
+ * 一个文件的差异卡：**文件头 36dp + 可展开的 diff**。
+ *
+ * 文件头把「状态标签 / 文件名 / 目录 / +N -M」压进一行（目录降为次行），
+ * diff 走共享 [DiffLineRow] 的紧凑档；整张卡由 `cardSurface()` 统一裁切。
+ */
+@Composable
+private fun CompareFileCard(
     file: CompareFile,
     expanded: Boolean,
     showAll: Boolean,
@@ -357,94 +542,167 @@ private fun FileDiffBlock(
     onShowAll: () -> Unit,
     onOpenFile: () -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth()) {
+    Column(
+        Modifier.fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 2.dp)
+            .cardSurface(),
+    ) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
-                .clickable { onToggle() },
+            Modifier.fillMaxWidth()
+                .heightIn(min = 36.dp)
+                .clickable { onToggle() }
+                .padding(horizontal = 8.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                if (expanded) "▾" else "▸",
-                fontSize = 11.sp, color = Primer.TextTertiary,
+            Icon(
+                Icons.Filled.ChevronRight, null, tint = Primer.TextTertiary,
+                modifier = Modifier.size(11.dp).rotate(if (expanded) 90f else 0f),
             )
             Spacer(Modifier.width(6.dp))
-            StatusTag(file)
-            Spacer(Modifier.width(8.dp))
+            CompareStatusTag(file)
+            Spacer(Modifier.width(6.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     file.name,
-                    fontSize = 12.5.sp, fontFamily = FontFamily.Monospace,
-                    color = Primer.TextPrimary, maxLines = 1,
+                    fontSize = 11.5.sp, fontFamily = FontFamily.Monospace, color = Primer.TextPrimary,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
                 if (file.dir.isNotEmpty()) {
-                    Text(file.dir, fontSize = 10.5.sp, color = Primer.TextTertiary, maxLines = 1)
+                    Spacer(Modifier.height(1.dp))
+                    Text(
+                        file.dir, fontSize = 9.sp, color = Primer.TextTertiary,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
-            Text(
-                "+${file.additions}", fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
-                color = Primer.Green500,
-            )
             Spacer(Modifier.width(6.dp))
             Text(
-                "-${file.deletions}", fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
-                color = Primer.Red500,
+                "+${file.additions}", fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
+                color = Primer.SuccessText,
+            )
+            Spacer(Modifier.width(5.dp))
+            Text(
+                "-${file.deletions}", fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
+                color = Primer.DangerText,
             )
         }
 
         if (expanded) {
+            Box(Modifier.fillMaxWidth().height(1.dp).background(Primer.Gray200))
             if (!file.hasPatch) {
                 Text(
                     stringResource(R.string.note_diff_too_large),
-                    fontSize = 11.5.sp, color = Primer.TextTertiary, lineHeight = 17.sp,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    fontSize = 11.sp, color = Primer.TextTertiary, lineHeight = 17.sp,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                 )
             } else {
                 // 渲染走共享的 DiffLineRow（DiffLines.kt）：本地 diff 页画的是同一份东西
                 val lines = remember(file.patch) { parseUnifiedDiff(file.patch) }
                 val shown = if (showAll) lines else lines.take(SNIPPET_PREVIEW_LINES)
-                Column(Modifier.fillMaxWidth().background(Primer.Gray100)) {
-                    shown.forEach { line -> DiffLineRow(line) }
+                Column(Modifier.fillMaxWidth().background(CodeSyntax.CodeBg)) {
+                    shown.forEach { line -> DiffLineRow(line, compact = true) }
                     if (!showAll && lines.size > shown.size) {
                         Box(
-                            Modifier.fillMaxWidth().clickable { onShowAll() }.padding(vertical = 10.dp),
+                            Modifier.fillMaxWidth().clickable { onShowAll() }.padding(vertical = 8.dp),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
                                 stringResource(R.string.action_expand_remaining_lines, lines.size - shown.size),
-                                fontSize = 12.sp, color = Primer.Blue500,
+                                fontSize = 11.sp, color = Primer.Blue500,
                             )
                         }
                     }
                 }
             }
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.End,
             ) {
                 Text(
                     stringResource(R.string.action_open_file),
-                    fontSize = 12.sp, color = Primer.Blue500,
-                    modifier = Modifier.clickable { onOpenFile() },
+                    fontSize = 10.5.sp, color = Primer.Blue500,
+                    modifier = Modifier.clip(RoundedCornerShape(5.dp)).clickable { onOpenFile() }
+                        .padding(horizontal = 2.dp, vertical = 3.dp),
                 )
             }
         }
     }
 }
 
-
+/** 文件状态：新增 `SUCCESS` / 删除 `DANGER` / 重命名 `DONE` / 其余中性。 */
 @Composable
-private fun StatusTag(file: CompareFile) {
-    val (fg, bg) = when (file.status) {
-        "added" -> Primer.Green500 to Primer.SuccessSurface
-        "removed" -> Primer.Red500 to Primer.DangerSurface
-        "renamed" -> Primer.Purple500 to Primer.PurpleSurface
-        else -> Primer.TextSecondary to Primer.Gray150
+private fun CompareStatusTag(file: CompareFile) {
+    val role = when (file.status) {
+        "added" -> TintRole.SUCCESS
+        "removed" -> TintRole.DANGER
+        "renamed" -> TintRole.DONE
+        else -> TintRole.NEUTRAL_SUBTLE
     }
-    Box(
-        Modifier.width(38.dp).clip(RoundedCornerShape(6.dp)).background(bg).padding(vertical = 1.dp),
-        contentAlignment = Alignment.Center,
+    val icon = when (file.status) {
+        "added" -> Icons.Filled.Add
+        "removed" -> Icons.Filled.Remove
+        "renamed" -> Icons.Filled.SwapHoriz
+        else -> Icons.Filled.Edit
+    }
+    TintTag(file.statusLabel.resolve(), role, icon = icon)
+}
+
+/**
+ * 0 文件时的提示卡：**左侧是新文案，右侧是随「提交模式」变化的入口**。
+ *
+ * 远端（单文件 / 多文件 / 未配置）→「提交模式」；本地仓库 →「本地仓库」。
+ * 两个入口都跳到设置里的对应页面，而不是在这里重写一份配置。
+ */
+@Composable
+private fun CompareNoFilesCard(
+    localCommitMode: Boolean,
+    onOpenCommitMode: () -> Unit,
+    onOpenLocalRepo: () -> Unit,
+) {
+    val local = localCommitMode
+    Row(
+        Modifier.fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 2.dp)
+            .cardSurface()
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(file.statusLabel.resolve(), fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = fg)
+        Text(
+            stringResource(R.string.note_compare_file_limit),
+            fontSize = 12.sp, lineHeight = 17.sp, color = Primer.TextSecondary,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(10.dp))
+        CompareNoFilesEntry(
+            label = stringResource(if (local) R.string.nav_local_repo else R.string.nav_commit_mode),
+            onClick = { if (local) onOpenLocalRepo() else onOpenCommitMode() },
+        )
+    }
+}
+
+/** 0 文件卡右侧的入口：静止 ACCENT 12%，按下加深到 20%（与选择器同一套「可点」语义）。 */
+@Composable
+private fun CompareNoFilesEntry(label: String, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val fill by animateColorAsState(
+        targetValue = if (pressed) Primer.Blue500.copy(alpha = 0.20f) else Primer.Blue500.copy(alpha = 0.12f),
+        animationSpec = tween(ElementMotion.PRESS_MS),
+        label = "compare-no-files-entry-press",
+    )
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(fill)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.AccentText,
+            maxLines = 1,
+        )
     }
 }
 
@@ -452,44 +710,150 @@ private fun StatusTag(file: CompareFile) {
 private fun BranchChip(
     label: String,
     value: String,
-    branches: List<String>,
-    expanded: Boolean,
-    onToggle: () -> Unit,
-    onPick: (String) -> Unit,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier) {
-        Text(label, fontSize = 10.5.sp, color = Primer.TextTertiary)
-        Spacer(Modifier.height(4.dp))
-        Box {
-            Row(
-                Modifier.fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .border(1.dp, Primer.Border, RoundedCornerShape(8.dp))
-                    .clickable { onToggle() }
-                    .padding(horizontal = 10.dp, vertical = 9.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    value.ifBlank { stringResource(R.string.state_please_choose) },
-                    fontSize = 12.sp, fontFamily = FontFamily.Monospace,
-                    color = Primer.TextPrimary, maxLines = 1, modifier = Modifier.weight(1f),
+    // 红框里那块不再裸着：整个字段（标签 + 值）常驻 ACCENT 8% 底，按下 16%。
+    // 底色直接表「可切换」，而不是等用户按下去才看到一层灰。
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val fill by animateColorAsState(
+        targetValue = if (pressed) Primer.Blue500.copy(alpha = 0.16f) else Primer.Blue500.copy(alpha = 0.08f),
+        animationSpec = tween(ElementMotion.PRESS_MS),
+        label = "branch-chip-press",
+    )
+    Column(
+        modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(fill)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+    ) {
+        Text(label, fontSize = 9.sp, lineHeight = 11.sp, color = Primer.TextTertiary)
+        Spacer(Modifier.height(2.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                value.ifBlank { stringResource(R.string.state_please_choose) },
+                fontSize = 11.sp, fontFamily = FontFamily.Monospace,
+                color = Primer.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(3.dp))
+            Text("▾", fontSize = 9.sp, color = Primer.TextTertiary)
+        }
+    }
+}
+
+/** 「切换」按钮：替代原来的上下箭头圆钮；文字比图标更直白，底色与两个选择器同一套 ACCENT。 */
+@Composable
+private fun BranchSwitchButton(onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val fill by animateColorAsState(
+        targetValue = if (pressed) Primer.Blue500.copy(alpha = 0.20f) else Primer.Blue500.copy(alpha = 0.12f),
+        animationSpec = tween(ElementMotion.PRESS_MS),
+        label = "branch-switch-press",
+    )
+    Row(
+        Modifier
+            .heightIn(min = 28.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(fill)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            stringResource(R.string.action_switch),
+            fontSize = 10.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Primer.AccentText,
+            maxLines = 1,
+        )
+    }
+}
+
+/**
+ * 分支选择抽屉：**自绘 [CardDrawer] + 可滚动 + 每行一张浮层卡**。
+ *
+ * 不再用 `DropdownMenu`：分支名一多（截图里 14 条），Material 菜单会变成一张顶到屏幕
+ * 上沿的白板，长名还会折行；抽屉有固定最大高度、能滚，卡片之间的 2dp 阴影也把「一行一行」
+ * 读出来。选中的那一行用 `ACCENT` 牌 + 蓝字 + 勾。
+ */
+@Composable
+private fun BranchPickerDrawer(
+    segment: BranchPickerTarget,
+    onSegmentChange: (BranchPickerTarget) -> Unit,
+    branches: List<String>,
+    base: String,
+    head: String,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val selected = if (segment == BranchPickerTarget.Base) base else head
+    CardDrawer(title = stringResource(R.string.label_branch_section), onDismiss = onDismiss) { close ->
+        // 两个选择器拉起同一个抽屉；分段控件决定「现在改的是哪一侧」，列表内容不变。
+        CardSegments(
+            labels = listOf(
+                stringResource(R.string.label_compare_base),
+                stringResource(R.string.action_compare_branches),
+            ),
+            selectedIndex = segment.ordinal,
+            onSelect = { onSegmentChange(BranchPickerTarget.entries[it]) },
+        )
+        Spacer(Modifier.height(8.dp))
+        // 分支可能上百条：用 LazyColumn 只组合可见行，而不是把整份列表一次性铺进 Column。
+        // 高度按「一行 42dp / 两行长名 52dp」取个上限：少时抽屉贴内容，多时内部滚动。
+        val listHeight = (branches.size.coerceIn(1, 10) * 52).coerceAtMost(420).dp
+        LazyColumn(Modifier.fillMaxWidth().height(listHeight)) {
+            items(branches, key = { it }) { b ->
+                BranchPickerRow(
+                    name = b,
+                    selected = b == selected,
+                    onClick = { onPick(b); close() },
                 )
-                Text("▾", fontSize = 11.sp, color = Primer.TextTertiary)
             }
-            DropdownMenu(expanded = expanded, onDismissRequest = { onToggle() }) {
-                branches.forEach { b ->
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                b, fontSize = 12.5.sp, fontFamily = FontFamily.Monospace,
-                                color = if (b == value) Primer.Blue500 else Primer.TextPrimary,
-                            )
-                        },
-                        onClick = { onPick(b) },
-                    )
-                }
-            }
+        }
+    }
+}
+
+@Composable
+private fun BranchPickerRow(
+    name: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth()
+            .padding(vertical = 3.dp)
+            .cardSurface(shape = RoundedCornerShape(10.dp), elevation = 2.dp)
+            .clickable { onClick() }
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TintChip(
+            Icons.AutoMirrored.Filled.CallSplit,
+            role = if (selected) TintRole.ACCENT else TintRole.NEUTRAL_SUBTLE,
+            size = 22.dp,
+            corner = 7.dp,
+            iconSize = 13.dp,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            name,
+            fontSize = 12.5.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (selected) Primer.Blue500 else Primer.TextPrimary,
+            // 截图里 dependabot/… 这类长名在旧 DropdownMenu 里是折行的；抽屉里保留两行，
+            // 至少能让用户分清前缀相同的分支；再长才省略。
+            maxLines = 2,
+            lineHeight = 16.sp,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (selected) {
+            Icon(Icons.Filled.Check, contentDescription = null, tint = Primer.Blue500, modifier = Modifier.size(16.dp))
         }
     }
 }

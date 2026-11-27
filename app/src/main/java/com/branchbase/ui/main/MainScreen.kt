@@ -201,6 +201,13 @@ fun MainScreen(
                         onBack = { showRepo = null },
                         onOpenRepo = { o, r2 -> showRepo = RepoDeepLink(o, r2) },
                         initial = r.link,
+                        // 仓库对比页的 0 文件入口：带着目标子页进个人页。
+                        // 复用 `pendingSubPage`，与冷启动恢复走同一条 `initialSubPage` 通道。
+                        onOpenProfileSubPage = { sub ->
+                            pendingSubPage = sub
+                            showRepo = null
+                            showProfile = true
+                        },
                     )
 
                     // 安全警报落地页（通知 Security 类型直达；提供「查看仓库」入口）

@@ -6,24 +6,30 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import com.branchbase.core.engineErrorOrRaw
-import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.CallSplit
-import androidx.compose.material.icons.filled.CompareArrows
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.automirrored.filled.CompareArrows
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -34,7 +40,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -45,10 +50,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.branchbase.R
@@ -56,9 +62,16 @@ import com.branchbase.cache.PageCache
 import com.branchbase.cache.SearchCacheDatabase
 import com.branchbase.cache.SearchCacheManager
 import com.branchbase.core.RustBridge
+import com.branchbase.core.engineErrorOrRaw
+import com.branchbase.ui.FloatingCardButton
+import com.branchbase.ui.TintChip
+import com.branchbase.ui.TintTag
+import com.branchbase.ui.cardSurface
 import com.branchbase.ui.log.Logger
-import com.branchbase.ui.theme.iconTap
+import com.branchbase.ui.navigation.BranchbaseLazyColumn
 import com.branchbase.ui.theme.Primer
+import com.branchbase.ui.theme.TintRole
+import com.branchbase.ui.theme.iconTap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -74,6 +87,13 @@ import org.json.JSONObject
  * - 设为默认：`PATCH /repos/{o}/{r}` 的 default_branch
  *
  * 权限：`canPush=false` 时隐藏新建/删除/设为默认（只保留只读的对比）。
+ *
+ * ## 1.4.97 的版面（`design/branch-pages-redesign`）
+ *
+ * 扁平行 → **浮层行卡**。三档状态用 `TintChip` + `TintTag` 的语义色：
+ * 默认 `ACCENT` / 受保护 `WARNING` / 普通 `NEUTRAL_SUBTLE`。
+ * 「设为默认 / 删除」从行尾三枚文字动作收进 `⋯`，把横向空间还给长分支名；
+ * 写操作仍按 `canPush` 门控，删除对受保护分支仍不显示入口。
  */
 @Composable
 fun BranchManageScreen(
@@ -249,34 +269,17 @@ fun BranchManageScreen(
             )
         }
 
-        // 对比入口：默认分支 ← 当前选择的分支
-        Box(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Primer.Gray150)
-                .clickable(enabled = branches.size >= 2) {
-                    val head = branches.firstOrNull { it.name != default }?.name ?: return@clickable
-                    onOpenCompare(default, head)
-                }
-                .padding(horizontal = 12.dp, vertical = 12.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Filled.CompareArrows, null, tint = Primer.Blue500,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.action_compare_branches), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Primer.TextPrimary)
-                    Text(
-                        if (branches.size >= 2) stringResource(R.string.note_compare_branches_hint) else stringResource(R.string.state_need_two_branches),
-                        fontSize = 11.sp, color = Primer.TextTertiary,
-                    )
-                }
-                Text("›", fontSize = 15.sp, color = Primer.TextTertiary)
-            }
-        }
-
+        BranchCompareEntry(
+            enabled = branches.size >= 2,
+            hint = if (branches.size >= 2) {
+                stringResource(R.string.note_compare_branches_hint)
+            } else {
+                stringResource(R.string.state_need_two_branches)
+            },
+            onClick = {
+                branches.firstOrNull { it.name != default }?.let { onOpenCompare(default, it.name) }
+            },
+        )
         feedback?.let { fb ->
             Text(
                 fb.text,
@@ -296,6 +299,8 @@ fun BranchManageScreen(
                 Text(error!!, fontSize = 13.sp, color = Primer.TextTertiary)
             }
             else -> BranchbaseLazyColumn(Modifier.fillMaxSize()) {
+                item { Spacer(Modifier.height(2.dp)) }
+                item { BranchSectionHead(count = branches.size) }
                 items(branches, key = { it.name }) { b ->
                     BranchManageRow(
                         branch = b,
@@ -309,24 +314,14 @@ fun BranchManageScreen(
                 }
                 if (canPush) {
                     item {
-                        Spacer(Modifier.height(8.dp))
-                        Box(
-                            Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .border(1.dp, Primer.Border, RoundedCornerShape(10.dp))
-                                .clickable(enabled = !busy) {
-                                    newBase = default
-                                    newName = ""
-                                    showCreate = true
-                                }
-                                .padding(vertical = 13.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(stringResource(R.string.action_new_branch_plus), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Primer.Blue500)
+                        NewBranchCard {
+                            newBase = default
+                            newName = ""
+                            showCreate = true
                         }
-                        Spacer(Modifier.height(24.dp))
                     }
                 }
+                item { Spacer(Modifier.height(24.dp)) }
             }
         }
     }
@@ -414,6 +409,86 @@ fun BranchManageScreen(
     }
 }
 
+/**
+ * 对比入口：一张 48dp 浮层卡（对齐 `design/branch-pages-redesign` 的 `entry`）。
+ *
+ * 分支不足两个时仍然显示这张卡，但**不可点** —— 给的是「为什么现在不能比」的说明，
+ * 而不是一个点了没反应的死落点。
+ */
+@Composable
+private fun BranchCompareEntry(
+    enabled: Boolean,
+    hint: String,
+    onClick: () -> Unit,
+) {
+    if (enabled) {
+        FloatingCardButton(
+            onClick = onClick,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp).heightIn(min = 48.dp),
+            contentPadding = PaddingValues(horizontal = 11.dp, vertical = 8.dp),
+        ) {
+            BranchCompareEntryContent(hint)
+        }
+    } else {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)
+                .heightIn(min = 48.dp)
+                .cardSurface()
+                .padding(horizontal = 11.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BranchCompareEntryContent(hint)
+        }
+    }
+}
+
+@Composable
+private fun BranchCompareEntryContent(hint: String) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        TintChip(Icons.AutoMirrored.Filled.CompareArrows, TintRole.ACCENT)
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                stringResource(R.string.action_compare_branches),
+                fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary,
+            )
+            Spacer(Modifier.height(1.dp))
+            Text(
+                hint,
+                fontSize = 10.5.sp, color = Primer.TextTertiary,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Icon(Icons.Filled.ChevronRight, null, tint = Primer.TextTertiary, modifier = Modifier.size(14.dp))
+    }
+}
+
+/** 分支列表的区块头：`分支 · N` + 右侧「远端」。不占一张卡，不染色。 */
+@Composable
+private fun BranchSectionHead(count: Int) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(stringResource(R.string.label_branch_section), fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Primer.TextPrimary)
+        Spacer(Modifier.width(5.dp))
+        Box(
+            Modifier.clip(RoundedCornerShape(5.dp)).background(Primer.Gray150).padding(horizontal = 5.dp, vertical = 1.dp),
+        ) {
+            Text(count.toString(), fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = Primer.TextTertiary)
+        }
+        Spacer(Modifier.weight(1f))
+        Text(stringResource(R.string.label_branch_remote), fontSize = 9.5.sp, color = Primer.TextTertiary)
+    }
+}
+
+/**
+ * 一条分支：**38dp 浮层行卡**。
+ *
+ * - 行首 [TintChip] 的三档语义：默认 `ACCENT` / 受保护 `WARNING` / 普通 `NEUTRAL_SUBTLE`；
+ * - 名称后的 [TintTag] 只说状态，不再给整行上色；
+ * - 行尾只留「对比」；写操作收进 `⋯` 的 `DropdownMenu`（`canPush` 门控、受保护分支无删除）。
+ */
 @Composable
 private fun BranchManageRow(
     branch: BranchItem,
@@ -424,67 +499,120 @@ private fun BranchManageRow(
     onSetDefault: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val role = when {
+        isDefault -> TintRole.ACCENT
+        branch.protected -> TintRole.WARNING
+        else -> TintRole.NEUTRAL_SUBTLE
+    }
+    var menuOpen by remember { mutableStateOf(false) }
+
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 2.dp)
+            .heightIn(min = 38.dp)
+            .cardSurface()
+            .padding(start = 9.dp, end = 8.dp, top = 5.dp, bottom = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            Icons.AutoMirrored.Filled.CallSplit, null, tint = Primer.IconSecondary,
-            modifier = Modifier.size(15.dp),
+        TintChip(
+            Icons.AutoMirrored.Filled.CallSplit,
+            role,
+            size = 20.dp,
+            corner = 6.dp,
+            iconSize = 12.dp,
         )
         Spacer(Modifier.width(8.dp))
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    branch.name,
-                    fontSize = 13.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = if (isDefault) FontWeight.SemiBold else FontWeight.Normal,
-                    color = Primer.TextPrimary,
-                )
-                if (isDefault) {
-                    Spacer(Modifier.width(6.dp))
-                    Tag(stringResource(R.string.label_default), Primer.Blue500, Primer.Gray150)
-                }
-                if (branch.protected) {
-                    Spacer(Modifier.width(6.dp))
-                    Tag(stringResource(R.string.state_protected), Primer.TextSecondary, Primer.Gray150)
-                }
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                branch.name,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = if (isDefault) FontWeight.SemiBold else FontWeight.Normal,
+                color = Primer.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                // fill = false：短名只占自己的宽度，默认 / 受保护标签紧跟在名字后面；
+                // 长名仍可被压缩并省略（标签是 unweighted，先量宽度）。
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (isDefault) {
+                Spacer(Modifier.width(5.dp))
+                TintTag(stringResource(R.string.label_default), TintRole.ACCENT)
+            }
+            if (branch.protected) {
+                Spacer(Modifier.width(5.dp))
+                TintTag(stringResource(R.string.state_protected), TintRole.WARNING, icon = Icons.Filled.Lock)
             }
         }
-        Text(
-            stringResource(R.string.action_compare),
-            fontSize = 12.sp,
-            color = Primer.Blue500,
-            modifier = Modifier.clickable(enabled = !busy && !isDefault) { onCompare() },
-        )
-        if (canPush) {
-            Spacer(Modifier.width(14.dp))
+        if (!isDefault) {
+            Spacer(Modifier.width(2.dp))
             Text(
-                stringResource(R.string.action_set_default),
-                fontSize = 12.sp,
-                color = if (isDefault) Primer.TextTertiary else Primer.Blue500,
-                modifier = Modifier.clickable(enabled = !busy && !isDefault) { onSetDefault() },
+                stringResource(R.string.action_compare),
+                fontSize = 11.sp,
+                color = Primer.Blue500,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable(enabled = !busy, onClick = onCompare)
+                    .padding(horizontal = 3.dp, vertical = 5.dp),
             )
-            if (!isDefault) {
-                Spacer(Modifier.width(14.dp))
-                val deletable = !branch.protected
-                Text(
-                    stringResource(R.string.action_delete),
-                    fontSize = 12.sp,
-                    color = if (deletable) Primer.Red500 else Primer.TextTertiary,
-                    modifier = Modifier.clickable(enabled = !busy && deletable) { onDelete() },
-                )
+            if (canPush) {
+                Box {
+                    Box(
+                        Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).iconTap(enabled = !busy) { menuOpen = true },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Filled.MoreVert,
+                            stringResource(R.string.label_more_actions),
+                            tint = Primer.TextTertiary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.action_set_default), fontSize = 12.sp, color = Primer.TextPrimary) },
+                            leadingIcon = {
+                                Icon(Icons.Filled.Check, null, tint = Primer.IconSecondary, modifier = Modifier.size(16.dp))
+                            },
+                            onClick = { menuOpen = false; onSetDefault() },
+                        )
+                        if (!branch.protected) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.action_delete), fontSize = 12.sp, color = Primer.DangerText) },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.Delete, null, tint = Primer.DangerText, modifier = Modifier.size(16.dp))
+                                },
+                                onClick = { menuOpen = false; onDelete() },
+                            )
+                        }
+                    }
+                }
             }
         }
     }
 }
 
+/** 新建分支：一张 38dp 浮层卡，替代原来占满整行的描边按钮。 */
 @Composable
-private fun Tag(text: String, fg: Color, bg: Color) {
-    Box(
-        Modifier.clip(RoundedCornerShape(6.dp)).background(bg).padding(horizontal = 5.dp, vertical = 1.dp),
+private fun NewBranchCard(onClick: () -> Unit) {
+    FloatingCardButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 7.dp).heightIn(min = 38.dp),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
     ) {
-        Text(text, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = fg)
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Filled.Add, null, tint = Primer.Blue500, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(4.dp))
+            Text(
+                stringResource(R.string.action_new_branch),
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Primer.Blue500,
+            )
+        }
     }
 }

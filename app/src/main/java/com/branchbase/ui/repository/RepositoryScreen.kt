@@ -116,6 +116,7 @@ import com.branchbase.ui.navigation.PageLevel
 import com.branchbase.ui.navigation.PageSwitcher
 import com.branchbase.ui.navigation.TabSwitcher
 import com.branchbase.ui.profile.CommitMode
+import com.branchbase.ui.profile.SubPage
 import com.branchbase.ui.profile.CommitModePickerDialog
 import com.branchbase.ui.profile.commitMode
 import com.branchbase.ui.profile.saveCommitMode
@@ -215,6 +216,13 @@ fun RepositoryScreen(
     onBack: () -> Unit,
     onOpenRepo: (owner: String, repo: String) -> Unit,
     initial: RepoDeepLink? = null,
+    /**
+     * 跳个人页的设置子页（对比页 0 文件入口：提交模式 / 本地仓库）。
+     *
+     * 这两个入口本来就是设置里的两页；仓库页不在这里重写一份配置，宿主负责把
+     * `showRepo` 收起、`showProfile` 打开并把目标子页交过去。
+     */
+    onOpenProfileSubPage: (SubPage) -> Unit = {},
 ) {
 
     val loggedRepo = remember { mutableStateOf(false) }
@@ -928,6 +936,9 @@ fun RepositoryScreen(
                             repo = repo,
                             initialBase = comparing.first,
                             initialHead = comparing.second,
+                            localCommitMode = mode == CommitMode.LOCAL_REPO,
+                            onOpenCommitMode = { onOpenProfileSubPage(SubPage.CommitMode) },
+                            onOpenLocalRepo = { onOpenProfileSubPage(SubPage.LocalRepo) },
                             onBack = { comparePair = null },
                             onOpenFile = { p ->
                                 comparePair = null

@@ -76,6 +76,43 @@ App 被 cached app freezer 冻住。现在把测量搬进 App 自己：
 
 ## 二、`versionName` 流水（1.4.96 → 1.0.22）
 
+### 1.4.97
+
+**分支管理 / 分支对比改成「浮层卡 + 三语义图标」：分支行 38dp、文件头 36dp、选择器合成一张卡、摘要压到 58dp、diff 走紧凑档；两页都进深色板。**
+
+① **分支管理（决策一/二）**：`BranchManageRow` 从扁平行换成 38dp 浮层卡（`cardSurface()`，卡距 4dp）；
+默认 / 受保护 / 普通三档用 `TintChip` 的 `ACCENT` / `WARNING` / `NEUTRAL_SUBTLE`，名称后的
+`TintTag` 只留状态文字，不给整行上色；行尾只留「对比」，「设为默认 / 删除」收进 `⋯` 的
+`DropdownMenu`（写操作仍按 `canPush` 门控，受保护分支仍无删除入口）。新建分支从整行描边按钮
+换成 38dp 卡；对比入口是 48dp 卡。
+
+② **分支对比（决策三）**：选择器合成一张 48dp 卡；摘要 58dp + 三枚语义统计
+（`SUCCESS` 领先 / `DANGER` 落后 / `ACCENT` 文件数，分叉 `DONE` 标签）；提交收成一张可折叠卡；
+每个文件差异一张浮层卡，文件头 36dp，diff 走 `DiffLineRow(compact = true)`
+（25dp 行号列 / 10.5sp / hunk 边距 10dp）—— 仍与本地 diff 页共用同一份渲染，不另画一遍。
+
+③ **共享件**：新增 `TintTag`（9sp / 同色 12% 底 / `TintRole.textColor()`），与 `TintChip` 同一套
+语义角色；两页都没有新增硬编码色值，深色模式自动取 `PrimerPalette` 的深色板。
+
+④ **选择器底色与分支抽屉**：两个分支选择器的**整个字段（标签 + 值）**常驻 `ACCENT` 8% 底、
+按下 16%（`interactionSource` + `animateColorAsState`，`indication = null`）—— 红框里不再是裸文字；
+中间的上下箭头圆钮换成文字「切换」按钮（12% / 按下 20%）。点选择器不再弹 `DropdownMenu`，
+两个按钮拉起**同一个**自绘 `CardDrawer`，抽屉内复用 `CardSegments`（比较基准 / 对比分支，
+已有滑动胶囊动画）：默认分段落点击的按钮，列表内容相同，切换分段只改「正在改哪一侧」。
+列表每行一张 10dp / 2dp 阴影的浮层卡（22dp 语义牌、选中蓝字 + 勾），行高 42dp / 长名两行 52dp，
+最多 10 行后在抽屉内滚动。
+
+⑤ **0 文件的出路**：`note_compare_file_limit` 改为「相关分支可能相差 300 个文件以上」；
+右侧按 `localCommitMode` 给入口 —— 远端（单文件 / 多文件 / 未配置）是「提交模式」，
+本地是「本地仓库」，分别跳到设置里的 `CommitModeScreen` / `LocalRepoScreen`
+（`RepositoryScreen → MainScreen` 的 `onOpenProfileSubPage`，复用 `pendingSubPage` 通道）。
+
+⑥ **刻意保留**：分支行整行不做点击（主操作仍是「对比」文字）；长分支名单行省略（`weight(1f, fill = false)`，
+短名时默认 / 受保护标签紧跟名字）；diff 长行继续折行，不改成横向滚动；摘要与提交仍是两张卡。
+
+**验证**：`:app:compileDebugKotlin` / `assembleDebug` 通过；`SystemBarInsetsTest` /
+`GitWorkbenchWiringTest` 等 188 项单测全绿。
+
 ### 1.4.96
 
 **修「仓库页滚到底再往上滚，自述文件整块白屏」：WebView 重新挂回窗口后主动重绘一次。**
@@ -6224,6 +6261,11 @@ newlyCompletedJobIds 差分在 job 定稿时抓一次日志并自动补进界面
 ---
 
 ## 三、`versionCode` 流水（356 → 129）
+
+- **357**：分支管理 / 分支对比浮层卡 + 三语义图标（1.4.97）—— 分支行 38dp、对比选择器 48dp、
+  摘要 58dp + 三语义统计、提交与文件差异上卡、diff 紧凑档；选择器字段常驻 ACCENT、
+  「切换」按钮、共用 `CardDrawer` + `CardSegments` 分支选择、0 文件提示加「提交模式 / 本地仓库」入口；
+  新增 `TintTag`（一次提交，故 +1）。
 
 - **356**：修「自述文件滚到底再往上滚白屏」（1.4.96）—— 复用 WebView 重新挂回窗口时
   `post { invalidate() }` + 120ms 补一次（Chromium HWUI 在 detach 时塞入的白色 DisplayList

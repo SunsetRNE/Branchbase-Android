@@ -942,7 +942,14 @@ $name（$syntax）	%1$s (%2$s)	label_name_syntax
 对比失败：无法读取 $base...$head	Comparison failed: cannot read %1$s...%2$s	error_compare_failed
 分支对比	Compare branches	label_branch_compare
 比较基准	Compare against	label_compare_base
+分支	Branches	label_branch_section
+远端	Remote	label_branch_remote
+领先	Ahead	label_compare_ahead
+落后	Behind	label_compare_behind
+个文件	files	label_compare_files_unit
+${result.commits.size} 个提交	%1$s commits	label_compare_commits
 互换	Swap	action_swap
+切换	Switch	action_switch
 比较 $base ← $head	Compare %1$s ← %2$s	label_compare_arrow
 两个分支内容一致，没有差异	The two branches are identical; no differences	state_no_differences_branches
 分叉：领先 ${result.aheadBy} 个提交，落后 ${result.behindBy} 个	Diverged: %1$s commits ahead, %2$s behind	state_compare_diverged
@@ -953,7 +960,7 @@ ${result.files.size} 个文件变更	%1$s files changed	label_files_changed
 展开	Expand	action_expand
 (无提交信息)	(no commit message)	state_no_commit_message
 没有文件差异	No file differences	state_no_file_differences
-该对比没有返回文件差异（可能超过 300 个文件上限）	This comparison returned no file differences (it may exceed the 300-file limit)	note_compare_file_limit
+相关分支可能相差 300 个文件以上	The branches may differ by more than 300 files	note_compare_file_limit
 该文件差异过大，GitHub 未返回代码片段；可打开文件查看当前内容	This file's diff is too large and GitHub returned no patch; open the file to see its current content	note_diff_too_large
 展开剩余 ${lines.size - shown.size} 行	Expand the remaining %1$s lines	action_expand_remaining_lines
 打开文件	Open file	action_open_file
